@@ -85,8 +85,9 @@ export function SyncBackground() {
   // Results for forgotten computers are dropped, so pairing one again sets it up again.
   const pairedIds = paired.map(peer => peer.instanceId).sort().join(',')
   useEffect(() => {
-    syncthingSetupStore.set(current => Object.keys(current).every(id => pairedIds.includes(id)) ? current
-      : Object.fromEntries(Object.entries(current).filter(([id]) => pairedIds.includes(id))))
+    const ids = new Set(pairedIds.split(','))
+    syncthingSetupStore.set(current => Object.keys(current).every(id => ids.has(id)) ? current
+      : Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))))
     if (!config.syncthing.autoSetup || !config.syncthing.apiKey.trim() || !syncthing.ok || !paired.length) return
     const done = syncthingSetupStore.get()
     paired.forEach(peer => {
