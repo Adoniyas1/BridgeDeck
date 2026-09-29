@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import type {
   AgentStatus, BlueBubblesChat, BlueBubblesMessage,
-  ManagedServiceState, MatrixMessage, RustDeskIdentity, RustDeskMode, ServiceKey,
+  ManagedServiceState, RustDeskIdentity, RustDeskMode, ServiceKey,
   SyncthingFolder, SyncthingStatus,
 } from '../types'
 
@@ -194,24 +194,6 @@ export async function syncthingStatus(baseUrl: string, apiKey: string): Promise<
 
 export async function syncthingFolders(baseUrl: string, apiKey: string): Promise<SyncthingFolder[]> {
   return (await invokeSafe<SyncthingFolder[]>('syncthing_folders', { baseUrl, apiKey })) ?? []
-}
-
-export async function matrixMessages(homeserver: string, roomId: string, accessToken: string, limit = 40): Promise<MatrixMessage[]> {
-  return (await invokeSafe<MatrixMessage[]>('matrix_messages', { homeserver, roomId, accessToken, limit })) ?? []
-}
-
-export async function matrixSend(homeserver: string, roomId: string, accessToken: string, body: string): Promise<void> {
-  const native = await invokeSafe<boolean>('matrix_send', { homeserver, roomId, accessToken, body })
-  if (native !== null) return
-  if (!homeserver || !roomId || !accessToken || !body.trim()) throw new Error('Matrix settings are incomplete.')
-  const txnId = `bridgedeck-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const url = `${homeserver.replace(/\/$/, '')}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ msgtype: 'm.text', body }),
-  })
-  if (!response.ok) throw new Error(`Matrix returned HTTP ${response.status}`)
 }
 
 export async function localSendReceiverStatus(): Promise<import('../types').LocalSendReceiverStatus> {

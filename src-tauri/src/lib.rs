@@ -14,6 +14,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 struct ServiceManager {
     children: Mutex<HashMap<String, Child>>,
@@ -57,16 +58,6 @@ struct SyncthingFolder {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MatrixMessage {
-    event_id: Option<String>,
-    sender: Option<String>,
-    body: Option<String>,
-    timestamp: Option<u64>,
-    mine: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct RustDeskIdentity {
     available: bool,
     id: Option<String>,
@@ -76,7 +67,7 @@ struct RustDeskIdentity {
 
 
 fn allowed_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing" | "localsend" | "bluebubbles" | "matrix")
+    matches!(service_id, "rustdesk" | "syncthing" | "localsend" | "bluebubbles")
 }
 
 fn manageable_service(service_id: &str) -> bool {
@@ -153,18 +144,15 @@ fn probe_tcp(host: String, port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(850)).is_ok()
 }
 
+/// Opens an http(s) link in the default browser. The URL is parsed and re-serialized, and the opener
+/// plugin launches it without a shell, so shell metacharacters in a link can't run commands.
 #[tauri::command]
-fn open_external(target: String) -> Result<(), String> {
-    if !(target.starts_with("http://") || target.starts_with("https://")) {
+fn open_external(app: AppHandle, target: String) -> Result<(), String> {
+    let url = reqwest::Url::parse(target.trim()).map_err(|_| "Not a valid URL".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return Err("Only http/https URLs are allowed".into());
     }
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(&target).status();
-    #[cfg(target_os = "windows")]
-    let status = Command::new("cmd").args(["/C", "start", "", &target]).status();
-    #[cfg(target_os = "linux")]
-    let status = Command::new("xdg-open").arg(&target).status();
-    status.map_err(|e| e.to_string()).and_then(|s| if s.success() { Ok(()) } else { Err("Open command failed".into()) })
+    app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -915,56 +903,6 @@ async fn syncthing_folders(base_url: String, api_key: String) -> Result<Vec<Sync
     }).collect())
 }
 
-fn matrix_url(homeserver: &str, segments: &[&str]) -> Result<reqwest::Url, String> {
-    let base = checked_http_base(homeserver)?;
-    let mut url = reqwest::Url::parse(&format!("{base}/")).map_err(|e| e.to_string())?;
-    {
-        let mut path = url.path_segments_mut().map_err(|_| "Invalid Matrix homeserver URL")?;
-        path.clear();
-        for segment in segments { path.push(segment); }
-    }
-    Ok(url)
-}
-
-#[tauri::command]
-async fn matrix_messages(homeserver: String, room_id: String, access_token: String, limit: u32) -> Result<Vec<MatrixMessage>, String> {
-    if room_id.trim().is_empty() || access_token.trim().is_empty() { return Ok(Vec::new()); }
-    let mut url = matrix_url(&homeserver, &["_matrix", "client", "v3", "rooms", &room_id, "messages"])?;
-    url.query_pairs_mut().append_pair("dir", "b").append_pair("limit", &limit.min(100).to_string());
-    let response = http_client()?.get(url).bearer_auth(access_token).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("Matrix returned HTTP {}", status)); }
-    let mut messages = Vec::new();
-    if let Some(chunk) = value.get("chunk").and_then(|v| v.as_array()) {
-        for event in chunk.iter().rev() {
-            if event.get("type").and_then(|v| v.as_str()) != Some("m.room.message") { continue; }
-            let Some(body) = event.get("content").and_then(|v| v.get("body")).and_then(|v| v.as_str()) else { continue; };
-            messages.push(MatrixMessage {
-                event_id: event.get("event_id").and_then(|v| v.as_str()).map(str::to_string),
-                sender: event.get("sender").and_then(|v| v.as_str()).map(str::to_string),
-                body: Some(body.to_string()),
-                timestamp: event.get("origin_server_ts").and_then(|v| v.as_u64()),
-                mine: false,
-            });
-        }
-    }
-    Ok(messages)
-}
-
-#[tauri::command]
-async fn matrix_send(homeserver: String, room_id: String, access_token: String, body: String) -> Result<bool, String> {
-    if room_id.trim().is_empty() || access_token.trim().is_empty() || body.trim().is_empty() {
-        return Err("Matrix settings or message are incomplete".into());
-    }
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis();
-    let txn_id = format!("bridgedeck-{now}-{}", std::process::id());
-    let url = matrix_url(&homeserver, &["_matrix", "client", "v3", "rooms", &room_id, "send", "m.room.message", &txn_id])?;
-    let response = http_client()?.put(url).bearer_auth(access_token).json(&serde_json::json!({ "msgtype": "m.text", "body": body })).send().await.map_err(net_err)?;
-    if !response.status().is_success() { return Err(format!("Matrix returned HTTP {}", response.status())); }
-    Ok(true)
-}
-
 /// Starts BridgeLink from the saved native config (`config-v7.json`), honouring `pairing.autoStart`.
 /// The UI later calls `bridgelink_start` again, which only refreshes the advertised details.
 fn autostart_bridgelink(app: &AppHandle) {
@@ -990,6 +928,7 @@ fn autostart_bridgelink(app: &AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(ServiceManager { children: Mutex::new(HashMap::new()) })
         .manage(LocalSendManager::default())
@@ -1049,9 +988,7 @@ pub fn run() {
             bluebubbles_send,
             syncthing_status,
             syncthing_folders,
-            syncthing_bridge::syncthing_setup_peer,
-            matrix_messages,
-            matrix_send
+            syncthing_bridge::syncthing_setup_peer
         ])
         .run(tauri::generate_context!())
         .expect("error while running BridgeDeck");

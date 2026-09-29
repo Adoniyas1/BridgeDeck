@@ -14,12 +14,12 @@ import {
   bridgeLinkAiMessages, bridgeLinkAiSend, bridgeLinkAiTokenPath, bridgeLinkApprove, bridgeLinkDecline, bridgeLinkForget, bridgeLinkPollPair, bridgeLinkRefreshPeer, bridgeLinkRequestPair, bridgeLinkStart, bridgeLinkStatus, bridgeLinkStop,
   connectRustDesk, fetchAgent, launchApp, localSendAccept, localSendDecline, localSendNativeSend,
   localSendReceiverStart, localSendReceiverStatus, localSendReceiverStop, localSendSetTrustedHosts, rustDeskEnsureRunning, sourceUpdateStatus, managedServiceStart,
-  managedServiceStatus, managedServiceStop, matrixMessages, matrixSend, openExternal, openPath,
+  managedServiceStatus, managedServiceStop, openExternal, openPath,
   pickTransferPaths, probeTcp, rustDeskIdentity, syncthingFolders, syncthingSetupPeer, syncthingStatus,
 } from './lib/bridge'
 import type {
   AgentStatus, AiRelayMessage, AppConfig, SourceUpdateStatus, BridgeLinkPairedPeer, BridgeLinkPeer, BridgeLinkStatus, LocalSendReceiverStatus, MachineConfig,
-  ManagedServiceState, MatrixMessage, PageKey, RustDeskIdentity, ServiceConfig, ServiceKey,
+  ManagedServiceState, PageKey, RustDeskIdentity, ServiceConfig, ServiceKey,
   SyncthingAutoSetupResult, SyncthingFolder, SyncthingStatus,
 } from './types'
 import { vendorPins } from './vendor'
@@ -27,7 +27,7 @@ import { vendorPins } from './vendor'
 const fmtBytes = (value?: number) => value ? `${(value / 1024 ** 3).toFixed(1)} GB` : '—'
 const fmtUptime = (value?: number) => value ? `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m` : '—'
 const fmtSize = (value = 0) => value < 1000 ? `${value} B` : value < 1_000_000 ? `${(value / 1000).toFixed(1)} KB` : value < 1_000_000_000 ? `${(value / 1_000_000).toFixed(1)} MB` : `${(value / 1_000_000_000).toFixed(2)} GB`
-const serviceIds: ServiceKey[] = ['rustdesk', 'bluebubbles', 'syncthing', 'matrix', 'localsend']
+const serviceIds: ServiceKey[] = ['rustdesk', 'bluebubbles', 'syncthing', 'localsend']
 const shortPath = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() || path
 const agentUrlFor = (host: string, port: number) => `http://${host.includes(':') ? `[${host}]` : host}:${port}`
 /** True when `saved` points at a private LAN IPv4 on the same port as `current` but another host, i.e. the
@@ -63,10 +63,6 @@ export default function App() {
   const [managedState, setManagedState] = useState<Record<string, ManagedServiceState>>({})
   const [syncthing, setSyncthing] = useState<SyncthingStatus>({ ok: false })
   const [syncthingFolderList, setSyncthingFolderList] = useState<SyncthingFolder[]>([])
-  const [matrixText, setMatrixText] = useState('')
-  const [matrixState, setMatrixState] = useState('Configure Matrix in Settings')
-  const [matrixFeed, setMatrixFeed] = useState<MatrixMessage[]>([])
-  const [aiChannel, setAiChannel] = useState<'relay' | 'matrix'>('relay')
   const [aiFeed, setAiFeed] = useState<AiRelayMessage[]>([])
   const [aiText, setAiText] = useState('')
   const [aiState, setAiState] = useState('')
@@ -123,8 +119,6 @@ export default function App() {
           const status = await syncthingStatus(config.syncthing.baseUrl, config.syncthing.apiKey)
           setSyncthing(status)
           next[service.id] = status.ok || (!!service.host && !!service.port && await probeTcp(service.host, service.port))
-        } else if (service.id === 'matrix') {
-          next[service.id] = Boolean(config.matrix.homeserver && config.matrix.roomId && config.matrix.accessToken)
         } else if (service.host && service.port) {
           next[service.id] = await probeTcp(service.host, service.port)
         } else {
@@ -179,7 +173,7 @@ export default function App() {
     void refresh()
     const timer = window.setInterval(() => void refresh(), 15000)
     return () => window.clearInterval(timer)
-  }, [hydrated, config.machines, config.services, config.bluebubbles, config.syncthing, config.localsend, config.matrix.homeserver, config.matrix.roomId, config.matrix.accessToken])
+  }, [hydrated, config.machines, config.services, config.bluebubbles, config.syncthing, config.localsend])
 
   useEffect(() => {
     if (!hydrated) return
@@ -268,7 +262,7 @@ export default function App() {
   useEffect(() => {
     if (!hydrated || autoStarted.current) return
     autoStarted.current = true
-    const targets = config.services.filter(s => s.enabled && s.autoStart && s.id !== 'matrix' && s.id !== 'localsend')
+    const targets = config.services.filter(s => s.enabled && s.autoStart && s.id !== 'localsend')
     const localSendService = config.services.find(s => s.id === 'localsend')
     void Promise.all([
       ...targets.map(async s => { try { await managedServiceStart(s.id, s.executable) } catch { /* surfaced on Services */ } }),
@@ -576,7 +570,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (page !== 'ai' || aiChannel !== 'relay') return
+    if (page !== 'ai') return
     let cancelled = false
     const poll = async () => {
       try {
@@ -590,7 +584,7 @@ export default function App() {
     void bridgeLinkAiTokenPath().then(setAiTokenPath).catch(() => undefined)
     const timer = window.setInterval(() => void poll(), 2000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [page, aiChannel, bridgeLink.running])
+  }, [page, bridgeLink.running])
 
   async function submitAiRelay() {
     const body = aiText.trim()
@@ -603,34 +597,6 @@ export default function App() {
       setAiState(`Delivered to ${message.peerName}`)
     } catch (error) {
       setAiState(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  async function refreshMatrix() {
-    if (!config.matrix.homeserver || !config.matrix.roomId || !config.matrix.accessToken) {
-      setMatrixState('Add Matrix homeserver, room ID, and access token in Settings.')
-      return
-    }
-    setMatrixState('Loading room…')
-    try {
-      const messages = await matrixMessages(config.matrix.homeserver, config.matrix.roomId, config.matrix.accessToken, 50)
-      setMatrixFeed(messages)
-      setMatrixState(`${messages.length} messages loaded`)
-    } catch (error) {
-      setMatrixState(error instanceof Error ? error.message : 'Could not load Matrix messages')
-    }
-  }
-
-  async function submitMatrix() {
-    if (!matrixText.trim()) return
-    try {
-      setMatrixState('Sending…')
-      await matrixSend(config.matrix.homeserver, config.matrix.roomId, config.matrix.accessToken, matrixText.trim())
-      setMatrixText('')
-      await refreshMatrix()
-      setMatrixState('Sent')
-    } catch (error) {
-      setMatrixState(error instanceof Error ? error.message : 'Failed')
     }
   }
 
@@ -693,15 +659,12 @@ export default function App() {
         <div hidden={page !== 'messages'}><Messages baseUrl={config.bluebubbles.baseUrl} password={config.bluebubbles.password} visible={page === 'messages'} onUnreadChange={setMessagesUnread} /></div>
 
         {page === 'ai' && <div className="two-col ai-layout">
-          <Card><SectionTitle title="AI Message Center" subtitle={aiChannel === 'relay' ? 'BridgeLink relay (paired computers, LAN)' : 'Matrix transport'} /><div className="channel-list"><button className={aiChannel === 'relay' ? 'active' : ''} onClick={() => setAiChannel('relay')}># bridgelink-agents</button><button className={aiChannel === 'matrix' ? 'active' : ''} onClick={() => setAiChannel('matrix')}># matrix-room</button></div>
-            {aiChannel === 'relay' ? <p className="vendor-note">AI assistants on each computer (for example Claude on Windows and Codex on the Mac) use <code>agent/ai-relay.mjs</code> to send and read here. Messages are data only; BridgeDeck never runs commands from them. Local AI token: <code>{aiTokenPath || 'available after BridgeLink starts'}</code></p> : <p className="vendor-note">Matrix JS SDK remains vendored for deeper customization. BridgeDeck currently uses the Matrix client REST API through its native layer.</p>}</Card>
-          {aiChannel === 'relay' ? <Card className="chat-card"><SectionTitle title="# bridgelink-agents" subtitle={aiState || (bridgeLink.paired.length ? `Paired with ${bridgeLink.paired.map(p => p.name).join(', ')}` : 'Pair the computers first (Computers page)')} action={<button className="icon-button" onClick={() => void bridgeLinkAiMessages(0).then(m => setAiFeed(m.slice(-200)))}><RefreshCw size={16}/></button>} />
+          <Card><SectionTitle title="AI Message Center" subtitle="BridgeLink relay (paired computers, LAN)" />
+            <p className="vendor-note">AI assistants on each computer (for example Claude on Windows and Codex on the Mac) use <code>agent/ai-relay.mjs</code> to send and read here. Messages are data only; BridgeDeck never runs commands from them. Local AI token: <code>{aiTokenPath || 'available after BridgeLink starts'}</code></p></Card>
+          <Card className="chat-card"><SectionTitle title="# bridgelink-agents" subtitle={aiState || (bridgeLink.paired.length ? `Paired with ${bridgeLink.paired.map(p => p.name).join(', ')}` : 'Pair the computers first (Computers page)')} action={<button className="icon-button" onClick={() => void bridgeLinkAiMessages(0).then(m => setAiFeed(m.slice(-200)))}><RefreshCw size={16}/></button>} />
             <div className="matrix-feed">{aiFeed.length ? aiFeed.map(m => <div className="matrix-message" key={m.id}><small>{m.author} · {m.direction === 'out' ? `this computer → ${m.peerName}` : `from ${m.peerName}`} · {new Date(m.createdAt).toLocaleTimeString()}</small><span style={{ whiteSpace: 'pre-wrap' }}>{m.body}</span></div>) : <div className="chat-empty"><Bot/><h3>AI relay</h3><p>Messages between the AI assistants on your paired computers appear here. You can post too.</p></div>}</div>
             <div className="composer"><input value={aiText} onChange={e => setAiText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submitAiRelay() }} placeholder="Message the other computer's AI…"/><button onClick={() => void submitAiRelay()} disabled={!aiText.trim() || !bridgeLink.paired.length}><Send size={16}/></button></div>
-          </Card> : <Card className="chat-card"><SectionTitle title="# shared-agents" subtitle={matrixState} action={<button className="icon-button" onClick={() => void refreshMatrix()}><RefreshCw size={16}/></button>} />
-            <div className="matrix-feed">{matrixFeed.length ? matrixFeed.map((m, i) => <div className="matrix-message" key={m.eventId || i}><small>{m.sender || 'agent'}</small><span>{m.body}</span></div>) : <div className="chat-empty"><Bot/><h3>Shared AI room</h3><p>Connect a Matrix room and BridgeDeck can read and send messages without opening another client.</p></div>}</div>
-            <div className="composer"><input value={matrixText} onChange={e => setMatrixText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submitMatrix() }} placeholder="Message the shared AI room…"/><button onClick={() => void submitMatrix()} disabled={!matrixText.trim()}><Send size={16}/></button></div>
-          </Card>}
+          </Card>
         </div>}
 
         {page === 'files' && <>
@@ -731,7 +694,7 @@ export default function App() {
 
         {page === 'services' && <>
           <Card className="service-summary"><SectionTitle title="Managed runtime" subtitle="BridgeDeck only stops processes that it started itself." /><p className="vendor-note">RustDesk, Syncthing and BlueBubbles can use bundled runtimes. LocalSend send/receive now runs directly through the vendored Rust core inside BridgeDeck.</p></Card>
-          <div className="services-grid">{config.services.map(service => { const pin = vendorPins.find(v => v.id === service.id || (service.id === 'bluebubbles' && v.id === 'bluebubbles')); const managed = managedState[service.id]; const ready = !!serviceStatus[service.id] || !!managed?.running; return <Card key={service.id}><div className="service-head"><div className="service-icon"><ServerCog size={20}/></div><div className="grow"><h3>{service.name}</h3><p>{service.notes}</p></div><StatusPill online={ready} label={managed?.running ? 'Managed' : ready ? 'Ready' : 'Offline'}/></div><div className="service-meta"><span>{pin?.version || 'BridgeDeck native'}</span><span>{pin?.license || '—'}</span></div><p className="runtime-line">Runtime: {managed?.executableReady ? 'executable ready' : service.id === 'matrix' ? 'API transport' : service.id === 'localsend' ? 'integrated Rust core' : 'set executable path or import runtime'}</p><div className="actions">{service.id !== 'matrix' && service.id !== 'localsend' && <>{managed?.running ? <button onClick={() => void stopService(service)}><Square size={16}/>Stop</button> : <button disabled={!managed?.executableReady} onClick={() => void startService(service)}><Play size={16}/>Start</button>}<button className="secondary" onClick={() => void launchApp(service.id, service.executable)}>Open</button></>}{service.id === 'localsend' && <button onClick={() => setPage('files')}><Upload size={16}/>Open Files</button>} {service.webUrl && <button className="secondary" onClick={() => void openExternal(service.webUrl!)}>Web UI</button>}</div>{managed?.detail && <p className="vendor-note">{managed.detail}</p>}</Card> })}</div>
+          <div className="services-grid">{config.services.map(service => { const pin = vendorPins.find(v => v.id === service.id || (service.id === 'bluebubbles' && v.id === 'bluebubbles')); const managed = managedState[service.id]; const ready = !!serviceStatus[service.id] || !!managed?.running; return <Card key={service.id}><div className="service-head"><div className="service-icon"><ServerCog size={20}/></div><div className="grow"><h3>{service.name}</h3><p>{service.notes}</p></div><StatusPill online={ready} label={managed?.running ? 'Managed' : ready ? 'Ready' : 'Offline'}/></div><div className="service-meta"><span>{pin?.version || 'BridgeDeck native'}</span><span>{pin?.license || '—'}</span></div><p className="runtime-line">Runtime: {managed?.executableReady ? 'executable ready' : service.id === 'localsend' ? 'integrated Rust core' : 'set executable path or import runtime'}</p><div className="actions">{service.id !== 'localsend' && <>{managed?.running ? <button onClick={() => void stopService(service)}><Square size={16}/>Stop</button> : <button disabled={!managed?.executableReady} onClick={() => void startService(service)}><Play size={16}/>Start</button>}<button className="secondary" onClick={() => void launchApp(service.id, service.executable)}>Open</button></>}{service.id === 'localsend' && <button onClick={() => setPage('files')}><Upload size={16}/>Open Files</button>} {service.webUrl && <button className="secondary" onClick={() => void openExternal(service.webUrl!)}>Web UI</button>}</div>{managed?.detail && <p className="vendor-note">{managed.detail}</p>}</Card> })}</div>
         </>}
 
         {page === 'settings' && <div className="settings-stack">
@@ -741,13 +704,11 @@ export default function App() {
 
           <Card><SectionTitle title="Native LocalSend" subtitle="BridgeDeck uses vendor/localsend/packages/core directly" /><label>Device alias<input value={config.localsend.alias} onChange={e => setConfig(c => ({ ...c, localsend: { ...c.localsend, alias: e.target.value } }))} placeholder="BridgeDeck"/></label><label>Receive folder<input value={config.localsend.destination} onChange={e => setConfig(c => ({ ...c, localsend: { ...c.localsend, destination: e.target.value } }))} placeholder="Blank = system Downloads folder"/></label><div className="field-row"><label>Port<input type="number" value={config.localsend.port} onChange={e => setConfig(c => ({ ...c, localsend: { ...c.localsend, port: Number(e.target.value) || 53317 } }))}/></label><label>Optional PIN<input type="password" value={config.localsend.pin} onChange={e => setConfig(c => ({ ...c, localsend: { ...c.localsend, pin: e.target.value } }))}/></label></div><Toggle checked={config.localsend.autoAccept} onChange={autoAccept => setConfig(c => ({ ...c, localsend: { ...c.localsend, autoAccept } }))} label="Auto-accept incoming transfers"/><p className="vendor-note">Manual approval is the default. If auto-accept is enabled, any sender that can reach this LocalSend endpoint can transfer files unless a PIN is set.</p></Card>
 
-          <Card><SectionTitle title="Service manager" subtitle="One set of controls for BridgeDeck runtimes" />{config.services.map(service => <div className="settings-block" key={service.id}><div className="settings-heading"><h3>{service.name}</h3><div className="toggle-cluster"><Toggle checked={service.enabled} onChange={enabled => updateService(service.id, { enabled })} label="Enabled"/><Toggle checked={service.autoStart} onChange={autoStart => updateService(service.id, { autoStart })} label="Auto-start"/></div></div>{service.id !== 'matrix' && service.id !== 'localsend' && <label>Direct runtime executable<input value={service.executable || ''} onChange={e => updateService(service.id, { executable: e.target.value })} placeholder="/path/to/built/runtime"/></label>}{service.host !== undefined && <div className="field-row"><label>Health host<input value={service.host || ''} onChange={e => updateService(service.id, { host: e.target.value })}/></label><label>Port<input type="number" value={service.port || ''} onChange={e => updateService(service.id, { port: Number(e.target.value) || undefined })}/></label></div>}</div>)}</Card>
+          <Card><SectionTitle title="Service manager" subtitle="One set of controls for BridgeDeck runtimes" />{config.services.map(service => <div className="settings-block" key={service.id}><div className="settings-heading"><h3>{service.name}</h3><div className="toggle-cluster"><Toggle checked={service.enabled} onChange={enabled => updateService(service.id, { enabled })} label="Enabled"/><Toggle checked={service.autoStart} onChange={autoStart => updateService(service.id, { autoStart })} label="Auto-start"/></div></div>{service.id !== 'localsend' && <label>Direct runtime executable<input value={service.executable || ''} onChange={e => updateService(service.id, { executable: e.target.value })} placeholder="/path/to/built/runtime"/></label>}{service.host !== undefined && <div className="field-row"><label>Health host<input value={service.host || ''} onChange={e => updateService(service.id, { host: e.target.value })}/></label><label>Port<input type="number" value={service.port || ''} onChange={e => updateService(service.id, { port: Number(e.target.value) || undefined })}/></label></div>}</div>)}</Card>
 
           <Card><SectionTitle title="BlueBubbles" subtitle="Mac-side iMessage service" /><label>Server URL<input value={config.bluebubbles.baseUrl} onChange={e => setConfig(c => ({ ...c, bluebubbles: { ...c.bluebubbles, baseUrl: e.target.value } }))} placeholder="http://127.0.0.1:1234"/></label><label>Server password<input type="password" value={config.bluebubbles.password} onChange={e => setConfig(c => ({ ...c, bluebubbles: { ...c.bluebubbles, password: e.target.value } }))}/></label></Card>
 
           <Card><SectionTitle title="Syncthing" subtitle="BridgeDeck can automatically add the paired device and create the shared workspace" /><label>REST base URL<input value={config.syncthing.baseUrl} onChange={e => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, baseUrl: e.target.value } }))}/></label><label>API key<input type="password" value={config.syncthing.apiKey} onChange={e => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, apiKey: e.target.value } }))}/></label><Toggle checked={config.syncthing.autoSetup} onChange={autoSetup => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, autoSetup } }))} label="Automatically configure Syncthing after BridgeLink pairing"/><div className="field-row"><label>Shared folder ID<input value={config.syncthing.sharedFolderId} onChange={e => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, sharedFolderId: e.target.value } }))} placeholder="bridgedeck-shared"/></label><label>Shared folder label<input value={config.syncthing.sharedFolderLabel} onChange={e => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, sharedFolderLabel: e.target.value } }))} placeholder="BridgeDeck Shared"/></label></div><label>Local shared folder path<input value={config.syncthing.sharedFolderPath} onChange={e => setConfig(c => ({ ...c, syncthing: { ...c.syncthing, sharedFolderPath: e.target.value } }))} placeholder="Blank = ~/BridgeDeck Shared"/></label><p className="vendor-note">The Syncthing API key stays on this computer. BridgeLink exchanges only Syncthing device IDs, which Syncthing treats as public identifiers.</p></Card>
-
-          <Card><SectionTitle title="Matrix" subtitle="AI Message Center transport" /><label>Homeserver<input value={config.matrix.homeserver} onChange={e => setConfig(c => ({ ...c, matrix: { ...c.matrix, homeserver: e.target.value } }))} placeholder="https://matrix.example.com"/></label><label>Room ID<input value={config.matrix.roomId} onChange={e => setConfig(c => ({ ...c, matrix: { ...c.matrix, roomId: e.target.value } }))} placeholder="!room:example.com"/></label><label>Access token<input type="password" value={config.matrix.accessToken} onChange={e => setConfig(c => ({ ...c, matrix: { ...c.matrix, accessToken: e.target.value } }))}/></label></Card>
 
           <Card><SectionTitle title="Configuration" subtitle="Native builds persist config in the BridgeDeck app-config directory; browser dev mode also keeps a localStorage copy." /><div className="actions"><button className="secondary" onClick={() => setConfig(structuredClone(defaultConfig))}><Settings2 size={17}/>Reset defaults</button><button className="secondary" onClick={() => void refresh()}><CheckCircle2 size={17}/>Recheck integrations</button></div></Card>
         </div>}

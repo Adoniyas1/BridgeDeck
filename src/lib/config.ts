@@ -11,10 +11,8 @@ export const defaultConfig: AppConfig = {
     { id: 'rustdesk', name: 'RustDesk', enabled: true, autoStart: false, notes: 'Two-way remote control' },
     { id: 'bluebubbles', name: 'BlueBubbles', enabled: true, autoStart: false, host: '127.0.0.1', port: 1234, notes: 'iMessage bridge from the Mac' },
     { id: 'syncthing', name: 'Syncthing', enabled: true, autoStart: false, host: '127.0.0.1', port: 8384, webUrl: 'http://127.0.0.1:8384', notes: 'Persistent shared folders' },
-    { id: 'matrix', name: 'Matrix', enabled: true, autoStart: false, notes: 'AI and human message transport' },
     { id: 'localsend', name: 'LocalSend', enabled: true, autoStart: false, notes: 'Quick file transfers' },
   ],
-  matrix: { homeserver: '', roomId: '', accessToken: '' },
   bluebubbles: { baseUrl: '', password: '' },
   syncthing: { baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
   localsend: { alias: 'BridgeDeck', destination: '', port: 53317, pin: '', autoAccept: false },
@@ -25,15 +23,16 @@ const KEY = 'bridgedeck.config.v7'
 
 function mergeConfig(input: Partial<AppConfig> | null | undefined): AppConfig {
   if (!input) return structuredClone(defaultConfig)
+  // Services missing from defaultConfig (Matrix, removed after v0.7) are dropped here.
   const services = defaultConfig.services.map(base => ({ ...base, ...(input.services?.find(s => s.id === base.id) || {}) }))
   const machines = defaultConfig.machines.map(base => ({ ...base, ...(input.machines?.find(m => m.id === base.id) || {}) }))
+  const { matrix: _removedMatrix, ...rest } = input as Partial<AppConfig> & { matrix?: unknown }
   return {
     ...defaultConfig,
-    ...input,
+    ...rest,
     configVersion: 7,
     machines,
     services,
-    matrix: { ...defaultConfig.matrix, ...(input.matrix || {}) },
     bluebubbles: { ...defaultConfig.bluebubbles, ...(input.bluebubbles || {}) },
     syncthing: { ...defaultConfig.syncthing, ...(input.syncthing || {}) },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },

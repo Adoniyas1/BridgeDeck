@@ -43,7 +43,7 @@ BridgeDeck UI
 ├── Files ────── native Rust ──────── LocalSend core source
 ├── Sync ─────── native HTTP ──────── Syncthing REST config + shared workspace
 ├── Messages ─── native HTTP ──────── BlueBubbles Server
-└── AI Center ── native HTTP ──────── Matrix
+└── AI Center ── BridgeLink ───────── AI relay between paired computers
 ```
 
 ## Source layout

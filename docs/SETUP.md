@@ -61,7 +61,6 @@ In **Settings → Native LocalSend**, set an alias and optionally a receive fold
 
 - BlueBubbles: Mac server URL + password.
 - Syncthing: REST base URL + API key.
-- Matrix: homeserver + room ID + access token.
 - RustDesk: bundled/custom runtime or installed RustDesk application.
 
 The legacy standalone Bridge Agent is optional after BridgeLink pairing.

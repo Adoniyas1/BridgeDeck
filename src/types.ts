@@ -1,6 +1,6 @@
 export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
 
-export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'matrix' | 'localsend'
+export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'localsend'
 export type RustDeskMode = 'control' | 'file-transfer'
 
 export type ServiceConfig = {
@@ -33,11 +33,6 @@ export type AppConfig = {
   configVersion: 7
   machines: MachineConfig[]
   services: ServiceConfig[]
-  matrix: {
-    homeserver: string
-    roomId: string
-    accessToken: string
-  }
   bluebubbles: {
     baseUrl: string
     password: string
@@ -176,14 +171,6 @@ export type AiRelayMessage = {
   peerInstanceId: string
   peerName: string
   createdAt: number
-}
-
-export type MatrixMessage = {
-  eventId?: string
-  sender?: string
-  body?: string
-  timestamp?: number
-  mine?: boolean
 }
 
 
