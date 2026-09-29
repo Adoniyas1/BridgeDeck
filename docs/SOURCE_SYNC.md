@@ -1,33 +1,48 @@
-# Keeping BridgeDeck in sync between the Mac and Windows
+# Working on BridgeDeck from GitHub
 
-The BridgeDeck project folder is shared between the two computers by Syncthing (folder ID
-`bridgedeck-source`). Source code syncs; each computer keeps its own `vendor/`, `node_modules/`,
-`src-tauri/target/` and other build output, and builds its own native app.
-
-| Computer | Project folder |
-|---|---|
-| Windows | `C:\Users\adoni\Documents\Codex\BridgeDeck-v0.7-Windows` |
-| Mac | `~/Documents/Playground/BridgeDeck-v0.7-macOS` |
+The GitHub repository [`Adoniyas1/BridgeDeck`](https://github.com/Adoniyas1/BridgeDeck) is the source
+of truth for BridgeDeck's code (roadmap D10). Each computer works in its own clone and builds its own
+app. The old `bridgedeck-source` Syncthing folder is retired: two computers editing the same files
+through Syncthing produced `*.sync-conflict-*` copies, and Syncthing must never touch a `.git` folder.
 
 ## Setting up a computer
 
-1. Put `.stignore` (from the other computer's project folder, byte-for-byte) in the project root
-   **before** accepting the folder. Syncthing does not sync `.stignore`; without it, `vendor/`,
-   `node_modules/` and build output would be exchanged.
-2. Accept folder `bridgedeck-source` in Syncthing with the project folder as its path.
+```bash
+git clone https://github.com/Adoniyas1/BridgeDeck.git
+cd BridgeDeck
+npm install
+npm run vendor:fetch            # or: node scripts/reuse-vendor.mjs <old BridgeDeck folder>
+npm run verify:project
+npm run tauri dev               # or: npm run tauri build
+```
 
-## When edits arrive
+Only LocalSend's source is needed to build (`node scripts/vendor.mjs fetch --only localsend`); the other
+pinned trees are for reference and for building standalone runtimes.
 
-BridgeDeck compares source file times with the time of the running build. When the other computer's
-changes arrive, a "source changed since this build" notice appears. Rebuild and reinstall:
+## Retiring the `bridgedeck-source` Syncthing folder
 
-- Windows: `tauri build` (see `START-HERE-WINDOWS.md`), then run the NSIS installer.
-- Mac: `npm run tauri build`, then replace `/Applications/BridgeDeck.app`.
+On both computers, in Syncthing: open the `bridgedeck-source` folder → **Edit** → **Remove**. This stops
+syncing and keeps the files. Then start from a fresh clone as above. `.stignore` now also ignores `.git`
+in case the folder stays shared for a while.
 
-## Working rules for Claude and Codex
+The `bridgedeck-shared` folder (`~/BridgeDeck Shared`) is unaffected: it is the workspace BridgeDeck
+itself syncs between the computers.
 
-- Announce on the AI relay (`#planning` channel) which files you are about to edit, and wait for the
-  other side to acknowledge before editing a file they touched recently. Concurrent edits to the
-  same file produce `*.sync-conflict-*` copies that someone has to merge by hand.
+## Getting installers
+
+- **From CI**: GitHub → **Actions** → **Release build** → **Run workflow**. When it finishes, download the
+  `bridgedeck-macos-latest` (DMG) and `bridgedeck-windows-latest` (NSIS/MSI) artifacts. Pushing a tag like
+  `v0.8.0` also creates a draft release with them.
+- **Locally**: `npm run tauri build` on each computer.
+
+Every pull request runs the cheap checks in `.github/workflows/ci.yml` (frontend build and tests, the
+static verifier, and Rust checks for Linux and Windows). Installers are built only on demand (D13).
+
+## Working rules for people and AI assistants
+
+- Start from an up-to-date `main` (`git pull`), work on a branch, and open a pull request. Don't push to
+  `main` directly and never force-push someone else's branch.
+- One branch per task. Before editing, say on the AI relay which branch and files you're taking
+  (`--channel planning`), so two assistants don't change the same files at once.
 - Build and install only on your own computer.
-- Don't delete `*.sync-conflict-*` files without comparing them first; say on the relay what was merged.
+- Keep `docs/ROADMAP.md` current: it is the plan both computers build toward.
