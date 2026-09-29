@@ -1,0 +1,43 @@
+{
+  "name": "bridgedeck",
+  "private": true,
+  "version": "0.7.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "agent": "node agent/bridge-agent.mjs",
+    "vendor:fetch": "node scripts/vendor.mjs fetch",
+    "vendor:verify": "node scripts/vendor.mjs verify",
+    "package:source": "node scripts/package-source.mjs",
+    "build:mac": "sh scripts/build-macos.sh",
+    "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "vendor:bundle": "node scripts/vendor.mjs fetch && node scripts/package-source.mjs",
+    "agent:token": "node agent/generate-token.mjs",
+    "vendor:reuse": "node scripts/reuse-vendor.mjs",
+    "runtime:init": "node scripts/runtime.mjs init",
+    "runtime:status": "node scripts/runtime.mjs status",
+    "package:bootstrap": "node scripts/package-bootstrap.mjs",
+    "runtime:import": "node scripts/import-runtime.mjs",
+    "verify:project": "node scripts/verify-project.mjs",
+    "upgrade:previous": "sh scripts/upgrade-from-previous.sh",
+    "verify:localsend-core": "node scripts/verify-localsend-core.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@tauri-apps/plugin-dialog": "^2.7.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.1"
+  }
+}

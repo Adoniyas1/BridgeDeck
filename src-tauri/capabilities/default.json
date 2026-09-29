@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "BridgeDeck main-window permissions. Native file selection is limited to the dialog plugin; filesystem reads are performed only by BridgeDeck's explicit transfer command.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open"
+  ]
+}
