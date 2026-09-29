@@ -6,3 +6,8 @@ src-tauri/target/
 .env.*
 !.env.example
 *.log
+vendor/
+.vendor-tmp/
+runtime/*/
+src-tauri/gen/
+*.tsbuildinfo
