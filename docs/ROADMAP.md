@@ -235,8 +235,8 @@ Each phase ends with both computers on the new build and its checks passing.
 |---|---|---|
 | 0.1 | Split `src/App.tsx` into `src/shell/` (tab bar, device list, Home, Settings) and `src/features/<id>/`; feature registry on both sides | Same behaviour as v0.7, no page code in the shell |
 | 0.2 | Tab bar with fixed + dynamic tabs and the `suspended` signal | Opening/closing a dummy dynamic tab works |
-| 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots | Existing pairing survives the upgrade |
-| 0.4 | Remove Matrix; replace `cmd /C start` with `tauri-plugin-opener`; drop the "Open …UI" buttons | Audit HIGH #1 closed |
+| 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots. Feature fields (RustDesk ID, LocalSend target, Syncthing ID) stay on the device record until the phase that rebuilds each feature moves them into it | Existing pairing survives the upgrade |
+| 0.4 | Remove Matrix; replace `cmd /C start` with `tauri-plugin-opener`. The "Open …UI" buttons stay as fallbacks until the phase that builds each feature in removes them | Audit HIGH #1 closed |
 | 0.5 | Secrets to the keychain, settings JSON without secrets, no config in `localStorage` | Audit MEDIUM closed |
 | 0.6 | GitHub Actions: on every PR, Linux checks (typecheck, frontend build, `verify:project`, Rust tests); Mac + Windows installers only on manual run or release tag (D13) | PRs are checked cheaply; a release produces both installers |
 | 0.7 | Git replaces the `bridgedeck-source` Syncthing folder; update `SOURCE_SYNC.md` / START-HERE docs | Both computers work from clones |
@@ -294,15 +294,20 @@ None at the moment. Answers from 2026-09-29 are recorded as D12–D15.
 
 ---
 
-## Where things stand (v0.7, 2026-09-29)
+## Where things stand (2026-09-29)
+
+**Phase 0 is built** (0.8.0), compile-checked for Linux and Windows and unit-tested, but not yet run on
+the Mac or Windows hardware. Next: test it on both computers, then Phase 1.
 
 | Area | State |
 |---|---|
-| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH) |
-| AI relay | Works between two computers; one agent per side sees the other side's messages |
-| Files | LocalSend core built in; auto-accept from the paired computer |
-| Sync | Uses a separately installed Syncthing; `bridgedeck-shared` and `bridgedeck-source` in sync |
-| Remote | RustDesk launched as a separate app; Mac permissions not confirmed |
-| Messages | Needs BlueBubbles Server; not installed |
-| Contacts | Remote edits need Allow/Deny on the Mac, rate limited (2026-09-29 rebuild) |
-| Engineering | On GitHub since 2026-09-29; `App.tsx` is one 757-line file; no automated tests or CI |
+| App shell | Tab bar with fixed and closable tabs; features are modules in `src/features/<id>`; closes to tray |
+| Devices | Any number; v0.7 settings migrate; versions shown, mismatch warned on Home |
+| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH #2, Phase 1) |
+| AI relay | Works between two computers; one agent per side sees the other side's messages (Phase 3) |
+| Files | LocalSend core built in; auto-accept from paired computers |
+| Sync | Uses a separately installed Syncthing (Phase 2) |
+| Remote | RustDesk launched as a separate app (Phase 5) |
+| Messages | Needs BlueBubbles Server (Phase 4) |
+| Security | `cmd /C start` fixed; settings secrets in the OS keychain; open: plaintext pairing, wildcard CORS (Phase 1) |
+| Engineering | GitHub is the source of truth; CI workflows added; vitest + Rust unit tests; Matrix removed |

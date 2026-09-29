@@ -9,6 +9,10 @@ const lock = JSON.parse(readFileSync(join(root, 'vendor-lock.json'), 'utf8'))
 const vendorDir = join(root, 'vendor')
 const tmpDir = join(root, '.vendor-tmp')
 const command = process.argv[2] || 'fetch'
+// Optional: --only id1,id2 limits fetch/verify to those components (CI only needs localsend).
+const onlyArg = process.argv.indexOf('--only')
+const only = onlyArg > 0 ? new Set(String(process.argv[onlyArg + 1] || '').split(',').filter(Boolean)) : null
+const components = lock.components.filter(component => !only || only.has(component.id))
 
 function run(cmd, args, cwd) {
   execFileSync(cmd, args, { cwd, stdio: 'inherit' })
@@ -31,7 +35,7 @@ function verifyOne(component) {
 
 function verifyAll() {
   let failed = 0
-  for (const component of lock.components) {
+  for (const component of components) {
     const result = verifyOne(component)
     if (result.ok) console.log(`OK   ${component.id} ${component.ref} ${result.meta.commit}`)
     else { console.error(`FAIL ${component.id}: ${result.reason}`); failed += 1 }
@@ -44,7 +48,7 @@ function fetchAll() {
   rmSync(tmpDir, { recursive: true, force: true })
   mkdirSync(tmpDir, { recursive: true })
 
-  for (const component of lock.components) {
+  for (const component of components) {
     const dest = join(vendorDir, component.id)
     const temp = join(tmpDir, component.id)
     console.log(`\n==> Fetching ${component.name} ${component.ref}`)
@@ -76,6 +80,6 @@ function fetchAll() {
 if (command === 'fetch') fetchAll()
 else if (command === 'verify') verifyAll()
 else {
-  console.error('Usage: node scripts/vendor.mjs [fetch|verify]')
+  console.error('Usage: node scripts/vendor.mjs [fetch|verify] [--only id1,id2]')
   process.exit(2)
 }

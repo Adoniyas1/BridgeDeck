@@ -770,6 +770,7 @@ fn status_body(runtime: &BridgeLinkRuntime) -> String {
     system.refresh_memory();
     serde_json::json!({
         "ok": true,
+        "version": env!("CARGO_PKG_VERSION"),
         "hostname": runtime.display_name,
         "platform": runtime.platform,
         "arch": std::env::consts::ARCH,

@@ -1,33 +1,26 @@
-# BridgeDeck v0.7 — Windows package
-
-This is the audited BridgeDeck source/bootstrap package for this Windows PC. It is not an `.exe` installer yet.
+# BridgeDeck on Windows
 
 ## Requirements
 
-- Node.js with npm or pnpm
-- Rust/Cargo using the MSVC toolchain
+- Node.js 22 and npm
+- Rust (`rustup`, stable, MSVC toolchain)
 - Microsoft C++ Build Tools and WebView2
 
-## Prepare and verify
+## Build and run
 
 ```powershell
+git clone https://github.com/Adoniyas1/BridgeDeck.git
+cd BridgeDeck
 npm install
-node .\scripts\verify-project.mjs
-```
-
-The bootstrap does not include the six large upstream vendor trees. Restore them from a previously verified BridgeDeck folder or run:
-
-```powershell
 npm run vendor:fetch
-npm run vendor:verify
-npm run verify:localsend-core
+npm run verify:project
+npm run tauri dev        # or build the installer:
+npm run tauri build      # → src-tauri\target\release\bundle\nsis\ (or msi\)
 ```
 
-## Run or build
+If `rustc` crashes while optimizing LocalSend code, retry with
+`CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
 
-```powershell
-npm run tauri dev
-npm run tauri build
-```
+A prebuilt installer is available from GitHub Actions: **Actions → Release build → Run workflow**.
 
-Before normal use, review `AUDIT_REPORT.md`. BridgeLink pairing is currently intended only for a trusted LAN.
+See `docs/SOURCE_SYNC.md` for how the two computers share work, and `docs/SECURITY.md` before pairing.

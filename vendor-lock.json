@@ -50,16 +50,6 @@
       "license": "Apache-2.0",
       "platforms": ["macos"],
       "purpose": "Mac-side iMessage bridge server"
-    },
-    {
-      "id": "matrix-js-sdk",
-      "name": "Matrix JS SDK",
-      "repo": "https://github.com/matrix-org/matrix-js-sdk.git",
-      "ref": "v42.3.0",
-      "commitPrefix": "4419a67",
-      "license": "Apache-2.0",
-      "platforms": ["macos", "windows"],
-      "purpose": "AI/human message transport SDK"
     }
   ]
 }

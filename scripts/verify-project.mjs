@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -8,15 +8,16 @@ const ok = msg => console.log(`OK   ${msg}`)
 const need = path => existsSync(join(root, path)) ? ok(path) : fail(`missing ${path}`)
 
 for (const p of [
-  'src/App.tsx', 'src/lib/bridge.ts', 'src/lib/config.ts', 'src/types.ts',
+  'src/shell/App.tsx', 'src/shell/TabBar.tsx', 'src/core/tabs.ts', 'src/features/registry.ts', 'src/lib/bridge.ts', 'src/lib/config.ts', 'src/types.ts',
   'src-tauri/src/lib.rs', 'src-tauri/src/localsend_bridge.rs', 'src-tauri/src/bridgelink.rs', 'src-tauri/src/syncthing_bridge.rs',
   'src-tauri/capabilities/default.json', 'vendor-lock.json', 'docs/SYNCTHING_AUTO_SETUP.md',
 ]) need(p)
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const tauri = JSON.parse(readFileSync(join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
-if (pkg.version === '0.7.0') ok('package version 0.7.0'); else fail(`package version ${pkg.version}`)
-if (tauri.version === '0.7.0') ok('Tauri version 0.7.0'); else fail(`Tauri version ${tauri.version}`)
+const cargoVersion = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m)?.[1]
+if (pkg.version === tauri.version && pkg.version === cargoVersion) ok(`version ${pkg.version} in package.json, tauri.conf.json and Cargo.toml`)
+else fail(`versions differ: package.json ${pkg.version}, tauri.conf.json ${tauri.version}, Cargo.toml ${cargoVersion}`)
 if (pkg.dependencies?.['@tauri-apps/plugin-dialog']) ok('Tauri dialog dependency'); else fail('Tauri dialog dependency missing')
 
 const cargo = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8')
@@ -46,18 +47,25 @@ for (const marker of [
 
 if (!rust.includes('command.arg("send").arg("--to")')) ok('obsolete LocalSend CLI send --to path removed'); else fail('obsolete LocalSend CLI send --to path still present')
 
-const app = readFileSync(join(root, 'src/App.tsx'), 'utf8')
+// The UI is split into src/shell, src/core and src/features/<id>; check the markers across all of it.
+const sourceFiles = dir => readdirSync(join(root, dir), { withFileTypes: true }).flatMap(entry =>
+  entry.isDirectory() ? sourceFiles(join(dir, entry.name)) : /\.tsx?$/.test(entry.name) && !entry.name.endsWith('.test.ts') ? [join(dir, entry.name)] : [])
+const app = sourceFiles('src').map(file => readFileSync(join(root, file), 'utf8')).join('\n')
+const registry = readFileSync(join(root, 'src/features/registry.ts'), 'utf8')
+for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', 'sync', 'services']) {
+  registry.includes(`import { ${feature} } from './${feature}'`) ? ok(`feature registered: ${feature}`) : fail(`feature not registered: ${feature}`)
+}
 for (const text of [
-  "page === 'remote'", "page === 'files'", "page === 'computers'", "page === 'sync'", 'pickTransferPaths', 'sendWithLocalSend',
-  'Automatic Mac ↔ Windows pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
-  'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId',
+  'pickTransferPaths', 'sendWithLocalSend',
+  'Automatic pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
+  'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId', 'openTab', 'closeTab',
 ]) app.includes(text) ? ok(`UI integration ${text}`) : fail(`UI integration ${text} missing`)
 
 const config = readFileSync(join(root, 'src/lib/config.ts'), 'utf8')
-if (config.includes('configVersion: 7') && config.includes("sharedFolderId: 'bridgedeck-shared'") && config.includes('autoSetup: true')) ok('v0.7 sync config migration'); else fail('v0.7 sync config migration missing')
+if (config.includes('configVersion: 8') && config.includes('migrateMachines') && config.includes("sharedFolderId: 'bridgedeck-shared'") && config.includes('autoSetup: true')) ok('v0.8 device-list config migration'); else fail('v0.8 device-list config migration missing')
 if (lib.includes('config-v7.json') && lib.includes('config-v6.json')) ok('native config v7 migration'); else fail('native config v7 migration missing')
 
 const cap = JSON.parse(readFileSync(join(root, 'src-tauri/capabilities/default.json'), 'utf8'))
 if (cap.permissions?.includes('dialog:allow-open')) ok('dialog open permission'); else fail('dialog open permission missing')
 
-if (!process.exitCode) console.log('\nBridgeDeck v0.7 static project verification passed.')
+if (!process.exitCode) console.log(`\nBridgeDeck ${pkg.version} static project verification passed.`)

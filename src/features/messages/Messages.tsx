@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, UserPlus, X } from 'lucide-react'
-import { blueBubblesAttachment, blueBubblesChats, blueBubblesContacts, blueBubblesMessages, blueBubblesRecent, blueBubblesSend, contactsSave, desktopNotify, openExternal } from '../lib/bridge'
-import type { BlueBubblesAttachment, BlueBubblesChat, BlueBubblesContact, BlueBubblesMessage } from '../types'
+import { blueBubblesAttachment, blueBubblesChats, blueBubblesContacts, blueBubblesMessages, blueBubblesRecent, blueBubblesSend, contactsSave, desktopNotify, openExternal } from '../../lib/bridge'
+import type { BlueBubblesAttachment, BlueBubblesChat, BlueBubblesContact, BlueBubblesMessage } from '../../types'
 
 /** `visible`: the Messages page is on screen. The feed keeps polling while hidden so notifications and the
  *  unread badge work from any page; the open thread only loads while visible. */

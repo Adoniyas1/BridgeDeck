@@ -1,34 +1,28 @@
-# BridgeDeck v0.7 — macOS package
-
-This is the audited BridgeDeck source/bootstrap package for macOS. It is not a signed `.app` installer yet.
+# BridgeDeck on the Mac
 
 ## Requirements
 
-- macOS 14 or newer recommended
-- Node.js and npm
-- Rust/Cargo
-- Xcode Command Line Tools
+- macOS 13 or newer
+- Xcode Command Line Tools (`xcode-select --install`)
+- Node.js 22 and npm
+- Rust (`rustup`, stable)
 
-## Prepare and verify
+## Build and run
 
 ```bash
+git clone https://github.com/Adoniyas1/BridgeDeck.git
+cd BridgeDeck
 npm install
-node scripts/verify-project.mjs
-```
-
-The bootstrap does not include the six large upstream vendor trees. Restore them from a previously verified BridgeDeck folder or run:
-
-```bash
 npm run vendor:fetch
-npm run vendor:verify
-npm run verify:localsend-core
+npm run verify:project
+npm run tauri dev        # or build the app:
+npm run tauri build      # → src-tauri/target/release/bundle/macos/BridgeDeck.app
 ```
 
-## Run or build
+Copy the built app to `/Applications` and open it (it is unsigned: right-click → **Open** the first
+time). When macOS asks, allow incoming connections and Local Network access, and choose **Always Allow**
+when BridgeDeck asks for its Keychain entry.
 
-```bash
-npm run tauri dev
-npm run tauri build
-```
+A prebuilt DMG is available from GitHub Actions: **Actions → Release build → Run workflow**.
 
-Before normal use, review `AUDIT_REPORT.md`. BridgeLink pairing is currently intended only for a trusted LAN.
+See `docs/SOURCE_SYNC.md` for how the two computers share work, and `docs/SECURITY.md` before pairing.

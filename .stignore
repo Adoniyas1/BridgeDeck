@@ -1,7 +1,9 @@
 // BridgeDeck source sync (Syncthing folder id: bridgedeck-source).
 // Sync source code only. Each computer keeps its own dependencies and build output.
 // Syncthing does not sync this file: keep an identical copy on every computer. See docs/SOURCE_SYNC.md.
+// Retired: code now lives on GitHub (docs/SOURCE_SYNC.md). Never sync a git checkout's .git folder.
 // First matching pattern wins, so the exception comes before /runtime/*.
+/.git
 !/runtime/README.md
 /runtime/*
 /vendor

@@ -6,7 +6,7 @@ BridgeDeck is a Tauri desktop shell with a React UI and a Rust native backend.
 
 - `src-tauri/src/bridgelink.rs` — BridgeDeck LAN discovery, approval-code pairing, persisted peer tokens, and read-only paired-machine status API.
 - `src-tauri/src/localsend_bridge.rs` — direct LocalSend core integration for send/receive/discovery.
-- `src-tauri/src/lib.rs` — RustDesk launch/session adapter, Syncthing/BlueBubbles/Matrix adapters, service management and native config persistence.
+- `src-tauri/src/lib.rs` — RustDesk launch/session adapter, Syncthing/BlueBubbles adapters, service management and native config persistence.
 
 ## BridgeLink flow
 

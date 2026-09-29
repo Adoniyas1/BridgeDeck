@@ -1,6 +1,6 @@
 export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
 
-export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'matrix' | 'localsend'
+export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'localsend'
 export type RustDeskMode = 'control' | 'file-transfer'
 
 export type ServiceConfig = {
@@ -16,28 +16,29 @@ export type ServiceConfig = {
   notes?: string
 }
 
-export type MachineConfig = {
-  id: 'mac' | 'windows'
+/** A computer (later also a phone or tablet) BridgeDeck knows about: this one, each paired peer, and any
+ *  added by hand. Any number of devices is allowed (roadmap D7). */
+export type DeviceConfig = {
+  /** BridgeLink instance ID, or `manual-…` for a device entered by hand. */
+  id: string
   name: string
+  /** As BridgeLink reports it: `macos`, `windows`, `linux`, … */
+  platform: string
+  /** This computer. */
+  local: boolean
   agentUrl: string
   agentToken: string
   rustdeskPeerId: string
   localsendTarget: string
   localsendPin: string
   sharedPath: string
-  bridgeInstanceId: string
   syncthingDeviceId: string
 }
 
 export type AppConfig = {
-  configVersion: 7
-  machines: MachineConfig[]
+  configVersion: 8
+  devices: DeviceConfig[]
   services: ServiceConfig[]
-  matrix: {
-    homeserver: string
-    roomId: string
-    accessToken: string
-  }
   bluebubbles: {
     baseUrl: string
     password: string
@@ -118,6 +119,8 @@ export type BlueBubblesContact = {
 
 export type AgentStatus = {
   ok: boolean
+  /** BridgeDeck build version (0.8.0 and later). */
+  version?: string
   hostname?: string
   platform?: string
   arch?: string
@@ -176,14 +179,6 @@ export type AiRelayMessage = {
   peerInstanceId: string
   peerName: string
   createdAt: number
-}
-
-export type MatrixMessage = {
-  eventId?: string
-  sender?: string
-  body?: string
-  timestamp?: number
-  mine?: boolean
 }
 
 

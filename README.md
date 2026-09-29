@@ -43,7 +43,7 @@ BridgeDeck UI
 ├── Files ────── native Rust ──────── LocalSend core source
 ├── Sync ─────── native HTTP ──────── Syncthing REST config + shared workspace
 ├── Messages ─── native HTTP ──────── BlueBubbles Server
-└── AI Center ── native HTTP ──────── Matrix
+└── AI Center ── BridgeLink ───────── AI relay between paired computers
 ```
 
 ## Source layout
@@ -63,30 +63,20 @@ bridgedeck-v0.7/
 └── runtime/                          built standalone runtimes where needed
 ```
 
-## Upgrade using your existing vendored source
-
-If an older BridgeDeck directory already contains your verified upstream source:
-
-```bash
-cd ~/Downloads
-unzip BridgeDeck-v0.7-auto-sync-bootstrap.zip
-cd bridgedeck-v0.7
-./scripts/upgrade-from-previous.sh ../bridgedeck-v0.6/bridgedeck-v0.6
-```
-
-Point the script at whichever previous BridgeDeck directory actually contains `vendor/`.
-
 ## Install and run
 
 ```bash
+git clone https://github.com/Adoniyas1/BridgeDeck.git
+cd BridgeDeck
 npm install
+npm run vendor:fetch          # or reuse an older folder: node scripts/reuse-vendor.mjs <path>
 npm run verify:project
-npm run vendor:verify
-npm run verify:localsend-core
 npm run tauri dev
 ```
 
-Run the same v0.7 build on both computers.
+Run the same build on every computer. Platform notes: `START-HERE-MAC.md`, `START-HERE-WINDOWS.md`;
+for AI assistants: `START-HERE-AI.md`; how the computers share work: `docs/SOURCE_SYNC.md`; the plan:
+`docs/ROADMAP.md`.
 
 ## Enable automatic shared workspace
 

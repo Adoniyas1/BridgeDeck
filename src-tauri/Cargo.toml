@@ -1,6 +1,6 @@
 [package]
 name = "bridgedeck"
-version = "0.7.0"
+version = "0.8.0"
 description = "Cross-platform Mac and Windows control dashboard"
 authors = ["BridgeDeck contributors"]
 edition = "2021"
@@ -13,12 +13,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
 # BridgeDeck v0.7 uses the pinned LocalSend core directly for native send/receive.
 # vendor/localsend is populated by vendor:fetch or upgrade-from-previous.sh before native builds.
 localsend = { path = "../vendor/localsend/packages/core", features = ["full"] }
@@ -34,3 +35,12 @@ anyhow = "1"
 base64 = "0.22"
 sysinfo = { version = ">=0.30, <1", default-features = false, features = ["system"] }
 
+# Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }

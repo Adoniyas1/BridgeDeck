@@ -1,6 +1,8 @@
 mod localsend_bridge;
 mod bridgelink;
 mod syncthing_bridge;
+mod secrets;
+mod tray;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -14,6 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 struct ServiceManager {
     children: Mutex<HashMap<String, Child>>,
@@ -57,16 +60,6 @@ struct SyncthingFolder {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MatrixMessage {
-    event_id: Option<String>,
-    sender: Option<String>,
-    body: Option<String>,
-    timestamp: Option<u64>,
-    mine: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct RustDeskIdentity {
     available: bool,
     id: Option<String>,
@@ -76,7 +69,7 @@ struct RustDeskIdentity {
 
 
 fn allowed_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing" | "localsend" | "bluebubbles" | "matrix")
+    matches!(service_id, "rustdesk" | "syncthing" | "localsend" | "bluebubbles")
 }
 
 fn manageable_service(service_id: &str) -> bool {
@@ -153,18 +146,15 @@ fn probe_tcp(host: String, port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(850)).is_ok()
 }
 
+/// Opens an http(s) link in the default browser. The URL is parsed and re-serialized, and the opener
+/// plugin launches it without a shell, so shell metacharacters in a link can't run commands.
 #[tauri::command]
-fn open_external(target: String) -> Result<(), String> {
-    if !(target.starts_with("http://") || target.starts_with("https://")) {
+fn open_external(app: AppHandle, target: String) -> Result<(), String> {
+    let url = reqwest::Url::parse(target.trim()).map_err(|_| "Not a valid URL".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return Err("Only http/https URLs are allowed".into());
     }
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(&target).status();
-    #[cfg(target_os = "windows")]
-    let status = Command::new("cmd").args(["/C", "start", "", &target]).status();
-    #[cfg(target_os = "linux")]
-    let status = Command::new("xdg-open").arg(&target).status();
-    status.map_err(|e| e.to_string()).and_then(|s| if s.success() { Ok(()) } else { Err("Open command failed".into()) })
+    app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -503,9 +493,8 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config-v7.json"))
 }
 
-#[tauri::command]
-fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
-    let path = config_path(&app)?;
+fn read_saved_config(app: &AppHandle) -> Result<Option<String>, String> {
+    let path = config_path(app)?;
     if path.exists() {
         return fs::read_to_string(path).map(Some).map_err(|e| e.to_string());
     }
@@ -519,17 +508,52 @@ fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[tauri::command]
-fn save_app_config(app: AppHandle, raw: String) -> Result<(), String> {
-    serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid config JSON: {e}"))?;
-    let path = config_path(&app)?;
-    fs::write(&path, raw).map_err(|e| e.to_string())?;
+fn write_saved_config(app: &AppHandle, contents: &str) -> Result<(), String> {
+    let path = config_path(app)?;
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Returns the settings with their secrets filled in from the OS credential store. Settings saved by
+/// older builds still hold secrets in plain text; those are moved into the credential store and
+/// removed from the file here.
+#[tauri::command]
+fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(raw) = read_saved_config(&app)? else { return Ok(None) };
+    let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&raw) else { return Ok(Some(raw)) };
+    let plaintext = secrets::split(&mut config);
+    let mut stored = secrets::load().unwrap_or_else(|error| {
+        eprintln!("BridgeDeck: could not read settings secrets from the credential store: {error}");
+        secrets::Secrets::new()
+    });
+    if !plaintext.is_empty() {
+        stored.extend(plaintext);
+        if secrets::store(&stored).is_ok() {
+            write_saved_config(&app, &config.to_string())?;
+        }
+    }
+    secrets::merge(&mut config, &stored);
+    Ok(Some(config.to_string()))
+}
+
+/// Saves the settings without their secrets, which go to the OS credential store. If the credential
+/// store is unavailable the settings are saved with secrets in the file, as older builds did.
+#[tauri::command]
+fn save_app_config(app: AppHandle, raw: String) -> Result<(), String> {
+    let mut config = serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid config JSON: {e}"))?;
+    let secrets = secrets::split(&mut config);
+    match secrets::store(&secrets) {
+        Ok(()) => write_saved_config(&app, &config.to_string()),
+        Err(error) => {
+            eprintln!("BridgeDeck: keeping settings secrets in the settings file: {error}");
+            write_saved_config(&app, &raw)
+        }
+    }
 }
 
 fn service_snapshot(
@@ -915,56 +939,6 @@ async fn syncthing_folders(base_url: String, api_key: String) -> Result<Vec<Sync
     }).collect())
 }
 
-fn matrix_url(homeserver: &str, segments: &[&str]) -> Result<reqwest::Url, String> {
-    let base = checked_http_base(homeserver)?;
-    let mut url = reqwest::Url::parse(&format!("{base}/")).map_err(|e| e.to_string())?;
-    {
-        let mut path = url.path_segments_mut().map_err(|_| "Invalid Matrix homeserver URL")?;
-        path.clear();
-        for segment in segments { path.push(segment); }
-    }
-    Ok(url)
-}
-
-#[tauri::command]
-async fn matrix_messages(homeserver: String, room_id: String, access_token: String, limit: u32) -> Result<Vec<MatrixMessage>, String> {
-    if room_id.trim().is_empty() || access_token.trim().is_empty() { return Ok(Vec::new()); }
-    let mut url = matrix_url(&homeserver, &["_matrix", "client", "v3", "rooms", &room_id, "messages"])?;
-    url.query_pairs_mut().append_pair("dir", "b").append_pair("limit", &limit.min(100).to_string());
-    let response = http_client()?.get(url).bearer_auth(access_token).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("Matrix returned HTTP {}", status)); }
-    let mut messages = Vec::new();
-    if let Some(chunk) = value.get("chunk").and_then(|v| v.as_array()) {
-        for event in chunk.iter().rev() {
-            if event.get("type").and_then(|v| v.as_str()) != Some("m.room.message") { continue; }
-            let Some(body) = event.get("content").and_then(|v| v.get("body")).and_then(|v| v.as_str()) else { continue; };
-            messages.push(MatrixMessage {
-                event_id: event.get("event_id").and_then(|v| v.as_str()).map(str::to_string),
-                sender: event.get("sender").and_then(|v| v.as_str()).map(str::to_string),
-                body: Some(body.to_string()),
-                timestamp: event.get("origin_server_ts").and_then(|v| v.as_u64()),
-                mine: false,
-            });
-        }
-    }
-    Ok(messages)
-}
-
-#[tauri::command]
-async fn matrix_send(homeserver: String, room_id: String, access_token: String, body: String) -> Result<bool, String> {
-    if room_id.trim().is_empty() || access_token.trim().is_empty() || body.trim().is_empty() {
-        return Err("Matrix settings or message are incomplete".into());
-    }
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis();
-    let txn_id = format!("bridgedeck-{now}-{}", std::process::id());
-    let url = matrix_url(&homeserver, &["_matrix", "client", "v3", "rooms", &room_id, "send", "m.room.message", &txn_id])?;
-    let response = http_client()?.put(url).bearer_auth(access_token).json(&serde_json::json!({ "msgtype": "m.text", "body": body })).send().await.map_err(net_err)?;
-    if !response.status().is_success() { return Err(format!("Matrix returned HTTP {}", response.status())); }
-    Ok(true)
-}
-
 /// Starts BridgeLink from the saved native config (`config-v7.json`), honouring `pairing.autoStart`.
 /// The UI later calls `bridgelink_start` again, which only refreshes the advertised details.
 fn autostart_bridgelink(app: &AppHandle) {
@@ -990,6 +964,7 @@ fn autostart_bridgelink(app: &AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(ServiceManager { children: Mutex::new(HashMap::new()) })
         .manage(LocalSendManager::default())
@@ -999,8 +974,10 @@ pub fn run() {
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
             std::thread::spawn(move || autostart_bridgelink(&handle));
+            tray::install(app)?;
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             probe_tcp,
             open_external,
@@ -1049,10 +1026,15 @@ pub fn run() {
             bluebubbles_send,
             syncthing_status,
             syncthing_folders,
-            syncthing_bridge::syncthing_setup_peer,
-            matrix_messages,
-            matrix_send
+            syncthing_bridge::syncthing_setup_peer
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running BridgeDeck");
+        .build(tauri::generate_context!())
+        .expect("error while building BridgeDeck")
+        .run(|_app, _event| {
+            // Clicking the Dock icon brings back a window hidden by closing it.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                tray::show_main(_app);
+            }
+        });
 }
