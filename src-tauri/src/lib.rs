@@ -2,6 +2,7 @@ mod localsend_bridge;
 mod bridgelink;
 mod syncthing_bridge;
 mod secrets;
+mod tray;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -973,8 +974,10 @@ pub fn run() {
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
             std::thread::spawn(move || autostart_bridgelink(&handle));
+            tray::install(app)?;
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             probe_tcp,
             open_external,
@@ -1025,6 +1028,13 @@ pub fn run() {
             syncthing_folders,
             syncthing_bridge::syncthing_setup_peer
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running BridgeDeck");
+        .build(tauri::generate_context!())
+        .expect("error while building BridgeDeck")
+        .run(|_app, _event| {
+            // Clicking the Dock icon brings back a window hidden by closing it.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                tray::show_main(_app);
+            }
+        });
 }

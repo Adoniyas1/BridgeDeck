@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Computer, Home, MessageSquare, MonitorUp, ServerCog, Upload } from 'lucide-react'
+import { ArrowLeftRight, Computer, Home, MessageSquare, MonitorUp, ServerCog, TriangleAlert, Upload } from 'lucide-react'
 import { deviceStatusStore } from '../../core/bridgelink'
 import { sortedDevices, useConfig } from '../../core/config'
 import { useStore } from '../../core/store'
@@ -18,7 +18,10 @@ function HomePage() {
   const devices = sortedDevices(config.devices)
   const onlineMachines = devices.filter(d => machineStatus[d.id]?.ok).length
   const activeServices = serviceIds.filter(id => ready[id]).length
+  // Every online computer should run the same build; 0.7 and older don't report a version.
+  const versions = new Set(devices.filter(d => machineStatus[d.id]?.ok).map(d => machineStatus[d.id]?.version || '0.7 or older'))
   return <>
+    {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>
       <Card><div className="metric-icon"><ServerCog /></div><div className="metric"><span>Services ready</span><strong>{activeServices}<small>/ {serviceIds.length}</small></strong></div></Card>

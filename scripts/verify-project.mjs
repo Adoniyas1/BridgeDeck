@@ -15,8 +15,9 @@ for (const p of [
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const tauri = JSON.parse(readFileSync(join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
-if (pkg.version === '0.7.0') ok('package version 0.7.0'); else fail(`package version ${pkg.version}`)
-if (tauri.version === '0.7.0') ok('Tauri version 0.7.0'); else fail(`Tauri version ${tauri.version}`)
+const cargoVersion = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m)?.[1]
+if (pkg.version === tauri.version && pkg.version === cargoVersion) ok(`version ${pkg.version} in package.json, tauri.conf.json and Cargo.toml`)
+else fail(`versions differ: package.json ${pkg.version}, tauri.conf.json ${tauri.version}, Cargo.toml ${cargoVersion}`)
 if (pkg.dependencies?.['@tauri-apps/plugin-dialog']) ok('Tauri dialog dependency'); else fail('Tauri dialog dependency missing')
 
 const cargo = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8')
@@ -67,4 +68,4 @@ if (lib.includes('config-v7.json') && lib.includes('config-v6.json')) ok('native
 const cap = JSON.parse(readFileSync(join(root, 'src-tauri/capabilities/default.json'), 'utf8'))
 if (cap.permissions?.includes('dialog:allow-open')) ok('dialog open permission'); else fail('dialog open permission missing')
 
-if (!process.exitCode) console.log('\nBridgeDeck v0.7 static project verification passed.')
+if (!process.exitCode) console.log(`\nBridgeDeck ${pkg.version} static project verification passed.`)

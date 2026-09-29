@@ -119,6 +119,8 @@ export type BlueBubblesContact = {
 
 export type AgentStatus = {
   ok: boolean
+  /** BridgeDeck build version (0.8.0 and later). */
+  version?: string
   hostname?: string
   platform?: string
   arch?: string
