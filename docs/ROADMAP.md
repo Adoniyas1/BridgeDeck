@@ -32,6 +32,10 @@ to them, switch away, close them. Adding a feature adds a module and maybe a tab
 | D9 | BridgeLink is encrypted and authenticated by BridgeDeck itself, even over Tailscale | Security does not depend on which network path is used |
 | D10 | Git on GitHub is the source of truth; CI builds the Mac and Windows apps | Retire the `bridgedeck-source` Syncthing folder for code |
 | D11 | BridgeDeck stays MIT-licensed | No AGPL/GPL code linked in (this rules out linking RustDesk and GPL iMessage parsers) |
+| D12 | Two computers now; more devices later, including iPhone and iPad | Nothing assumes two devices or a desktop peer: features are negotiated by capability, and the UI must scale down to tablet/phone layouts |
+| D13 | Mac and Windows installers are built in CI only for big changes and finished systems (manual run or release tag); PRs run cheap Linux checks | Keeps macOS Actions minutes low |
+| D14 | Built-in iMessage limits are accepted (no tapbacks, typing indicators, edit/unsend) | No private-API work planned |
+| D15 | Remote control from a paired device is allowed automatically | The host still shows the "being controlled" banner with a stop button; per-device "ask first" stays available as an option |
 
 ---
 
@@ -181,8 +185,9 @@ WebView2). The bundle's `LSMinimumSystemVersion` moves from 10.13 to 13.0.
   sends mouse, keyboard and scroll events back. Cmd/Ctrl mapping, monitor picker, quality/bitrate
   that adapts to the link, and shared clipboard while in a session.
 - **Transport**: video on QUIC datagrams, input on a reliable stream.
-- **Safety**: a paired device can connect only if the host allows it (per device: always / ask);
-  the host shows a "being controlled by …" banner with a stop button and hotkey.
+- **Safety**: paired devices connect automatically (D15); unpaired devices never can. The host always
+  shows a "being controlled by …" banner with a stop button and hotkey, and each device can be
+  switched to "ask first" in Settings.
 - Known limit: Windows UAC prompts appear on the secure desktop and can't be controlled unless
   a SYSTEM service is added later.
 - RustDesk stays available (hidden, as today) until this reaches parity, then its code, vendor
@@ -233,7 +238,7 @@ Each phase ends with both computers on the new build and its checks passing.
 | 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots | Existing pairing survives the upgrade |
 | 0.4 | Remove Matrix; replace `cmd /C start` with `tauri-plugin-opener`; drop the "Open …UI" buttons | Audit HIGH #1 closed |
 | 0.5 | Secrets to the keychain, settings JSON without secrets, no config in `localStorage` | Audit MEDIUM closed |
-| 0.6 | GitHub Actions: build the Mac and Windows apps, `verify:project`, Rust tests | Every PR produces both installers |
+| 0.6 | GitHub Actions: on every PR, Linux checks (typecheck, frontend build, `verify:project`, Rust tests); Mac + Windows installers only on manual run or release tag (D13) | PRs are checked cheaply; a release produces both installers |
 | 0.7 | Git replaces the `bridgedeck-source` Syncthing folder; update `SOURCE_SYNC.md` / START-HERE docs | Both computers work from clones |
 | 0.8 | Close-to-tray, version shown on device cards | |
 
@@ -269,9 +274,14 @@ Tailscale, with no RustDesk installed.
 ### Phase 6: Everyday
 Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health fix-its, auto-update.
 
-### Phase 7: Extras (user decisions later)
-Wake-on-LAN button, iPhone via the LocalSend app, audio in remote sessions, a SYSTEM service on
-Windows for UAC prompts, code signing and notarisation.
+### Phase 7: Mobile and extras
+- **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
+  device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),
+  clipboard, AI rooms, Messages viewer (served by the Mac), notifications. iOS cannot host remote
+  control, run the Syncthing helper, or stay connected in the background, so those capabilities are
+  simply not advertised.
+- Wake-on-LAN button, audio in remote sessions, a SYSTEM service on Windows for UAC prompts, code
+  signing and notarisation.
 
 Order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7. Rust tests for pairing, crypto and protocol code are
 written together with Phase 1, not after it.
@@ -280,11 +290,7 @@ written together with Phase 1, not after it.
 
 ## Open questions
 
-1. **More than two computers?** The design supports it (D7); is a third device planned?
-2. **CI minutes**: macOS runners use GitHub Actions minutes at 10× the Linux rate on private repos.
-   Build the Mac app in CI on every PR, or only on release tags?
-3. **Messages limits**: are the known limits (no tapbacks, typing indicators, edit/unsend) acceptable?
-4. **Remote-control consent default** for paired devices: "always allow" or "ask each time"?
+None at the moment. Answers from 2026-09-29 are recorded as D12–D15.
 
 ---
 
