@@ -1,0 +1,65 @@
+{
+  "generated": "2026-09-21",
+  "components": [
+    {
+      "id": "rustdesk",
+      "name": "RustDesk",
+      "repo": "https://github.com/rustdesk/rustdesk.git",
+      "ref": "1.4.9",
+      "commitPrefix": "6c57829",
+      "license": "AGPL-3.0",
+      "platforms": ["macos", "windows"],
+      "purpose": "Two-way remote desktop/control"
+    },
+    {
+      "id": "syncthing",
+      "name": "Syncthing",
+      "repo": "https://github.com/syncthing/syncthing.git",
+      "ref": "v2.1.5",
+      "commitPrefix": "2ca95cf",
+      "license": "MPL-2.0",
+      "platforms": ["macos", "windows"],
+      "purpose": "Persistent folder synchronization"
+    },
+    {
+      "id": "localsend",
+      "name": "LocalSend",
+      "repo": "https://github.com/localsend/localsend.git",
+      "ref": "v1.18.2",
+      "commitPrefix": "af0416b",
+      "license": "Apache-2.0",
+      "platforms": ["macos", "windows"],
+      "purpose": "Quick peer-to-peer file transfer"
+    },
+    {
+      "id": "bluebubbles-app",
+      "name": "BlueBubbles Client",
+      "repo": "https://github.com/BlueBubblesApp/bluebubbles-app.git",
+      "ref": "v2.1.1+91",
+      "commitPrefix": "b23ba1e",
+      "license": "Apache-2.0",
+      "platforms": ["macos", "windows"],
+      "purpose": "iMessage client source"
+    },
+    {
+      "id": "bluebubbles-server",
+      "name": "BlueBubbles Server",
+      "repo": "https://github.com/BlueBubblesApp/bluebubbles-server.git",
+      "ref": "v1.9.9",
+      "commitPrefix": "ba31cd1",
+      "license": "Apache-2.0",
+      "platforms": ["macos"],
+      "purpose": "Mac-side iMessage bridge server"
+    },
+    {
+      "id": "matrix-js-sdk",
+      "name": "Matrix JS SDK",
+      "repo": "https://github.com/matrix-org/matrix-js-sdk.git",
+      "ref": "v42.3.0",
+      "commitPrefix": "4419a67",
+      "license": "Apache-2.0",
+      "platforms": ["macos", "windows"],
+      "purpose": "AI/human message transport SDK"
+    }
+  ]
+}
