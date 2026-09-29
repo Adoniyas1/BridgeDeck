@@ -46,19 +46,7 @@ body{background:var(--bg);color:var(--text);font-size:13px;letter-spacing:-.005e
 *::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:8px}*::-webkit-scrollbar-track{background:transparent}
 
 /* Shell */
-.shell{grid-template-columns:200px 1fr}
-.sidebar{background:var(--bg);border-right:1px solid var(--line);backdrop-filter:none;padding:18px 10px}
-.brand{padding:2px 10px 22px;gap:9px}
-.brand-mark{width:14px;height:14px;border-radius:50%;border:0;background:linear-gradient(135deg,var(--accent),#c3d6ff)}
-.brand strong{font-size:13px;font-weight:600;letter-spacing:-.01em}
-.nav-item{padding:7px 10px;border-radius:var(--radius-sm);color:var(--muted);font-size:13px;gap:10px;transition:background .12s,color .12s}
-.nav-item svg{width:16px;height:16px;stroke-width:1.75}
-.nav-item:hover{background:var(--surface);color:var(--text)}
-.nav-item.active{background:var(--surface-2);color:var(--text)}
-.sidebar-foot{color:var(--faint);font-size:11px;padding:10px}
 main{padding:0 36px 48px;max-width:1240px}
-.topbar{height:84px}
-.topbar h1{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0}
 .icon-button{width:32px;height:32px;border-radius:var(--radius-sm);border:1px solid var(--line);background:transparent;color:var(--muted);display:grid;place-items:center}
 .icon-button:hover{color:var(--text);background:var(--surface)}
 .save-state{color:var(--faint)}
@@ -135,8 +123,6 @@ button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-a
 .pair-request code{background:var(--bg);border:1px solid var(--line-strong);color:var(--text)}
 .receive-progress>div{background:var(--bg);border:0;height:4px}.receive-progress>div>span{color:var(--accent)}
 
-@media(max-width:900px){.shell{grid-template-columns:64px 1fr}main{padding:0 18px 30px}}
-@media(max-width:560px){.sidebar{background:var(--bg);border-top:1px solid var(--line)}main{padding:0 14px 80px}}
 
 /* ============================================================
    Messages: iMessage-style layout (components/Messages.tsx)
@@ -264,9 +250,6 @@ button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-a
 .im-viewer{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.86);display:grid;place-items:center;cursor:zoom-out;padding:32px}
 .im-viewer img{max-width:100%;max-height:100%;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 
-.nav-item{position:relative}
-.nav-badge{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#0a84ff;color:#fff;font-size:10px;font-style:normal;font-weight:700;display:inline-grid;place-items:center}
-@media(max-width:900px){.nav-badge{position:absolute;top:4px;right:6px;margin:0}}
 /* Messages: contact editing */
 .im-edit label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--faint);margin-bottom:8px}
 .im-edit input{width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);color:var(--text);font-size:13px;outline:0}
@@ -281,3 +264,35 @@ button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-a
 .im-edit-actions button{padding:7px 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text);font-size:12px}
 .im-edit-actions button.primary{background:#0a84ff;border-color:#0a84ff;color:#fff}
 .im-edit-error{color:var(--bad);font-size:12px;margin:8px 0 0;line-height:1.4}
+
+/* ============================================================
+   Tab bar shell: Chrome-style tabs replace the sidebar. Fixed tabs
+   are features; dynamic tabs (sessions, rooms) can be closed.
+   ============================================================ */
+:root{--tabbar-h:44px}
+.shell{display:flex;flex-direction:column;height:100vh;min-height:0}
+.tabbar{position:relative;z-index:20;display:flex;align-items:center;gap:10px;height:var(--tabbar-h);padding:0 10px 0 16px;background:var(--bg);border-bottom:1px solid var(--line);flex:0 0 auto}
+.tabbar .brand-mark{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:0;background:linear-gradient(135deg,var(--accent),#c3d6ff)}
+.tab-strip{display:flex;align-items:flex-end;gap:2px;flex:1;min-width:0;height:100%;overflow-x:auto;scrollbar-width:none}
+.tab-strip::-webkit-scrollbar{display:none}
+.tab{position:relative;display:flex;align-items:center;gap:7px;flex:0 0 auto;max-width:200px;height:34px;padding:0 12px;border:1px solid transparent;border-bottom:0;border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:transparent;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;transition:background .12s,color .12s}
+.tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab svg{flex:0 0 auto;stroke-width:1.75}
+.tab:hover{background:var(--surface);color:var(--text)}
+.tab.active{background:var(--surface-2);border-color:var(--line);color:var(--text)}
+.tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--surface-2)}
+.tab.dynamic{padding-right:6px;max-width:220px}
+.tab-close{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--faint)}
+.tab-close:hover{background:var(--surface-3);color:var(--text)}
+.tab-divider{align-self:center;flex:0 0 auto;width:1px;height:18px;margin:0 6px;background:var(--line-strong)}
+.tab-badge{display:grid;place-items:center;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:#0a84ff;color:#fff;font-size:10px;font-style:normal;font-weight:600}
+.tab-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.icon-button.active{color:var(--text);background:var(--surface-2)}
+main{flex:1;min-height:0;width:100%;max-width:none;margin:0;padding:18px 36px 48px;overflow:auto}
+main>.notice,.tab-panel{max-width:1240px;margin-left:auto;margin-right:auto}
+main>.notice{margin-bottom:12px}
+.tab-panel[hidden]{display:none}
+.im-shell{height:calc(100vh - var(--tabbar-h) - 40px)}
+@media(max-width:900px){.tab{padding:0 10px}.tab:not(.dynamic) span{display:none}main{padding:14px 18px 30px}}
+@media(max-width:640px){.im-shell{height:calc(100vh - var(--tabbar-h) - 30px)}}
+@media(max-width:560px){main{padding:12px 12px 30px}.tab.dynamic span{max-width:90px}}

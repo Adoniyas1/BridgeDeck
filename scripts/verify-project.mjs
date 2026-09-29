@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -8,7 +8,7 @@ const ok = msg => console.log(`OK   ${msg}`)
 const need = path => existsSync(join(root, path)) ? ok(path) : fail(`missing ${path}`)
 
 for (const p of [
-  'src/App.tsx', 'src/lib/bridge.ts', 'src/lib/config.ts', 'src/types.ts',
+  'src/shell/App.tsx', 'src/shell/TabBar.tsx', 'src/core/tabs.ts', 'src/features/registry.ts', 'src/lib/bridge.ts', 'src/lib/config.ts', 'src/types.ts',
   'src-tauri/src/lib.rs', 'src-tauri/src/localsend_bridge.rs', 'src-tauri/src/bridgelink.rs', 'src-tauri/src/syncthing_bridge.rs',
   'src-tauri/capabilities/default.json', 'vendor-lock.json', 'docs/SYNCTHING_AUTO_SETUP.md',
 ]) need(p)
@@ -46,11 +46,18 @@ for (const marker of [
 
 if (!rust.includes('command.arg("send").arg("--to")')) ok('obsolete LocalSend CLI send --to path removed'); else fail('obsolete LocalSend CLI send --to path still present')
 
-const app = readFileSync(join(root, 'src/App.tsx'), 'utf8')
+// The UI is split into src/shell, src/core and src/features/<id>; check the markers across all of it.
+const sourceFiles = dir => readdirSync(join(root, dir), { withFileTypes: true }).flatMap(entry =>
+  entry.isDirectory() ? sourceFiles(join(dir, entry.name)) : /\.tsx?$/.test(entry.name) && !entry.name.endsWith('.test.ts') ? [join(dir, entry.name)] : [])
+const app = sourceFiles('src').map(file => readFileSync(join(root, file), 'utf8')).join('\n')
+const registry = readFileSync(join(root, 'src/features/registry.ts'), 'utf8')
+for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', 'sync', 'services']) {
+  registry.includes(`import { ${feature} } from './${feature}'`) ? ok(`feature registered: ${feature}`) : fail(`feature not registered: ${feature}`)
+}
 for (const text of [
-  "page === 'remote'", "page === 'files'", "page === 'computers'", "page === 'sync'", 'pickTransferPaths', 'sendWithLocalSend',
+  'pickTransferPaths', 'sendWithLocalSend',
   'Automatic Mac ↔ Windows pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
-  'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId',
+  'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId', 'openTab', 'closeTab',
 ]) app.includes(text) ? ok(`UI integration ${text}`) : fail(`UI integration ${text} missing`)
 
 const config = readFileSync(join(root, 'src/lib/config.ts'), 'utf8')
