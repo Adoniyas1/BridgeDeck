@@ -294,15 +294,20 @@ None at the moment. Answers from 2026-09-29 are recorded as D12–D15.
 
 ---
 
-## Where things stand (v0.7, 2026-09-29)
+## Where things stand (2026-09-29)
+
+**Phase 0 is built** (0.8.0), compile-checked for Linux and Windows and unit-tested, but not yet run on
+the Mac or Windows hardware. Next: test it on both computers, then Phase 1.
 
 | Area | State |
 |---|---|
-| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH) |
-| AI relay | Works between two computers; one agent per side sees the other side's messages |
-| Files | LocalSend core built in; auto-accept from the paired computer |
-| Sync | Uses a separately installed Syncthing; `bridgedeck-shared` and `bridgedeck-source` in sync |
-| Remote | RustDesk launched as a separate app; Mac permissions not confirmed |
-| Messages | Needs BlueBubbles Server; not installed |
-| Contacts | Remote edits need Allow/Deny on the Mac, rate limited (2026-09-29 rebuild) |
-| Engineering | On GitHub since 2026-09-29; `App.tsx` is one 757-line file; no automated tests or CI |
+| App shell | Tab bar with fixed and closable tabs; features are modules in `src/features/<id>`; closes to tray |
+| Devices | Any number; v0.7 settings migrate; versions shown, mismatch warned on Home |
+| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH #2, Phase 1) |
+| AI relay | Works between two computers; one agent per side sees the other side's messages (Phase 3) |
+| Files | LocalSend core built in; auto-accept from paired computers |
+| Sync | Uses a separately installed Syncthing (Phase 2) |
+| Remote | RustDesk launched as a separate app (Phase 5) |
+| Messages | Needs BlueBubbles Server (Phase 4) |
+| Security | `cmd /C start` fixed; settings secrets in the OS keychain; open: plaintext pairing, wildcard CORS (Phase 1) |
+| Engineering | GitHub is the source of truth; CI workflows added; vitest + Rust unit tests; Matrix removed |
