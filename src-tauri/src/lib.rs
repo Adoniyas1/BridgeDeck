@@ -1,6 +1,7 @@
 mod localsend_bridge;
 mod bridgelink;
 mod syncthing_bridge;
+mod secrets;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -491,9 +492,8 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config-v7.json"))
 }
 
-#[tauri::command]
-fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
-    let path = config_path(&app)?;
+fn read_saved_config(app: &AppHandle) -> Result<Option<String>, String> {
+    let path = config_path(app)?;
     if path.exists() {
         return fs::read_to_string(path).map(Some).map_err(|e| e.to_string());
     }
@@ -507,17 +507,52 @@ fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[tauri::command]
-fn save_app_config(app: AppHandle, raw: String) -> Result<(), String> {
-    serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid config JSON: {e}"))?;
-    let path = config_path(&app)?;
-    fs::write(&path, raw).map_err(|e| e.to_string())?;
+fn write_saved_config(app: &AppHandle, contents: &str) -> Result<(), String> {
+    let path = config_path(app)?;
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Returns the settings with their secrets filled in from the OS credential store. Settings saved by
+/// older builds still hold secrets in plain text; those are moved into the credential store and
+/// removed from the file here.
+#[tauri::command]
+fn load_app_config(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(raw) = read_saved_config(&app)? else { return Ok(None) };
+    let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&raw) else { return Ok(Some(raw)) };
+    let plaintext = secrets::split(&mut config);
+    let mut stored = secrets::load().unwrap_or_else(|error| {
+        eprintln!("BridgeDeck: could not read settings secrets from the credential store: {error}");
+        secrets::Secrets::new()
+    });
+    if !plaintext.is_empty() {
+        stored.extend(plaintext);
+        if secrets::store(&stored).is_ok() {
+            write_saved_config(&app, &config.to_string())?;
+        }
+    }
+    secrets::merge(&mut config, &stored);
+    Ok(Some(config.to_string()))
+}
+
+/// Saves the settings without their secrets, which go to the OS credential store. If the credential
+/// store is unavailable the settings are saved with secrets in the file, as older builds did.
+#[tauri::command]
+fn save_app_config(app: AppHandle, raw: String) -> Result<(), String> {
+    let mut config = serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid config JSON: {e}"))?;
+    let secrets = secrets::split(&mut config);
+    match secrets::store(&secrets) {
+        Ok(()) => write_saved_config(&app, &config.to_string()),
+        Err(error) => {
+            eprintln!("BridgeDeck: keeping settings secrets in the settings file: {error}");
+            write_saved_config(&app, &raw)
+        }
+    }
 }
 
 fn service_snapshot(

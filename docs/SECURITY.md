@@ -45,3 +45,19 @@ Only known service identifiers can be managed. BridgeDeck only stops child proce
 The Syncthing REST API key is a local administrative credential. BridgeDeck uses it only from the local native process to call the local Syncthing REST API. It is not added to BridgeLink pairing payloads, peer records, or remote status responses. Only the Syncthing device ID is exchanged; device IDs are public identifiers derived from Syncthing's device certificate/public key.
 
 Automatic setup creates or patches only the configured BridgeDeck folder/device relationship. Forgetting a BridgeLink peer does not automatically delete Syncthing folders or data.
+
+## Settings secrets (v0.8)
+
+The Syncthing API key, BlueBubbles password, LocalSend PINs and each device's bearer token are kept
+in the OS credential store (macOS Keychain, Windows Credential Manager) as a single BridgeDeck entry
+(service `dev.bridgedeck.app`, account `settings-secrets`), not in `config-v7.json`. Settings saved
+by older builds are migrated on first load, and the copy older builds kept in the WebView's
+localStorage is deleted. If the credential store can't be read (for example Keychain access was
+denied), BridgeDeck keeps the secrets in the settings file as before rather than overwriting the
+stored entry.
+
+A locally signed Mac build looks like a new app to the Keychain after each rebuild, so macOS asks
+once to allow access; choose **Always Allow**.
+
+BridgeLink pairing tokens (`bridgelink/peers.json`) and the local AI relay token (`bridgelink/ai-token`,
+read by `agent/ai-relay.mjs`) are still files; BridgeLink v2 (roadmap Phase 1) replaces the pairing tokens.

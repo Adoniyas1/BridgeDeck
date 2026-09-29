@@ -1,5 +1,5 @@
 import type { AppConfig, DeviceConfig } from '../types'
-import { loadNativeConfig, saveNativeConfig } from './bridge'
+import { isTauri, loadNativeConfig, saveNativeConfig } from './bridge'
 
 export const blankDevice: Omit<DeviceConfig, 'id' | 'name' | 'platform' | 'local'> = {
   agentUrl: '', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', syncthingDeviceId: '',
@@ -21,7 +21,10 @@ export const defaultConfig: AppConfig = {
   pairing: { displayName: '', apiPort: 41416, autoStart: true },
 }
 
+/** Browser dev mode keeps settings in localStorage. The app itself stores them natively (secrets in the
+ *  OS credential store) and removes the copies older builds left in localStorage. */
 const KEY = 'bridgedeck.config.v7'
+const BROWSER_KEYS = [KEY, 'bridgedeck.config.v6', 'bridgedeck.config.v5', 'bridgedeck.config.v4', 'bridgedeck.config.v3']
 
 /** v7 and earlier had two fixed slots, `machines: [{ id: 'mac' }, { id: 'windows' }]`. Configured slots
  *  become devices keyed by their BridgeLink instance ID (or `manual-mac`/`manual-windows`); untouched
@@ -76,11 +79,10 @@ export async function loadConfig(): Promise<AppConfig> {
     const native = await loadNativeConfig()
     if (native) return mergeConfig(JSON.parse(native) as Partial<AppConfig>)
   } catch {
-    // Browser mode or an unreadable native config falls back to localStorage.
+    // An unreadable native config falls back to what older builds left in localStorage.
   }
   try {
-    const legacy = localStorage.getItem('bridgedeck.config.v6') || localStorage.getItem('bridgedeck.config.v5') || localStorage.getItem('bridgedeck.config.v4') || localStorage.getItem('bridgedeck.config.v3')
-    const raw = localStorage.getItem(KEY) || legacy
+    const raw = BROWSER_KEYS.map(key => localStorage.getItem(key)).find(Boolean)
     return mergeConfig(raw ? JSON.parse(raw) as Partial<AppConfig> : null)
   } catch {
     return structuredClone(defaultConfig)
@@ -89,6 +91,10 @@ export async function loadConfig(): Promise<AppConfig> {
 
 export async function saveConfig(config: AppConfig) {
   const raw = JSON.stringify(config)
-  localStorage.setItem(KEY, raw)
-  try { await saveNativeConfig(raw) } catch { /* browser mode */ }
+  if (!isTauri()) {
+    localStorage.setItem(KEY, raw)
+    return
+  }
+  await saveNativeConfig(raw)
+  try { BROWSER_KEYS.forEach(key => localStorage.removeItem(key)) } catch { /* storage unavailable */ }
 }
