@@ -1,103 +1,302 @@
-# BridgeDeck roadmap
+# BridgeDeck roadmap: one app, every feature built in
 
-Goal: the Mac and the Windows PC behave like one workspace. Files, clipboard, screen control, messages and the
-two AI assistants work without setup steps, and the connection is safe enough to leave on all the time.
+This replaces the v0.7 roadmap. It fixes the target design **before** building, so each phase
+builds toward it instead of around the current shape. Read "Decisions" and "Target architecture"
+before changing code; if a change conflicts with them, raise it with the user first.
 
-Owners: **W** = Claude on Windows, **M** = Claude on the Mac, **U** = the user (permissions, passwords, approvals).
-Code is written on either side and reaches the other through the `bridgedeck-source` Syncthing folder
-(rules in `SOURCE_SYNC.md`). Every phase ends with both computers rebuilt and the phase's checks passing.
+Owners: **W** = Claude on Windows, **M** = Claude/Codex on the Mac, **C** = cloud sessions working on
+the GitHub repo, **U** = the user (permissions, approvals, testing on real hardware).
 
 ---
 
-## Where things stand (2026-09-25)
+## Goal
+
+BridgeDeck is **one app** on every computer the user owns. Everything happens inside its window:
+remote control, file transfer, folder sync, iMessage, clipboard, and AI collaboration. It never
+opens another program's window or a browser tab to do its job. Views that come and go (a remote
+session, an AI task room, a transfer) open as **tabs inside BridgeDeck**, like Chrome tabs: switch
+to them, switch away, close them. Adding a feature adds a module and maybe a tab, never an app.
+
+## Decisions (agreed 2026-09-29)
+
+| # | Decision | Consequence |
+|---|---|---|
+| D1 | One window with a tab bar; no external windows or browser tabs | Remove every "Open …UI" / "Web UI" / "Open original RustDesk UI" button, `launch_app`, and `open_external` for app UIs |
+| D2 | Remote control is BridgeDeck's own, shown in a tab | RustDesk (AGPL, separate window) is a fallback only until native remote control reaches parity, then removed |
+| D3 | Syncthing runs as a hidden helper BridgeDeck owns | No Syncthing GUI, no API key typed by the user. Syncthing stays a separate, unmodified MPL-2.0 binary |
+| D4 | iMessage is served by BridgeDeck on the Mac | BlueBubbles is removed |
+| D5 | Matrix is removed | Tailscale covers "away from home"; the AI relay covers agent messaging |
+| D6 | The AI relay stays and grows into an **AI workspace** for 2+ agents on 2+ computers | Agents, rooms, addressed messages, tasks, MCP |
+| D7 | Any number of paired devices, not fixed `mac`/`windows` slots | Data model, UI, and protocol are device-list based |
+| D8 | Works on the home LAN and over Tailscale | Multicast discovery on LAN, Tailscale peer list off LAN, manual address as a last resort |
+| D9 | BridgeLink is encrypted and authenticated by BridgeDeck itself, even over Tailscale | Security does not depend on which network path is used |
+| D10 | Git on GitHub is the source of truth; CI builds the Mac and Windows apps | Retire the `bridgedeck-source` Syncthing folder for code |
+| D11 | BridgeDeck stays MIT-licensed | No AGPL/GPL code linked in (this rules out linking RustDesk and GPL iMessage parsers) |
+
+---
+
+## Target architecture
+
+```text
+┌──────────────────────────── BridgeDeck window ────────────────────────────┐
+│ [Home] [Files] [Sync] [Messages] [AI] │ [Windows PC – Remote ×] [Task: … ×]│  ← tab bar
+├────────────────────────────────────────────────────────────────────────────┤
+│  active tab (React)                                                        │
+└────────────────────────────────────────────────────────────────────────────┘
+        │ Tauri commands + events
+┌───────▼─────────────────────── Rust core ──────────────────────────────────┐
+│ Feature registry: devices · files · sync · messages · remote · clipboard · │
+│                   ai-workspace · (future features)                         │
+│ BridgeLink v2: identity keys · pairing · discovery (LAN + Tailscale) ·     │
+│                QUIC sessions with one stream type per feature channel      │
+│ Local API (127.0.0.1 only): AI clients, MCP server, scripts                │
+│ Secrets: OS keychain            Settings: JSON (no secrets)               │
+│ Helpers it owns: syncthing (hidden sidecar)                                │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Tabs
+
+- **Fixed tabs**: Home, Files, Sync, Messages, AI. Settings opens as a tab too.
+- **Dynamic tabs**: `{ id, kind, title, deviceId?, closable: true }`. Kinds planned:
+  `remote-session`, `ai-room`, `transfer`, `conflict` (sync conflict review). New kinds register
+  through the feature registry.
+- A background tab gets a `suspended` signal; features pause expensive work (a remote session stops
+  its video stream but keeps its connection). Closing a tab ends its session.
+- Pop-out/full-screen is available per tab, opt-in only.
+- Closing the window hides BridgeDeck to the tray/menu bar; Quit really quits.
+
+### Feature modules
+
+Every feature is one Rust module plus one frontend folder, registered in one list on each side.
+
+```rust
+// src-tauri/src/features/mod.rs
+trait Feature: Send + Sync {
+    fn id(&self) -> &'static str;                         // "sync", "remote", …
+    fn capabilities(&self) -> Vec<Capability>;            // advertised to peers, versioned
+    async fn start(&self, ctx: FeatureContext) -> Result<()>;
+    async fn stop(&self) -> Result<()>;
+    fn health(&self) -> Vec<HealthItem>;                  // shown on Home, with fix-it actions
+    async fn on_stream(&self, peer: PeerId, stream: Stream) -> Result<()>; // incoming BridgeLink channel
+}
+```
+
+```ts
+// src/features/<id>/index.ts
+export const feature: FeatureManifest = {
+  id, title, icon,
+  fixedTab?: Component,              // e.g. Files page
+  tabKinds?: Record<string, Component>, // e.g. { 'remote-session': RemoteSessionTab }
+  settings?: Component,              // section inside the Settings tab
+  deviceActions?: DeviceAction[],    // buttons on a device card ("Control", "Send files")
+}
+```
+
+The shell (tab bar, device list, Home health, Settings) is built from the registry. It never
+hard-codes a feature.
+
+### Devices
+
+`Device { id (identity public-key fingerprint), name, platform, addresses[], lastSeen, capabilities, buildVersion }`.
+Addresses are tried in order: LAN, Tailscale (MagicDNS name and 100.x address), manual.
+Per-feature data (Syncthing device ID, etc.) lives with the feature, keyed by device ID, instead of
+being fields on the device.
+
+### BridgeLink v2 (transport)
+
+- **Identity**: each install creates a long-term key pair on first run (private key in the keychain).
+- **Pairing**: X25519 key exchange; the six-digit code shown on both screens is **derived from the
+  shared secret**, so matching codes prove nobody is in the middle. The user approves on both sides.
+  Result: both devices pin each other's public key. No bearer tokens cross the network.
+- **Sessions**: QUIC (`quinn` + `rustls`) with certificates pinned to the paired keys. One connection
+  per device pair; each feature opens its own streams (reliable) or datagrams (remote video) on it,
+  so a large file transfer never blocks a chat message or a mouse click.
+- **Handshake**: protocol version + capability list + app build version. Features only use
+  capabilities both sides advertise; Home warns when builds differ.
+- **Discovery**: LAN multicast (existing, UDP 41415) + Tailscale (`tailscale status --json` lists the
+  user's devices; BridgeDeck probes them) + manual address. Multicast does not cross Tailscale,
+  which is why the second source exists.
+- **Offline queue**: messages for an offline device (AI, clipboard text, contact edits) are queued
+  and delivered when it reconnects, with an expiry.
+- **Local API**: HTTP on `127.0.0.1` only, for AI clients, the MCP server and scripts. It requires the
+  local AI token, and CORS allows only the Tauri origin. Nothing but QUIC listens on the LAN.
+
+### Storage
+
+- Settings: JSON in the app-config folder, **no secrets**; the frontend stops mirroring config into
+  `localStorage`.
+- Secrets: OS keychain via the `keyring` crate (macOS Keychain, Windows Credential Manager).
+- Feature data (AI rooms, message cache, transfer history): SQLite (`rusqlite`) per feature.
+
+### Platform baseline
+
+macOS 13+ (ScreenCaptureKit, WebCodecs in WKWebView), Windows 10 1903+ (Windows Graphics Capture,
+WebView2). The bundle's `LSMinimumSystemVersion` moves from 10.13 to 13.0.
+
+---
+
+## Features
+
+### Devices & Home
+- Device list (any number), status, build version, Wake-on-LAN, "Pair new device", "Forget".
+- Home is a health checklist built from every feature's `health()`: permission missing, helper
+  stopped, device offline, builds differ. Each item has a fix-it button.
+
+### Files (LocalSend core, already built in)
+- Keep the embedded LocalSend core: it also interoperates with the LocalSend app on phones.
+- Paired computers are addressed by their BridgeLink addresses (so it works over Tailscale too);
+  transfers from paired devices are auto-accepted, others ask.
+- Each transfer can open a `transfer` tab with progress; drag-and-drop onto a device card.
+- OS integration: Explorer "Send to", Finder Quick Action.
+
+### Sync (Syncthing as a hidden helper)
+- Syncthing is built from the pinned source in `vendor/` and bundled as a Tauri sidecar (`externalBin`).
+- BridgeDeck starts it with its own home folder inside BridgeDeck's app data, no browser, GUI/API on
+  `127.0.0.1` with a random port, and an API key BridgeDeck generates and keeps in the keychain.
+  BridgeDeck stops it on quit.
+- Device IDs are exchanged over BridgeLink (as today); device addresses include the Tailscale address.
+- UI: folders, per-device progress, pause/resume, add folder, ignore patterns, and a `conflict` tab
+  to compare and resolve `*.sync-conflict-*` files.
+- **Migration**: when an existing Syncthing install is found, offer to adopt it: copy its keys and
+  config so the device ID and folders (`bridgedeck-shared`) stay the same, then stop and disable the
+  standalone copy.
+
+### Messages (iMessage served by the Mac)
+- On the Mac, a native engine: reads `~/Library/Messages/chat.db` read-only (`rusqlite`), watches it
+  for changes, serves attachments, reads Contacts, and sends through Messages.app with AppleScript
+  (text and files). Needs Full Disk Access + Automation for BridgeDeck only.
+- Newer macOS stores text in `attributedBody` (a serialized `NSAttributedString`); BridgeDeck needs
+  its own decoder, because the common open-source one (`imessage-database`) is GPL (D11).
+- Other devices get chats, messages and attachments over a `messages` BridgeLink channel; sends and
+  contact edits go back the same way (keeping the Allow/Deny dialog and rate limit for contact edits).
+- Known limits without Apple's private APIs: no tapbacks, typing indicators, edit/unsend or sending
+  read receipts. Text, group chats, attachments and SMS (with iPhone Text Message Forwarding) work.
+
+### Remote control (native, in tabs)
+- **Host side** (the computer being controlled): capture with ScreenCaptureKit (macOS) / Windows
+  Graphics Capture; hardware H.264 encode (VideoToolbox / Media Foundation), software fallback;
+  inject input with CGEvent (macOS) / SendInput (Windows).
+- **Viewer side**: a `remote-session` tab decodes with WebCodecs `VideoDecoder` into a canvas and
+  sends mouse, keyboard and scroll events back. Cmd/Ctrl mapping, monitor picker, quality/bitrate
+  that adapts to the link, and shared clipboard while in a session.
+- **Transport**: video on QUIC datagrams, input on a reliable stream.
+- **Safety**: a paired device can connect only if the host allows it (per device: always / ask);
+  the host shows a "being controlled by …" banner with a stop button and hotkey.
+- Known limit: Windows UAC prompts appear on the secure desktop and can't be controlled unless
+  a SYSTEM service is added later.
+- RustDesk stays available (hidden, as today) until this reaches parity, then its code, vendor
+  tree and settings are removed.
+
+### Clipboard sync
+- Text and images between paired devices; toggle per device; off until BridgeLink v2 ships.
+- Loop prevention (don't echo back what was just received) and a size limit; files go via Files.
+
+### AI workspace (the relay, extended)
+- **Agents**: each assistant registers a name (`claude-windows`, `codex-mac`, …) with its local
+  BridgeDeck; the AI tab shows who is online on every device.
+- **Rooms**: one per task, with participants, conversation, status (open / in progress / done) and
+  assignments. Each room can open as an `ai-room` tab.
+- **Addressing**: messages go to one agent, a group, or the whole room, on this device or any other.
+  Agents on the same computer can talk to each other.
+- **Delivery**: fan-out to every device with a participant; SQLite store per device; message IDs are
+  ULIDs, deduplicated; offline queue.
+- **Tools**: an MCP server (`agent/bridgedeck-mcp`) exposing send / read / wait / rooms / tasks /
+  device status / sync status; file claims (`claim`, `release`) so agents don't edit the same file.
+- **Compatibility**: `agent/ai-relay.mjs` and the Claude Code hook keep working; `--to` and `--room`
+  are additions.
+- **Safety**: message bodies are data, never instructions; anything with side effects needs the
+  local human's approval; the human can read and post in every room.
+
+### Tray / menu bar, notifications, updates
+- Tray icon with status, Send files, Control…, Open shared folder.
+- Notifications: file received, message for the human, device offline, update available.
+- Auto-update from GitHub Releases (`tauri-plugin-updater`), so both computers get the same build
+  without rebuilding by hand.
+
+### Removed
+Matrix (UI, commands, config, vendor pin) · BlueBubbles (server, client pin, adapter) · RustDesk
+(after parity) · the Services page and service manager · `launch_app` · `open_external` for app UIs
+(the opener plugin stays for opening folders and ordinary links, without `cmd /C start`).
+
+---
+
+## Phases
+
+Each phase ends with both computers on the new build and its checks passing.
+
+### Phase 0: Foundation
+| # | Task | Done when |
+|---|---|---|
+| 0.1 | Split `src/App.tsx` into `src/shell/` (tab bar, device list, Home, Settings) and `src/features/<id>/`; feature registry on both sides | Same behaviour as v0.7, no page code in the shell |
+| 0.2 | Tab bar with fixed + dynamic tabs and the `suspended` signal | Opening/closing a dummy dynamic tab works |
+| 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots | Existing pairing survives the upgrade |
+| 0.4 | Remove Matrix; replace `cmd /C start` with `tauri-plugin-opener`; drop the "Open …UI" buttons | Audit HIGH #1 closed |
+| 0.5 | Secrets to the keychain, settings JSON without secrets, no config in `localStorage` | Audit MEDIUM closed |
+| 0.6 | GitHub Actions: build the Mac and Windows apps, `verify:project`, Rust tests | Every PR produces both installers |
+| 0.7 | Git replaces the `bridgedeck-source` Syncthing folder; update `SOURCE_SYNC.md` / START-HERE docs | Both computers work from clones |
+| 0.8 | Close-to-tray, version shown on device cards | |
+
+### Phase 1: BridgeLink v2
+| # | Task | Done when |
+|---|---|---|
+| 1.1 | Identity keys, SAS pairing, pinned keys | Tokens never cross the network; audit HIGH #2 closed |
+| 1.2 | QUIC sessions with per-feature streams; capability + version handshake | Status and AI relay run over v2 |
+| 1.3 | Tailscale discovery + address list per device | Pairing and status work with the Mac away from home |
+| 1.4 | Offline queue; local API loopback-only, CORS locked to the Tauri origin | Audit MEDIUM closed |
+| 1.5 | One-time re-pair on upgrade (v1 tokens rejected) | U |
+
+### Phase 2: Sync built in
+Sidecar build + bundling, owned config and API key, adoption of the existing install, sync UI,
+conflict tab. **Done when** Syncthing is never visible as its own app and `bridgedeck-shared` keeps
+syncing with the same device IDs.
+
+### Phase 3: AI workspace
+Agents, rooms, addressing, multi-device fan-out, SQLite store, MCP server, file claims, task board,
+room tabs. **Done when** three agents on two computers can work in one room, with one addressed
+message delivered only to its recipient, and old `ai-relay.mjs` commands still work.
+
+### Phase 4: Messages built in
+chat.db reader + `attributedBody` decoder, change watcher, attachments, contacts, AppleScript send,
+`messages` channel, Messages UI switched over, BlueBubbles removed. **Done when** the user can read
+and send iMessages on Windows with BlueBubbles uninstalled.
+
+### Phase 5: Remote control built in
+Host capture/encode/input per platform, viewer tab, consent + banner, adaptive quality, then
+RustDesk removal. **Done when** each computer can control the other from a tab, over LAN and
+Tailscale, with no RustDesk installed.
+
+### Phase 6: Everyday
+Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health fix-its, auto-update.
+
+### Phase 7: Extras (user decisions later)
+Wake-on-LAN button, iPhone via the LocalSend app, audio in remote sessions, a SYSTEM service on
+Windows for UAC prompts, code signing and notarisation.
+
+Order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7. Rust tests for pairing, crypto and protocol code are
+written together with Phase 1, not after it.
+
+---
+
+## Open questions
+
+1. **More than two computers?** The design supports it (D7); is a third device planned?
+2. **CI minutes**: macOS runners use GitHub Actions minutes at 10× the Linux rate on private repos.
+   Build the Mac app in CI on every PR, or only on release tags?
+3. **Messages limits**: are the known limits (no tapbacks, typing indicators, edit/unsend) acceptable?
+4. **Remote-control consent default** for paired devices: "always allow" or "ask each time"?
+
+---
+
+## Where things stand (v0.7, 2026-09-29)
 
 | Area | State |
 |---|---|
-| Pairing (BridgeLink) | Works; peer status shown natively; IP changes followed automatically |
-| AI relay | Works both ways, long messages OK; agents poll every 2 s |
-| Syncthing | `bridgedeck-shared` and `bridgedeck-source` in sync; Windows auto-start still off |
-| File transfer | Receiver auto-starts; paired computer auto-accepted; drag-and-drop to queue |
-| RustDesk | Auto-detected and kept running; Mac still needs permissions + Direct IP; connect not yet confirmed |
-| BlueBubbles | Not installed |
-| Security | Audit highs still open: plaintext pairing tokens, `cmd /C start` URL opening |
-| Engineering | No version control; `App.tsx` is one ~60 KB file; no automated tests |
-
----
-
-## Phase 0: Finish and stabilise (now, small)
-
-| # | Task | Owner | Done when |
-|---|---|---|---|
-| 0.1 | RustDesk on the Mac: Screen Recording, Accessibility, Input Monitoring; Direct IP on; permanent password. Direct IP on for Windows too | U, M | Control works both directions, and the notice says "via direct LAN" |
-| 0.2 | Turn on Syncthing Auto-start in BridgeDeck on Windows | U | Syncthing is running after a reboot |
-| 0.3 | Launch BridgeDeck at login on both (Tauri autostart plugin, toggle in Settings, default on) | W | After a reboot both cards show Online with nobody touching anything |
-| 0.4 | Put source under git (Windows is the history of record); add `.git` to `.stignore` on both | W, M | Each phase is a commit; Syncthing never touches `.git` |
-| 0.6 | Outbound BridgeLink connections get a connect timeout; the relay reports "peer offline" instead of stalling past the client's 10 s limit | W | Sending while the Mac sleeps fails fast with a clear error |
-| 0.5 | Bump to 0.8.0; show the build version on both cards, with a warning when they differ | W | Mismatched builds are obvious on Home |
-
-## Phase 1: Security hardening (before anything that widens exposure)
-
-These close the audit's open findings. They matter more once clipboard sync (Phase 2) or remote access
-(Phase 5) is added.
-
-| # | Task | Why |
-|---|---|---|
-| 1.1 | Replace `cmd /C start` with a shell-free opener (`tauri-plugin-opener`) | Audit HIGH: a crafted URL could run commands |
-| 1.2 | Authenticated pairing: X25519 key exchange, with the six-digit code **derived from the shared key** so both screens show the same code only when nobody is in the middle | Audit HIGH: tokens currently cross the LAN in plaintext and the code only prevents picking the wrong computer |
-| 1.3 | Encrypt all BridgeLink traffic (status, relay, future clipboard) with the pairing key (ChaCha20-Poly1305) | Relay messages and tokens are readable by anyone on the Wi-Fi today |
-| 1.4 | Secrets to the OS keychain (`keyring` crate: Windows Credential Manager / macOS Keychain); stop writing them to localStorage | Audit MEDIUM: API keys, tokens, passwords in plaintext JSON |
-| 1.5 | CORS: allow only the Tauri origin | Audit MEDIUM: any website can reach the pairing API |
-| 1.6 | Syncthing/BlueBubbles URLs loopback- or LAN-only unless explicitly confirmed | Audit MEDIUM: API keys could be sent to an arbitrary host |
-| 1.7 | Re-pair once after 1.2/1.3 ship (old tokens rejected) | U |
-
-## Phase 2: Everyday experience
-
-| # | Task | Notes |
-|---|---|---|
-| 2.1 | **Clipboard sync** (text and images), paired computer only, toggle in Settings, off by default until 1.3 ships | The biggest daily win; needs encryption first |
-| 2.2 | **"Send to Mac/Windows" from the OS**: Explorer *Send to* shortcut on Windows; Finder Quick Action on the Mac | No need to open BridgeDeck to send a file |
-| 2.3 | Tray (Windows) / menu-bar (Mac) icon: status dot, Send files, Control other computer, Open shared folder | BridgeDeck can live in the background |
-| 2.4 | Native notifications: file received, relay message for the human, peer went offline, rebuild needed | |
-| 2.5 | Home becomes a health checklist with fix-it buttons (RustDesk permission missing, Syncthing stopped, builds differ, peer offline) | One place to see what's wrong |
-| 2.6 | Receive folder defaults to `~/BridgeDeck Shared/Inbox` so received files also land on the other side's shared folder | Optional: user decision |
-
-## Phase 3: BlueBubbles (iMessage on Windows)
-
-| # | Task | Owner |
-|---|---|---|
-| 3.1 | Install BlueBubbles Server 1.9.9 on the Mac; grant Full Disk Access + Accessibility; set password; LAN-only URL `http://192.168.4.28:1234` | M, U |
-| 3.2 | BridgeLink shares the BlueBubbles URL (never the password); user enters the password once on Windows (stored in keychain after 1.4) | W |
-| 3.3 | Messages page on Windows: chat list, send, new-message notifications | W |
-| 3.4 | BlueBubbles Server kept running by BridgeDeck on the Mac (same pattern as RustDesk) | W |
-
-## Phase 4: AI collaboration
-
-| # | Task | Why |
-|---|---|---|
-| 4.1 | **MCP server** (`agent/bridgedeck-mcp`) exposing relay send/read/wait, peer status, sync status, rebuild status as tools | Claude and Codex use BridgeDeck natively instead of shell commands |
-| 4.2 | Long-poll endpoint (`/ai/wait`) instead of 2 s polling; notification in BridgeDeck when a message is for the human | Instant delivery, no busy loop |
-| 4.3 | File claims: `/ai/claim` + `/ai/release`; BridgeDeck shows who is editing what; MCP refuses to edit claimed files | Enforces the source-sync rules instead of relying on memory |
-| 4.4 | One-command rebuild + install per platform (`scripts/rebuild-install.ps1`, `.sh`), with results posted to the relay | Less manual work, fewer mistakes |
-| 4.5 | Shared task board (`#tasks` channel, or `tasks.json` in the shared folder) shown in the AI Center | Both agents and the user see the same to-do list |
-
-## Phase 5: Engineering quality
-
-| # | Task |
-|---|---|
-| 5.1 | Split `App.tsx` into per-page components and hooks; no behaviour change |
-| 5.2 | Rust unit tests: relay auth, trusted-host auto-accept, peer IP update, `myID` serialisation, multi-packet HTTP reads |
-| 5.3 | `scripts/smoke-test.mjs`: after a rebuild, check `/status`, relay loopback, Syncthing folder state, receiver running |
-| 5.4 | Remove the dead Matrix-only paths or keep Matrix behind a clear "optional" switch |
-
-## Phase 6: Optional extensions (user decisions)
-
-- **Away from home**: Tailscale on both computers; BridgeLink over the tailnet. Only after Phase 1.
-- **Wake the Mac**: enable "Wake for network access" on the Mac; Wake-on-LAN button on the Mac card.
-- **iPhone**: BlueBubbles or LocalSend on iOS to join the same network of devices.
-
----
-
-## Suggested order
-
-Phase 0 → Phase 1 → Phase 3 (BlueBubbles, already requested) → Phase 2 → Phase 4 → Phase 5 → Phase 6.
-Phase 5.2 tests are written alongside Phase 1, since security code needs them most.
+| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH) |
+| AI relay | Works between two computers; one agent per side sees the other side's messages |
+| Files | LocalSend core built in; auto-accept from the paired computer |
+| Sync | Uses a separately installed Syncthing; `bridgedeck-shared` and `bridgedeck-source` in sync |
+| Remote | RustDesk launched as a separate app; Mac permissions not confirmed |
+| Messages | Needs BlueBubbles Server; not installed |
+| Contacts | Remote edits need Allow/Deny on the Mac, rate limited (2026-09-29 rebuild) |
+| Engineering | On GitHub since 2026-09-29; `App.tsx` is one 757-line file; no automated tests or CI |
