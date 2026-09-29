@@ -1,12 +1,14 @@
-import type { AppConfig } from '../types'
+import type { AppConfig, DeviceConfig } from '../types'
 import { loadNativeConfig, saveNativeConfig } from './bridge'
 
+export const blankDevice: Omit<DeviceConfig, 'id' | 'name' | 'platform' | 'local'> = {
+  agentUrl: '', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', syncthingDeviceId: '',
+}
+
 export const defaultConfig: AppConfig = {
-  configVersion: 7,
-  machines: [
-    { id: 'mac', name: 'Mac', agentUrl: 'http://127.0.0.1:4141', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', bridgeInstanceId: '', syncthingDeviceId: '' },
-    { id: 'windows', name: 'Windows', agentUrl: 'http://127.0.0.1:4142', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', bridgeInstanceId: '', syncthingDeviceId: '' },
-  ],
+  configVersion: 8,
+  // This computer and paired peers are added by BridgeLink as it learns about them.
+  devices: [],
   services: [
     { id: 'rustdesk', name: 'RustDesk', enabled: true, autoStart: false, notes: 'Two-way remote control' },
     { id: 'bluebubbles', name: 'BlueBubbles', enabled: true, autoStart: false, host: '127.0.0.1', port: 1234, notes: 'iMessage bridge from the Mac' },
@@ -21,17 +23,46 @@ export const defaultConfig: AppConfig = {
 
 const KEY = 'bridgedeck.config.v7'
 
-function mergeConfig(input: Partial<AppConfig> | null | undefined): AppConfig {
+/** v7 and earlier had two fixed slots, `machines: [{ id: 'mac' }, { id: 'windows' }]`. Configured slots
+ *  become devices keyed by their BridgeLink instance ID (or `manual-mac`/`manual-windows`); untouched
+ *  default slots are dropped. */
+type LegacyMachine = Omit<DeviceConfig, 'id' | 'platform' | 'local'> & { id: 'mac' | 'windows'; bridgeInstanceId?: string }
+
+const isLoopbackUrl = (url: string) => /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(url)
+
+export function migrateMachines(machines: LegacyMachine[]): DeviceConfig[] {
+  return machines.flatMap(machine => {
+    const defaultAgent = machine.agentUrl === (machine.id === 'mac' ? 'http://127.0.0.1:4141' : 'http://127.0.0.1:4142')
+    const configured = machine.bridgeInstanceId || machine.rustdeskPeerId || machine.localsendTarget || machine.sharedPath
+      || machine.syncthingDeviceId || machine.agentToken || (machine.agentUrl && !defaultAgent)
+    if (!configured) return []
+    return [{
+      ...blankDevice,
+      agentUrl: machine.agentUrl || '', agentToken: machine.agentToken || '', rustdeskPeerId: machine.rustdeskPeerId || '',
+      localsendTarget: machine.localsendTarget || '', localsendPin: machine.localsendPin || '', sharedPath: machine.sharedPath || '',
+      syncthingDeviceId: machine.syncthingDeviceId || '',
+      id: machine.bridgeInstanceId || `manual-${machine.id}`,
+      name: machine.name || (machine.id === 'mac' ? 'Mac' : 'Windows'),
+      platform: machine.id === 'mac' ? 'macos' : 'windows',
+      // The slot BridgeLink filled for this computer points at the local API.
+      local: Boolean(machine.bridgeInstanceId) && isLoopbackUrl(machine.agentUrl),
+    }]
+  })
+}
+
+export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppConfig {
   if (!input) return structuredClone(defaultConfig)
   // Services missing from defaultConfig (Matrix, removed after v0.7) are dropped here.
   const services = defaultConfig.services.map(base => ({ ...base, ...(input.services?.find(s => s.id === base.id) || {}) }))
-  const machines = defaultConfig.machines.map(base => ({ ...base, ...(input.machines?.find(m => m.id === base.id) || {}) }))
-  const { matrix: _removedMatrix, ...rest } = input as Partial<AppConfig> & { matrix?: unknown }
+  const { matrix: _removedMatrix, machines, ...rest } = input as Partial<AppConfig> & { matrix?: unknown; machines?: LegacyMachine[] }
+  const devices = Array.isArray(input.devices)
+    ? input.devices.map(device => ({ ...blankDevice, ...device }))
+    : migrateMachines(machines ?? [])
   return {
     ...defaultConfig,
     ...rest,
-    configVersion: 7,
-    machines,
+    configVersion: 8,
+    devices,
     services,
     bluebubbles: { ...defaultConfig.bluebubbles, ...(input.bluebubbles || {}) },
     syncthing: { ...defaultConfig.syncthing, ...(input.syncthing || {}) },

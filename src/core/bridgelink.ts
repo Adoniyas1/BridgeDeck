@@ -3,18 +3,19 @@ import {
   bridgeLinkApprove, bridgeLinkDecline, bridgeLinkForget, bridgeLinkPollPair, bridgeLinkRefreshPeer,
   bridgeLinkRequestPair, bridgeLinkStart, bridgeLinkStatus, bridgeLinkStop, fetchAgent, sourceUpdateStatus,
 } from '../lib/bridge'
-import type { AgentStatus, BridgeLinkPairedPeer, BridgeLinkPeer, BridgeLinkStatus, MachineConfig, SourceUpdateStatus } from '../types'
-import { configStore, hydratedStore, setConfig } from './config'
+import type { AgentStatus, BridgeLinkPairedPeer, BridgeLinkPeer, BridgeLinkStatus, DeviceConfig, SourceUpdateStatus } from '../types'
+import { configStore, hydratedStore, removeDevice, setConfig, upsertDevice } from './config'
 import { setNotice } from './notice'
 import { usePeriodicRefresh } from './refresh'
 import { createStore, useStore } from './store'
-import { agentUrlFor, errorText, machineIdForPlatform } from './util'
+import { agentUrlFor, errorText } from './util'
 
 // BridgeLink is shared infrastructure: every feature reaches the paired computers through it.
 
 export const bridgeLinkStore = createStore<BridgeLinkStatus>({ running: false, instanceId: '', displayName: 'BridgeDeck', platform: '', apiPort: 41416, discovered: [], pending: [], paired: [] })
 export const pairingStateStore = createStore('Automatic pairing has not started yet.')
-export const machineStatusStore = createStore<Record<string, AgentStatus>>({})
+/** Live status of each device, keyed by device id. */
+export const deviceStatusStore = createStore<Record<string, AgentStatus>>({})
 export const sourceUpdateStore = createStore<SourceUpdateStatus | null>(null)
 
 /** Identifiers this computer advertises to paired peers. Features publish theirs with `advertise` as
@@ -25,67 +26,36 @@ export function advertise(patch: Partial<{ rustdeskId: string; syncthingId: stri
   advertisedStore.set(current => Object.entries(patch).every(([key, value]) => current[key as keyof typeof current] === value) ? current : { ...current, ...patch })
 }
 
+/** Only non-empty values: an ID a peer hasn't reported yet never clears one already known. */
+const known = (patch: Partial<DeviceConfig>) => Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined && value !== '')) as Partial<DeviceConfig>
+
 function applyLocalBridge(status: BridgeLinkStatus, rustdeskId?: string, syncthingDeviceId?: string) {
-  const machineId = machineIdForPlatform(status.platform)
-  if (!machineId) return
-  setConfig(c => ({
-    ...c,
-    machines: c.machines.map(machine => machine.id === machineId ? {
-      ...machine,
-      agentUrl: `http://127.0.0.1:${status.apiPort}`,
-      agentToken: '',
-      rustdeskPeerId: rustdeskId || machine.rustdeskPeerId,
-      localsendTarget: `127.0.0.1:${c.localsend.port}`,
-      bridgeInstanceId: status.instanceId,
-      syncthingDeviceId: syncthingDeviceId || machine.syncthingDeviceId,
-    } : machine),
-  }))
+  if (!status.instanceId) return
+  // A previous identity of this computer (reinstall, reset) is replaced rather than kept as a second "this computer".
+  setConfig(c => c.devices.some(d => d.local && d.id !== status.instanceId) ? { ...c, devices: c.devices.filter(d => !d.local || d.id === status.instanceId) } : c)
+  upsertDevice(status.instanceId, {
+    local: true,
+    agentUrl: `http://127.0.0.1:${status.apiPort}`,
+    agentToken: '',
+    localsendTarget: `127.0.0.1:${configStore.get().localsend.port}`,
+    ...known({ rustdeskPeerId: rustdeskId, syncthingDeviceId }),
+  }, { name: status.displayName || 'This computer', platform: status.platform, local: true })
 }
 
+/** Adds or updates the paired computer's device entry. Runs at pairing, at start-up and on every refresh. */
 export function applyPairedPeer(peer: BridgeLinkPairedPeer) {
-  const machineId = machineIdForPlatform(peer.platform)
-  if (!machineId) {
-    setNotice(`Paired with ${peer.name}, but BridgeDeck does not have a ${peer.platform} machine slot yet.`)
-    return
-  }
-  setConfig(c => ({
-    ...c,
-    machines: c.machines.map(machine => machine.id === machineId ? {
-      ...machine,
-      name: machine.id === 'mac' ? 'Mac' : 'Windows',
-      agentUrl: agentUrlFor(peer.host, peer.apiPort),
-      agentToken: peer.accessToken,
-      rustdeskPeerId: peer.rustdeskPeerId || machine.rustdeskPeerId,
-      localsendTarget: peer.localsendTarget || machine.localsendTarget,
-      bridgeInstanceId: peer.instanceId,
-      syncthingDeviceId: peer.syncthingDeviceId || machine.syncthingDeviceId,
-    } : machine),
-  }))
-}
-
-/** Like applyPairedPeer, but leaves config untouched when nothing changed (it runs on every refresh). */
-function syncPairedPeer(peer: BridgeLinkPairedPeer) {
-  const machineId = machineIdForPlatform(peer.platform)
-  if (!machineId) return
-  setConfig(c => {
-    const machine = c.machines.find(m => m.id === machineId)
-    if (!machine || (machine.bridgeInstanceId && machine.bridgeInstanceId !== peer.instanceId)) return c
-    const next: Partial<MachineConfig> = {
-      agentUrl: agentUrlFor(peer.host, peer.apiPort),
-      agentToken: peer.accessToken,
-      rustdeskPeerId: peer.rustdeskPeerId || machine.rustdeskPeerId,
-      localsendTarget: peer.localsendTarget || machine.localsendTarget,
-      syncthingDeviceId: peer.syncthingDeviceId || machine.syncthingDeviceId,
-    }
-    if (Object.entries(next).every(([key, value]) => machine[key as keyof MachineConfig] === value)) return c
-    return { ...c, machines: c.machines.map(m => m.id === machineId ? { ...m, ...next } : m) }
-  })
+  upsertDevice(peer.instanceId, {
+    platform: peer.platform,
+    agentUrl: agentUrlFor(peer.host, peer.apiPort),
+    agentToken: peer.accessToken,
+    ...known({ rustdeskPeerId: peer.rustdeskPeerId, localsendTarget: peer.localsendTarget, syncthingDeviceId: peer.syncthingDeviceId }),
+  }, { name: peer.name, platform: peer.platform, local: false })
 }
 
 /** Asks the paired computer for its latest details (new IP, RustDesk/Syncthing IDs) and applies them. */
 export async function refreshPeer(instanceId: string): Promise<BridgeLinkPairedPeer | undefined> {
   const refreshed = await bridgeLinkRefreshPeer(instanceId)
-  if (refreshed.peer) syncPairedPeer(refreshed.peer)
+  if (refreshed.peer) applyPairedPeer(refreshed.peer)
   return refreshed.peer
 }
 
@@ -147,25 +117,14 @@ export async function declineAutomaticPair(requestId: string) {
 export async function forgetAutomaticPair(instanceId: string) {
   try {
     bridgeLinkStore.set(await bridgeLinkForget(instanceId))
-    setConfig(c => ({
-      ...c,
-      machines: c.machines.map(machine => machine.bridgeInstanceId === instanceId ? {
-        ...machine,
-        agentUrl: machine.id === 'mac' ? 'http://127.0.0.1:4141' : 'http://127.0.0.1:4142',
-        agentToken: '',
-        rustdeskPeerId: '',
-        localsendTarget: '',
-        bridgeInstanceId: '',
-        syncthingDeviceId: '',
-      } : machine),
-    }))
+    removeDevice(instanceId)
     pairingStateStore.set('Paired computer forgotten.')
   } catch (error) {
     pairingStateStore.set(errorText(error, 'Could not forget paired computer'))
   }
 }
 
-/** Mounted once by the shell: keeps BridgeLink status, pairing and machine status current. */
+/** Mounted once by the shell: keeps BridgeLink status, pairing and device status current. */
 export function BridgeLinkBackground() {
   const hydrated = useStore(hydratedStore)
   const config = useStore(configStore)
@@ -218,9 +177,9 @@ export function BridgeLinkBackground() {
   }, [hydrated, rustdeskId, syncthingId])
 
   usePeriodicRefresh(async () => {
-    const machines = configStore.get().machines
-    const statuses = await Promise.all(machines.map(async m => [m.id, await fetchAgent(m.agentUrl, m.agentToken)] as const))
-    machineStatusStore.set(Object.fromEntries(statuses))
+    const devices = configStore.get().devices.filter(d => d.agentUrl)
+    const statuses = await Promise.all(devices.map(async d => [d.id, await fetchAgent(d.agentUrl, d.agentToken)] as const))
+    deviceStatusStore.set(Object.fromEntries(statuses))
     try { sourceUpdateStore.set(await sourceUpdateStatus()) } catch { /* browser mode */ }
     // Pick up peer changes made after pairing (new IP, RustDesk/Syncthing IDs).
     try {
@@ -229,7 +188,7 @@ export function BridgeLinkBackground() {
         try { await refreshPeer(peer.instanceId) } catch { /* peer offline */ }
       }
     } catch { /* browser mode */ }
-  }, 15000, [config.machines])
+  }, 15000, [config.devices])
 
   return null
 }

@@ -56,12 +56,12 @@ for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', '
 }
 for (const text of [
   'pickTransferPaths', 'sendWithLocalSend',
-  'Automatic Mac ↔ Windows pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
+  'Automatic pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
   'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId', 'openTab', 'closeTab',
 ]) app.includes(text) ? ok(`UI integration ${text}`) : fail(`UI integration ${text} missing`)
 
 const config = readFileSync(join(root, 'src/lib/config.ts'), 'utf8')
-if (config.includes('configVersion: 7') && config.includes("sharedFolderId: 'bridgedeck-shared'") && config.includes('autoSetup: true')) ok('v0.7 sync config migration'); else fail('v0.7 sync config migration missing')
+if (config.includes('configVersion: 8') && config.includes('migrateMachines') && config.includes("sharedFolderId: 'bridgedeck-shared'") && config.includes('autoSetup: true')) ok('v0.8 device-list config migration'); else fail('v0.8 device-list config migration missing')
 if (lib.includes('config-v7.json') && lib.includes('config-v6.json')) ok('native config v7 migration'); else fail('native config v7 migration missing')
 
 const cap = JSON.parse(readFileSync(join(root, 'src-tauri/capabilities/default.json'), 'utf8'))

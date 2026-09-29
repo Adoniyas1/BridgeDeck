@@ -1,5 +1,3 @@
-import type { MachineConfig } from '../types'
-
 export const fmtBytes = (value?: number) => value ? `${(value / 1024 ** 3).toFixed(1)} GB` : '—'
 export const fmtUptime = (value?: number) => value ? `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m` : '—'
 export const fmtSize = (value = 0) => value < 1000 ? `${value} B` : value < 1_000_000 ? `${(value / 1000).toFixed(1)} KB` : value < 1_000_000_000 ? `${(value / 1_000_000).toFixed(1)} MB` : `${(value / 1_000_000_000).toFixed(2)} GB`
@@ -18,9 +16,5 @@ export const isStaleLanUrl = (saved: string, current: string) => {
 /** Native (Tauri) command errors arrive as plain strings, not Error objects. */
 export const errorText = (error: unknown, fallback: string) => error instanceof Error ? error.message : typeof error === 'string' && error ? error : fallback
 
-export const machineIdForPlatform = (platform: string): MachineConfig['id'] | null => {
-  const value = platform.toLowerCase()
-  if (value.includes('win')) return 'windows'
-  if (value.includes('mac') || value.includes('darwin')) return 'mac'
-  return null
-}
+export const platformLabel = (platform: string) =>
+  ({ macos: 'macOS', windows: 'Windows', linux: 'Linux', ios: 'iOS', ipados: 'iPadOS', android: 'Android' } as Record<string, string>)[platform.toLowerCase()] || platform || 'Unknown'

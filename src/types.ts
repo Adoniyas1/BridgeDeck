@@ -16,22 +16,28 @@ export type ServiceConfig = {
   notes?: string
 }
 
-export type MachineConfig = {
-  id: 'mac' | 'windows'
+/** A computer (later also a phone or tablet) BridgeDeck knows about: this one, each paired peer, and any
+ *  added by hand. Any number of devices is allowed (roadmap D7). */
+export type DeviceConfig = {
+  /** BridgeLink instance ID, or `manual-…` for a device entered by hand. */
+  id: string
   name: string
+  /** As BridgeLink reports it: `macos`, `windows`, `linux`, … */
+  platform: string
+  /** This computer. */
+  local: boolean
   agentUrl: string
   agentToken: string
   rustdeskPeerId: string
   localsendTarget: string
   localsendPin: string
   sharedPath: string
-  bridgeInstanceId: string
   syncthingDeviceId: string
 }
 
 export type AppConfig = {
-  configVersion: 7
-  machines: MachineConfig[]
+  configVersion: 8
+  devices: DeviceConfig[]
   services: ServiceConfig[]
   bluebubbles: {
     baseUrl: string

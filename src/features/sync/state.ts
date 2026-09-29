@@ -1,11 +1,10 @@
 import { useEffect } from 'react'
 import { bridgeLinkStatus, syncthingFolders, syncthingSetupPeer, syncthingStatus } from '../../lib/bridge'
 import { advertise, applyPairedPeer, bridgeLinkStore, refreshPeer } from '../../core/bridgelink'
-import { configStore, serviceConfig, setConfig } from '../../core/config'
+import { configStore, serviceConfig, updateDevice } from '../../core/config'
 import { setNotice } from '../../core/notice'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
-import { machineIdForPlatform } from '../../core/util'
 import type { BridgeLinkPairedPeer, SyncthingAutoSetupResult, SyncthingFolder, SyncthingStatus } from '../../types'
 
 export const syncthingStore = createStore<SyncthingStatus>({ ok: false })
@@ -61,10 +60,7 @@ export async function configureSyncthingPeer(originalPeer: BridgeLinkPairedPeer)
       folderPath: syncthing.sharedFolderPath,
     })
     setSetup(peer.instanceId, result)
-    const machineId = machineIdForPlatform(peer.platform)
-    if (machineId) {
-      setConfig(c => ({ ...c, machines: c.machines.map(machine => machine.id === machineId ? { ...machine, syncthingDeviceId: peer.syncthingDeviceId || machine.syncthingDeviceId, sharedPath: result.folderPath } : machine) }))
-    }
+    updateDevice(peer.instanceId, { syncthingDeviceId: peer.syncthingDeviceId, sharedPath: result.folderPath })
     syncthingFoldersStore.set(await syncthingFolders(syncthing.baseUrl, syncthing.apiKey))
     setNotice(result.detail)
   } catch (error) {

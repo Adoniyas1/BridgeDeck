@@ -8,7 +8,7 @@ import { bridgeLinkStore } from '../../core/bridgelink'
 import { configStore, serviceConfig } from '../../core/config'
 import { createStore, useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
-import type { LocalSendReceiverStatus, MachineConfig } from '../../types'
+import type { DeviceConfig, LocalSendReceiverStatus } from '../../types'
 
 export const receiverStore = createStore<LocalSendReceiverStatus>({ running: false, alias: 'BridgeDeck', port: 53317, destination: '', recent: [], devices: [] })
 export const transferPathsStore = createStore<string[]>([])
@@ -30,7 +30,7 @@ export async function addTransferPaths(directory = false) {
   }
 }
 
-export async function sendWithLocalSend(machine: MachineConfig) {
+export async function sendWithLocalSend(machine: DeviceConfig) {
   const paths = transferPathsStore.get()
   if (!machine.localsendTarget || !paths.length || transferBusyStore.get()) return
   transferBusyStore.set(true)

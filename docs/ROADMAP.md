@@ -235,7 +235,7 @@ Each phase ends with both computers on the new build and its checks passing.
 |---|---|---|
 | 0.1 | Split `src/App.tsx` into `src/shell/` (tab bar, device list, Home, Settings) and `src/features/<id>/`; feature registry on both sides | Same behaviour as v0.7, no page code in the shell |
 | 0.2 | Tab bar with fixed + dynamic tabs and the `suspended` signal | Opening/closing a dummy dynamic tab works |
-| 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots | Existing pairing survives the upgrade |
+| 0.3 | Device-list data model (D7) with a config migration from the `mac`/`windows` slots. Feature fields (RustDesk ID, LocalSend target, Syncthing ID) stay on the device record until the phase that rebuilds each feature moves them into it | Existing pairing survives the upgrade |
 | 0.4 | Remove Matrix; replace `cmd /C start` with `tauri-plugin-opener`. The "Open …UI" buttons stay as fallbacks until the phase that builds each feature in removes them | Audit HIGH #1 closed |
 | 0.5 | Secrets to the keychain, settings JSON without secrets, no config in `localStorage` | Audit MEDIUM closed |
 | 0.6 | GitHub Actions: on every PR, Linux checks (typecheck, frontend build, `verify:project`, Rust tests); Mac + Windows installers only on manual run or release tag (D13) | PRs are checked cheaply; a release produces both installers |

@@ -4,7 +4,7 @@ import { configStore, serviceConfig } from '../../core/config'
 import { setNotice } from '../../core/notice'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
-import type { MachineConfig, RustDeskIdentity } from '../../types'
+import type { DeviceConfig, RustDeskIdentity } from '../../types'
 
 export const rustdeskInfoStore = createStore<RustDeskIdentity>({ available: false })
 
@@ -20,7 +20,7 @@ export async function refreshRustDeskIdentity() {
   }
 }
 
-export async function startRustDeskSession(machine: MachineConfig, mode: 'control' | 'file-transfer') {
+export async function startRustDeskSession(machine: DeviceConfig, mode: 'control' | 'file-transfer') {
   if (!machine.rustdeskPeerId) return
   try {
     setNotice(`${mode === 'control' ? 'Connecting to' : 'Opening file transfer with'} ${machine.name}…`)
