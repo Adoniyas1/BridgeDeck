@@ -3,6 +3,7 @@ mod bridgelink;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
+mod link;
 mod upgrade;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
@@ -1042,12 +1043,15 @@ pub fn run() {
             bridgelink::bridgelink_start,
             bridgelink::bridgelink_stop,
             bridgelink::bridgelink_status,
-            bridgelink::bridgelink_request_pair,
-            bridgelink::bridgelink_poll_pair,
-            bridgelink::bridgelink_approve,
-            bridgelink::bridgelink_decline,
+            bridgelink::peer::bridgelink_request_pair,
+            bridgelink::peer::bridgelink_poll_pair,
+            bridgelink::peer::bridgelink_approve,
+            bridgelink::peer::bridgelink_decline,
             bridgelink::bridgelink_forget,
-            bridgelink::bridgelink_refresh_peer,
+            bridgelink::peer::bridgelink_refresh_peer,
+            bridgelink::peer::bridgelink_peer_status,
+            bridgelink::peer::bridgelink_confirm_pair,
+            bridgelink::peer::bridgelink_legacy_upgrade,
             bridgelink::bridgelink_ai_messages,
             bridgelink::bridgelink_ai_send,
             bridgelink::bridgelink_ai_token_path,

@@ -1,6 +1,6 @@
 [package]
 name = "bridgedeck"
-version = "0.8.1"
+version = "0.9.0"
 description = "Cross-platform Mac and Windows control dashboard"
 authors = ["BridgeDeck contributors"]
 edition = "2021"
@@ -34,6 +34,11 @@ mime_guess = "2"
 anyhow = "1"
 base64 = "0.22"
 sha2 = "0.10"
+# BridgeLink v2: QUIC between paired devices with pinned self-signed certificates.
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
+rand = "0.8"
 sysinfo = { version = ">=0.30, <1", default-features = false, features = ["system"] }
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
