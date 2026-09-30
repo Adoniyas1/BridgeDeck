@@ -33,6 +33,7 @@ walkdir = "2"
 mime_guess = "2"
 anyhow = "1"
 base64 = "0.22"
+rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
 # BridgeLink v2: QUIC between paired devices with pinned self-signed certificates.
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }

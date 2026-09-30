@@ -8,8 +8,8 @@ const command = process.argv[2] || 'status'
 const platform = os.platform() === 'win32' ? 'windows' : os.platform() === 'darwin' ? 'macos' : 'linux'
 const base = join(root, 'runtime', platform)
 const names = platform === 'windows'
-  ? { rustdesk: ['rustdesk','rustdesk.exe'], syncthing: ['syncthing','syncthing.exe'], bluebubbles: ['bluebubbles','BlueBubbles.exe'] }
-  : { rustdesk: ['rustdesk','rustdesk'], syncthing: ['syncthing','syncthing'], bluebubbles: ['bluebubbles','BlueBubbles'] }
+  ? { rustdesk: ['rustdesk','rustdesk.exe'], syncthing: ['syncthing','syncthing.exe'] }
+  : { rustdesk: ['rustdesk','rustdesk'], syncthing: ['syncthing','syncthing'] }
 
 if (command === 'init') {
   for (const [folder] of Object.values(names)) mkdirSync(join(base, folder), { recursive: true })

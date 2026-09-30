@@ -85,7 +85,6 @@ fn new_peer(instance_id: &str, name: &str, platform: &str, host: String, api_por
         rustdesk_peer_id: None,
         localsend_port: 53317,
         syncthing_device_id: None,
-        bluebubbles_port: None,
         paired_at: now_ms(),
     }
 }
@@ -330,6 +329,13 @@ impl Handler for PeerHandler {
                 Ok(()) => Response::json(202, r#"{"ok":true}"#),
                 Err(error) => Response::json(400, json!({ "ok": false, "error": error }).to_string()),
             },
+            ("POST", "/messages") => match serde_json::from_str::<crate::imessage::Op>(&request.body) {
+                Ok(op) => match crate::imessage::handle(op) {
+                    Ok(value) => Response::json(200, json!({ "ok": true, "result": value }).to_string()),
+                    Err(error) => Response::json(409, json!({ "ok": false, "error": error }).to_string()),
+                },
+                Err(_) => Response::json(400, r#"{"ok":false,"error":"Invalid Messages request"}"#),
+            },
             ("POST", "/contacts/save") => receive_contact_save(manager, &peer, &request.body),
             ("POST", "/upgrade/request") => {
                 let Ok(req) = serde_json::from_str::<UpgradeRequest>(&request.body) else {
@@ -426,6 +432,16 @@ pub(super) fn deliver_ai(manager: &BridgeLinkManager, instance_id: &str, wire: &
     }
 }
 
+/// A Messages request to the paired Mac (see `crate::imessage`).
+pub fn forward_messages(manager: &BridgeLinkManager, instance_id: &str, op: serde_json::Value) -> Result<serde_json::Value, String> {
+    let (peer, response) = peer_request(manager, instance_id, "POST", "/messages", op.to_string(), Duration::from_secs(30))?;
+    let mut value: serde_json::Value = serde_json::from_str(&response.body).unwrap_or(serde_json::Value::Null);
+    if !(200..300).contains(&response.status) || value.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return Err(response_error(&peer, &response));
+    }
+    Ok(value["result"].take())
+}
+
 /// Sends this device's workspace view to a paired device (see `workspace::push`).
 pub(super) fn push_workspace(manager: &BridgeLinkManager, instance_id: &str, body: String) -> Result<(), String> {
     let (peer, response) = peer_request(manager, instance_id, "POST", "/ai/state", body, PEER_REQUEST_TIMEOUT)?;
@@ -455,7 +471,6 @@ fn fetch_peer_status(manager: &BridgeLinkManager, instance_id: &str) -> Result<(
         stored.syncthing_device_id = Some(id);
     }
     // Present-or-absent on every refresh: the server can be stopped or started at any time.
-    stored.bluebubbles_port = value.get("bluebubblesPort").and_then(|v| v.as_u64()).and_then(|v| u16::try_from(v).ok());
     let public = stored.public();
     save_peers(&runtime)?;
     Ok((value, public))

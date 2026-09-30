@@ -43,6 +43,9 @@ const MAX_AI_MESSAGES: usize = 500;
 const MAX_AI_BODY: usize = 24 * 1024;
 const DEFAULT_AI_CHANNEL: &str = "shared-agents";
 /// What this build can do for a paired device; reported in `/status`.
+#[cfg(target_os = "macos")]
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "messages"];
+#[cfg(not(target_os = "macos"))]
 pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade"];
 
 #[derive(Clone, Debug, Serialize)]
@@ -104,8 +107,6 @@ pub struct BridgeLinkPairedPeer {
     pub rustdesk_peer_id: Option<String>,
     pub localsend_target: String,
     pub syncthing_device_id: Option<String>,
-    /// BlueBubbles Server on the peer (Mac), e.g. `http://192.168.4.28:1234`. Never includes the password.
-    pub bluebubbles_url: Option<String>,
     /// "lan" or "tailscale": the network the current address belongs to.
     pub via: String,
     pub paired_at: u64,
@@ -228,8 +229,6 @@ struct PersistedPeer {
     rustdesk_peer_id: Option<String>,
     localsend_port: u16,
     syncthing_device_id: Option<String>,
-    #[serde(default)]
-    bluebubbles_port: Option<u16>,
     paired_at: u64,
 }
 
@@ -245,7 +244,6 @@ impl PersistedPeer {
             rustdesk_peer_id: self.rustdesk_peer_id.clone(),
             localsend_target: format_host_port(&self.host, self.localsend_port),
             syncthing_device_id: self.syncthing_device_id.clone(),
-            bluebubbles_url: self.bluebubbles_port.map(|port| format!("http://{}", format_host_port(&self.host, port))),
             via: if is_tailscale_host(&self.host) { "tailscale" } else { "lan" }.into(),
             paired_at: self.paired_at,
         }
@@ -682,17 +680,8 @@ fn status_body(runtime: &Runtime) -> String {
         "rustdeskPeerId": runtime.rustdesk_id,
         "localsendPort": runtime.localsend_port,
         "syncthingDeviceId": runtime.syncthing_device_id,
-        "bluebubblesPort": local_bluebubbles_port(),
     })
     .to_string()
-}
-
-/// BlueBubbles Server's default port, advertised only when the server is actually listening here.
-const BLUEBUBBLES_PORT: u16 = 1234;
-
-pub fn local_bluebubbles_port() -> Option<u16> {
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), BLUEBUBBLES_PORT);
-    TcpStream::connect_timeout(&addr, Duration::from_millis(250)).ok().map(|_| BLUEBUBBLES_PORT)
 }
 
 /// Which relay messages a reader wants.
@@ -1056,7 +1045,7 @@ mod tests {
         let mut runtime = Runtime::default();
         let peer = PersistedPeer {
             instance_id: "p".into(), name: "Mac".into(), platform: "macos".into(), host: "192.168.4.28".into(), api_port: 41416,
-            fingerprint: "f".into(), rustdesk_peer_id: None, localsend_port: 53317, syncthing_device_id: None, bluebubbles_port: None, paired_at: 0,
+            fingerprint: "f".into(), rustdesk_peer_id: None, localsend_port: 53317, syncthing_device_id: None, paired_at: 0,
         };
         runtime.seen.insert("p".into(), vec![("100.100.1.2".into(), 5, true), ("192.168.4.28".into(), 9, false), ("192.168.1.50".into(), 3, false)]);
         let addresses: Vec<String> = peer_addresses(&runtime, &peer).iter().map(|a| a.ip().to_string()).collect();

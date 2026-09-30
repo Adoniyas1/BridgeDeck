@@ -58,7 +58,7 @@ Automatic setup creates or patches only the configured BridgeDeck folder/device 
 
 ## Settings secrets (v0.8)
 
-The Syncthing API key, BlueBubbles password, LocalSend PINs and any hand-entered device token are kept
+The Syncthing API key, LocalSend PINs and any hand-entered device token are kept
 in the OS credential store (macOS Keychain, Windows Credential Manager) as a single BridgeDeck entry
 (service `dev.bridgedeck.app`, account `settings-secrets`), not in `config-v7.json`. Settings saved
 by older builds are migrated on first load, and the copy older builds kept in the WebView's
@@ -71,3 +71,16 @@ once to allow access; choose **Always Allow**.
 
 The BridgeLink identity key (`bridgelink/identity-v2.json`) and the local AI relay token (`bridgelink/ai-token`,
 read by `agent/ai-relay.mjs`) are user-only files.
+
+## Messages (0.9)
+
+On the Mac, BridgeDeck reads `~/Library/Messages/chat.db` and the Contacts databases **read-only**
+(it needs Full Disk Access for that) and sends with Messages.app through AppleScript, passing the
+chat id, text and file path as script arguments (never pasted into the script). Paired devices ask
+the Mac over the encrypted link (`POST /messages`, pinned certificate); nothing about Messages is
+reachable from the network otherwise, and there is no password to leak (BlueBubbles, which exposed
+an HTTP API with a password in the URL, is removed). Chat and attachment ids are checked against a
+strict character set, attachments are served only from `~/Library/Messages`, uploads are written to
+`~/Pictures/BridgeDeck Sent` (Messages is sandboxed and can send from there) with a cleaned file name
+and a 100 MB limit, and sends are limited to 30 a minute. Any paired device can read and send your
+messages: pair only your own devices.

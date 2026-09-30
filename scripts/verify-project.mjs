@@ -48,6 +48,14 @@ for (const marker of [
   'Method::PATCH', 'BridgeDeck Shared', 'X-API-Key', 'fs::create_dir_all',
 ]) sync.includes(marker) ? ok(`Syncthing auto-setup ${marker}`) : fail(`Syncthing auto-setup missing: ${marker}`)
 
+// Phase 3: the AI workspace; Phase 4: Messages read on the Mac, BlueBubbles gone.
+const workspace = readFileSync(join(root, 'src-tauri/src/bridgelink/workspace.rs'), 'utf8')
+const imessage = ['mod.rs', 'chatdb.rs', 'typedstream.rs', 'contacts.rs'].map(f => readFileSync(join(root, 'src-tauri/src/imessage', f), 'utf8')).join('\n')
+for (const marker of ['fn merge(', 'fn claim(', 'fn is_for(', 'pub fn ai_workspace']) workspace.includes(marker) ? ok(`AI workspace ${marker}`) : fail(`AI workspace missing: ${marker}`)
+for (const marker of ['SQLITE_OPEN_READ_ONLY', 'fn text(data: &[u8])', 'Full Disk Access', '.args([chat, kind, payload])', 'Library/Messages']) imessage.includes(marker) ? ok(`Messages engine ${marker}`) : fail(`Messages engine missing: ${marker}`)
+if (!/bluebubbles/i.test(rust)) ok('BlueBubbles removed from the native side'); else fail('BlueBubbles code still present in Rust')
+existsSync(join(root, 'agent/bridgedeck-mcp.mjs')) ? ok('MCP server present') : fail('agent/bridgedeck-mcp.mjs missing')
+
 if (!rust.includes('command.arg("send").arg("--to")')) ok('obsolete LocalSend CLI send --to path removed'); else fail('obsolete LocalSend CLI send --to path still present')
 
 // The UI is split into src/shell, src/core and src/features/<id>; check the markers across all of it.

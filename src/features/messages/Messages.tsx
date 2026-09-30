@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X } from 'lucide-react'
-import { blueBubblesAttachment, blueBubblesChats, blueBubblesContacts, blueBubblesMessages, blueBubblesRecent, blueBubblesSend, contactsSave, desktopNotify, openExternal } from '../../lib/bridge'
-import type { BlueBubblesAttachment, BlueBubblesChat, BlueBubblesContact, BlueBubblesMessage } from '../../types'
+import { contactsSave, desktopNotify, imessage, imessageAttachment, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
+import type { ImAttachment, ImChat, ImContact, ImMessage } from '../../types'
 import { setConfig, useConfig } from '../../core/config'
+import type { MessagesSource } from './state'
 
 /** `visible`: the Messages page is on screen. The feed keeps polling while hidden so notifications and the
  *  unread badge work from any page; the open thread only loads while visible. */
-type Props = { baseUrl: string; password: string; visible: boolean; onUnreadChange?: (count: number) => void }
+type Props = { source: MessagesSource; visible: boolean; onUnreadChange?: (count: number) => void }
 type Person = {
   name: string
   avatar?: string
@@ -17,11 +18,11 @@ type Person = {
 }
 
 /** Key for a display-only nickname: the Contacts id when saved, else the normalized number or email. */
-const nicknameKey = (contact: BlueBubblesContact | undefined, address?: string | null) =>
+const nicknameKey = (contact: ImContact | undefined, address?: string | null) =>
   contact?.id ? `contact:${contact.id}` : `address:${addressKey(address)}`
 /** One row in the list: a group chat, or every 1:1 thread with the same person (iMessage/SMS/RCS, any of their numbers). */
-type Conversation = { key: string; chat: BlueBubblesChat; guids: string[]; sendGuid: string; lastMessage?: BlueBubblesMessage | null }
-type PendingMessage = BlueBubblesMessage & { pending?: boolean }
+type Conversation = { key: string; chat: ImChat; guids: string[]; sendGuid: string; lastMessage?: ImMessage | null }
+type PendingMessage = ImMessage & { pending?: boolean }
 
 const GROUP_GAP_MS = 3 * 60_000
 const SEPARATOR_GAP_MS = 60 * 60_000
@@ -43,7 +44,7 @@ function formatAddress(address?: string | null) {
   return address
 }
 
-function contactName(contact: BlueBubblesContact) {
+function contactName(contact: ImContact) {
   return contact.displayName?.trim() || [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || contact.nickname?.trim() || ''
 }
 
@@ -75,7 +76,7 @@ function separatorTime(ms: number) {
   return `${new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} at ${time}`
 }
 
-function previewText(message?: BlueBubblesMessage | null) {
+function previewText(message?: ImMessage | null) {
   if (!message) return ''
   const text = (message.text ?? '').replace(/￼/g, '').trim()
   if (text) return text
@@ -94,7 +95,7 @@ const REACTIONS: Record<string, string> = { love: '❤️', like: '👍', dislik
 const isReactionRemoval = (type: string) => type.startsWith('-') || /^3\d{3}$/.test(type)
 /** "p:0/GUID" or "bp:GUID" -> GUID of the message being reacted to. */
 const reactionTarget = (guid?: string | null) => (guid ?? '').replace(/^(p:\d+\/|bp:)/, '')
-function reactionEmoji(message: BlueBubblesMessage) {
+function reactionEmoji(message: ImMessage) {
   const type = message.associatedMessageType ?? ''
   if (REACTIONS[type]) return REACTIONS[type]
   if (type === '2006') return ((message.text ?? '').match(/\p{Extended_Pictographic}(\u200d\p{Extended_Pictographic}|\ufe0f)*/u) ?? [''])[0]
@@ -142,20 +143,20 @@ function Avatar({ person, size = 40, group = false }: { person?: Person; size?: 
 
 const imageCache = new Map<string, string>()
 /** Survives leaving and re-opening the Messages page. */
-let contactCache: { key: string; list: BlueBubblesContact[] } | null = null
+let contactCache: { key: string; list: ImContact[] } | null = null
 
-function AttachmentView({ attachment, baseUrl, password, onOpen, thumb = false }: { attachment: BlueBubblesAttachment; baseUrl: string; password: string; onOpen?: (src: string) => void; thumb?: boolean }) {
+function AttachmentView({ attachment, peer, onOpen, thumb = false }: { attachment: ImAttachment; peer: string | null; onOpen?: (src: string) => void; thumb?: boolean }) {
   const isImage = !!attachment.mimeType?.startsWith('image/')
   const [src, setSrc] = useState(() => (attachment.guid && imageCache.get(attachment.guid)) || '')
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!isImage || src || !attachment.guid) return
     let cancelled = false
-    blueBubblesAttachment(baseUrl, password, attachment.guid)
+    imessageAttachment(peer, attachment.guid)
       .then(url => { if (!cancelled && url) { imageCache.set(attachment.guid!, url); setSrc(url) } })
       .catch(() => { if (!cancelled) setFailed(true) })
     return () => { cancelled = true }
-  }, [attachment.guid, isImage, src, baseUrl, password])
+  }, [attachment.guid, isImage, src, peer])
   if (isImage && src) return <img className={thumb ? 'im-thumb' : 'im-photo'} src={src} alt={attachment.transferName || 'Photo'} onClick={() => onOpen?.(src)} />
   if (isImage && thumb) return <span className="im-thumb placeholder" />
   if (isImage && !failed) {
@@ -165,12 +166,14 @@ function AttachmentView({ attachment, baseUrl, password, onOpen, thumb = false }
   return <span className="im-file"><Paperclip size={14} />{attachment.transferName || 'Attachment'}</span>
 }
 
-export default function Messages({ baseUrl, password, visible, onUnreadChange }: Props) {
-  const configured = Boolean(baseUrl && password)
-  const [chats, setChats] = useState<BlueBubblesChat[]>([])
-  const [loadedContacts, setContacts] = useState<BlueBubblesContact[]>(() => contactCache?.key === `${baseUrl}|${password}` ? contactCache.list : [])
-  // Edits saved from BridgeDeck, applied over BlueBubbles' list until it re-reads the Mac's Contacts.
-  const [contactOverrides, setContactOverrides] = useState<Record<string, BlueBubblesContact>>({})
+export default function Messages({ source, visible, onUnreadChange }: Props) {
+  const configured = source.ready
+  const peer = source.peer
+  const sourceKey = peer ?? 'local'
+  const [chats, setChats] = useState<ImChat[]>([])
+  const [loadedContacts, setContacts] = useState<ImContact[]>(() => contactCache?.key === sourceKey ? contactCache.list : [])
+  // Edits saved from BridgeDeck, applied over the contact list until the Mac's Contacts is read again.
+  const [contactOverrides, setContactOverrides] = useState<Record<string, ImContact>>({})
   const contacts = useMemo(() => {
     const merged = loadedContacts.map(c => (c.id && contactOverrides[c.id]) || c)
     const known = new Set(loadedContacts.map(c => c.id))
@@ -207,7 +210,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     return map
   }, [contacts, nicknames])
 
-  const contactById = useMemo(() => new Map<string, BlueBubblesContact>(contacts.map((contact, index) => [`contact:${index}`, contact])), [contacts])
+  const contactById = useMemo(() => new Map<string, ImContact>(contacts.map((contact, index) => [`contact:${index}`, contact])), [contacts])
   // Read by the feed poller, whose closure outlives renders.
   const peopleRef = useRef(people)
   peopleRef.current = people
@@ -224,7 +227,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
 
   const personFor = (address?: string | null): Person => people.get(addressKey(address)) ?? { name: formatAddress(address) }
 
-  const chatTitle = (chat: BlueBubblesChat) => {
+  const chatTitle = (chat: ImChat) => {
     if (chat.displayName?.trim()) return chat.displayName.trim()
     const participants = chat.participants ?? []
     if (participants.length === 1) return personFor(participants[0].address).name
@@ -232,35 +235,35 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     if (participants.length > 1) return participants.map(p => { const person = personFor(p.address); return person.id ? person.name.split(' ')[0] : person.name }).join(', ')
     return formatAddress(chat.chatIdentifier)
   }
-  const isGroup = (chat?: BlueBubblesChat) => (chat?.participants?.length ?? 0) > 1
+  const isGroup = (chat?: ImChat) => (chat?.participants?.length ?? 0) > 1
 
-  // Contacts: BlueBubbles reads the Mac's address book progressively after it starts, so an early
-  // load can be partial. Reload every 5 minutes and keep the latest list across page visits.
+  // Contacts: read from the Mac's address book. Reload every 5 minutes and keep the latest list across
+  // page visits.
   useEffect(() => {
     if (!configured) return
     let cancelled = false
-    const load = () => blueBubblesContacts(baseUrl, password)
+    const load = () => imessage<ImContact[]>(peer, { op: 'contacts' })
       .then(list => {
         if (cancelled || !list.length) return
-        contactCache = { key: `${baseUrl}|${password}`, list }
+        contactCache = { key: sourceKey, list }
         setContacts(list)
       })
       .catch(() => undefined)
     void load()
     const timer = window.setInterval(() => void load(), 5 * 60_000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [baseUrl, password, configured])
+  }, [sourceKey, configured])
 
-  // Newest message per chat, from the server-wide feed. chat/query's ordering and lastMessage are
-  // unreliable on BlueBubbles 1.9.9, so the list order and previews come from here.
-  const [latest, setLatest] = useState<Record<string, { chat: BlueBubblesChat; last: BlueBubblesMessage }>>({})
+  // Newest message per chat, from the cross-chat feed (polled every 3 s), so the list order and
+  // previews follow new messages without reloading the chat list.
+  const [latest, setLatest] = useState<Record<string, { chat: ImChat; last: ImMessage }>>({})
   const [threadTick, setThreadTick] = useState(0)
   const [seenAt, setSeenAt] = useState<Record<string, number>>({})
   const openedAt = useRef(Date.now())
   const newestSeen = useRef(0)
   const selectedGuidsRef = useRef<string[]>([])
 
-  function mergeFeed(list: BlueBubblesMessage[]) {
+  function mergeFeed(list: ImMessage[]) {
     const usable = list.filter(m => m.chats?.[0]?.guid && !m.associatedMessageType)
     if (!list.length) return
     newestSeen.current = Math.max(newestSeen.current, ...list.map(m => toMs(m.dateCreated)))
@@ -280,7 +283,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
 
   /** Desktop notification for incoming messages that arrived after BridgeDeck opened, unless that
    *  conversation is on screen. More than three at once collapse into one summary. */
-  function notifyNew(list: BlueBubblesMessage[]) {
+  function notifyNew(list: ImMessage[]) {
     const fresh = list.filter(m => !m.isFromMe && m.guid && !notified.current.has(m.guid) && toMs(m.dateCreated) > openedAt.current)
     fresh.forEach(m => notified.current.add(m.guid!))
     const unseen = fresh.filter(m => !(visibleRef.current && document.hasFocus() && selectedGuidsRef.current.includes(m.chats![0].guid!)))
@@ -299,12 +302,12 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
   useEffect(() => {
     if (!configured) return
     let cancelled = false
-    const describe = (error: unknown) => typeof error === 'string' ? error : error instanceof Error ? error.message : 'Could not reach BlueBubbles Server'
+    const describe = (error: unknown) => typeof error === 'string' ? error : error instanceof Error ? error.message : 'Could not reach the Mac'
     const initial = async () => {
       try {
         const [recent, list] = await Promise.all([
-          blueBubblesRecent(baseUrl, password, Date.now() - 14 * 86_400_000, 1000),
-          blueBubblesChats(baseUrl, password, 100),
+          imessage<ImMessage[]>(peer, { op: 'recent', after: Date.now() - 14 * 86_400_000, limit: 1000 }),
+          imessage<ImChat[]>(peer, { op: 'chats', limit: 100 }),
         ])
         if (cancelled) return
         setChats(list)
@@ -317,22 +320,22 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     const poll = async () => {
       if (!newestSeen.current) return
       try {
-        const recent = await blueBubblesRecent(baseUrl, password, newestSeen.current - 2_000, 200)
+        const recent = await imessage<ImMessage[]>(peer, { op: 'recent', after: Math.floor(newestSeen.current - 2_000), limit: 200 })
         if (!cancelled) mergeFeed(recent)
       } catch { /* next poll retries */ }
     }
     const refreshList = async () => {
-      try { const list = await blueBubblesChats(baseUrl, password, 100); if (!cancelled) setChats(list) } catch { /* keep list */ }
+      try { const list = await imessage<ImChat[]>(peer, { op: 'chats', limit: 100 }); if (!cancelled) setChats(list) } catch { /* keep list */ }
     }
     void initial()
     const pollTimer = window.setInterval(() => void poll(), 3_000)
     const listTimer = window.setInterval(() => void refreshList(), 60_000)
     return () => { cancelled = true; window.clearInterval(pollTimer); window.clearInterval(listTimer) }
-  }, [baseUrl, password, configured])
+  }, [sourceKey, configured])
 
   // Every chat we know: chat/query results merged with the feed (newest message from either source).
   const chatList = useMemo(() => {
-    const byGuid = new Map<string, BlueBubblesChat>()
+    const byGuid = new Map<string, ImChat>()
     for (const chat of chats) if (chat.guid) byGuid.set(chat.guid, chat)
     for (const [guid, { chat, last }] of Object.entries(latest)) {
       const base = byGuid.get(guid)
@@ -346,7 +349,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
   // One row per person, like Messages: 1:1 threads over iMessage, SMS and RCS, and over any of a contact's
   // numbers or emails, merge into one conversation. Group chats stay separate.
   const conversations = useMemo(() => {
-    const groups = new Map<string, BlueBubblesChat[]>()
+    const groups = new Map<string, ImChat[]>()
     for (const chat of chatList) {
       const participants = chat.participants ?? []
       const oneToOne = participants.length <= 1 && !(chat.guid ?? '').includes(';+;')
@@ -384,7 +387,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     const guids = selectedGuids.split('|')
     const load = async () => {
       try {
-        const lists = await Promise.all(guids.map(guid => blueBubblesMessages(baseUrl, password, guid, 80).catch(() => [] as BlueBubblesMessage[])))
+        const lists = await Promise.all(guids.map(guid => imessage<ImMessage[]>(peer, { op: 'messages', chat: guid, limit: 80 }).catch(() => [] as ImMessage[])))
         if (cancelled) return
         const seen = new Set<string>()
         const merged = lists.flat()
@@ -398,7 +401,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     void load()
     const timer = window.setInterval(() => void load(), 15_000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [baseUrl, password, configured, visible, selectedGuids, threadTick])
+  }, [sourceKey, configured, visible, selectedGuids, threadTick])
 
   useEffect(() => {
     stickToBottom.current = true
@@ -538,15 +541,30 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     stickToBottom.current = true
     setPending(current => [...current, { guid: `pending-${Date.now()}`, text, isFromMe: true, dateCreated: Date.now(), pending: true }])
     try {
-      await blueBubblesSend(baseUrl, password, target, text)
+      await imessage(peer, { op: 'send', chat: target, text })
     } catch (error) {
       setPending(current => current.map(p => p.text === text && p.pending ? { ...p, error: 1 } : p))
       setStatus(typeof error === 'string' ? error : 'Message failed to send')
     }
   }
 
+  async function sendFile() {
+    const target = selected?.sendGuid
+    if (!target) return
+    try {
+      const [path] = await pickTransferPaths(false)
+      if (!path) return
+      setStatus(`Sending ${path.split(/[\\/]/).pop()}…`)
+      await imessageSendFile(peer, target, path)
+      setStatus('')
+      setThreadTick(t => t + 1)
+    } catch (error) {
+      setStatus(typeof error === 'string' ? error : error instanceof Error ? error.message : 'The file was not sent')
+    }
+  }
+
   if (!configured) {
-    return <div className="im-shell im-empty-shell"><MessageSquare size={28} /><h3>iMessage</h3><p>{baseUrl ? 'Enter the BlueBubbles password in Settings to load your conversations.' : 'Waiting for BlueBubbles Server on the paired Mac.'}</p></div>
+    return <div className="im-shell im-empty-shell"><MessageSquare size={28} /><h3>iMessage</h3><p>{source.detail || 'Looking for your Mac…'}</p></div>
   }
 
   return (
@@ -602,7 +620,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
                   <div className={`im-line ${message.isFromMe ? 'mine' : 'theirs'}${sameAsNext ? '' : ' tail'}${sameAsPrev && !showSeparator ? ' cont' : ''}`}>
                     {!message.isFromMe && isGroup(selected.chat) && <span className="im-line-avatar">{!sameAsNext && <Avatar person={personFor(message.handle?.address)} size={26} />}</span>}
                     <div className="im-stack">
-                      {attachments.map(a => <AttachmentView key={a.guid} attachment={a} baseUrl={baseUrl} password={password} onOpen={setViewer} />)}
+                      {attachments.map(a => <AttachmentView key={a.guid} attachment={a} peer={peer} onOpen={setViewer} />)}
                       {text && (jumbo ? <span className="im-jumbo">{text}</span> : <span className={`im-bubble${message.pending ? ' pending' : ''}`}><Linkified text={text} /></span>)}
                       {!!message.guid && !!reactions.get(message.guid)?.size && <span className="im-tapbacks">{[...new Set(reactions.get(message.guid)!.values())].join('')}{reactions.get(message.guid)!.size > 1 ? <small>{reactions.get(message.guid)!.size}</small> : null}</span>}
                     </div>
@@ -616,6 +634,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
           {status && <div className="im-error" role="alert">{status}<button onClick={() => setStatus('')} aria-label="Dismiss">×</button></div>}
           <div className="im-composer">
             <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} placeholder="iMessage" />
+            <button className="im-attach" onClick={() => void sendFile()} title="Send a file"><Paperclip size={15} /></button>
             <button className={draft.trim() ? 'ready' : ''} disabled={!draft.trim()} onClick={() => void send()} title="Send"><ArrowUp size={16} strokeWidth={2.5} /></button>
           </div>
           {showDetails && details && <aside className="im-details">
@@ -678,7 +697,7 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
             </section>}
             <section>
               <h4>Photos</h4>
-              {details.photos.length ? <div className="im-photo-grid">{details.photos.map(a => <AttachmentView key={a.guid} attachment={a} baseUrl={baseUrl} password={password} onOpen={setViewer} thumb />)}</div> : <p className="im-hint">No photos in recent messages</p>}
+              {details.photos.length ? <div className="im-photo-grid">{details.photos.map(a => <AttachmentView key={a.guid} attachment={a} peer={peer} onOpen={setViewer} thumb />)}</div> : <p className="im-hint">No photos in recent messages</p>}
             </section>
             <section>
               <h4>Links</h4>

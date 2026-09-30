@@ -42,8 +42,8 @@ BridgeDeck UI
 ├── Remote ───── native adapter ───── RustDesk runtime/source
 ├── Files ────── native Rust ──────── LocalSend core source
 ├── Sync ─────── native HTTP ──────── Syncthing REST config + shared workspace
-├── Messages ─── native HTTP ──────── BlueBubbles Server
-└── AI Center ── BridgeLink ───────── AI relay between paired computers
+├── Messages ─── BridgeLink ───────── read on the Mac (chat.db, Contacts), sent with Messages.app
+└── AI Center ── BridgeLink ───────── AI workspace: agents, rooms, to-dos, file claims, MCP server
 ```
 
 ## Source layout

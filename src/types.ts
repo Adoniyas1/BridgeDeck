@@ -1,6 +1,6 @@
 export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
 
-export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'localsend'
+export type ServiceKey = 'rustdesk' | 'syncthing' | 'localsend'
 export type RustDeskMode = 'control' | 'file-transfer'
 
 export type ServiceConfig = {
@@ -39,10 +39,6 @@ export type AppConfig = {
   configVersion: 8
   devices: DeviceConfig[]
   services: ServiceConfig[]
-  bluebubbles: {
-    baseUrl: string
-    password: string
-  }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'
@@ -73,15 +69,15 @@ export type AppConfig = {
 }
 
 
-export type BlueBubblesChat = {
+export type ImChat = {
   guid?: string
   displayName?: string
   chatIdentifier?: string
   participants?: Array<{ address?: string; firstName?: string; lastName?: string }>
-  lastMessage?: BlueBubblesMessage | null
+  lastMessage?: ImMessage | null
 }
 
-export type BlueBubblesAttachment = {
+export type ImAttachment = {
   guid?: string
   mimeType?: string | null
   transferName?: string
@@ -91,7 +87,7 @@ export type BlueBubblesAttachment = {
   hideAttachment?: boolean
 }
 
-export type BlueBubblesMessage = {
+export type ImMessage = {
   guid?: string
   text?: string | null
   message?: string
@@ -107,12 +103,12 @@ export type BlueBubblesMessage = {
   /** For tapbacks: "p:0/<guid>" of the message reacted to. */
   associatedMessageGuid?: string | null
   handle?: { address?: string } | null
-  attachments?: BlueBubblesAttachment[]
-  /** Present on the server-wide feed (`bluebubbles_recent`). */
-  chats?: BlueBubblesChat[]
+  attachments?: ImAttachment[]
+  /** Present on the cross-chat feed (`recent`). */
+  chats?: ImChat[]
 }
 
-export type BlueBubblesContact = {
+export type ImContact = {
   /** macOS Contacts identifier, "<UUID>:ABPerson". */
   id?: string
   firstName?: string
@@ -357,7 +353,6 @@ export type BridgeLinkPairedPeer = {
   rustdeskPeerId?: string
   localsendTarget: string
   syncthingDeviceId?: string
-  bluebubblesUrl?: string
   via: 'lan' | 'tailscale'
   pairedAt: number
 }

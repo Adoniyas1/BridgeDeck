@@ -59,7 +59,10 @@ In **Settings → Native LocalSend**, set an alias and optionally a receive fold
 
 ## 7. Other services
 
-- BlueBubbles: Mac server URL + password.
+- Messages: on the Mac, give BridgeDeck **Full Disk Access** (System Settings → Privacy & Security →
+  Full Disk Access) so it can read Messages and Contacts, and allow it to control **Messages** when
+  macOS asks (the first send). Windows reads Messages through the paired Mac; nothing to set up there.
+  BlueBubbles is no longer used and can be uninstalled.
 - Syncthing: REST base URL + API key.
 - RustDesk: bundled/custom runtime or installed RustDesk application.
 

@@ -330,3 +330,4 @@ main>.notice{margin-bottom:12px}
 .ai-task.done .grow{text-decoration:line-through;opacity:.6}
 .ai-task select,.section-title select,.composer .ai-to{background:transparent;color:inherit;border:1px solid var(--line-strong,#2a3545);border-radius:7px;padding:4px 6px;font-size:11px}
 .composer .ai-to{border:0;max-width:130px}
+.im-composer .im-attach{background:transparent;color:var(--muted,#8f9caf);border:0}

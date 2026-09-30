@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { appAvailable, blueBubblesPing, managedServiceStart, managedServiceStatus, managedServiceStop, probeTcp } from '../../lib/bridge'
+import { appAvailable, managedServiceStart, managedServiceStatus, managedServiceStop, probeTcp } from '../../lib/bridge'
 import { configStore } from '../../core/config'
 import { setNotice } from '../../core/notice'
 import { refreshAll, usePeriodicRefresh } from '../../core/refresh'
@@ -8,10 +8,10 @@ import type { ManagedServiceState, ServiceConfig, ServiceKey } from '../../types
 import { receiverStore } from '../files/state'
 import { syncthingStore } from '../sync/state'
 
-export const serviceIds: ServiceKey[] = ['rustdesk', 'bluebubbles', 'syncthing', 'localsend']
+export const serviceIds: ServiceKey[] = ['rustdesk', 'syncthing', 'localsend']
 
 export const managedStore = createStore<Record<string, ManagedServiceState>>({})
-/** Reachability checks (TCP probe, BlueBubbles ping, installed app); see `useServiceReady` for the full answer. */
+/** Reachability checks (TCP probe, installed app); see `useServiceReady` for the full answer. */
 export const probeStore = createStore<Record<string, boolean>>({})
 
 /** A service is ready when its probe succeeds, BridgeDeck manages a running copy, or (Syncthing,
@@ -35,9 +35,7 @@ async function refreshServices() {
   for (const service of config.services) {
     if (!service.enabled || service.id === 'localsend') { next[service.id] = false; continue }
     try {
-      if (service.id === 'bluebubbles' && config.bluebubbles.baseUrl && config.bluebubbles.password) {
-        next[service.id] = await blueBubblesPing(config.bluebubbles.baseUrl, config.bluebubbles.password)
-      } else if (service.host && service.port) {
+      if (service.host && service.port) {
         next[service.id] = await probeTcp(service.host, service.port)
       } else {
         next[service.id] = await appAvailable(service.id, service.executable)
@@ -83,6 +81,6 @@ export function ServicesBackground() {
     })).then(() => refreshAll())
   }, [])
 
-  usePeriodicRefresh(refreshServices, 15000, [config.services, config.bluebubbles])
+  usePeriodicRefresh(refreshServices, 15000, [config.services])
   return null
 }

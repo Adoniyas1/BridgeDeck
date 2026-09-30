@@ -82,7 +82,6 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/services') {
     const checks = await Promise.all([
       ['syncthing', 8384],
-      ['bluebubbles', 1234],
     ].map(async ([id, servicePort]) => [id, await probe('127.0.0.1', Number(servicePort))]))
     return json(res, 200, { ok: true, services: Object.fromEntries(checks) })
   }
