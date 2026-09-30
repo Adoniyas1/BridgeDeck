@@ -310,7 +310,7 @@ through the checks below, then Phase 6.
 | Sync | Syncthing runs hidden inside BridgeDeck; an existing install can be moved in; conflicts tab |
 | AI workspace | Agents, rooms, to-dos, file claims, addressed messages on every paired device; MCP server |
 | Messages | Read and sent by BridgeDeck on the Mac (Full Disk Access + Automation); BlueBubbles removed |
-| Remote | Built-in, in a tab, paired devices only, banner + Stop on the host; RustDesk kept as fallback |
+| Remote | Built-in, in a tab, paired devices only, banner + Stop on the host; RustDesk removed (0.9.1) |
 | Security | Audit HIGH #1/#2 and the MEDIUMs closed; loopback-only local API; CSP no longer allows LAN URLs |
 
 ### How the build differs from the plan (for review)
@@ -326,8 +326,9 @@ through the checks below, then Phase 6.
   platform encoder code or codec patents, and desktop content (mostly still) sends little. Full-screen
   video costs more bandwidth than H.264 would; the wire format allows swapping in H.264 later.
 - **Remote options not built yet**: "ask first" is one setting for all devices (not per device), no
-  stop hotkey (banner and tray only), no clipboard or audio in sessions. RustDesk is not removed
-  until the built-in one is proven on both computers.
+  stop hotkey (banner and tray only), no clipboard or audio in sessions. RustDesk was removed in
+  0.9.1 at the user's request (BridgeDeck must not depend on other apps); the Home tab quits RustDesk
+  and BlueBubbles left over from older setups and stops them opening at login.
 
 ### Checks on real hardware (U)
 

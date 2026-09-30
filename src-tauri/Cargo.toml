@@ -1,6 +1,6 @@
 [package]
 name = "bridgedeck"
-version = "0.9.0"
+version = "0.9.1"
 description = "Cross-platform Mac and Windows control dashboard"
 authors = ["BridgeDeck contributors"]
 edition = "2021"

@@ -2,16 +2,6 @@
   "generated": "2026-09-21",
   "components": [
     {
-      "id": "rustdesk",
-      "name": "RustDesk",
-      "repo": "https://github.com/rustdesk/rustdesk.git",
-      "ref": "1.4.9",
-      "commitPrefix": "6c57829",
-      "license": "AGPL-3.0",
-      "platforms": ["macos", "windows"],
-      "purpose": "Two-way remote desktop/control"
-    },
-    {
       "id": "syncthing",
       "name": "Syncthing",
       "repo": "https://github.com/syncthing/syncthing.git",

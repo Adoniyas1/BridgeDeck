@@ -166,6 +166,15 @@ fn participants(db: &Connection, chat_rowid: i64) -> rusqlite::Result<Vec<Handle
     rows.collect()
 }
 
+/// Some 1:1 chats have no `chat_handle_join` rows; the other person is then the chat identifier.
+fn participants_or_identifier(db: &Connection, chat_rowid: i64, guid: &str, identifier: &str) -> rusqlite::Result<Vec<Handle>> {
+    let list = participants(db, chat_rowid)?;
+    if list.is_empty() && guid.contains(";-;") && !identifier.is_empty() {
+        return Ok(vec![Handle { address: identifier.to_string() }]);
+    }
+    Ok(list)
+}
+
 fn chat_ref(db: &Connection, chat_rowid: i64) -> rusqlite::Result<Option<ChatRef>> {
     let chat = db
         .query_row("SELECT guid, COALESCE(display_name, ''), COALESCE(chat_identifier, '') FROM chat WHERE ROWID = ?1", [chat_rowid], |row| {
@@ -173,7 +182,10 @@ fn chat_ref(db: &Connection, chat_rowid: i64) -> rusqlite::Result<Option<ChatRef
         })
         .optional()?;
     Ok(match chat {
-        Some((guid, display_name, chat_identifier)) => Some(ChatRef { guid, display_name, chat_identifier, participants: participants(db, chat_rowid)? }),
+        Some((guid, display_name, chat_identifier)) => {
+            let participants = participants_or_identifier(db, chat_rowid, &guid, &chat_identifier)?;
+            Some(ChatRef { guid, display_name, chat_identifier, participants })
+        }
         None => None,
     })
 }
@@ -192,7 +204,8 @@ pub fn chats(db: &Connection, limit: u32) -> Result<Vec<Chat>, String> {
         rows.into_iter()
             .map(|(rowid, guid, display_name, chat_identifier)| {
                 let last = newest_in_chat(db, rowid)?;
-                Ok(Chat { guid, display_name, chat_identifier, participants: participants(db, rowid)?, last_message: last })
+                let participants = participants_or_identifier(db, rowid, &guid, &chat_identifier)?;
+                Ok(Chat { guid, display_name, chat_identifier, participants, last_message: last })
             })
             .collect()
     };
@@ -289,6 +302,7 @@ pub(crate) mod tests {
              INSERT INTO handle VALUES (1, '+15551234567', 'iMessage'), (2, 'friend@example.com', 'iMessage');
              INSERT INTO chat VALUES (1, 'iMessage;-;+15551234567', '+15551234567', '', 'iMessage', 45),
                                      (2, 'iMessage;+;chat123', 'chat123', 'Weekend', 'iMessage', 43);
+             INSERT INTO chat VALUES (3, 'SMS;-;+15559876543', '+15559876543', '', 'SMS', 45);
              INSERT INTO chat_handle_join VALUES (1, 1), (2, 1), (2, 2);",
         )
         .unwrap();
@@ -325,12 +339,15 @@ pub(crate) mod tests {
     fn chats_newest_first_with_last_message() {
         let db = fixture();
         let list = chats(&db, 10).unwrap();
-        assert_eq!(list.iter().map(|c| c.guid.as_str()).collect::<Vec<_>>(), vec!["iMessage;-;+15551234567", "iMessage;+;chat123"]);
+        assert_eq!(list.iter().map(|c| c.guid.as_str()).collect::<Vec<_>>(), vec!["iMessage;-;+15551234567", "iMessage;+;chat123", "SMS;-;+15559876543"], "chats with no messages come last");
         // Tapbacks aren't a chat's last message.
         assert_eq!(list[0].last_message.as_ref().unwrap().text.as_deref(), Some("Ventura keeps text here"));
         assert_eq!(list[1].display_name, "Weekend");
         assert_eq!(list[1].participants.len(), 2);
         assert_eq!(list[1].last_message.as_ref().unwrap().attachments[0].mime_type.as_deref(), Some("image/heic"));
+        // A 1:1 chat without participant rows still names its person (so the UI can find the contact).
+        let sms = list.iter().find(|c| c.guid == "SMS;-;+15559876543").unwrap();
+        assert_eq!(sms.participants, vec![Handle { address: "+15559876543".into() }]);
     }
 
     #[test]

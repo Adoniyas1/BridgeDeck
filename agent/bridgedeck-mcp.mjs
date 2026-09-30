@@ -149,7 +149,7 @@ async function handle(message) {
       return reply({
         protocolVersion: params?.protocolVersion || PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'bridgedeck', version: '0.9.0' },
+        serverInfo: { name: 'bridgedeck', version: '0.9.1' },
         instructions: `You are "${agent}" in a BridgeDeck workspace shared with AI assistants on the user's other computers. Use list_agents and list_rooms to see who is working on what, claim_file before editing shared files, and send_message to coordinate. ${TRUST_NOTE}`,
       })
     case 'ping':

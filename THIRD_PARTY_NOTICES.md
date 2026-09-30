@@ -4,13 +4,12 @@ BridgeDeck is designed to vendor upstream open-source projects so their engines 
 
 | Component | Pinned version | License | Intended use |
 | --- | --- | --- | --- |
-| RustDesk | 1.4.9 | AGPL-3.0 | Remote desktop/control |
 | Syncthing | 2.1.5 | MPL-2.0 | Continuous file synchronization |
 | LocalSend | 1.18.2 | Apache-2.0 | Native local file-transfer core linked into BridgeDeck |
 
 The authoritative upstream source, commit pin, repository URL, and platform scope live in `vendor-lock.json`.
 
-When the source is fetched, the upstream license files remain inside each `vendor/<component>/` directory. Do not remove those notices when redistributing modified source or binaries. RustDesk's AGPL obligations are especially important when distributing modified RustDesk-derived builds.
+When the source is fetched, the upstream license files remain inside each `vendor/<component>/` directory. Do not remove those notices when redistributing modified source or binaries.
 
 ## Tauri Dialog Plugin
 BridgeDeck v0.7 uses `tauri-plugin-dialog` / `@tauri-apps/plugin-dialog` for native file and folder selection. The Tauri plugin is available under MIT OR Apache-2.0 terms. It is a package dependency rather than one of the large vendored application source trees.

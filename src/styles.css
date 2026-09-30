@@ -348,3 +348,5 @@ main>.notice{margin-bottom:12px}
 .remote-banner span:nth-child(2){flex:1}
 .remote-banner button{border:1px solid #a24a26;background:#c2562b;color:#fff;border-radius:8px;padding:6px 14px;font-weight:600}
 .remote-live-dot{width:9px;height:9px;border-radius:50%;background:#ff6a3d;box-shadow:0 0 0 4px rgba(255,106,61,.2)}
+button.service-row{width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
+button.service-row:hover{border-color:var(--line-strong,#2a3545)}

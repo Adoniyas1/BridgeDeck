@@ -2,7 +2,7 @@ import type { AppConfig, DeviceConfig } from '../types'
 import { isTauri, loadNativeConfig, saveNativeConfig } from './bridge'
 
 export const blankDevice: Omit<DeviceConfig, 'id' | 'name' | 'platform' | 'local'> = {
-  agentUrl: '', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', syncthingDeviceId: '',
+  agentUrl: '', agentToken: '', localsendTarget: '', localsendPin: '', sharedPath: '', syncthingDeviceId: '',
 }
 
 export const defaultConfig: AppConfig = {
@@ -10,7 +10,6 @@ export const defaultConfig: AppConfig = {
   // This computer and paired peers are added by BridgeLink as it learns about them.
   devices: [],
   services: [
-    { id: 'rustdesk', name: 'RustDesk', enabled: true, autoStart: false, notes: 'Two-way remote control' },
     { id: 'syncthing', name: 'Syncthing', enabled: true, autoStart: false, host: '127.0.0.1', port: 8384, webUrl: 'http://127.0.0.1:8384', notes: 'Persistent shared folders' },
     { id: 'localsend', name: 'LocalSend', enabled: true, autoStart: false, notes: 'Quick file transfers' },
   ],
@@ -29,7 +28,7 @@ const BROWSER_KEYS = [KEY, 'bridgedeck.config.v6', 'bridgedeck.config.v5', 'brid
 /** v7 and earlier had two fixed slots, `machines: [{ id: 'mac' }, { id: 'windows' }]`. Configured slots
  *  become devices keyed by their BridgeLink instance ID (or `manual-mac`/`manual-windows`); untouched
  *  default slots are dropped. */
-type LegacyMachine = Omit<DeviceConfig, 'id' | 'platform' | 'local'> & { id: 'mac' | 'windows'; bridgeInstanceId?: string }
+type LegacyMachine = Omit<DeviceConfig, 'id' | 'platform' | 'local'> & { id: 'mac' | 'windows'; bridgeInstanceId?: string; rustdeskPeerId?: string }
 
 const isLoopbackUrl = (url: string) => /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(url)
 
@@ -41,7 +40,7 @@ export function migrateMachines(machines: LegacyMachine[]): DeviceConfig[] {
     if (!configured) return []
     return [{
       ...blankDevice,
-      agentUrl: machine.agentUrl || '', agentToken: machine.agentToken || '', rustdeskPeerId: machine.rustdeskPeerId || '',
+      agentUrl: machine.agentUrl || '', agentToken: machine.agentToken || '',
       localsendTarget: machine.localsendTarget || '', localsendPin: machine.localsendPin || '', sharedPath: machine.sharedPath || '',
       syncthingDeviceId: machine.syncthingDeviceId || '',
       id: machine.bridgeInstanceId || `manual-${machine.id}`,
@@ -55,12 +54,13 @@ export function migrateMachines(machines: LegacyMachine[]): DeviceConfig[] {
 
 export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppConfig {
   if (!input) return structuredClone(defaultConfig)
-  // Services missing from defaultConfig (Matrix, removed after v0.7) are dropped here.
+  // Services missing from defaultConfig (Matrix after 0.7, RustDesk after 0.9) are dropped here.
   const services = defaultConfig.services.map(base => ({ ...base, ...(input.services?.find(s => s.id === base.id) || {}) }))
   // Matrix (0.8) and BlueBubbles (0.9: Messages are read by BridgeDeck on the Mac) are gone.
   const { matrix: _removedMatrix, bluebubbles: _removedBlueBubbles, machines, ...rest } = input as Partial<AppConfig> & { matrix?: unknown; bluebubbles?: unknown; machines?: LegacyMachine[] }
   const devices = Array.isArray(input.devices)
-    ? input.devices.map(device => ({ ...blankDevice, ...device }))
+    // RustDesk peer IDs (0.9 and older) are dropped: remote control is built in.
+    ? input.devices.map(device => { const { rustdeskPeerId: _removed, ...rest } = device as DeviceConfig & { rustdeskPeerId?: string }; return { ...blankDevice, ...rest } })
     : migrateMachines(machines ?? [])
   return {
     ...defaultConfig,

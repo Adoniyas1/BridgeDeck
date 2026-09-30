@@ -1,10 +1,9 @@
-import { FolderOpen, MonitorUp, MousePointer2, RefreshCw, ShieldCheck } from 'lucide-react'
-import { launchApp } from '../../lib/bridge'
+import { MonitorUp, MousePointer2, ShieldCheck } from 'lucide-react'
 import { bridgeLinkStore } from '../../core/bridgelink'
-import { setConfig, sortedDevices, useConfig } from '../../core/config'
+import { setConfig, useConfig } from '../../core/config'
 import { useStore } from '../../core/store'
 import { Card, SectionTitle, StatusPill, Toggle } from '../../ui'
-import { controlDevice, hostStore, refreshRustDeskIdentity, rustdeskExecutable, rustdeskInfoStore, startRustDeskSession, stopHosting } from './state'
+import { controlDevice, hostStore, stopHosting } from './state'
 
 const canHost = (platform: string) => platform === 'macos' || platform === 'windows'
 const since = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -13,7 +12,6 @@ export default function RemotePage() {
   const config = useConfig()
   const paired = useStore(bridgeLinkStore).paired
   const host = useStore(hostStore)
-  const rustdeskInfo = useStore(rustdeskInfoStore)
   const setRemote = (changes: Partial<typeof config.remote>) => setConfig(c => ({ ...c, remote: { ...c.remote, ...changes } }))
 
   return <>
@@ -35,14 +33,5 @@ export default function RemotePage() {
         {!!host.sessions.length && <div className="actions">{host.sessions.map(s => <span key={s.id} className="vendor-note">{s.peerName} since {since(s.since)}</span>)}<button className="danger" onClick={() => void stopHosting()}>Stop remote control</button></div>}
       </Card>
     </div>
-
-    <Card><SectionTitle title="RustDesk (fallback)" subtitle="The separate RustDesk app, kept while the built-in remote control is new" action={<StatusPill online={rustdeskInfo.available} label={rustdeskInfo.available ? 'Ready' : 'Missing'}/>} />
-      <div className="remote-id"><MonitorUp size={28}/><div><span>RustDesk ID</span><strong>{rustdeskInfo.id || 'Not available yet'}</strong><small>{rustdeskInfo.executable || rustdeskInfo.detail || 'Build/import the RustDesk runtime or install RustDesk.'}</small></div></div>
-      <div className="actions"><button className="secondary" onClick={() => void launchApp('rustdesk', rustdeskExecutable())}>Open RustDesk</button><button className="secondary" onClick={() => void refreshRustDeskIdentity()}><RefreshCw size={16}/>Refresh ID</button></div>
-      <div className="machine-cards">{sortedDevices(config.devices).filter(device => !device.local && device.rustdeskPeerId).map(machine => <div className="remote-actions" key={machine.id}>
-        <button disabled={!rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'control')}><MonitorUp size={18}/><span><strong>{machine.name} in RustDesk</strong><small>Peer {machine.rustdeskPeerId}</small></span></button>
-        <button disabled={!rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'file-transfer')}><FolderOpen size={18}/><span><strong>RustDesk file transfer</strong><small>{machine.name}</small></span></button>
-      </div>)}</div>
-    </Card>
   </>
 }

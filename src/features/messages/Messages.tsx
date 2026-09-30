@@ -36,6 +36,9 @@ function addressKey(address?: string | null) {
   return digits.length > 10 ? digits.slice(-10) : digits
 }
 
+/** A phone number or email rather than a name. */
+const looksLikeAddress = (value: string) => value.includes('@') || /^[+\d\s().-]{5,}$/.test(value.trim())
+
 function formatAddress(address?: string | null) {
   if (!address) return 'Unknown'
   const digits = address.replace(/\D/g, '')
@@ -228,12 +231,14 @@ export default function Messages({ source, visible, onUnreadChange }: Props) {
   const personFor = (address?: string | null): Person => people.get(addressKey(address)) ?? { name: formatAddress(address) }
 
   const chatTitle = (chat: ImChat) => {
-    if (chat.displayName?.trim()) return chat.displayName.trim()
+    // A group's own name wins; a "name" that is really a number or email is looked up like one.
+    const named = chat.displayName?.trim()
+    if (named && !looksLikeAddress(named)) return named
     const participants = chat.participants ?? []
-    if (participants.length === 1) return personFor(participants[0].address).name
     // Contacts by first name (as Messages does); unknown numbers stay whole instead of becoming "(310)".
     if (participants.length > 1) return participants.map(p => { const person = personFor(p.address); return person.id ? person.name.split(' ')[0] : person.name }).join(', ')
-    return formatAddress(chat.chatIdentifier)
+    // One person: the same lookup as the avatar, so the name and the photo always agree.
+    return personFor(participants[0]?.address ?? named ?? chat.chatIdentifier).name
   }
   const isGroup = (chat?: ImChat) => (chat?.participants?.length ?? 0) > 1
 

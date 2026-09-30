@@ -28,10 +28,12 @@ BridgeLink provides discovery (LAN and Tailscale), pairing confirmed with a six-
 
 > **Security boundary:** Confirm pairing only when both computers show the same six-digit code. Syncthing API keys stay local and are never sent through BridgeLink.
 
-### Native LocalSend and RustDesk behavior
+### No other apps needed
 
-- LocalSend send/receive continues to run through the pinned vendored Rust core inside BridgeDeck.
-- RustDesk continues to provide the actual remote-session authentication, transport, and renderer while BridgeDeck owns peer/session selection.
+BridgeDeck does everything itself: remote control, file transfer (the LocalSend core compiled in),
+folder sync (Syncthing runs hidden inside BridgeDeck and stops with it), iMessage (read on the Mac)
+and the AI workspace. RustDesk and BlueBubbles are no longer used; if they're still on a computer,
+the Home tab offers to quit them and stop them opening at login.
 
 ## Architecture
 
@@ -39,7 +41,7 @@ BridgeLink provides discovery (LAN and Tailscale), pairing confirmed with a six-
 BridgeDeck UI
 │
 ├── Computers ── BridgeLink ───────── Mac ↔ Windows pairing/status/metadata
-├── Remote ───── BridgeLink ───────── screen in a tab (tiles over QUIC), input back; RustDesk as fallback
+├── Remote ───── BridgeLink ───────── screen in a tab (tiles over QUIC), input back
 ├── Files ────── native Rust ──────── LocalSend core source
 ├── Sync ─────── native HTTP ──────── Syncthing REST config + shared workspace
 ├── Messages ─── BridgeLink ───────── read on the Mac (chat.db, Contacts), sent with Messages.app
@@ -97,8 +99,7 @@ Typical LAN permissions:
 - UDP `41415` — BridgeLink discovery;
 - UDP `41416` — BridgeLink encrypted link between paired devices (QUIC);
 - TCP/UDP `53317` — LocalSend;
-- Syncthing's normal sync/discovery ports according to your Syncthing configuration;
-- RustDesk ports according to your RustDesk configuration.
+- Syncthing's normal sync/discovery ports (TCP/UDP 22000, UDP 21027).
 
 The Syncthing REST GUI/API should normally remain bound to localhost (`127.0.0.1:8384`) because BridgeDeck configures it locally on each computer.
 

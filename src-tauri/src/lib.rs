@@ -4,6 +4,7 @@ mod syncthing_bridge;
 mod secrets;
 mod tray;
 mod imessage;
+mod legacy_apps;
 mod link;
 mod remote;
 mod sync_conflicts;
@@ -13,32 +14,14 @@ use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
     fs,
     net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
-    process::{Child, Command},
-    sync::Mutex,
+    process::Command,
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
-
-struct ServiceManager {
-    children: Mutex<HashMap<String, Child>>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ManagedServiceState {
-    service_id: String,
-    running: bool,
-    managed: bool,
-    pid: Option<u32>,
-    executable_ready: bool,
-    executable: Option<String>,
-    detail: Option<String>,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,24 +47,6 @@ struct SyncthingFolder {
     r#type: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RustDeskIdentity {
-    available: bool,
-    id: Option<String>,
-    executable: Option<String>,
-    detail: Option<String>,
-}
-
-
-fn allowed_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing" | "localsend")
-}
-
-fn manageable_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing")
-}
-
 fn platform_key() -> &'static str {
     #[cfg(target_os = "windows")]
     { return "windows"; }
@@ -94,23 +59,10 @@ fn platform_key() -> &'static str {
 }
 
 fn runtime_filename(service_id: &str) -> Option<&'static str> {
-    #[cfg(target_os = "windows")]
-    {
-        return match service_id {
-            "rustdesk" => Some("rustdesk.exe"),
-            "syncthing" => Some("syncthing.exe"),
-            "localsend" => Some("localsend_app.exe"),
-            _ => None,
-        };
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        match service_id {
-            "rustdesk" => Some("rustdesk"),
-            "syncthing" => Some("syncthing"),
-            "localsend" => Some("localsend_app"),
-            _ => None,
-        }
+    match service_id {
+        "syncthing" if cfg!(target_os = "windows") => Some("syncthing.exe"),
+        "syncthing" => Some("syncthing"),
+        _ => None,
     }
 }
 
@@ -132,15 +84,6 @@ pub(crate) fn bundled_runtime_path(app: &AppHandle, service_id: &str) -> Option<
         }
     }
     None
-}
-
-fn resolve_runtime_executable(app: &AppHandle, service_id: &str, explicit: Option<String>) -> Option<String> {
-    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
-        if Path::new(&path).exists() {
-            return Some(path);
-        }
-    }
-    bundled_runtime_path(app, service_id).map(|p| p.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -173,95 +116,6 @@ fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let status = Command::new("xdg-open").arg(&path).status();
     status.map_err(|e| e.to_string()).and_then(|s| if s.success() { Ok(()) } else { Err("Open path failed".into()) })
-}
-
-fn app_default_name(service_id: &str) -> Option<(&'static str, &'static str)> {
-    match service_id {
-        "rustdesk" => Some(("RustDesk", "rustdesk.exe")),
-        "localsend" => Some(("LocalSend", "localsend_app.exe")),
-        "syncthing" => Some(("Syncthing", "syncthing.exe")),
-        _ => None,
-    }
-}
-
-#[tauri::command]
-fn app_available(app: AppHandle, service_id: String, executable: Option<String>) -> bool {
-    if resolve_runtime_executable(&app, &service_id, executable).is_some() {
-        return true;
-    }
-    let Some((mac_name, win_name)) = app_default_name(&service_id) else { return false; };
-    #[cfg(target_os = "macos")]
-    return Command::new("open").args(["-Ra", mac_name]).status().map(|s| s.success()).unwrap_or(false);
-    #[cfg(target_os = "windows")]
-    return Command::new("where").arg(win_name).status().map(|s| s.success()).unwrap_or(false);
-    #[cfg(target_os = "linux")]
-    return Command::new("which").arg(service_id).status().map(|s| s.success()).unwrap_or(false);
-}
-
-#[tauri::command]
-fn launch_app(app: AppHandle, service_id: String, executable: Option<String>) -> Result<(), String> {
-    if !allowed_service(&service_id) {
-        return Err("Unsupported app".into());
-    }
-    if let Some(path) = resolve_runtime_executable(&app, &service_id, executable) {
-        return Command::new(path).spawn().map(|_| ()).map_err(|e| e.to_string());
-    }
-    let Some((mac_name, win_name)) = app_default_name(&service_id) else {
-        return Err("This component does not have a standalone desktop app".into());
-    };
-    #[cfg(target_os = "macos")]
-    return Command::new("open").args(["-a", mac_name]).spawn().map(|_| ()).map_err(|e| e.to_string());
-    #[cfg(target_os = "windows")]
-    return Command::new(win_name).spawn().map(|_| ()).map_err(|e| e.to_string());
-    #[cfg(target_os = "linux")]
-    return Command::new(service_id).spawn().map(|_| ()).map_err(|e| e.to_string());
-}
-
-#[cfg(target_os = "macos")]
-fn rustdesk_system_executable() -> Option<String> {
-    let candidates = [
-        PathBuf::from("/Applications/RustDesk.app/Contents/MacOS/RustDesk"),
-        std::env::var("HOME").ok().map(|h| PathBuf::from(h).join("Applications/RustDesk.app/Contents/MacOS/RustDesk")).unwrap_or_default(),
-    ];
-    for candidate in candidates {
-        if candidate.exists() { return Some(candidate.to_string_lossy().to_string()); }
-    }
-    Command::new("which").arg("rustdesk").output().ok().and_then(|o| {
-        if !o.status.success() { return None; }
-        let value = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        (!value.is_empty()).then_some(value)
-    })
-}
-
-#[cfg(target_os = "windows")]
-fn rustdesk_system_executable() -> Option<String> {
-    // The official installer does not add RustDesk to PATH.
-    let candidates = ["ProgramFiles", "ProgramFiles(x86)"]
-        .iter()
-        .filter_map(|var| std::env::var(var).ok())
-        .map(|dir| PathBuf::from(dir).join("RustDesk").join("rustdesk.exe"))
-        .chain(std::env::var("LOCALAPPDATA").ok().map(|dir| PathBuf::from(dir).join("Programs").join("RustDesk").join("rustdesk.exe")));
-    for candidate in candidates {
-        if candidate.exists() { return Some(candidate.to_string_lossy().to_string()); }
-    }
-    Command::new("where").arg("rustdesk.exe").output().ok().and_then(|o| {
-        if !o.status.success() { return None; }
-        let value = String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string();
-        (!value.is_empty()).then_some(value)
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn rustdesk_system_executable() -> Option<String> {
-    Command::new("which").arg("rustdesk").output().ok().and_then(|o| {
-        if !o.status.success() { return None; }
-        let value = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        (!value.is_empty()).then_some(value)
-    })
-}
-
-fn resolve_rustdesk_executable(app: &AppHandle, explicit: Option<String>) -> Option<String> {
-    resolve_runtime_executable(app, "rustdesk", explicit).or_else(rustdesk_system_executable)
 }
 
 /// Reports whether this project's source (kept in sync between computers by Syncthing) has files
@@ -312,150 +166,6 @@ async fn agent_status(url: String, token: String) -> Result<serde_json::Value, S
     }
     response.json::<serde_json::Value>().await.map_err(net_err)
 }
-
-/// RustDesk's direct-IP listener (only open when "Enable direct IP access" is on at the target).
-const RUSTDESK_DIRECT_PORT: u16 = 21118;
-
-/// Starts a RustDesk session. When `host` is a LAN address whose direct-IP port answers, connects
-/// by IP (stays on the LAN); otherwise falls back to the numeric ID via RustDesk's servers.
-/// Returns which route was used.
-#[tauri::command]
-fn rustdesk_session(app: AppHandle, peer_id: String, executable: Option<String>, mode: String, host: Option<String>) -> Result<String, String> {
-    let peer = peer_id.trim().replace(' ', "");
-    if peer.is_empty() || !peer.chars().all(|c| c.is_ascii_digit()) {
-        return Err("RustDesk peer ID must be numeric".into());
-    }
-    let flag = match mode.as_str() {
-        "control" => "--connect",
-        "file-transfer" => "--file-transfer",
-        _ => return Err("Unsupported RustDesk session mode".into()),
-    };
-    let path = resolve_rustdesk_executable(&app, executable)
-        .ok_or("RustDesk runtime not found. Install RustDesk or set its executable in Settings.")?;
-    let lan_ip = host
-        .as_deref()
-        .and_then(|h| h.trim().trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok());
-    let direct = lan_ip.filter(|ip| {
-        let addr = std::net::SocketAddr::new(*ip, RUSTDESK_DIRECT_PORT);
-        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(800)).is_ok()
-    });
-    let (target, route) = match direct {
-        Some(ip) => (ip.to_string(), format!("direct LAN ({ip})")),
-        // RustDesk's public ID server now refuses connections unless the user logs in, so only use the
-        // ID route when it can work: a self-hosted server is configured, or there is no LAN address.
-        None if lan_ip.is_none() || rustdesk_has_custom_server() => (peer.clone(), format!("RustDesk ID {peer}")),
-        None => {
-            return Err(format!(
-                "Can't reach RustDesk directly at {} (port {RUSTDESK_DIRECT_PORT}). On that computer, open RustDesk \
-                 and turn on Settings > Security > Enable direct IP access (then quit and reopen RustDesk). \
-                 BridgeDeck doesn't fall back to RustDesk's public ID server because it now requires a login.",
-                lan_ip.map(|ip| ip.to_string()).unwrap_or_default()
-            ))
-        }
-    };
-    Command::new(path).args([flag, &target]).spawn().map_err(|e| e.to_string())?;
-    Ok(route)
-}
-
-/// True when RustDesk is pointed at a self-hosted ID/relay server instead of the public one.
-fn rustdesk_has_custom_server() -> bool {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-    let candidates = [
-        std::env::var("APPDATA").map(|d| PathBuf::from(d).join("RustDesk/config/RustDesk2.toml")).unwrap_or_default(),
-        PathBuf::from(&home).join("Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"),
-        PathBuf::from(&home).join(".config/rustdesk/RustDesk2.toml"),
-    ];
-    candidates.iter().filter_map(|p| fs::read_to_string(p).ok()).any(|raw| {
-        raw.lines().any(|line| {
-            let line = line.trim();
-            line.starts_with("custom-rendezvous-server")
-                && line.split_once('=').is_some_and(|(_, v)| !v.trim().trim_matches('\'').trim_matches('"').is_empty())
-        })
-    })
-}
-
-fn rustdesk_process_running() -> bool {
-    let mut system = sysinfo::System::new();
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    system
-        .processes()
-        .values()
-        .any(|p| p.name().to_string_lossy().to_ascii_lowercase().starts_with("rustdesk"))
-}
-
-/// Keeps RustDesk running alongside BridgeDeck so the paired computer can always connect.
-/// Starts it in the background when it is not running; never stops it.
-#[tauri::command]
-async fn rustdesk_ensure_running(app: AppHandle, executable: Option<String>) -> serde_json::Value {
-    tauri::async_runtime::spawn_blocking(move || {
-        if rustdesk_process_running() {
-            return serde_json::json!({ "running": true, "started": false });
-        }
-        let Some(path) = resolve_rustdesk_executable(&app, executable) else {
-            return serde_json::json!({ "running": false, "started": false, "detail": "RustDesk is not installed" });
-        };
-        let launched = launch_rustdesk_background(&path);
-        std::thread::sleep(Duration::from_secs(2));
-        serde_json::json!({
-            "running": rustdesk_process_running(),
-            "started": launched.is_ok(),
-            "detail": launched.err(),
-        })
-    })
-    .await
-    .unwrap_or_else(|e| serde_json::json!({ "running": false, "started": false, "detail": e.to_string() }))
-}
-
-#[cfg(target_os = "windows")]
-fn launch_rustdesk_background(path: &str) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // Installed RustDesk runs its server as the "RustDesk" service; the tray is the user-side agent.
-    // Starting the service may need admin rights, so a failure there is not fatal.
-    let service_installed = Command::new("sc").args(["query", "RustDesk"]).creation_flags(CREATE_NO_WINDOW)
-        .output().map(|o| o.status.success()).unwrap_or(false);
-    if service_installed {
-        let _ = Command::new("sc").args(["start", "RustDesk"]).creation_flags(CREATE_NO_WINDOW).output();
-        Command::new(path).arg("--tray").spawn().map(|_| ()).map_err(|e| e.to_string())
-    } else {
-        // Portable RustDesk: the main app hosts the server.
-        Command::new(path).spawn().map(|_| ()).map_err(|e| e.to_string())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn launch_rustdesk_background(path: &str) -> Result<(), String> {
-    // `open -g -j` launches the app bundle without focusing it and with its windows hidden.
-    let bundle = path.find(".app/").map(|i| &path[..i + 4]).unwrap_or(path);
-    let status = Command::new("open").args(["-g", "-j", "-a", bundle]).status().map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err(format!("open exited with {status}")) }
-}
-
-#[cfg(target_os = "linux")]
-fn launch_rustdesk_background(path: &str) -> Result<(), String> {
-    Command::new(path).arg("--tray").spawn().map(|_| ()).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn rustdesk_identity(app: AppHandle, executable: Option<String>) -> RustDeskIdentity {
-    let Some(path) = resolve_rustdesk_executable(&app, executable) else {
-        return RustDeskIdentity { available: false, id: None, executable: None, detail: Some("RustDesk runtime not found".into()) };
-    };
-    match Command::new(&path).arg("--get-id").output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let id = stdout.split_whitespace().find(|part| part.chars().all(|c| c.is_ascii_digit()) && part.len() >= 6).map(str::to_string);
-            RustDeskIdentity {
-                available: true,
-                id,
-                executable: Some(path),
-                detail: if output.status.success() { None } else { Some(String::from_utf8_lossy(&output.stderr).trim().to_string()) },
-            }
-        }
-        Err(error) => RustDeskIdentity { available: true, id: None, executable: Some(path), detail: Some(error.to_string()) },
-    }
-}
-
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -524,111 +234,6 @@ fn save_app_config(app: AppHandle, raw: String) -> Result<(), String> {
             write_saved_config(&app, &raw)
         }
     }
-}
-
-fn service_snapshot(
-    app: &AppHandle,
-    service_id: &str,
-    explicit: Option<String>,
-    manager: &ServiceManager,
-) -> Result<ManagedServiceState, String> {
-    if !allowed_service(service_id) {
-        return Err("Unknown service ID".into());
-    }
-    let resolved = resolve_runtime_executable(app, service_id, explicit);
-    let ready = resolved.is_some();
-    let mut children = manager.children.lock().map_err(|_| "Service manager lock poisoned")?;
-    let mut running = false;
-    let mut pid = None;
-    if let Some(child) = children.get_mut(service_id) {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            None => {
-                running = true;
-                pid = Some(child.id());
-            }
-            Some(_) => {
-                children.remove(service_id);
-            }
-        }
-    }
-    Ok(ManagedServiceState {
-        service_id: service_id.to_string(),
-        running,
-        managed: running,
-        pid,
-        executable_ready: ready,
-        executable: resolved,
-        detail: if !manageable_service(service_id) {
-            Some("This component is API-driven and is not started as a local process by BridgeDeck.".into())
-        } else if !ready {
-            Some("Import a runtime into runtime/<platform>/... or set a direct executable path in Settings.".into())
-        } else if running {
-            Some("Started and tracked by BridgeDeck.".into())
-        } else {
-            Some("Runtime is ready but not currently started by BridgeDeck.".into())
-        },
-    })
-}
-
-#[tauri::command]
-fn managed_service_status(
-    app: AppHandle,
-    service_id: String,
-    executable: Option<String>,
-    manager: State<'_, ServiceManager>,
-) -> Result<ManagedServiceState, String> {
-    service_snapshot(&app, &service_id, executable, manager.inner())
-}
-
-#[tauri::command]
-fn managed_service_start(
-    app: AppHandle,
-    service_id: String,
-    executable: Option<String>,
-    manager: State<'_, ServiceManager>,
-) -> Result<ManagedServiceState, String> {
-    if !manageable_service(&service_id) {
-        return Err("This component is not a BridgeDeck-managed local process".into());
-    }
-    let path = resolve_runtime_executable(&app, &service_id, executable.clone())
-        .ok_or("Import a bundled runtime or set a direct runtime executable path first")?;
-
-    {
-        let mut children = manager.children.lock().map_err(|_| "Service manager lock poisoned")?;
-        if let Some(child) = children.get_mut(&service_id) {
-            if child.try_wait().map_err(|e| e.to_string())?.is_none() {
-                drop(children);
-                return service_snapshot(&app, &service_id, executable, manager.inner());
-            }
-            children.remove(&service_id);
-        }
-
-        let mut command = Command::new(&path);
-        if service_id == "syncthing" {
-            command.arg("--no-browser");
-        }
-        let child = command.spawn().map_err(|e| e.to_string())?;
-        children.insert(service_id.clone(), child);
-    }
-    service_snapshot(&app, &service_id, executable, manager.inner())
-}
-
-#[tauri::command]
-fn managed_service_stop(
-    app: AppHandle,
-    service_id: String,
-    manager: State<'_, ServiceManager>,
-) -> Result<ManagedServiceState, String> {
-    if !allowed_service(&service_id) {
-        return Err("Unknown service ID".into());
-    }
-    let mut children = manager.children.lock().map_err(|_| "Service manager lock poisoned")?;
-    if let Some(mut child) = children.remove(&service_id) {
-        child.kill().map_err(|e| e.to_string())?;
-        let _ = child.wait();
-    }
-    drop(children);
-    service_snapshot(&app, &service_id, None, manager.inner())
 }
 
 fn checked_http_base(base_url: &str) -> Result<String, String> {
@@ -851,12 +456,8 @@ fn autostart_bridgelink(app: &AppHandle) {
     }
     let text = |pointer: &str| config.pointer(pointer).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let port = |pointer: &str| config.pointer(pointer).and_then(|v| v.as_u64()).and_then(|v| u16::try_from(v).ok()).unwrap_or(0);
-    let rustdesk_exe = config.pointer("/services").and_then(|v| v.as_array())
-        .and_then(|list| list.iter().find(|s| s.get("id").and_then(|v| v.as_str()) == Some("rustdesk")))
-        .and_then(|s| s.get("executable")).and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()).map(str::to_string);
-    let rustdesk_id = rustdesk_identity(app.clone(), rustdesk_exe).id.unwrap_or_default();
     let manager = app.state::<BridgeLinkManager>();
-    let _ = bridgelink::start(app, &manager, text("/pairing/displayName"), port("/pairing/apiPort"), rustdesk_id, port("/localsend/port"), String::new());
+    let _ = bridgelink::start(app, &manager, text("/pairing/displayName"), port("/pairing/apiPort"), port("/localsend/port"), String::new());
 }
 
 /// This computer's upgrade capabilities and the last upgrade's progress.
@@ -895,7 +496,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(ServiceManager { children: Mutex::new(HashMap::new()) })
         .manage(LocalSendManager::default())
         .manage(BridgeLinkManager::default())
         .manage(sync_sidecar::SyncSidecar::default())
@@ -913,11 +513,7 @@ pub fn run() {
             probe_tcp,
             open_external,
             open_path,
-            app_available,
-            launch_app,
-            rustdesk_session,
             agent_status,
-            rustdesk_ensure_running,
             desktop_notify,
             contacts_save,
             upgrade_info,
@@ -926,7 +522,6 @@ pub fn run() {
             upgrade_request_peer,
             upgrade_peer_status,
             source_update_status,
-            rustdesk_identity,
             localsend_bridge::localsend_receiver_status,
             localsend_bridge::localsend_set_trusted_hosts,
             localsend_bridge::localsend_receiver_start,
@@ -946,6 +541,8 @@ pub fn run() {
             bridgelink::peer::bridgelink_peer_status,
             bridgelink::peer::bridgelink_confirm_pair,
             bridgelink::peer::bridgelink_legacy_upgrade,
+            legacy_apps::legacy_apps,
+            legacy_apps::legacy_apps_stop,
             imessage::imessage,
             imessage::imessage_attachment,
             imessage::imessage_send_file,
@@ -969,9 +566,6 @@ pub fn run() {
             bridgelink::bridgelink_ai_token_path,
             load_app_config,
             save_app_config,
-            managed_service_status,
-            managed_service_start,
-            managed_service_stop,
             syncthing_status,
             syncthing_folders,
             syncthing_bridge::syncthing_setup_peer,
