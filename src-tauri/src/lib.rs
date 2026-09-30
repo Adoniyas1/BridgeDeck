@@ -3,6 +3,7 @@ mod bridgelink;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
+mod upgrade;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -960,6 +961,36 @@ fn autostart_bridgelink(app: &AppHandle) {
     let _ = bridgelink::start(app, &manager, text("/pairing/displayName"), port("/pairing/apiPort"), rustdesk_id, port("/localsend/port"), String::new());
 }
 
+/// This computer's upgrade capabilities and the last upgrade's progress.
+#[tauri::command]
+fn upgrade_info(app: AppHandle) -> upgrade::UpgradeInfo {
+    upgrade::info(&app)
+}
+
+/// Pulls the latest main from GitHub, rebuilds and reinstalls BridgeDeck on this computer.
+#[tauri::command]
+fn upgrade_self(app: AppHandle) -> Result<(), String> {
+    upgrade::start(&app, upgrade::UpgradeMode::Git, None, "this computer")
+}
+
+/// Packs this computer's source for sending to the paired computer ("Send my source").
+#[tauri::command]
+async fn upgrade_create_bundle(app: AppHandle) -> Result<upgrade::SourceBundle, String> {
+    tauri::async_runtime::spawn_blocking(move || upgrade::create_source_bundle(&app)).await.map_err(|e| e.to_string())?
+}
+
+/// Asks a paired computer to upgrade itself; returns once the user there has allowed or denied it.
+#[tauri::command]
+async fn upgrade_request_peer(instance_id: String, request: bridgelink::UpgradeRequest, manager: State<'_, BridgeLinkManager>) -> Result<(), String> {
+    let manager = BridgeLinkManager::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || bridgelink::forward_upgrade_request(&manager, &instance_id, &request)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn upgrade_peer_status(instance_id: String, manager: State<'_, BridgeLinkManager>) -> Result<serde_json::Value, String> {
+    let manager = BridgeLinkManager::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || bridgelink::peer_upgrade_status(&manager, &instance_id)).await.map_err(|e| e.to_string())?
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -992,6 +1023,11 @@ pub fn run() {
             bluebubbles_local_port,
             desktop_notify,
             contacts_save,
+            upgrade_info,
+            upgrade_self,
+            upgrade_create_bundle,
+            upgrade_request_peer,
+            upgrade_peer_status,
             bluebubbles_recent,
             bluebubbles_attachment,
             source_update_status,

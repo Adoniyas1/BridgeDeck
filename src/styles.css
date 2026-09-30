@@ -296,3 +296,8 @@ main>.notice{margin-bottom:12px}
 @media(max-width:900px){.tab{padding:0 10px}.tab:not(.dynamic) span{display:none}main{padding:14px 18px 30px}}
 @media(max-width:640px){.im-shell{height:calc(100vh - var(--tabbar-h) - 30px)}}
 @media(max-width:560px){main{padding:12px 12px 30px}.tab.dynamic span{max-width:90px}}
+
+/* Computers: upgrade controls */
+.upgrade-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.upgrade-row button{display:inline-flex;align-items:center;gap:6px}
+.upgrade-row small{flex:1 1 100%;color:var(--muted);font-size:12px;line-height:1.4}

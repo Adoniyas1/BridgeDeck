@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, UserPlus, X } from 'lucide-react'
+import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X } from 'lucide-react'
 import { blueBubblesAttachment, blueBubblesChats, blueBubblesContacts, blueBubblesMessages, blueBubblesRecent, blueBubblesSend, contactsSave, desktopNotify, openExternal } from '../../lib/bridge'
 import type { BlueBubblesAttachment, BlueBubblesChat, BlueBubblesContact, BlueBubblesMessage } from '../../types'
+import { setConfig, useConfig } from '../../core/config'
 
 /** `visible`: the Messages page is on screen. The feed keeps polling while hidden so notifications and the
  *  unread badge work from any page; the open thread only loads while visible. */
 type Props = { baseUrl: string; password: string; visible: boolean; onUnreadChange?: (count: number) => void }
-type Person = { name: string; avatar?: string; /** Contact identity (merges a person's numbers/emails); absent for unknown numbers. */ id?: string }
+type Person = {
+  name: string
+  avatar?: string
+  /** Contact identity (merges a person's numbers/emails); absent for unknown numbers. */
+  id?: string
+  /** Name from Contacts when a local nickname is shown instead. */
+  realName?: string
+}
+
+/** Key for a display-only nickname: the Contacts id when saved, else the normalized number or email. */
+const nicknameKey = (contact: BlueBubblesContact | undefined, address?: string | null) =>
+  contact?.id ? `contact:${contact.id}` : `address:${addressKey(address)}`
 /** One row in the list: a group chat, or every 1:1 thread with the same person (iMessage/SMS/RCS, any of their numbers). */
 type Conversation = { key: string; chat: BlueBubblesChat; guids: string[]; sendGuid: string; lastMessage?: BlueBubblesMessage | null }
 type PendingMessage = BlueBubblesMessage & { pending?: boolean }
@@ -173,6 +185,8 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
+  // Nicknames are display-only and local to this computer (config.messages.nicknames); Contacts is untouched.
+  const nicknames = useConfig().messages.nicknames
   const people = useMemo(() => {
     const map = new Map<string, Person>()
     contacts.forEach((contact, index) => {
@@ -180,11 +194,18 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
       if (!name) return
       for (const entry of [...(contact.phoneNumbers ?? []), ...(contact.emails ?? [])]) {
         const key = addressKey(entry.address)
-        if (key && !map.has(key)) map.set(key, { name, avatar: contact.avatar, id: `contact:${index}` })
+        if (!key || map.has(key)) continue
+        const nickname = nicknames[`contact:${contact.id}`] || nicknames[`address:${key}`]
+        map.set(key, { name: nickname || name, realName: nickname ? name : undefined, avatar: contact.avatar, id: `contact:${index}` })
       }
     })
+    // Nicknames for numbers/emails that aren't in Contacts.
+    for (const [key, nickname] of Object.entries(nicknames)) {
+      const address = key.startsWith('address:') ? key.slice(8) : ''
+      if (address && nickname && !map.has(address)) map.set(address, { name: nickname })
+    }
     return map
-  }, [contacts])
+  }, [contacts, nicknames])
 
   const contactById = useMemo(() => new Map<string, BlueBubblesContact>(contacts.map((contact, index) => [`contact:${index}`, contact])), [contacts])
   // Read by the feed poller, whose closure outlives renders.
@@ -438,8 +459,21 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
     const newestFirst = messages.slice().reverse()
     const photos = newestFirst.flatMap(m => (m.attachments ?? []).filter(a => !a.hideAttachment && a.mimeType?.startsWith('image/'))).slice(0, 30)
     const links = [...new Set(newestFirst.flatMap(m => urlsIn(m.text ?? '')))].slice(0, 20)
-    return { group, person, contact, entries, services, members, photos, links }
-  }, [selected, messages, people, contactById])
+    const nickKey = nicknameKey(contact, address)
+    return { group, person, contact, entries, services, members, photos, links, nickKey, nickname: nicknames[nickKey] || '' }
+  }, [selected, messages, people, contactById, nicknames])
+
+  const [nickDraft, setNickDraft] = useState<string | null>(null)
+  useEffect(() => { setNickDraft(null) }, [selectedKey])
+  function saveNickname(key: string, value: string) {
+    const nickname = value.trim().slice(0, 80)
+    setConfig(c => {
+      const next = { ...c.messages.nicknames }
+      if (nickname) next[key] = nickname; else delete next[key]
+      return { ...c, messages: { ...c.messages, nicknames: next } }
+    })
+    setNickDraft(null)
+  }
 
   function startEditing() {
     if (!details) return
@@ -589,12 +623,23 @@ export default function Messages({ baseUrl, password, visible, onUnreadChange }:
             <div className="im-details-hero">
               <Avatar person={details.group ? { name: chatTitle(selected.chat) } : details.person} size={72} group={details.group} />
               <h3>{chatTitle(selected.chat)}</h3>
-              <p>{details.group ? `${details.members.length} people` : details.contact ? 'Contact' : 'Not in Contacts'}{details.services.length ? ` · ${details.services.join(' · ')}` : ''}</p>
+              <p>{details.group ? `${details.members.length} people` : details.person.realName ? `Nickname · Contacts: ${details.person.realName}` : details.nickname ? 'Nickname · Not in Contacts' : details.contact ? 'Contact' : 'Not in Contacts'}{details.services.length ? ` · ${details.services.join(' · ')}` : ''}</p>
             </div>
             <div className="im-details-actions">
               <button onClick={() => togglePin(selected.key)}>{pins.includes(selected.key) ? <><PinOff size={14} />Unpin</> : <><Pin size={14} />Pin</>}</button>
+              {!details.group && nickDraft === null && <button onClick={() => setNickDraft(details.nickname)}><Tag size={14} />Nickname</button>}
               {!details.group && !editing && <button onClick={startEditing}>{details.contact ? <><Pencil size={14} />Edit</> : <><UserPlus size={14} />Add to Contacts</>}</button>}
             </div>
+            {nickDraft !== null && !details.group && <section className="im-edit">
+              <h4>Nickname</h4>
+              <label>Shown instead of the contact name<input value={nickDraft} onChange={e => setNickDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveNickname(details.nickKey, nickDraft) }} placeholder={details.person.realName || details.person.name} autoFocus /></label>
+              <p className="im-edit-note">Only visible in BridgeDeck on this computer. Your Contacts aren't changed.</p>
+              <div className="im-edit-actions">
+                {details.nickname && <button onClick={() => saveNickname(details.nickKey, '')}>Remove</button>}
+                <button onClick={() => setNickDraft(null)}>Cancel</button>
+                <button className="primary" onClick={() => saveNickname(details.nickKey, nickDraft)}>Save</button>
+              </div>
+            </section>}
             {editing && <section className="im-edit">
               <h4>{editing.personId ? 'Edit contact' : 'New contact'}</h4>
               <label>First name<input value={editing.firstName} onChange={e => setEditing({ ...editing, firstName: e.target.value })} autoFocus /></label>
