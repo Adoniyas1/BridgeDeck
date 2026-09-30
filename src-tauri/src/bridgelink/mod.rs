@@ -8,10 +8,12 @@
 //! - `peer`: requests between paired devices, and pairing.
 //! - `discovery`: LAN multicast and Tailscale announcements.
 //! - `local`: the loopback HTTP API.
+//! - `workspace`: the AI workspace (agents, rooms, tasks, file claims).
 
 mod discovery;
 mod local;
 pub(crate) mod peer;
+pub(crate) mod workspace;
 
 pub use peer::{forward_contact_save, forward_upgrade_request, peer_upgrade_status, ContactSaveRequest, UpgradeRequest};
 
@@ -41,7 +43,7 @@ const MAX_AI_MESSAGES: usize = 500;
 const MAX_AI_BODY: usize = 24 * 1024;
 const DEFAULT_AI_CHANNEL: &str = "shared-agents";
 /// What this build can do for a paired device; reported in `/status`.
-pub const CAPABILITIES: &[&str] = &["status", "ai", "contacts", "upgrade"];
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade"];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +166,12 @@ pub struct AiMessage {
     /// Outgoing message waiting for the other computer to come online.
     #[serde(default)]
     pub pending: bool,
+    /// Agent names it's addressed to; empty = everyone.
+    #[serde(default)]
+    pub to: Vec<String>,
+    /// The workspace room it belongs to, if any.
+    #[serde(default)]
+    pub room: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,6 +183,10 @@ struct AiInboxWire {
     body: String,
     reply_to: Option<String>,
     created_at: u64,
+    #[serde(default)]
+    to: Vec<String>,
+    #[serde(default)]
+    room: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -185,6 +197,10 @@ struct AiSendWire {
     channel: Option<String>,
     reply_to: Option<String>,
     peer_instance_id: Option<String>,
+    #[serde(default)]
+    to: Vec<String>,
+    #[serde(default)]
+    room: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -283,6 +299,7 @@ struct Runtime {
     legacy: HashMap<String, LegacyPeer>,
     ai_messages: Vec<AiMessage>,
     outbox: Vec<OutboxItem>,
+    workspace: workspace::Workspace,
     ai_token: String,
     link: Option<Arc<Link>>,
     fingerprint: String,
@@ -317,6 +334,7 @@ impl Default for Runtime {
             legacy: HashMap::new(),
             ai_messages: Vec::new(),
             outbox: Vec::new(),
+            workspace: workspace::Workspace::default(),
             ai_token: String::new(),
             link: None,
             fingerprint: String::new(),
@@ -677,30 +695,50 @@ pub fn local_bluebubbles_port() -> Option<u16> {
     TcpStream::connect_timeout(&addr, Duration::from_millis(250)).ok().map(|_| BLUEBUBBLES_PORT)
 }
 
-fn ai_messages_since(runtime: &Runtime, since: u64, channel: Option<&str>) -> Vec<AiMessage> {
-    runtime.ai_messages.iter().filter(|m| m.created_at > since && channel.is_none_or(|c| m.channel == c)).cloned().collect()
+/// Which relay messages a reader wants.
+#[derive(Default)]
+struct AiFilter<'a> {
+    channel: Option<&'a str>,
+    /// Only messages for this agent (see `workspace::is_for`).
+    agent: Option<&'a str>,
+    room: Option<&'a str>,
 }
 
-/// Records an outgoing message and delivers it to the paired device. If that device can't be reached,
-/// the message is queued and delivered when it comes back (see `flush_outbox`).
+fn ai_messages_since(runtime: &Runtime, since: u64, filter: &AiFilter) -> Vec<AiMessage> {
+    runtime
+        .ai_messages
+        .iter()
+        .filter(|m| {
+            m.created_at > since
+                && filter.channel.is_none_or(|c| m.channel == c)
+                && filter.room.is_none_or(|r| m.room.as_deref() == Some(r))
+                && filter.agent.is_none_or(|a| workspace::is_for(m, a))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Records an outgoing message and delivers it to every paired device (or the one named). Devices
+/// that can't be reached get it queued, delivered when they come back (see `flush_outbox`). With no
+/// paired device the message stays on this computer, for agents here.
 fn ai_send_internal(manager: &BridgeLinkManager, send: AiSendWire) -> Result<AiMessage, String> {
     validate_ai_body(&send.body)?;
-    let peer = {
+    let targets: Vec<PersistedPeer> = {
         let runtime = manager.lock()?;
         if !runtime.running {
             return Err("BridgeLink is not running".into());
         }
         match send.peer_instance_id.as_deref().filter(|v| !v.trim().is_empty()) {
-            Some(id) => runtime.paired.get(id).cloned().ok_or("Paired computer not found")?,
+            Some(id) => vec![runtime.paired.get(id).cloned().ok_or("Paired computer not found")?],
             None => {
                 let mut peers: Vec<_> = runtime.paired.values().cloned().collect();
-                if peers.len() > 1 {
-                    return Err("More than one paired computer; specify peerInstanceId".into());
-                }
-                peers.pop().ok_or("No paired computer. Pair your computers on the Computers tab first.")?
+                peers.sort_by_key(|p| p.name.to_lowercase());
+                peers
             }
         }
     };
+    let mut to: Vec<String> = send.to.iter().filter(|t| !t.trim().is_empty()).take(20).map(|t| clean_label(t, "agent")).collect();
+    to.dedup();
     let wire = AiInboxWire {
         id: Uuid::new_v4().to_string(),
         channel: clean_label(send.channel.as_deref().unwrap_or(""), DEFAULT_AI_CHANNEL),
@@ -708,12 +746,21 @@ fn ai_send_internal(manager: &BridgeLinkManager, send: AiSendWire) -> Result<AiM
         body: send.body,
         reply_to: send.reply_to.filter(|v| !v.trim().is_empty()),
         created_at: now_ms(),
+        to,
+        room: send.room.as_deref().and_then(clean_id),
     };
-    let delivered = match peer::deliver_ai(manager, &peer.instance_id, &wire) {
-        Ok(()) => true,
-        Err(peer::Delivery::Unreachable(_)) => false,
-        Err(peer::Delivery::Rejected(error)) => return Err(error),
-    };
+    let mut queued: Vec<String> = Vec::new();
+    let mut rejected: Vec<String> = Vec::new();
+    for peer in &targets {
+        match peer::deliver_ai(manager, &peer.instance_id, &wire) {
+            Ok(()) => {}
+            Err(peer::Delivery::Unreachable(_)) => queued.push(peer.instance_id.clone()),
+            Err(peer::Delivery::Rejected(error)) => rejected.push(format!("{}: {error}", peer.name)),
+        }
+    }
+    if !targets.is_empty() && rejected.len() == targets.len() {
+        return Err(rejected.join("; "));
+    }
     let message = AiMessage {
         id: wire.id.clone(),
         channel: wire.channel.clone(),
@@ -721,17 +768,25 @@ fn ai_send_internal(manager: &BridgeLinkManager, send: AiSendWire) -> Result<AiM
         body: wire.body.clone(),
         reply_to: wire.reply_to.clone(),
         direction: "out".into(),
-        peer_instance_id: peer.instance_id.clone(),
-        peer_name: peer.name.clone(),
+        peer_instance_id: if targets.len() == 1 { targets[0].instance_id.clone() } else { String::new() },
+        peer_name: if targets.is_empty() { "this computer".into() } else { targets.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ") },
         created_at: wire.created_at,
-        pending: !delivered,
+        pending: !queued.is_empty(),
+        to: wire.to.clone(),
+        room: wire.room.clone(),
     };
     let mut runtime = manager.lock()?;
-    if !delivered {
-        runtime.outbox.push(OutboxItem { peer_instance_id: peer.instance_id.clone(), wire });
+    if !queued.is_empty() {
+        for peer_instance_id in queued {
+            runtime.outbox.push(OutboxItem { peer_instance_id, wire: wire.clone() });
+        }
         save_outbox(&runtime);
     }
     record_ai_message(&mut runtime, message.clone());
+    if let Some(app) = runtime.app.clone() {
+        use tauri::Emitter;
+        let _ = app.emit("ai-message", &message);
+    }
     Ok(message)
 }
 
@@ -754,8 +809,12 @@ fn flush_outbox(manager: &BridgeLinkManager) {
         match peer::deliver_ai(manager, &item.peer_instance_id, &item.wire) {
             Ok(()) | Err(peer::Delivery::Rejected(_)) => {
                 let Ok(mut runtime) = manager.lock() else { return };
-                runtime.outbox.retain(|queued| queued.wire.id != item.wire.id);
+                runtime.outbox.retain(|queued| !(queued.wire.id == item.wire.id && queued.peer_instance_id == item.peer_instance_id));
                 save_outbox(&runtime);
+                let still_queued = runtime.outbox.iter().any(|queued| queued.wire.id == item.wire.id);
+                if still_queued {
+                    continue;
+                }
                 if let Some(index) = runtime.ai_messages.iter().position(|m| m.id == item.wire.id) {
                     runtime.ai_messages[index].pending = false;
                     let message = runtime.ai_messages[index].clone();
@@ -767,9 +826,10 @@ fn flush_outbox(manager: &BridgeLinkManager) {
     }
 }
 
-/// Background upkeep while BridgeLink runs: the relay outbox.
+/// Background upkeep while BridgeLink runs: the relay outbox, and the workspace every minute.
 fn spawn_upkeep(manager: BridgeLinkManager, shutdown: Arc<AtomicBool>) {
     thread::spawn(move || {
+        let mut rounds = 0u32;
         while !shutdown.load(Ordering::Relaxed) {
             for _ in 0..15 {
                 if shutdown.load(Ordering::Relaxed) {
@@ -780,6 +840,10 @@ fn spawn_upkeep(manager: BridgeLinkManager, shutdown: Arc<AtomicBool>) {
             let has_outbox = manager.lock().map(|r| !r.outbox.is_empty()).unwrap_or(false);
             if has_outbox {
                 flush_outbox(&manager);
+            }
+            rounds += 1;
+            if rounds % 4 == 1 {
+                workspace::push(&manager);
             }
         }
     });
@@ -847,6 +911,7 @@ pub fn start(
     let outbox = load_json::<Vec<OutboxItem>>(&dir.join("outbox.json")).unwrap_or_default();
     let ai_token = load_or_create_ai_token(&dir)?;
     let ai_messages = load_ai_messages(&dir);
+    let ai_workspace = workspace::Workspace::load(&dir);
     let listener = local::bind(port)?;
     let udp = discovery::bind()?;
     let link = Link::bind(port, identity.clone(), Arc::new(peer::PeerHandler { manager: manager.clone() }))?;
@@ -869,6 +934,7 @@ pub fn start(
         runtime.ai_token = ai_token;
         runtime.app = Some(app.clone());
         runtime.ai_messages = ai_messages;
+        runtime.workspace = ai_workspace;
         runtime.fingerprint = identity.fingerprint.clone();
         runtime.link = Some(link);
         runtime.shutdown = shutdown.clone();
@@ -923,13 +989,21 @@ pub fn bridgelink_forget(instance_id: String, manager: State<'_, BridgeLinkManag
 #[tauri::command]
 pub fn bridgelink_ai_messages(since: u64, manager: State<'_, BridgeLinkManager>) -> Result<Vec<AiMessage>, String> {
     let runtime = manager.lock()?;
-    Ok(ai_messages_since(&runtime, since, None))
+    Ok(ai_messages_since(&runtime, since, &AiFilter::default()))
 }
 
 #[tauri::command]
-pub async fn bridgelink_ai_send(author: String, body: String, channel: Option<String>, manager: State<'_, BridgeLinkManager>) -> Result<AiMessage, String> {
+pub async fn bridgelink_ai_send(
+    author: String,
+    body: String,
+    channel: Option<String>,
+    to: Option<Vec<String>>,
+    room: Option<String>,
+    manager: State<'_, BridgeLinkManager>,
+) -> Result<AiMessage, String> {
     let manager = manager.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || ai_send_internal(&manager, AiSendWire { author, body, channel, reply_to: None, peer_instance_id: None }))
+    let send = AiSendWire { author, body, channel, reply_to: None, peer_instance_id: None, to: to.unwrap_or_default(), room };
+    tauri::async_runtime::spawn_blocking(move || ai_send_internal(&manager, send))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -962,6 +1036,7 @@ mod tests {
         let queued = AiMessage {
             id: "m1".into(), channel: "c".into(), author: "a".into(), body: "hi".into(), reply_to: None,
             direction: "out".into(), peer_instance_id: "p".into(), peer_name: "Mac".into(), created_at: 1, pending: true,
+            to: vec![], room: None,
         };
         let delivered = AiMessage { pending: false, ..queued.clone() };
         let other = AiMessage { id: "m2".into(), ..delivered.clone() };

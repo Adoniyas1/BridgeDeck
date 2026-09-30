@@ -248,8 +248,16 @@ async fn initiate(manager: BridgeLinkManager, target: BridgeLinkPeer, request_id
                 None => Some(false), // cancelled in the UI
             };
             if let Some(confirmed) = local {
-                write_frame(&mut send, &PairMessage::Confirm { confirmed }).await?;
+                // If the other side already answered (declined) and closed, the write fails; its answer
+                // is still waiting to be read below, and it says why.
+                let written = write_frame(&mut send, &PairMessage::Confirm { confirmed }).await;
                 sent = true;
+                if let Err(error) = written {
+                    return match tokio::time::timeout(Duration::from_secs(2), &mut result).await {
+                        Ok(Ok(PairMessage::Final { detail, .. })) => Err(detail),
+                        _ => Err(error),
+                    };
+                }
                 if !confirmed {
                     let _ = send.finish();
                     return Err("Pairing cancelled".into());
@@ -318,6 +326,10 @@ impl Handler for PeerHandler {
                 Err(_) => Response::json(500, "{}"),
             },
             ("POST", "/ai/inbox") => receive_ai(manager, &peer, &request.body),
+            ("POST", "/ai/state") => match workspace::receive(manager, &peer.instance_id, &peer.name, &request.body) {
+                Ok(()) => Response::json(202, r#"{"ok":true}"#),
+                Err(error) => Response::json(400, json!({ "ok": false, "error": error }).to_string()),
+            },
             ("POST", "/contacts/save") => receive_contact_save(manager, &peer, &request.body),
             ("POST", "/upgrade/request") => {
                 let Ok(req) = serde_json::from_str::<UpgradeRequest>(&request.body) else {
@@ -363,6 +375,8 @@ fn receive_ai(manager: &BridgeLinkManager, peer: &PersistedPeer, body: &str) -> 
         peer_name: peer.name.clone(),
         created_at: now_ms(),
         pending: false,
+        to: wire.to.iter().take(20).map(|t| clean_label(t, "agent")).collect(),
+        room: wire.room.as_deref().and_then(clean_id),
     };
     let notify = runtime.app.clone().map(|app| (app, message.clone()));
     record_ai_message(&mut runtime, message);
@@ -410,6 +424,12 @@ pub(super) fn deliver_ai(manager: &BridgeLinkManager, instance_id: &str, wire: &
         Err(error) if error.contains("not found") || error.contains("not running") => Err(Delivery::Rejected(error)),
         Err(error) => Err(Delivery::Unreachable(error)),
     }
+}
+
+/// Sends this device's workspace view to a paired device (see `workspace::push`).
+pub(super) fn push_workspace(manager: &BridgeLinkManager, instance_id: &str, body: String) -> Result<(), String> {
+    let (peer, response) = peer_request(manager, instance_id, "POST", "/ai/state", body, PEER_REQUEST_TIMEOUT)?;
+    if (200..300).contains(&response.status) { Ok(()) } else { Err(response_error(&peer, &response)) }
 }
 
 /// Fetches a paired device's status and updates what it advertises (address details, IDs).
@@ -877,12 +897,63 @@ mod tests {
         let (value, _) = fetch_peer_status(&a, &b_id).unwrap();
         assert_eq!(value["hostname"], "B");
         assert_eq!(value["protocol"], 2);
-        let wire = AiInboxWire { id: "m1".into(), channel: "c".into(), author: "claude-a".into(), body: "hello".into(), reply_to: None, created_at: now_ms() };
+        let wire = AiInboxWire { id: "m1".into(), channel: "c".into(), author: "claude-a".into(), body: "hello".into(), reply_to: None, created_at: now_ms(), to: vec![], room: None };
         assert!(deliver_ai(&a, &b_id, &wire).is_ok());
         let received = b.lock().unwrap().ai_messages.clone();
         assert_eq!(received.len(), 1);
         assert_eq!(received[0].peer_name, "A");
         assert_eq!(received[0].direction, "in");
+    }
+
+    /// Pairs two nodes directly (as if both people had confirmed).
+    fn pair_directly(a: &BridgeLinkManager, a_port: u16, b: &BridgeLinkManager, b_port: u16) -> (String, String) {
+        let (a_id, a_name, a_fp) = { let r = a.lock().unwrap(); (r.instance_id.clone(), r.display_name.clone(), r.fingerprint.clone()) };
+        let (b_id, b_name, b_fp) = { let r = b.lock().unwrap(); (r.instance_id.clone(), r.display_name.clone(), r.fingerprint.clone()) };
+        a.lock().unwrap().paired.insert(b_id.clone(), new_peer(&b_id, &b_name, "linux", "127.0.0.1".into(), b_port, b_fp));
+        b.lock().unwrap().paired.insert(a_id.clone(), new_peer(&a_id, &a_name, "linux", "127.0.0.1".into(), a_port, a_fp));
+        (a_id, b_id)
+    }
+
+    #[test]
+    fn workspace_and_addressed_messages_reach_every_paired_device() {
+        let (a, a_port) = node("Mac");
+        let (b, b_port) = node("Windows");
+        let (c, c_port) = node("Laptop");
+        pair_directly(&a, a_port, &b, b_port);
+        pair_directly(&a, a_port, &c, c_port);
+
+        // An agent on the Mac opens a room and claims a file; both other devices see it.
+        let room = {
+            let mut runtime = a.lock().unwrap();
+            let (id, name) = (runtime.instance_id.clone(), runtime.display_name.clone());
+            runtime.workspace.hello("claude-mac", "", &id, &name, now_ms());
+            runtime.workspace.claim("src/App.tsx", "claude-mac", None, &id, &name, now_ms()).unwrap();
+            runtime.workspace.create_room("Ship it", "claude-mac", vec!["codex-win".into()], now_ms()).unwrap()
+        };
+        workspace::push(&a);
+        for other in [&b, &c] {
+            let state = other.lock().unwrap().workspace.state(now_ms());
+            assert_eq!(state.rooms[0].id, room.id);
+            assert_eq!(state.claims[0].agent, "claude-mac");
+            assert_eq!(state.agents[0].device_name, "Mac", "named after the pairing");
+        }
+        // The claim holds on the other devices too.
+        let error = b.lock().unwrap().workspace.claim("src/App.tsx", "codex-win", None, "w", "Windows", now_ms()).unwrap_err();
+        assert!(error.contains("claude-mac"));
+
+        // One send reaches both devices, addressed to one agent, in the room.
+        let send = AiSendWire { author: "claude-mac".into(), body: "your turn".into(), channel: None, reply_to: None, peer_instance_id: None, to: vec!["codex-win".into()], room: Some(room.id.clone()) };
+        let message = ai_send_internal(&a, send).unwrap();
+        assert!(!message.pending);
+        assert_eq!(message.peer_name, "Laptop, Windows");
+        for other in [&b, &c] {
+            let runtime = other.lock().unwrap();
+            let received = &runtime.ai_messages[0];
+            assert_eq!(received.to, vec!["codex-win"]);
+            assert_eq!(received.room.as_deref(), Some(room.id.as_str()));
+            assert!(workspace::is_for(received, "codex-win"));
+            assert!(!workspace::is_for(received, "claude-win"));
+        }
     }
 
     #[test]
@@ -930,7 +1001,7 @@ mod tests {
         if let Some(link) = a.lock().unwrap().link.clone() {
             link.forget_all();
         }
-        let message = ai_send_internal(&a, AiSendWire { author: "claude".into(), body: "later".into(), channel: None, reply_to: None, peer_instance_id: None }).unwrap();
+        let message = ai_send_internal(&a, AiSendWire { author: "claude".into(), body: "later".into(), channel: None, reply_to: None, peer_instance_id: None, to: vec![], room: None }).unwrap();
         assert!(message.pending);
         assert_eq!(a.lock().unwrap().outbox.len(), 1);
 

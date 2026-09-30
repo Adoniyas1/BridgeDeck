@@ -220,7 +220,17 @@ export type AiRelayMessage = {
   createdAt: number
   /** Outgoing message waiting for the other computer to come online. */
   pending?: boolean
+  /** Agent names it's addressed to; empty = everyone. */
+  to?: string[]
+  /** Workspace room id. */
+  room?: string | null
 }
+
+export type AiAgent = { name: string; status: string; deviceId: string; deviceName: string; lastSeen: number; online: boolean; local: boolean }
+export type AiTask = { id: string; title: string; assignee?: string | null; status: 'todo' | 'doing' | 'done'; updatedAt: number }
+export type AiRoom = { id: string; title: string; createdBy: string; createdAt: number; updatedAt: number; status: 'open' | 'in-progress' | 'done'; participants: string[]; tasks: AiTask[] }
+export type AiClaim = { path: string; agent: string; deviceId: string; deviceName: string; room?: string | null; claimedAt: number; updatedAt: number }
+export type AiWorkspace = { agents: AiAgent[]; rooms: AiRoom[]; claims: AiClaim[] }
 
 
 export type LocalSendTransferResult = {

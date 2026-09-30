@@ -291,11 +291,29 @@ export async function bridgeLinkAiMessages(since = 0): Promise<import('../types'
   return (await invokeSafe<import('../types').AiRelayMessage[]>('bridgelink_ai_messages', { since })) ?? []
 }
 
-export async function bridgeLinkAiSend(author: string, body: string, channel?: string): Promise<import('../types').AiRelayMessage> {
-  const result = await invokeSafe<import('../types').AiRelayMessage>('bridgelink_ai_send', { author, body, channel: channel ?? null })
+export async function bridgeLinkAiSend(author: string, body: string, options: { channel?: string; to?: string[]; room?: string } = {}): Promise<import('../types').AiRelayMessage> {
+  const result = await invokeSafe<import('../types').AiRelayMessage>('bridgelink_ai_send', { author, body, channel: options.channel ?? null, to: options.to ?? [], room: options.room ?? null })
   if (!result) throw new Error('The AI relay requires native desktop mode.')
   return result
 }
+
+/** A native command that has no browser fallback. */
+async function native<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return (await invokeSafe<T>(command, args)) as T
+}
+export async function aiWorkspace(): Promise<import('../types').AiWorkspace> {
+  return (await invokeSafe<import('../types').AiWorkspace>('ai_workspace')) ?? { agents: [], rooms: [], claims: [] }
+}
+export const aiRoomCreate = (title: string, participants: string[] = []) => native<import('../types').AiRoom>('ai_room_create', { title, participants })
+export const aiRoomUpdate = (room: string, changes: { title?: string; status?: string; participants?: string[] }) =>
+  native<import('../types').AiRoom>('ai_room_update', { room, title: changes.title ?? null, status: changes.status ?? null, participants: changes.participants ?? null })
+export const aiRoomRemove = (room: string) => native<boolean>('ai_room_remove', { room })
+export const aiTaskAdd = (room: string, title: string, assignee?: string) => native<import('../types').AiTask>('ai_task_add', { room, title, assignee: assignee ?? null })
+/** `assignee: ''` unassigns. */
+export const aiTaskUpdate = (room: string, task: string, changes: { status?: string; assignee?: string; title?: string }) =>
+  native<import('../types').AiTask>('ai_task_update', { room, task, status: changes.status ?? null, assignee: changes.assignee ?? null, title: changes.title ?? null })
+export const aiClaimRelease = (path: string) => native<void>('ai_claim_release', { path })
 
 export async function bridgeLinkAiTokenPath(): Promise<string> {
   return (await invokeSafe<string>('bridgelink_ai_token_path')) ?? ''
