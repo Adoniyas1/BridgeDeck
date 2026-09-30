@@ -1,6 +1,7 @@
 mod localsend_bridge;
 mod bridgelink;
 mod clipboard;
+mod health;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
@@ -534,6 +535,8 @@ pub fn run() {
             tray::tray_update,
             send_to::send_files_pending,
             send_to::send_to_integration,
+            health::health_permissions,
+            health::open_privacy_settings,
             contacts_save,
             upgrade_info,
             upgrade_self,

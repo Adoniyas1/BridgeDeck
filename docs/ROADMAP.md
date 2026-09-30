@@ -293,6 +293,12 @@ Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health
   `public.data`/`public.folder` as an Alternate viewer, so BridgeDeck is under Open With and takes
   files dropped on its Dock icon (`RunEvent::Opened`). The files wait in the Files tab for a computer
   to be picked.
+- **Home health fix-its (built)**: a "Needs attention" card on Home lists what's wrong, each with the
+  click that fixes it: pairing stopped or nothing paired, Messages without Full Disk Access, remote
+  control without Screen Recording or Accessibility (checked without prompting via
+  `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`), built-in sync or file receiving stopped,
+  sync conflicts, and a clipboard that couldn't be opened. The Mac buttons open the exact
+  Privacy & Security pane. Start-up states are ignored for the first 20 seconds.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

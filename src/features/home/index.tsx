@@ -1,15 +1,19 @@
-import { ArrowLeftRight, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
-import { bridgeLinkStore, deviceStatusStore } from '../../core/bridgelink'
-import { sortedDevices, useConfig } from '../../core/config'
+import { ArrowLeftRight, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
+import { useState } from 'react'
+import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing } from '../../core/bridgelink'
+import { serviceConfig, sortedDevices, useConfig } from '../../core/config'
+import { usePeriodicRefresh } from '../../core/refresh'
+import { healthPermissions, isTauri, openPrivacySettings, type Permissions } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
 import { Card, SectionTitle, StatusPill } from '../../ui'
 import type { FeatureManifest } from '../features'
 import { clipboardDetail, clipboardStore } from '../devices/clipboard'
-import { receiverStore } from '../files/state'
+import { receiverStore, startLocalSendReceiver } from '../files/state'
 import { messagesSourceStore } from '../messages/state'
 import { controlDevice, hostStore } from '../remote/state'
-import { syncthingStore } from '../sync/state'
+import { conflictsStore, sidecarStore, startBuiltIn, syncthingStore } from '../sync/state'
+import { healthIssues, type Fix } from './health'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
@@ -26,6 +30,53 @@ function Leftovers() {
     </div>)}</div>
     <div className="actions">{stillActive && <button disabled={busy} onClick={() => void stopLeftovers()}>{busy ? 'Stopping…' : 'Quit them and stop them opening at login'}</button>}</div>
     {!!needsUninstall.length && <p className="pair-note">To remove them completely, uninstall {needsUninstall.map(a => a.name).join(' and ')}: {navigator.userAgent.includes('Mac') ? 'drag the app from Applications to the Trash (RustDesk asks for your password to remove its service)' : 'Settings → Apps → Installed apps → Uninstall'}.{needsUninstall.some(a => a.systemService) ? ' RustDesk’s background service starts it again until it’s uninstalled.' : ''}</p>}
+  </Card>
+}
+
+const openedAt = Date.now()
+
+const FIXES: Record<Fix, () => unknown> = {
+  'start-pairing': startAutomaticPairing,
+  pair: () => activateTab('computers'),
+  'files-access': () => openPrivacySettings('files'),
+  'screen-recording': () => openPrivacySettings('screen'),
+  accessibility: () => openPrivacySettings('accessibility'),
+  'start-sync': startBuiltIn,
+  'start-receiver': startLocalSendReceiver,
+  'open-sync': () => activateTab('sync'),
+}
+
+/** Problems BridgeDeck can see, each with the click that fixes it. Hidden when all is well. */
+function NeedsAttention() {
+  const config = useConfig()
+  const link = useStore(bridgeLinkStore)
+  const messages = useStore(messagesSourceStore)
+  const sidecar = useStore(sidecarStore)
+  const receiver = useStore(receiverStore)
+  const clipboard = useStore(clipboardStore)
+  const conflicts = useStore(conflictsStore)
+  const [permissions, setPermissions] = useState<Permissions | null>(null)
+  usePeriodicRefresh(async () => { if (isTauri()) setPermissions(await healthPermissions()) }, 10_000, [])
+  const issues = healthIssues({
+    pairingRunning: link.running,
+    pairedCount: link.paired.length,
+    mac: link.platform === 'macos',
+    messages,
+    permissions,
+    remoteAllowed: config.remote.allowControl,
+    sync: { builtin: config.syncthing.mode === 'builtin', available: sidecar.available, running: sidecar.running },
+    receiver: { enabled: !!serviceConfig(config, 'localsend')?.enabled, running: receiver.running },
+    clipboard: { on: config.clipboard.sync, available: clipboard.available || !isTauri() },
+    conflicts: Object.values(conflicts).flat().length,
+    settled: Date.now() - openedAt > 20_000,
+  })
+  if (!issues.length) return null
+  return <Card className="incoming-card"><SectionTitle title="Needs attention" subtitle={`${issues.length} thing${issues.length === 1 ? '' : 's'} to fix`} action={<CircleAlert size={20}/>} />
+    <div className="stack">{issues.map(issue => <div className="service-row" key={issue.id}>
+      <span className="service-dot" data-on={false}/>
+      <div className="grow"><strong>{issue.title}</strong><small>{issue.detail}</small></div>
+      {issue.fix && <button className="secondary" onClick={() => void Promise.resolve(FIXES[issue.fix!.action]()).catch(() => undefined)}>{issue.fix.label}</button>}
+    </div>)}</div>
   </Card>
 }
 
@@ -51,6 +102,7 @@ function HomePage() {
   const versions = new Set(devices.filter(d => machineStatus[d.id]?.ok).map(d => machineStatus[d.id]?.version || '0.7 or older'))
   return <>
     {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
+    <NeedsAttention />
     <Leftovers />
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>
