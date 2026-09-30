@@ -30,7 +30,7 @@ const bridgeLink = ['mod.rs', 'peer.rs', 'discovery.rs', 'local.rs'].map(f => re
 const sync = readFileSync(join(root, 'src-tauri/src/syncthing_bridge.rs'), 'utf8')
 const rust = lib + localSend + bridgeLink + sync
 for (const command of [
-  'rustdesk_session', 'rustdesk_identity',
+  'legacy_apps', 'legacy_apps_stop',
   'localsend_receiver_status', 'localsend_receiver_start', 'localsend_receiver_stop', 'localsend_accept', 'localsend_decline', 'localsend_send_native',
   'bridgelink_start', 'bridgelink_stop', 'bridgelink_status', 'bridgelink_request_pair', 'bridgelink_poll_pair', 'bridgelink_approve', 'bridgelink_decline', 'bridgelink_forget', 'bridgelink_refresh_peer', 'bridgelink_confirm_pair', 'bridgelink_peer_status',
   'syncthing_setup_peer',
@@ -53,7 +53,7 @@ const workspace = readFileSync(join(root, 'src-tauri/src/bridgelink/workspace.rs
 const imessage = ['mod.rs', 'chatdb.rs', 'typedstream.rs', 'contacts.rs'].map(f => readFileSync(join(root, 'src-tauri/src/imessage', f), 'utf8')).join('\n')
 for (const marker of ['fn merge(', 'fn claim(', 'fn is_for(', 'pub fn ai_workspace']) workspace.includes(marker) ? ok(`AI workspace ${marker}`) : fail(`AI workspace missing: ${marker}`)
 for (const marker of ['SQLITE_OPEN_READ_ONLY', 'fn text(data: &[u8])', 'Full Disk Access', '.args([chat, kind, payload])', 'Library/Messages']) imessage.includes(marker) ? ok(`Messages engine ${marker}`) : fail(`Messages engine missing: ${marker}`)
-if (!/bluebubbles/i.test(rust)) ok('BlueBubbles removed from the native side'); else fail('BlueBubbles code still present in Rust')
+if (!/bluebubbles|rustdesk_|launch_app|managed_service/i.test(lib + bridgeLink)) ok('No external apps launched (RustDesk, BlueBubbles, service manager removed)'); else fail('Code that launches external apps is still present')
 // Phase 5: remote control in tabs, paired devices only, with a stop banner.
 const remote = ['mod.rs', 'host.rs', 'viewer.rs', 'codec.rs', 'input.rs', 'platform.rs'].map(f => readFileSync(join(root, 'src-tauri/src/remote', f), 'utf8')).join('\n')
 for (const marker of ['pub async fn serve(', 'fn stop_all()', 'ask_first', 'fn encode(', 'Coordinate::Abs', 'SESSION_PATH']) remote.includes(marker) ? ok(`Remote control ${marker}`) : fail(`Remote control missing: ${marker}`)
@@ -67,7 +67,7 @@ const sourceFiles = dir => readdirSync(join(root, dir), { withFileTypes: true })
   entry.isDirectory() ? sourceFiles(join(dir, entry.name)) : /\.tsx?$/.test(entry.name) && !entry.name.endsWith('.test.ts') ? [join(dir, entry.name)] : [])
 const app = sourceFiles('src').map(file => readFileSync(join(root, file), 'utf8')).join('\n')
 const registry = readFileSync(join(root, 'src/features/registry.ts'), 'utf8')
-for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', 'sync', 'services']) {
+for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', 'sync']) {
   registry.includes(`import { ${feature} } from './${feature}'`) ? ok(`feature registered: ${feature}`) : fail(`feature not registered: ${feature}`)
 }
 for (const text of [

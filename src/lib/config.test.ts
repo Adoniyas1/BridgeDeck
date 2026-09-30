@@ -21,7 +21,7 @@ describe('config migration from v0.7', () => {
     expect(config.configVersion).toBe(8)
     expect(config.devices.map(d => d.id)).toEqual(['mac-instance', 'win-instance'])
     const mac = config.devices.find(d => d.id === 'mac-instance')!
-    expect(mac).toMatchObject({ name: 'Mac', platform: 'macos', local: false, agentToken: 'peer-token', rustdeskPeerId: '123456789', syncthingDeviceId: 'MAC-SYNC', sharedPath: '/Users/a/BridgeDeck Shared' })
+    expect(mac).toMatchObject({ name: 'Mac', platform: 'macos', local: false, agentToken: 'peer-token', syncthingDeviceId: 'MAC-SYNC', sharedPath: '/Users/a/BridgeDeck Shared' })
   })
 
   it('marks the slot pointing at the local API as this computer', () => {

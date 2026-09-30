@@ -1,7 +1,6 @@
 export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
 
-export type ServiceKey = 'rustdesk' | 'syncthing' | 'localsend'
-export type RustDeskMode = 'control' | 'file-transfer'
+export type ServiceKey = 'syncthing' | 'localsend'
 
 export type ServiceConfig = {
   id: ServiceKey
@@ -28,7 +27,6 @@ export type DeviceConfig = {
   local: boolean
   agentUrl: string
   agentToken: string
-  rustdeskPeerId: string
   localsendTarget: string
   localsendPin: string
   sharedPath: string
@@ -137,15 +135,6 @@ export type AgentStatus = {
   error?: string
 }
 
-export type ManagedServiceState = {
-  serviceId: ServiceKey
-  running: boolean
-  managed: boolean
-  pid?: number
-  executableReady: boolean
-  executable?: string
-  detail?: string
-}
 
 export type SyncthingFolder = {
   id: string
@@ -240,12 +229,6 @@ export type LocalSendTransferResult = {
   exitCode?: number
 }
 
-export type RustDeskIdentity = {
-  available: boolean
-  id?: string
-  executable?: string
-  detail?: string
-}
 
 
 export type LocalSendDevice = {
@@ -352,7 +335,6 @@ export type BridgeLinkPairedPeer = {
   apiPort: number
   /** SHA-256 of the device's certificate, pinned at pairing. */
   fingerprint: string
-  rustdeskPeerId?: string
   localsendTarget: string
   syncthingDeviceId?: string
   via: 'lan' | 'tailscale'

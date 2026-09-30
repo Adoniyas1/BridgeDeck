@@ -57,7 +57,7 @@ a tab. Nothing opens in a separate window. See `ROADMAP.md` for the plan and its
 | Files | LocalSend core compiled in (`vendor/localsend`); paired devices auto-accepted. |
 | Sync | Syncthing runs hidden as a sidecar owned by BridgeDeck (`sync_sidecar.rs`: own home folder, loopback GUI with a random key, restarted if it stops, stopped on quit; an existing install can be adopted). Folders, progress, pause, conflicts tab (the losing copy goes to the Trash). |
 | Messages | On the Mac, `imessage/` reads `chat.db` and Contacts read-only (`attributedBody` decoded by `typedstream.rs`), converts HEIC for display, and sends text and files through Messages.app with AppleScript. Other devices ask the Mac over `/messages`; attachments move in 512 KB chunks. |
-| Remote | `remote/host.rs` captures a monitor (`xcap`) and injects input (`enigo`) on their own threads; `codec.rs` sends only changed 128-px tiles as JPEG (the whole frame when most changed); the viewer asks for the next frame after drawing, so the rate adapts. `remote/viewer.rs` feeds a `remote-session` tab through a Tauri channel. Paired devices only; banner + tray Stop on the host. RustDesk remains as a fallback. |
+| Remote | `remote/host.rs` captures a monitor (`xcap`) and injects input (`enigo`) on their own threads; `codec.rs` sends only changed 128-px tiles as JPEG (the whole frame when most changed); the viewer asks for the next frame after drawing, so the rate adapts. `remote/viewer.rs` feeds a `remote-session` tab through a Tauri channel. Paired devices only; banner + tray Stop on the host. |
 | AI Center | `bridgelink/workspace.rs`: agents, rooms with to-dos, file claims and addressed messages, replicated to every paired device (`/ai/state`, merged by last update). `agent/bridgedeck-mcp.mjs` gives any MCP client the tools; `agent/ai-relay.mjs` is the CLI. See `AI_RELAY.md`. |
 
 ## Data on disk
@@ -72,5 +72,5 @@ App config folder (`dev.bridgedeck.app`): `config-v7.json` (settings, no secrets
 - `cargo check`, `cargo test` in `src-tauri`; Windows is cross-checked with
   `--target x86_64-pc-windows-gnu`. macOS code is compiled by `release.yml` (installers, run on
   demand for big changes, D13).
-- `vendor/` holds pinned upstream source (`vendor-lock.json`: RustDesk, Syncthing, LocalSend);
+- `vendor/` holds pinned upstream source (`vendor-lock.json`: Syncthing, LocalSend);
   `scripts/build-syncthing.mjs` builds the sidecar.

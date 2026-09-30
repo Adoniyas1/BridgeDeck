@@ -21,16 +21,16 @@ export const sourceUpdateStore = createStore<SourceUpdateStatus | null>(null)
 
 /** Identifiers this computer advertises to paired peers. Features publish theirs with `advertise` as
  *  soon as they know them; BridgeLink then re-advertises. Empty values are ignored natively. */
-export const advertisedStore = createStore({ rustdeskId: '', syncthingId: '' })
+export const advertisedStore = createStore({ syncthingId: '' })
 
-export function advertise(patch: Partial<{ rustdeskId: string; syncthingId: string }>) {
+export function advertise(patch: Partial<{ syncthingId: string }>) {
   advertisedStore.set(current => Object.entries(patch).every(([key, value]) => current[key as keyof typeof current] === value) ? current : { ...current, ...patch })
 }
 
 /** Only non-empty values: an ID a peer hasn't reported yet never clears one already known. */
 const known = (patch: Partial<DeviceConfig>) => Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined && value !== '')) as Partial<DeviceConfig>
 
-function applyLocalBridge(status: BridgeLinkStatus, rustdeskId?: string, syncthingDeviceId?: string) {
+function applyLocalBridge(status: BridgeLinkStatus, syncthingDeviceId?: string) {
   if (!status.instanceId) return
   // A previous identity of this computer (reinstall, reset) is replaced rather than kept as a second "this computer".
   setConfig(c => c.devices.some(d => d.local && d.id !== status.instanceId) ? { ...c, devices: c.devices.filter(d => !d.local || d.id === status.instanceId) } : c)
@@ -39,7 +39,7 @@ function applyLocalBridge(status: BridgeLinkStatus, rustdeskId?: string, syncthi
     agentUrl: `http://127.0.0.1:${status.apiPort}`,
     agentToken: '',
     localsendTarget: `127.0.0.1:${configStore.get().localsend.port}`,
-    ...known({ rustdeskPeerId: rustdeskId, syncthingDeviceId }),
+    ...known({ syncthingDeviceId }),
   }, { name: status.displayName || 'This computer', platform: status.platform, local: true })
 }
 
@@ -50,11 +50,11 @@ export function applyPairedPeer(peer: BridgeLinkPairedPeer) {
     // Status travels over the encrypted link (bridgeLinkPeerStatus); the URL is kept for the address.
     agentUrl: agentUrlFor(peer.host, peer.apiPort),
     agentToken: '',
-    ...known({ rustdeskPeerId: peer.rustdeskPeerId, localsendTarget: peer.localsendTarget, syncthingDeviceId: peer.syncthingDeviceId }),
+    ...known({ localsendTarget: peer.localsendTarget, syncthingDeviceId: peer.syncthingDeviceId }),
   }, { name: peer.name, platform: peer.platform, local: false })
 }
 
-/** Asks the paired computer for its latest details (new IP, RustDesk/Syncthing IDs) and applies them. */
+/** Asks the paired computer for its latest details (new IP, Syncthing ID) and applies them. */
 export async function refreshPeer(instanceId: string): Promise<BridgeLinkPairedPeer | undefined> {
   const refreshed = await bridgeLinkRefreshPeer(instanceId)
   if (refreshed.peer) applyPairedPeer(refreshed.peer)
@@ -67,11 +67,11 @@ export async function startAutomaticPairing() {
     pairingStateStore.set('Starting LAN discovery…')
     // No stop/start here: BridgeLink is already running from process start, and bridgeLinkStart only
     // refreshes what it advertises (it rebinds natively if the API port changed).
-    const { rustdeskId, syncthingId } = advertisedStore.get()
-    const status = await bridgeLinkStart(config.pairing.displayName, config.pairing.apiPort, rustdeskId, config.localsend.port, syncthingId)
+    const { syncthingId } = advertisedStore.get()
+    const status = await bridgeLinkStart(config.pairing.displayName, config.pairing.apiPort, config.localsend.port, syncthingId)
     bridgeLinkStore.set(status)
     status.paired.forEach(applyPairedPeer)
-    applyLocalBridge(status, rustdeskId, syncthingId)
+    applyLocalBridge(status, syncthingId)
     pairingStateStore.set(status.detail || 'Automatic pairing is active.')
   } catch (error) {
     pairingStateStore.set(errorText(error, 'Could not start automatic pairing'))
@@ -150,7 +150,7 @@ export async function forgetAutomaticPair(instanceId: string) {
 export function BridgeLinkBackground() {
   const hydrated = useStore(hydratedStore)
   const config = useStore(configStore)
-  const { rustdeskId, syncthingId } = useStore(advertisedStore)
+  const { syncthingId } = useStore(advertisedStore)
   const running = useStore(bridgeLinkStore).running
   const pairPollBusy = useRef(false)
 
@@ -190,14 +190,14 @@ export function BridgeLinkBackground() {
     return () => window.clearInterval(timer)
   }, [hydrated])
 
-  // Re-advertise when a feature learns this computer's RustDesk or Syncthing ID.
+  // Re-advertise when the Sync feature learns this computer's Syncthing ID.
   useEffect(() => {
-    if (!hydrated || !running || !(rustdeskId || syncthingId)) return
+    if (!hydrated || !running || !syncthingId) return
     const current = configStore.get()
-    void bridgeLinkStart(current.pairing.displayName, current.pairing.apiPort, rustdeskId, current.localsend.port, syncthingId)
-      .then(status => { bridgeLinkStore.set(status); applyLocalBridge(status, rustdeskId, syncthingId) })
+    void bridgeLinkStart(current.pairing.displayName, current.pairing.apiPort, current.localsend.port, syncthingId)
+      .then(status => { bridgeLinkStore.set(status); applyLocalBridge(status, syncthingId) })
       .catch(() => undefined)
-  }, [hydrated, rustdeskId, syncthingId])
+  }, [hydrated, syncthingId])
 
   usePeriodicRefresh(async () => {
     // Paired devices over the encrypted link; this computer and hand-added ones over HTTP.
@@ -206,7 +206,7 @@ export function BridgeLinkBackground() {
     const statuses = await Promise.all(devices.map(async d => [d.id, paired.has(d.id) && !d.local ? await bridgeLinkPeerStatus(d.id) : await fetchAgent(d.agentUrl, d.agentToken)] as const))
     deviceStatusStore.set(Object.fromEntries(statuses))
     try { sourceUpdateStore.set(await sourceUpdateStatus()) } catch { /* browser mode */ }
-    // Pick up peer changes made after pairing (new IP, RustDesk/Syncthing IDs).
+    // Pick up peer changes made after pairing (new IP, Syncthing ID).
     try {
       const link = await bridgeLinkStatus()
       for (const peer of link.paired) {

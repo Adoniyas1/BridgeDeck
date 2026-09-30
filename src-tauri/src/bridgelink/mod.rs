@@ -104,7 +104,6 @@ pub struct BridgeLinkPairedPeer {
     pub api_port: u16,
     /// SHA-256 of the device's certificate, pinned at pairing.
     pub fingerprint: String,
-    pub rustdesk_peer_id: Option<String>,
     pub localsend_target: String,
     pub syncthing_device_id: Option<String>,
     /// "lan" or "tailscale": the network the current address belongs to.
@@ -226,7 +225,6 @@ struct PersistedPeer {
     host: String,
     api_port: u16,
     fingerprint: String,
-    rustdesk_peer_id: Option<String>,
     localsend_port: u16,
     syncthing_device_id: Option<String>,
     paired_at: u64,
@@ -241,7 +239,6 @@ impl PersistedPeer {
             host: self.host.clone(),
             api_port: self.api_port,
             fingerprint: self.fingerprint.clone(),
-            rustdesk_peer_id: self.rustdesk_peer_id.clone(),
             localsend_target: format_host_port(&self.host, self.localsend_port),
             syncthing_device_id: self.syncthing_device_id.clone(),
             via: if is_tailscale_host(&self.host) { "tailscale" } else { "lan" }.into(),
@@ -281,7 +278,6 @@ struct Runtime {
     display_name: String,
     platform: String,
     api_port: u16,
-    rustdesk_id: Option<String>,
     localsend_port: u16,
     syncthing_device_id: Option<String>,
     discovered: HashMap<String, BridgeLinkPeer>,
@@ -319,7 +315,6 @@ impl Default for Runtime {
             display_name: "BridgeDeck".to_string(),
             platform: platform_key().to_string(),
             api_port: DEFAULT_API_PORT,
-            rustdesk_id: None,
             localsend_port: 53317,
             syncthing_device_id: None,
             discovered: HashMap::new(),
@@ -677,7 +672,6 @@ fn status_body(runtime: &Runtime) -> String {
         "freeMemory": system.available_memory(),
         "timestamp": now_ms().to_string(),
         "bridgeInstanceId": runtime.instance_id,
-        "rustdeskPeerId": runtime.rustdesk_id,
         "localsendPort": runtime.localsend_port,
         "syncthingDeviceId": runtime.syncthing_device_id,
     })
@@ -843,12 +837,11 @@ pub fn bridgelink_start(
     app: AppHandle,
     display_name: String,
     api_port: u16,
-    rustdesk_id: String,
     localsend_port: u16,
     syncthing_id: String,
     manager: State<'_, BridgeLinkManager>,
 ) -> Result<BridgeLinkStatus, String> {
-    start(&app, &manager, display_name, api_port, rustdesk_id, localsend_port, syncthing_id)
+    start(&app, &manager, display_name, api_port, localsend_port, syncthing_id)
 }
 
 /// Starts discovery, the encrypted peer endpoint and the loopback API, or updates the advertised
@@ -858,7 +851,6 @@ pub fn start(
     manager: &BridgeLinkManager,
     display_name: String,
     api_port: u16,
-    rustdesk_id: String,
     localsend_port: u16,
     syncthing_id: String,
 ) -> Result<BridgeLinkStatus, String> {
@@ -870,7 +862,6 @@ pub fn start(
             // Already listening: only refresh what is advertised. Never stop/start here; the UI calls
             // this after load, and a stop followed by a delayed start left the API down for minutes.
             runtime.display_name = name;
-            if !rustdesk_id.trim().is_empty() { runtime.rustdesk_id = Some(rustdesk_id.trim().to_string()); }
             runtime.localsend_port = if localsend_port == 0 { 53317 } else { localsend_port };
             if !syncthing_id.trim().is_empty() { runtime.syncthing_device_id = Some(syncthing_id.trim().to_string()); }
             return Ok(snapshot(&mut runtime));
@@ -913,7 +904,6 @@ pub fn start(
         runtime.display_name = name;
         runtime.platform = platform_key().to_string();
         runtime.api_port = port;
-        runtime.rustdesk_id = (!rustdesk_id.trim().is_empty()).then(|| rustdesk_id.trim().to_string());
         runtime.localsend_port = if localsend_port == 0 { 53317 } else { localsend_port };
         runtime.syncthing_device_id = (!syncthing_id.trim().is_empty()).then(|| syncthing_id.trim().to_string());
         runtime.storage_dir = Some(dir);
@@ -1045,7 +1035,7 @@ mod tests {
         let mut runtime = Runtime::default();
         let peer = PersistedPeer {
             instance_id: "p".into(), name: "Mac".into(), platform: "macos".into(), host: "192.168.4.28".into(), api_port: 41416,
-            fingerprint: "f".into(), rustdesk_peer_id: None, localsend_port: 53317, syncthing_device_id: None, paired_at: 0,
+            fingerprint: "f".into(), localsend_port: 53317, syncthing_device_id: None, paired_at: 0,
         };
         runtime.seen.insert("p".into(), vec![("100.100.1.2".into(), 5, true), ("192.168.4.28".into(), 9, false), ("192.168.1.50".into(), 3, false)]);
         let addresses: Vec<String> = peer_addresses(&runtime, &peer).iter().map(|a| a.ip().to_string()).collect();

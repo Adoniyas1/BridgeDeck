@@ -34,7 +34,7 @@ BridgeDeck v0.7 can turn a completed BridgeLink Mac/Windows pairing into a Synct
 ## Trust model
 
 - Each computer keeps its own Syncthing REST API key locally.
-- BridgeLink exchanges only the Syncthing device ID alongside RustDesk and LocalSend metadata.
+- BridgeLink exchanges only the Syncthing device ID alongside LocalSend metadata.
 - Syncthing device IDs are public-key-derived identifiers and are not secrets.
 - The BridgeLink initial pairing transport is still intended for trusted LANs; confirm the six-digit code on both screens.
 

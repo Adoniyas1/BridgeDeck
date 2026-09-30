@@ -49,7 +49,7 @@ When the other machine appears:
 3. approve the incoming request on the other computer;
 4. wait for BridgeDeck to complete the pairing automatically.
 
-The matching Mac/Windows slot is populated with the peer's BridgeLink status URL/token, RustDesk ID and LocalSend target.
+The matching Mac/Windows slot is populated with the peer's BridgeLink address, Syncthing device ID and LocalSend target.
 
 If discovery is blocked, check the local firewall for UDP `41415` (discovery) and UDP `41416` (the encrypted link).
 
@@ -63,7 +63,7 @@ In **Settings → Native LocalSend**, set an alias and optionally a receive fold
   Full Disk Access) so it can read Messages and Contacts, and allow it to control **Messages** when
   macOS asks (the first send). Windows reads Messages through the paired Mac; nothing to set up there.
   BlueBubbles is no longer used and can be uninstalled.
-- Syncthing: REST base URL + API key.
-- RustDesk: bundled/custom runtime or installed RustDesk application.
+- Syncthing: runs inside BridgeDeck; nothing to set up (a separate install can be moved in from the Sync tab).
+- Remote control: built in (Remote tab). On the Mac, allow BridgeDeck under Screen Recording and Accessibility. RustDesk is no longer used.
 
 The legacy standalone Bridge Agent is optional after BridgeLink pairing.

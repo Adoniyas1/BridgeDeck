@@ -2,7 +2,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import type {
   AgentStatus,
-  ManagedServiceState, RustDeskIdentity, RustDeskMode, ServiceKey,
   SyncthingFolder, SyncthingStatus,
 } from '../types'
 
@@ -61,21 +60,6 @@ export async function openPath(path: string) {
   if (isTauri()) await invokeSafe('open_path', { path })
 }
 
-export async function appAvailable(app: string, executable?: string): Promise<boolean> {
-  const result = await invokeSafe<boolean>('app_available', { serviceId: app, executable: executable || null })
-  return result ?? false
-}
-
-export async function launchApp(app: string, executable?: string) {
-  if (isTauri()) await invokeSafe('launch_app', { serviceId: app, executable: executable || null })
-}
-
-/** Returns the route RustDesk used ("direct LAN (ip)" or "RustDesk ID n"). */
-export async function connectRustDesk(peerId: string, executable?: string, mode: RustDeskMode = 'control', host?: string): Promise<string> {
-  if (!peerId) return ''
-  return (await invokeSafe<string>('rustdesk_session', { peerId, executable: executable || null, mode, host: host || null })) ?? ''
-}
-
 export type ContactSaveRequest = {
   personId: string
   firstName: string
@@ -98,17 +82,6 @@ export async function desktopNotify(title: string, body: string): Promise<void> 
   await invokeSafe('desktop_notify', { title, body })
 }
 
-/** Starts RustDesk in the background if it isn't running. */
-export async function rustDeskEnsureRunning(executable?: string): Promise<{ running: boolean; started: boolean; detail?: string }> {
-  return (await invokeSafe<{ running: boolean; started: boolean; detail?: string }>('rustdesk_ensure_running', { executable: executable || null }))
-    ?? { running: false, started: false }
-}
-
-export async function rustDeskIdentity(executable?: string): Promise<RustDeskIdentity> {
-  const result = await invokeSafe<RustDeskIdentity>('rustdesk_identity', { executable: executable || null })
-  return result ?? { available: false, detail: 'RustDesk identity requires the native BridgeDeck app.' }
-}
-
 export async function pickTransferPaths(directory = false): Promise<string[]> {
   if (!isTauri()) return []
   const picked = await open({ multiple: !directory, directory })
@@ -125,22 +98,10 @@ export async function saveNativeConfig(raw: string): Promise<void> {
   await invokeSafe('save_app_config', { raw })
 }
 
-export async function managedServiceStatus(serviceId: ServiceKey, executable?: string): Promise<ManagedServiceState> {
-  const result = await invokeSafe<ManagedServiceState>('managed_service_status', { serviceId, executable: executable || null })
-  return result ?? { serviceId, running: false, managed: false, executableReady: false, detail: 'Native service management requires the Tauri app.' }
-}
-
-export async function managedServiceStart(serviceId: ServiceKey, executable?: string): Promise<ManagedServiceState> {
-  const result = await invokeSafe<ManagedServiceState>('managed_service_start', { serviceId, executable: executable || null })
-  if (!result) throw new Error('Native service management requires the Tauri app.')
-  return result
-}
-
-export async function managedServiceStop(serviceId: ServiceKey): Promise<ManagedServiceState> {
-  const result = await invokeSafe<ManagedServiceState>('managed_service_stop', { serviceId })
-  if (!result) throw new Error('Native service management requires the Tauri app.')
-  return result
-}
+/** Apps older BridgeDeck versions needed (RustDesk, BlueBubbles) that are still installed or running. */
+export type LegacyApp = { name: string; replacedBy: string; running: boolean; startsAtLogin: boolean; installed: boolean; systemService: boolean }
+export const legacyApps = () => native<LegacyApp[]>('legacy_apps')
+export const legacyAppsStop = () => native<LegacyApp[]>('legacy_apps_stop')
 
 /** Remote control: this computer as host. */
 export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
@@ -215,8 +176,8 @@ export async function localSendNativeSend(target: string, paths: string[], pin =
   return result
 }
 
-export async function bridgeLinkStart(displayName: string, apiPort: number, rustdeskId: string, localsendPort: number, syncthingId = ''): Promise<import('../types').BridgeLinkStatus> {
-  const result = await invokeSafe<import('../types').BridgeLinkStatus>('bridgelink_start', { displayName, apiPort, rustdeskId, localsendPort, syncthingId })
+export async function bridgeLinkStart(displayName: string, apiPort: number, localsendPort: number, syncthingId = ''): Promise<import('../types').BridgeLinkStatus> {
+  const result = await invokeSafe<import('../types').BridgeLinkStatus>('bridgelink_start', { displayName, apiPort, localsendPort, syncthingId })
   if (!result) throw new Error('Automatic pairing requires the native BridgeDeck app.')
   return result
 }

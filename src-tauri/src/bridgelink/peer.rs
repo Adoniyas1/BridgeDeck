@@ -82,7 +82,6 @@ fn new_peer(instance_id: &str, name: &str, platform: &str, host: String, api_por
         host,
         api_port,
         fingerprint,
-        rustdesk_peer_id: None,
         localsend_port: 53317,
         syncthing_device_id: None,
         paired_at: now_ms(),
@@ -480,9 +479,6 @@ fn fetch_peer_status(manager: &BridgeLinkManager, instance_id: &str) -> Result<(
     let text = |key: &str| value.get(key).and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()).map(str::to_string);
     if let Some(name) = text("hostname") {
         stored.name = clean_text(&name, &stored.name, 64);
-    }
-    if let Some(id) = text("rustdeskPeerId") {
-        stored.rustdesk_peer_id = Some(id);
     }
     if let Some(port) = value.get("localsendPort").and_then(|v| v.as_u64()).and_then(|v| u16::try_from(v).ok()) {
         stored.localsend_port = port;

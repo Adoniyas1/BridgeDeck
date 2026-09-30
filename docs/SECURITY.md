@@ -38,10 +38,6 @@ BridgeDeck is a local control plane. Native integrations are deliberately constr
 - Symlink roots are rejected for outbound transfers and directory walking does not follow symlinks.
 - The LocalSend certificate/private key is persisted so the device fingerprint remains stable. On Unix, the identity file is mode `0600`.
 
-## RustDesk
-
-BridgeDeck only accepts numeric peer IDs and invokes RustDesk with direct process arguments. RustDesk continues to own session authentication, transport encryption and remote-display rendering.
-
 ## Legacy Bridge Agent
 
 The standalone agent remains read-only. Loopback mode requires no token. Non-loopback/LAN mode refuses to start without a bearer token. BridgeLink makes the standalone agent optional for normal paired-machine status.
@@ -103,3 +99,13 @@ that monitor), buttons, wheel steps, key presses by name and nothing else: there
 clipboard or file channel in a session. macOS needs Screen Recording and Accessibility for
 BridgeDeck. Known limit: Windows UAC prompts appear on the secure desktop and can't be seen or
 clicked remotely.
+
+## No external apps (0.9.1)
+
+BridgeDeck no longer starts, finds or launches other programs (RustDesk, BlueBubbles, or the old
+"service manager"). The only helper process is its own bundled Syncthing, run hidden with a loopback
+API and stopped when BridgeDeck quits. The Home tab can quit RustDesk and BlueBubbles left over from
+older setups and remove their per-user login items (macOS: System Events login items and
+`~/Library/LaunchAgents` entries are disabled, not deleted; Windows: the `HKCU\...\Run` values and
+Startup shortcuts). It only acts when the person clicks, and never touches system-wide services,
+which need an uninstall with administrator rights.
