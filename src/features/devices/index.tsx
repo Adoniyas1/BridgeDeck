@@ -14,6 +14,7 @@ import { controlDevice } from '../remote/state'
 import { configureSyncthingPeer, syncthingSetupStore } from '../sync/state'
 import { UpgradeControls } from './UpgradeControls'
 import { ClipboardBackground, ClipboardCard } from './clipboard'
+import { TrayBackground } from './tray'
 import { version } from '../../../package.json'
 
 const isManual = (device: DeviceConfig) => device.id.startsWith('manual-')
@@ -59,6 +60,11 @@ function DevicesPage() {
   </>
 }
 
+/** The clipboard thread's setting and the tray menu's device lists. */
+function DevicesBackground() {
+  return <><ClipboardBackground /><TrayBackground /></>
+}
+
 function DevicesSettings() {
   const config = useConfig()
   const bridgeLink = useStore(bridgeLinkStore)
@@ -68,4 +74,4 @@ function DevicesSettings() {
   </>
 }
 
-export const devices: FeatureManifest = { id: 'computers', title: 'Computers', icon: Computer, Page: DevicesPage, Background: ClipboardBackground, Settings: DevicesSettings, settingsOrder: 10 }
+export const devices: FeatureManifest = { id: 'computers', title: 'Computers', icon: Computer, Page: DevicesPage, Background: DevicesBackground, Settings: DevicesSettings, settingsOrder: 10 }

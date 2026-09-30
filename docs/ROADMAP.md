@@ -284,6 +284,9 @@ Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health
   messages (shown by the native side), files received or waiting for Accept, and new Syncthing
   conflict copies (looked for every 5 minutes, and every minute while the Sync tab is open). Remote
   control starting and pairing requests always notify.
+- **Tray actions (built)**: the tray / menu-bar menu lists paired computers under Control and Send
+  files to (a file picker, then LocalSend), and has a Share clipboard switch. The UI sends the device
+  list with `tray_update` whenever it changes; picks come back as `tray-action` events.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

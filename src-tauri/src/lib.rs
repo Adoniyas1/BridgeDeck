@@ -524,6 +524,7 @@ pub fn run() {
             agent_status,
             desktop_notify,
             notification_settings,
+            tray::tray_update,
             contacts_save,
             upgrade_info,
             upgrade_self,
