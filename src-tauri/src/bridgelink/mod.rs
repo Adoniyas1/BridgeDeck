@@ -531,11 +531,17 @@ fn save_outbox(runtime: &Runtime) {
     }
 }
 
+/// AI messages show a desktop notification (Settings → Notifications).
+pub static AI_NOTIFICATIONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// Desktop notification plus a UI event for an incoming relay message.
 fn notify_ai_message(app: &AppHandle, message: &AiMessage) {
     use tauri::Emitter;
     use tauri_plugin_notification::NotificationExt;
     let _ = app.emit("ai-message", message);
+    if !AI_NOTIFICATIONS.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let preview: String = message.body.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(180).collect();
     let _ = app.notification().builder().title(format!("{} · {}", message.author, message.peer_name)).body(preview).show();
 }

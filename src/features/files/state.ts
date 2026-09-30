@@ -6,6 +6,8 @@ import {
 } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { configStore, serviceConfig } from '../../core/config'
+import { freshTransfers, notify } from '../../core/notify'
+import { fmtSize } from '../../core/util'
 import { createStore, useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
 import type { DeviceConfig, LocalSendReceiverStatus } from '../../types'
@@ -78,6 +80,9 @@ export async function answerLocalSend(accept: boolean) {
   }
 }
 
+const openedAt = Date.now()
+const announced = new Set<string>()
+
 export function FilesBackground() {
   const running = useStore(receiverStore).running
   const pairedHosts = useStore(bridgeLinkStore).paired.map(peer => peer.host).sort().join(',')
@@ -96,6 +101,19 @@ export function FilesBackground() {
     const timer = window.setInterval(() => void poll(), 1200)
     return () => window.clearInterval(timer)
   }, [])
+
+  // Finished transfers, and requests that wait for Accept, as desktop notifications.
+  useEffect(() => receiverStore.subscribe(() => {
+    const { recent, pending } = receiverStore.get()
+    for (const item of freshTransfers(recent, announced, openedAt)) {
+      if (item.status === 'received') notify('files', `Files from ${item.senderAlias}`, `${item.files} file${item.files === 1 ? '' : 's'} · ${fmtSize(item.bytes)} saved${item.destination ? ` to ${item.destination}` : ''}`)
+      else if (item.status === 'message' && item.message) notify('files', `Message from ${item.senderAlias}`, item.message)
+    }
+    if (pending && !announced.has(pending.sessionId)) {
+      announced.add(pending.sessionId)
+      notify('files', `${pending.senderAlias} wants to send you files`, `${pending.files.length} file${pending.files.length === 1 ? '' : 's'} · ${fmtSize(pending.totalBytes)}. Open BridgeDeck’s Files tab to accept.`)
+    }
+  }), [])
 
   // Files from paired computers are accepted without a prompt; everyone else still needs approval.
   useEffect(() => {

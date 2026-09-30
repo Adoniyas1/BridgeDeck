@@ -41,6 +41,8 @@ export type AppConfig = {
   remote: { allowControl: boolean; askFirst: boolean }
   /** Copying on one paired computer makes it pasteable on the others. */
   clipboard: { sync: boolean }
+  /** Desktop notifications by kind (remote control and pairing requests always notify). */
+  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'

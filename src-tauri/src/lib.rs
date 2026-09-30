@@ -345,6 +345,12 @@ fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), Str
 }
 
 /// reqwest error text without the request URL (URLs can carry keys or tokens), for the UI and logs.
+/// Which notifications the native side shows itself (the rest are sent by the UI).
+#[tauri::command]
+fn notification_settings(ai: bool) {
+    bridgelink::AI_NOTIFICATIONS.store(ai, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn net_err(error: reqwest::Error) -> String {
     error.without_url().to_string()
 }
@@ -517,6 +523,7 @@ pub fn run() {
             open_path,
             agent_status,
             desktop_notify,
+            notification_settings,
             contacts_save,
             upgrade_info,
             upgrade_self,

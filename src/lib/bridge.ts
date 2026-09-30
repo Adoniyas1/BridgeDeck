@@ -113,6 +113,7 @@ export type ClipboardStatus = {
   last: { direction: 'sent' | 'received'; peers: string[]; kind: 'text' | 'image'; summary: string; at: number } | null
   errors: string[]
 }
+export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
 export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')

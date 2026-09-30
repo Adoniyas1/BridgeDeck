@@ -280,6 +280,10 @@ Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health
   devices that are off. What password managers mark as concealed (nspasteboard.org types on the Mac,
   `ExcludeClipboardContentFromMonitorProcessing` on Windows) is never sent. On by default; one toggle
   on the Computers tab turns sending and receiving off on that computer.
+- **Notifications (built)**: Settings → Notifications turns each kind on or off: iMessages, AI
+  messages (shown by the native side), files received or waiting for Accept, and new Syncthing
+  conflict copies (looked for every 5 minutes, and every minute while the Sync tab is open). Remote
+  control starting and pairing requests always notify.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
