@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X } from 'lucide-react'
+import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X, RefreshCw } from 'lucide-react'
 import { contactsSave, desktopNotify, imessage, imessageAttachment, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
 import type { ImAttachment, ImChat, ImContact, ImMessage } from '../../types'
 import { setConfig, useConfig } from '../../core/config'
@@ -7,7 +7,7 @@ import type { MessagesSource } from './state'
 
 /** `visible`: the Messages page is on screen. The feed keeps polling while hidden so notifications and the
  *  unread badge work from any page; the open thread only loads while visible. */
-type Props = { source: MessagesSource; visible: boolean; onUnreadChange?: (count: number) => void }
+type Props = { source: MessagesSource; visible: boolean; onUnreadChange?: (count: number) => void; onCheckAgain?: () => Promise<void>; checking?: boolean }
 type Person = {
   name: string
   avatar?: string
@@ -169,7 +169,7 @@ function AttachmentView({ attachment, peer, onOpen, thumb = false }: { attachmen
   return <span className="im-file"><Paperclip size={14} />{attachment.transferName || 'Attachment'}</span>
 }
 
-export default function Messages({ source, visible, onUnreadChange }: Props) {
+export default function Messages({ source, visible, onUnreadChange, onCheckAgain, checking = false }: Props) {
   const configured = source.ready
   const peer = source.peer
   const sourceKey = peer ?? 'local'
@@ -303,12 +303,20 @@ export default function Messages({ source, visible, onUnreadChange }: Props) {
     }
   }
 
-  // Load 14 days of activity plus the chat list, then poll only for newer messages every 3 s.
+  // Load 14 days of activity plus the chat list, then check for newer messages: every 3 s while the
+  // Messages tab is on screen, every 15 s otherwise (for notifications). A failed load retries on its
+  // own with growing pauses (5 s up to 1 min), and the Refresh button retries at once.
+  const [reloadTick, setReloadTick] = useState(0)
+  const [loading, setLoading] = useState(false)
   useEffect(() => {
     if (!configured) return
     let cancelled = false
+    let timer = 0
+    let failures = 0
     const describe = (error: unknown) => typeof error === 'string' ? error : error instanceof Error ? error.message : 'Could not reach the Mac'
+    const schedule = (run: () => Promise<void>, ms: number) => { window.clearTimeout(timer); timer = window.setTimeout(() => void run(), ms) }
     const initial = async () => {
+      setLoading(true)
       try {
         const [recent, list] = await Promise.all([
           imessage<ImMessage[]>(peer, { op: 'recent', after: Date.now() - 14 * 86_400_000, limit: 1000 }),
@@ -317,26 +325,38 @@ export default function Messages({ source, visible, onUnreadChange }: Props) {
         if (cancelled) return
         setChats(list)
         mergeFeed(recent)
+        // Even with no recent messages, watch for new ones from now on.
+        newestSeen.current = Math.max(newestSeen.current, Date.now() - 60_000)
+        failures = 0
         setStatus('')
+        schedule(poll, 3_000)
       } catch (error) {
-        if (!cancelled) setStatus(describe(error))
+        if (cancelled) return
+        failures += 1
+        const wait = Math.min(60_000, 5_000 * 2 ** (failures - 1))
+        setStatus(`${describe(error)} (trying again in ${Math.round(wait / 1000)} s)`)
+        schedule(initial, wait)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
+    let lastList = Date.now()
     const poll = async () => {
-      if (!newestSeen.current) return
       try {
         const recent = await imessage<ImMessage[]>(peer, { op: 'recent', after: Math.floor(newestSeen.current - 2_000), limit: 200 })
-        if (!cancelled) mergeFeed(recent)
-      } catch { /* next poll retries */ }
-    }
-    const refreshList = async () => {
-      try { const list = await imessage<ImChat[]>(peer, { op: 'chats', limit: 100 }); if (!cancelled) setChats(list) } catch { /* keep list */ }
+        if (cancelled) return
+        mergeFeed(recent)
+        if (Date.now() - lastList > 60_000) {
+          lastList = Date.now()
+          const list = await imessage<ImChat[]>(peer, { op: 'chats', limit: 100 }).catch(() => null)
+          if (list && !cancelled) setChats(list)
+        }
+      } catch { /* the next check retries */ }
+      if (!cancelled) schedule(poll, visibleRef.current ? 3_000 : 15_000)
     }
     void initial()
-    const pollTimer = window.setInterval(() => void poll(), 3_000)
-    const listTimer = window.setInterval(() => void refreshList(), 60_000)
-    return () => { cancelled = true; window.clearInterval(pollTimer); window.clearInterval(listTimer) }
-  }, [sourceKey, configured])
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [sourceKey, configured, reloadTick])
 
   // Every chat we know: chat/query results merged with the feed (newest message from either source).
   const chatList = useMemo(() => {
@@ -569,13 +589,14 @@ export default function Messages({ source, visible, onUnreadChange }: Props) {
   }
 
   if (!configured) {
-    return <div className="im-shell im-empty-shell"><MessageSquare size={28} /><h3>iMessage</h3><p>{source.detail || 'Looking for your Mac…'}</p></div>
+    return <div className="im-shell im-empty-shell"><MessageSquare size={28} /><h3>iMessage</h3><p>{source.detail || 'Looking for your Mac…'}</p>
+      {onCheckAgain && <button className="im-check" disabled={checking} onClick={() => void onCheckAgain()}><RefreshCw size={14} className={checking ? 'spin' : ''} />{checking ? 'Checking…' : 'Check again'}</button>}</div>
   }
 
   return (
     <div className="im-shell">
       <aside className="im-sidebar">
-        <div className="im-search"><Search size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" /></div>
+        <div className="im-search"><Search size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" /><button className="im-refresh" title="Refresh" disabled={loading} onClick={() => { setStatus(''); setReloadTick(t => t + 1); setThreadTick(t => t + 1) }}><RefreshCw size={13} className={loading ? 'spin' : ''} /></button></div>
         <div className="im-list">
           {filtered.map(row => {
             const chat = row.chat

@@ -41,7 +41,9 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
   useEffect(() => {
     let closed = false
     const channel = new Channel<ArrayBuffer>()
-    channel.onmessage = data => void onPacket(data)
+    // Two frames can be in flight; draw them strictly in order (a later frame's tiles go on top).
+    let drawing = Promise.resolve()
+    channel.onmessage = data => { drawing = drawing.then(() => onPacket(data)).catch(() => undefined) }
     const maxWidth = Math.min(3840, Math.max(960, Math.round(window.screen.width * (window.devicePixelRatio || 1))))
     setState('connecting')
     setDetail('')

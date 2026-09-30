@@ -2,11 +2,12 @@ import { MessageSquare } from 'lucide-react'
 import { useStore } from '../../core/store'
 import type { FeatureManifest } from '../features'
 import Messages from './Messages'
-import { MessagesBackground, messagesSourceStore, messagesUnreadStore } from './state'
+import { checkMessagesSource, checkingSourceStore, MessagesBackground, messagesSourceStore, messagesUnreadStore } from './state'
 
 function MessagesPage({ active }: { active: boolean }) {
   const source = useStore(messagesSourceStore)
-  return <Messages source={source} visible={active} onUnreadChange={messagesUnreadStore.set} />
+  const checking = useStore(checkingSourceStore)
+  return <Messages source={source} visible={active} onUnreadChange={messagesUnreadStore.set} onCheckAgain={checkMessagesSource} checking={checking} />
 }
 
 /** Messages stays mounted: it keeps polling for desktop notifications and the unread badge on every tab. */

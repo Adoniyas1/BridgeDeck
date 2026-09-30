@@ -247,35 +247,43 @@ fn receive_upload(upload: &str, chat: &str, name: &str, offset: u64, data: &str,
     Ok(json!({ "sent": true }))
 }
 
-/// Sends through Messages.app. Values are passed as arguments, never pasted into the script.
-#[cfg(target_os = "macos")]
-fn send(chat: &str, kind: &str, payload: &str) -> Result<(), String> {
-    const SCRIPT: &str = r#"on run argv
-	set chatGuid to item 1 of argv
-	set kind to item 2 of argv
-	set payload to item 3 of argv
+// Variable names carry a `bd` prefix: plain words like `kind` or `target` are AppleScript or
+// Messages terms, and assigning them fails (error -10006).
+/// Sends through Messages.app; arguments: chat id, "text" or "file", the text or file path.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const SEND_SCRIPT: &str = r#"on run argv
+	set bdChatId to item 1 of argv
+	set bdMode to item 2 of argv
+	set bdPayload to item 3 of argv
+	set bdHandle to ""
+	if bdChatId contains ";-;" then set bdHandle to text ((offset of ";-;" in bdChatId) + 3) thru -1 of bdChatId
+	if bdMode is "file" then set bdFile to POSIX file bdPayload
 	tell application "Messages"
 		try
-			set target to chat id chatGuid
+			set bdChat to chat id bdChatId
 		on error
 			-- A 1:1 conversation Messages hasn't opened this session: address the person instead.
-			set handleId to text ((offset of ";-;" in chatGuid) + 3) thru -1 of chatGuid
-			if chatGuid starts with "SMS" then
-				set target to participant handleId of (1st account whose service type = SMS)
+			if bdHandle is "" then error "Messages doesn't know this conversation"
+			if bdChatId starts with "SMS" then
+				set bdChat to participant bdHandle of (1st account whose service type = SMS)
 			else
-				set target to participant handleId of (1st account whose service type = iMessage)
+				set bdChat to participant bdHandle of (1st account whose service type = iMessage)
 			end if
 		end try
-		if kind is "file" then
-			send (POSIX file payload) to target
+		if bdMode is "file" then
+			send bdFile to bdChat
 		else
-			send payload to target
+			send bdPayload to bdChat
 		end if
 	end tell
 end run"#;
+
+/// Sends through Messages.app. Values are passed as arguments, never pasted into the script.
+#[cfg(target_os = "macos")]
+fn send(chat: &str, kind: &str, payload: &str) -> Result<(), String> {
     let output = std::process::Command::new("/usr/bin/osascript")
         .arg("-e")
-        .arg(SCRIPT)
+        .arg(SEND_SCRIPT)
         .args([chat, kind, payload])
         .output()
         .map_err(|e| e.to_string())?;
@@ -364,6 +372,15 @@ pub async fn imessage_send_file(peer: Option<String>, chat: String, path: String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn send_script_avoids_reserved_words() {
+        // `kind`, `target`, `name`, `id`, `text`, `file` are AppleScript/Messages terms: assigning one fails.
+        for word in ["kind", "target", "name", "id", "text", "file", "payload"] {
+            assert!(!SEND_SCRIPT.contains(&format!("set {word} to")), "assigns reserved word {word}");
+        }
+        assert!(SEND_SCRIPT.contains("item 1 of argv") && SEND_SCRIPT.contains("send bdPayload to bdChat"));
+    }
 
     #[test]
     fn ids_and_names_are_checked() {
