@@ -312,3 +312,34 @@ export async function syncthingSetupPeer(settings: { baseUrl: string; apiKey: st
   if (!result) throw new Error('Automatic Syncthing setup requires the native BridgeDeck app.')
   return result
 }
+
+// ---- Upgrading this computer or a paired one (src-tauri/src/upgrade.rs) ----
+
+export type UpgradeStatus = { state: 'idle' | 'running' | 'succeeded' | 'failed' | string; stage: string; message: string; mode: string; requestedBy: string; fromVersion: string; updatedAt: number }
+export type UpgradeInfo = { version: string; sourceDir: string; sourceAvailable: boolean; gitReady: boolean; status: UpgradeStatus }
+export type SourceBundle = { path: string; fileName: string; sha256: string; bytes: number }
+export type UpgradeRequest = { mode: 'git' | 'source'; fileName?: string; sha256?: string; fromVersion?: string }
+
+export async function upgradeInfo(): Promise<UpgradeInfo | null> {
+  return invokeSafe<UpgradeInfo>('upgrade_info')
+}
+
+/** Pull the latest main from GitHub and rebuild this computer's BridgeDeck. */
+export async function upgradeSelf(): Promise<void> {
+  await invokeSafe('upgrade_self')
+}
+
+export async function upgradeCreateBundle(): Promise<SourceBundle> {
+  const bundle = await invokeSafe<SourceBundle>('upgrade_create_bundle')
+  if (!bundle) throw new Error('Upgrades need the BridgeDeck app.')
+  return bundle
+}
+
+/** Resolves once the user on that computer allowed the upgrade (rejects if denied or not possible). */
+export async function upgradeRequestPeer(instanceId: string, request: UpgradeRequest): Promise<void> {
+  await invokeSafe('upgrade_request_peer', { instanceId, request: { fileName: '', sha256: '', fromVersion: '', ...request } })
+}
+
+export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boolean; version?: string; status?: UpgradeStatus; error?: string } | null> {
+  return invokeSafe('upgrade_peer_status', { instanceId })
+}

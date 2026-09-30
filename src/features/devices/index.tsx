@@ -12,6 +12,7 @@ import type { DeviceConfig } from '../../types'
 import type { FeatureManifest } from '../features'
 import { startRustDeskSession } from '../remote/state'
 import { configureSyncthingPeer, syncthingSetupStore } from '../sync/state'
+import { UpgradeControls } from './UpgradeControls'
 
 const isManual = (device: DeviceConfig) => device.id.startsWith('manual-')
 const connectionLabel = (device: DeviceConfig) => device.local ? 'This computer'
@@ -38,7 +39,7 @@ function DevicesPage() {
       <p className="vendor-note">Pair only on a trusted LAN and confirm the six-digit code on both screens. v0.7 authenticates paired status requests with persisted bearer tokens and exchanges Syncthing device IDs; the initial LAN token exchange is not yet TLS-encrypted.</p>
     </Card>
     <div className="machine-cards">
-      {sortedDevices(config.devices).map(m => { const status = machineStatus[m.id]; return <Card key={m.id}><SectionTitle title={m.name} subtitle={status?.hostname || m.agentUrl || platformLabel(m.platform)} action={<StatusPill online={!!status?.ok}/>} /><div className="spec-grid"><div><Gauge/><span>Uptime<strong>{fmtUptime(status?.uptimeSeconds)}</strong></span></div><div><HardDrive/><span>Memory free<strong>{fmtBytes(status?.freeMemory)}</strong></span></div><div><TerminalSquare/><span>Platform<strong>{status?.platform || platformLabel(m.platform)} {status?.arch || ''}</strong></span></div><div><ShieldCheck/><span>Connection<strong>{connectionLabel(m)}</strong></span></div><div><Info/><span>BridgeDeck<strong>{status?.version || (status?.ok ? '0.7 or older' : '—')}</strong></span></div></div><div className="actions">{!m.local && <button disabled={!m.rustdeskPeerId} onClick={() => void startRustDeskSession(m, 'control')}><Computer size={17}/>Control</button>}<button className="secondary" disabled={!m.sharedPath} onClick={() => void openPath(m.sharedPath)}><FolderOpen size={17}/>Shared folder</button></div>{status?.error && <p className="error-text">{status.error}</p>}</Card> })}
+      {sortedDevices(config.devices).map(m => { const status = machineStatus[m.id]; return <Card key={m.id}><SectionTitle title={m.name} subtitle={status?.hostname || m.agentUrl || platformLabel(m.platform)} action={<StatusPill online={!!status?.ok}/>} /><div className="spec-grid"><div><Gauge/><span>Uptime<strong>{fmtUptime(status?.uptimeSeconds)}</strong></span></div><div><HardDrive/><span>Memory free<strong>{fmtBytes(status?.freeMemory)}</strong></span></div><div><TerminalSquare/><span>Platform<strong>{status?.platform || platformLabel(m.platform)} {status?.arch || ''}</strong></span></div><div><ShieldCheck/><span>Connection<strong>{connectionLabel(m)}</strong></span></div><div><Info/><span>BridgeDeck<strong>{status?.version || (status?.ok ? '0.7 or older' : '—')}</strong></span></div></div><div className="actions">{!m.local && <button disabled={!m.rustdeskPeerId} onClick={() => void startRustDeskSession(m, 'control')}><Computer size={17}/>Control</button>}<button className="secondary" disabled={!m.sharedPath} onClick={() => void openPath(m.sharedPath)}><FolderOpen size={17}/>Shared folder</button></div>{(m.local || !isManual(m)) && <UpgradeControls device={m} peerVersion={status?.version} online={!!status?.ok} />}{status?.error && <p className="error-text">{status.error}</p>}</Card> })}
     </div>
   </>
 }

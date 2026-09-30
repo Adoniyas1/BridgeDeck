@@ -51,3 +51,11 @@ describe('config migration from v0.7', () => {
     expect(again.devices).toEqual(config.devices)
   })
 })
+
+describe('message nicknames', () => {
+  it('default to none and survive a save/load round trip', () => {
+    expect(mergeConfig(v7 as never).messages.nicknames).toEqual({})
+    const saved = { ...mergeConfig(null), messages: { nicknames: { 'address:3104311447': 'Delina', 'contact:ABC:ABPerson': 'Mom' } } }
+    expect(mergeConfig(JSON.parse(JSON.stringify(saved))).messages.nicknames).toEqual({ 'address:3104311447': 'Delina', 'contact:ABC:ABPerson': 'Mom' })
+  })
+})

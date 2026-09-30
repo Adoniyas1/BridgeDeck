@@ -1032,6 +1032,48 @@ fn handle_api_connection(mut stream: TcpStream, addr: SocketAddr, manager: Bridg
         };
         return;
     }
+    // Paired peer -> this computer: rebuild BridgeDeck from GitHub or from a source bundle it sent.
+    // Paired-peer token, preflight checks, then an Allow/Deny approval here before anything runs.
+    if request.method == "POST" && path == "/upgrade/request" {
+        let (peer_name, app) = match manager.inner.lock() {
+            Ok(runtime) => {
+                let token = bearer(&request.headers).unwrap_or("");
+                (runtime.paired.values().find(|p| !token.is_empty() && p.issued_token == token).map(|p| p.name.clone()), runtime.app.clone())
+            }
+            Err(_) => (None, None),
+        };
+        let (Some(peer_name), Some(app)) = (peer_name, app) else {
+            let _ = write_http(&mut stream, 401, r#"{"ok":false,"error":"Paired-peer bearer token required"}"#);
+            return;
+        };
+        let Ok(req) = serde_json::from_str::<UpgradeRequest>(&request.body) else {
+            let _ = write_http(&mut stream, 400, r#"{"ok":false,"error":"Invalid upgrade request"}"#);
+            return;
+        };
+        let result = handle_upgrade_request(&app, &peer_name, &req);
+        let _ = match result {
+            Ok(()) => write_http(&mut stream, 202, r#"{"ok":true}"#),
+            Err(error) => write_http(&mut stream, 409, &serde_json::json!({ "ok": false, "error": error }).to_string()),
+        };
+        return;
+    }
+
+    // Upgrade progress, for the paired computer that asked (or local tools).
+    if request.method == "GET" && path == "/upgrade/status" {
+        let app = match manager.inner.lock() {
+            Ok(runtime) if authorized(&runtime, addr, bearer(&request.headers)) => runtime.app.clone(),
+            _ => {
+                let _ = write_http(&mut stream, 401, r#"{"ok":false,"error":"Bearer token required"}"#);
+                return;
+            }
+        };
+        let body = match app {
+            Some(app) => serde_json::json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "status": crate::upgrade::read_status(&app) }).to_string(),
+            None => r#"{"ok":false,"error":"not ready"}"#.to_string(),
+        };
+        let _ = write_http(&mut stream, 200, &body);
+        return;
+    }
     let _ = write_http(&mut stream, 404, r#"{"error":"Not found"}"#);
 }
 
@@ -1692,4 +1734,89 @@ fn confirm_remote_contact_edit(app: &AppHandle, peer_name: &str, req: &ContactSa
         .buttons(MessageDialogButtons::OkCancelCustom("Allow".into(), "Deny".into()))
         .show(move |allowed| { let _ = tx.send(allowed); });
     rx.recv_timeout(Duration::from_secs(60)).unwrap_or(false)
+}
+/// What the paired computer asks for in `POST /upgrade/request`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UpgradeRequest {
+    /// "git" (default) or "source".
+    pub mode: String,
+    /// Source mode: bundle name in the receive folder, and its SHA-256.
+    pub file_name: String,
+    pub sha256: String,
+    /// Sender's BridgeDeck version, shown in the approval dialog.
+    pub from_version: String,
+}
+
+static UPGRADE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
+
+fn handle_upgrade_request(app: &AppHandle, peer_name: &str, req: &UpgradeRequest) -> Result<(), String> {
+    use crate::upgrade::UpgradeMode;
+    let mode = match req.mode.as_str() { "" | "git" => UpgradeMode::Git, "source" => UpgradeMode::Source, _ => return Err("Unknown upgrade mode".into()) };
+    crate::upgrade::preflight(&mode)?;
+    if crate::upgrade::is_running(app) {
+        return Err("An upgrade is already running on this computer".into());
+    }
+    // Verify the bundle before asking, so the user only approves something that can run.
+    let bundle = if mode == UpgradeMode::Source { Some(crate::upgrade::locate_received_bundle(app, &req.file_name, &req.sha256)?) } else { None };
+    if UPGRADE_PROMPT_OPEN.swap(true, Ordering::SeqCst) {
+        return Err("Another upgrade request is waiting for approval".into());
+    }
+    let approved = confirm_upgrade(app, peer_name, &mode, req);
+    UPGRADE_PROMPT_OPEN.store(false, Ordering::SeqCst);
+    if !approved {
+        return Err("The upgrade was not approved on this computer".into());
+    }
+    crate::upgrade::start(app, mode, bundle, peer_name)
+}
+
+fn confirm_upgrade(app: &AppHandle, peer_name: &str, mode: &crate::upgrade::UpgradeMode, req: &UpgradeRequest) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let from = if req.from_version.trim().is_empty() { String::new() } else { format!(" (it runs v{})", req.from_version.trim()) };
+    let what = match mode {
+        crate::upgrade::UpgradeMode::Git => "pull the latest version from GitHub".to_string(),
+        crate::upgrade::UpgradeMode::Source => format!("use {peer_name}'s own source code{from}, sent to this computer"),
+    };
+    let text = format!(
+        "{peer_name} wants to upgrade BridgeDeck on this computer (now v{}): {what}, rebuild, reinstall and restart.\n\nThis takes several minutes; BridgeDeck restarts when it's done. Only allow this if you asked for it.",
+        env!("CARGO_PKG_VERSION")
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .message(text)
+        .title("Allow BridgeDeck upgrade?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Allow".into(), "Deny".into()))
+        .show(move |allowed| { let _ = tx.send(allowed); });
+    rx.recv_timeout(Duration::from_secs(60)).unwrap_or(false)
+}
+
+fn paired_peer(manager: &BridgeLinkManager, instance_id: &str) -> Result<PersistedPeer, String> {
+    let runtime = manager.inner.lock().map_err(|_| "BridgeLink state lock poisoned")?;
+    runtime.paired.get(instance_id).cloned().ok_or_else(|| "Paired computer not found".to_string())
+}
+
+/// Asks a paired computer to upgrade. Waits up to 90 s: the request returns after the user there answers.
+pub fn forward_upgrade_request(manager: &BridgeLinkManager, instance_id: &str, request: &UpgradeRequest) -> Result<(), String> {
+    let peer = paired_peer(manager, instance_id)?;
+    let body = serde_json::to_string(request).map_err(|e| e.to_string())?;
+    let (status, response) = http_json_bearer_timeout(&peer.host, peer.api_port, "POST", "/upgrade/request", &peer.access_token, Some(&body), Duration::from_secs(90))?;
+    if status == 404 {
+        return Err(format!("{} can't be upgraded remotely yet (it needs a BridgeDeck with this feature first)", peer.name));
+    }
+    let value: serde_json::Value = serde_json::from_str(&response).unwrap_or(serde_json::Value::Null);
+    if !(200..300).contains(&status) || value.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return Err(value.get("error").and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(|| format!("{} returned HTTP {status}", peer.name)));
+    }
+    Ok(())
+}
+
+/// A paired computer's upgrade progress (`GET /upgrade/status`).
+pub fn peer_upgrade_status(manager: &BridgeLinkManager, instance_id: &str) -> Result<serde_json::Value, String> {
+    let peer = paired_peer(manager, instance_id)?;
+    let (status, response) = http_json_bearer(&peer.host, peer.api_port, "GET", "/upgrade/status", &peer.access_token, None)?;
+    if status == 404 {
+        return Ok(serde_json::json!({ "ok": false, "error": "not supported" }));
+    }
+    serde_json::from_str(&response).map_err(|e| e.to_string())
 }

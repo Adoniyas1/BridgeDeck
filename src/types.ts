@@ -63,6 +63,11 @@ export type AppConfig = {
     apiPort: number
     autoStart: boolean
   }
+  messages: {
+    /** Display-only names for people in Messages, on this computer only (never written to Contacts).
+     *  Keyed `contact:<Contacts id>` for saved contacts, `address:<number or email>` otherwise. */
+    nicknames: Record<string, string>
+  }
 }
 
 

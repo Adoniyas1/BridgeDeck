@@ -19,6 +19,7 @@ export const defaultConfig: AppConfig = {
   syncthing: { baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
   localsend: { alias: 'BridgeDeck', destination: '', port: 53317, pin: '', autoAccept: false },
   pairing: { displayName: '', apiPort: 41416, autoStart: true },
+  messages: { nicknames: {} },
 }
 
 /** Browser dev mode keeps settings in localStorage. The app itself stores them natively (secrets in the
@@ -71,6 +72,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     syncthing: { ...defaultConfig.syncthing, ...(input.syncthing || {}) },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
     pairing: { ...defaultConfig.pairing, ...(input.pairing || {}) },
+    messages: { nicknames: { ...(input.messages?.nicknames || {}) } },
   }
 }
 

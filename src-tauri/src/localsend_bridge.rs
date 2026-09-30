@@ -261,6 +261,13 @@ fn load_or_create_identity(app: &AppHandle, alias: &str, port: u16) -> Result<Br
     Ok(BridgeIdentity { alias: alias.to_string(), port, persisted })
 }
 
+/// Folder incoming transfers are saved to: the receiver's configured folder, else the default.
+/// Used to find a source bundle the paired computer sent for an upgrade.
+pub fn receive_destination(app: &AppHandle) -> PathBuf {
+    let configured = app.state::<LocalSendManager>().inner.lock().ok().map(|r| r.destination.clone()).filter(|p| !p.as_os_str().is_empty());
+    configured.unwrap_or_else(|| default_destination(app))
+}
+
 fn default_destination(app: &AppHandle) -> PathBuf {
     app.path().download_dir().unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
