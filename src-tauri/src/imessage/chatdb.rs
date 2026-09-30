@@ -89,9 +89,19 @@ pub fn open(path: &Path) -> Result<Connection, String> {
     Ok(connection)
 }
 
+/// Which app macOS checks for Full Disk Access: BridgeDeck when installed, the terminal when it was
+/// started with `npm run tauri dev` (macOS attributes the access to the app that launched it).
+fn access_holder() -> &'static str {
+    let installed = std::env::current_exe().ok().is_some_and(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"));
+    if installed { "BridgeDeck" } else { "the Terminal app you started BridgeDeck from (Terminal, iTerm or your editor)" }
+}
+
 fn permission_hint(error: &str) -> String {
-    if error.contains("unable to open") || error.contains("authorization denied") || error.contains("not authorized") {
-        "BridgeDeck can't read your messages yet. Give it Full Disk Access: System Settings → Privacy & Security → Full Disk Access → BridgeDeck, then restart BridgeDeck.".into()
+    if error.contains("unable to open") || error.contains("authorization denied") || error.contains("not authorized") || error.contains("operation not permitted") {
+        format!(
+            "BridgeDeck can't read your messages yet. Give Full Disk Access to {}: System Settings → Privacy & Security → Full Disk Access. Then quit it completely and open it again (macOS only applies the change after a restart). [{error}]",
+            access_holder()
+        )
     } else {
         format!("Could not read Messages: {error}")
     }

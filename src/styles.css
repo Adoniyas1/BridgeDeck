@@ -350,3 +350,8 @@ main>.notice{margin-bottom:12px}
 .remote-live-dot{width:9px;height:9px;border-radius:50%;background:#ff6a3d;box-shadow:0 0 0 4px rgba(255,106,61,.2)}
 button.service-row{width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
 button.service-row:hover{border-color:var(--line-strong,#2a3545)}
+.im-search .im-refresh{border:0;background:transparent;color:var(--faint,#6f7d91);padding:2px;display:grid;place-items:center;cursor:pointer}
+.im-search .im-refresh:disabled{opacity:.5}
+.im-empty-shell .im-check{margin-top:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong,#2a3545);background:transparent;color:inherit;border-radius:8px;padding:7px 12px}
+.spin{animation:bd-spin 1s linear infinite}
+@keyframes bd-spin{to{transform:rotate(360deg)}}

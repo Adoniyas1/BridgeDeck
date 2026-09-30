@@ -16,11 +16,15 @@ use std::{
     time::Duration,
 };
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, Semaphore};
+
+/// Frames requested ahead: the host captures the next frame while this one travels and is drawn.
+const IN_FLIGHT: usize = 2;
 
 struct Session {
     tx: mpsc::UnboundedSender<ViewerMsg>,
-    drawn: Arc<Notify>,
+    /// One permit per frame the tab has drawn; each lets the reader ask for another.
+    drawn: Arc<Semaphore>,
 }
 
 static SESSIONS: Mutex<Option<HashMap<String, Session>>> = Mutex::new(None);
@@ -79,7 +83,7 @@ pub async fn connect(
 
     let id = uuid::Uuid::new_v4().to_string();
     let (tx, mut rx) = mpsc::unbounded_channel::<ViewerMsg>();
-    let drawn = Arc::new(Notify::new());
+    let drawn = Arc::new(Semaphore::new(0));
     {
         let mut sessions = SESSIONS.lock().map_err(|_| "sessions poisoned")?;
         sessions.get_or_insert_with(HashMap::new).insert(id.clone(), Session { tx: tx.clone(), drawn: drawn.clone() });
@@ -98,7 +102,9 @@ pub async fn connect(
 
     // Reader: frames to the tab, then the next request once the tab drew it.
     let reader_id = id.clone();
-    let _ = tx.send(ViewerMsg::Next);
+    for _ in 0..IN_FLIGHT {
+        let _ = tx.send(ViewerMsg::Next);
+    }
     tauri::async_runtime::spawn(async move {
         let reason = loop {
             match read_frame::<HostMsg>(&mut recv).await {
@@ -114,7 +120,10 @@ pub async fn connect(
                     };
                     sink(InvokeResponseBody::Raw(frame_packet(&header, &payload)));
                     // Ask for more once drawn; if the tab is hidden it doesn't draw, and the host waits.
-                    drawn.notified().await;
+                    match drawn.acquire().await {
+                        Ok(permit) => permit.forget(),
+                        Err(_) => break "Disconnected".into(),
+                    }
                     if tx.send(ViewerMsg::Next).is_err() {
                         break "Disconnected".into();
                     }
@@ -148,7 +157,7 @@ pub async fn remote_connect(
 
 #[tauri::command]
 pub fn remote_frame_drawn(session: String) -> Result<(), String> {
-    with_session(&session, |s| s.drawn.notify_one())
+    with_session(&session, |s| s.drawn.add_permits(1))
 }
 
 #[tauri::command]
@@ -159,9 +168,8 @@ pub fn remote_input(session: String, events: Vec<InputEvent>) -> Result<(), Stri
 #[tauri::command]
 pub fn remote_settings(session: String, monitor: Option<usize>, max_width: Option<u32>, quality: Option<u8>) -> Result<(), String> {
     with_session(&session, |s| {
+        // The host starts over with a whole frame on the next request.
         let _ = s.tx.send(ViewerMsg::Settings { monitor, max_width, quality });
-        // A new monitor or size starts with a whole frame; make sure one is requested.
-        s.drawn.notify_one();
     })
 }
 
@@ -169,7 +177,7 @@ pub fn remote_settings(session: String, monitor: Option<usize>, max_width: Optio
 pub fn remote_disconnect(session: String) -> Result<(), String> {
     let _ = with_session(&session, |s| {
         let _ = s.tx.send(ViewerMsg::Stop);
-        s.drawn.notify_one();
+        s.drawn.close();
     });
     remove(&session);
     Ok(())

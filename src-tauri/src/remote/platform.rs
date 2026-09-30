@@ -43,7 +43,21 @@ mod native {
         }
     }
 
-    pub struct Screen;
+    /// Keeps the display list between frames; it's listed again only when a capture fails
+    /// (a display was unplugged or rearranged).
+    #[derive(Default)]
+    pub struct Screen {
+        monitors: Option<Vec<xcap::Monitor>>,
+    }
+
+    impl Screen {
+        fn cached(&mut self) -> Result<&Vec<xcap::Monitor>, String> {
+            if self.monitors.is_none() {
+                self.monitors = Some(all()?);
+            }
+            Ok(self.monitors.as_ref().expect("just set"))
+        }
+    }
 
     fn all() -> Result<Vec<xcap::Monitor>, String> {
         let mut monitors = xcap::Monitor::all().map_err(|e| permission_hint(e.to_string()))?;
@@ -54,7 +68,9 @@ mod native {
 
     impl Capturer for Screen {
         fn monitors(&mut self) -> Result<Vec<MonitorInfo>, String> {
-            Ok(all()?
+            self.monitors = None;
+            Ok(self
+                .cached()?
                 .iter()
                 .enumerate()
                 .map(|(index, m)| MonitorInfo {
@@ -68,9 +84,15 @@ mod native {
         }
 
         fn capture(&mut self, index: usize) -> Result<(Vec<u8>, u32, u32), String> {
-            let monitors = all()?;
+            let monitors = self.cached()?;
             let monitor = monitors.get(index).or(monitors.first()).ok_or("No display found")?;
-            let image = monitor.capture_image().map_err(|e| permission_hint(e.to_string()))?;
+            let image = match monitor.capture_image() {
+                Ok(image) => image,
+                Err(error) => {
+                    self.monitors = None;
+                    return Err(permission_hint(error.to_string()));
+                }
+            };
             let (width, height) = (image.width(), image.height());
             Ok((image.into_raw(), width, height))
         }
@@ -178,7 +200,7 @@ pub fn capturer() -> Result<Box<dyn Capturer>, String> {
         return Ok(Box::new(fake));
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    return Ok(Box::new(native::Screen));
+    return Ok(Box::new(native::Screen::default()));
     #[allow(unreachable_code)]
     Err(UNSUPPORTED.into())
 }

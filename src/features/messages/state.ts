@@ -30,6 +30,14 @@ export async function findMessagesSource(): Promise<MessagesSource> {
   }
 }
 
+/** Looks for the Mac's Messages again now (the "Check again" button). */
+export const checkingSourceStore = createStore(false)
+export async function checkMessagesSource() {
+  checkingSourceStore.set(true)
+  sourceMisses = 1 // don't keep a stale "ready" through this check
+  try { await refreshSource() } finally { checkingSourceStore.set(false) }
+}
+
 async function refreshSource() {
   try {
     const next = await findMessagesSource()
@@ -47,7 +55,9 @@ let sourceMisses = 0
 export function MessagesBackground() {
   const link = useStore(bridgeLinkStore)
   const macs = link.paired.filter(p => p.platform === 'macos').map(p => p.instanceId).join(',')
-  usePeriodicRefresh(refreshSource, 30000, [link.platform, macs])
+  // Every 30 s until Messages is reachable, then every 2 minutes (it stays ready once it works).
+  const ready = useStore(messagesSourceStore).ready
+  usePeriodicRefresh(refreshSource, ready ? 120_000 : 30_000, [link.platform, macs, ready])
   useEffect(() => { void refreshSource() }, [link.running])
   return null
 }
