@@ -115,6 +115,8 @@ export type ClipboardStatus = {
 }
 export type TrayPeer = { id: string; name: string; canControl: boolean; canReceive: boolean }
 export const trayUpdate = (peers: TrayPeer[], clipboard: boolean) => native<void>('tray_update', { peers, clipboard })
+export const sendFilesPending = () => native<string[]>('send_files_pending')
+export const sendToIntegration = (enabled: boolean) => native<{ kind: 'send-to' | 'open-with' | ''; installed: boolean }>('send_to_integration', { enabled })
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })

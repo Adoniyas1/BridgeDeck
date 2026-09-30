@@ -8,6 +8,7 @@ mod imessage;
 mod legacy_apps;
 mod link;
 mod remote;
+mod send_to;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -500,6 +501,11 @@ async fn upgrade_peer_status(instance_id: String, manager: State<'_, BridgeLinkM
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // A second start (Explorer's Send to) hands its files to the running BridgeDeck and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let paths = send_to::paths_from_args(args);
+            if paths.is_empty() { tray::show_main(app) } else { send_to::deliver(app, paths) }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -514,6 +520,7 @@ pub fn run() {
             std::thread::spawn(move || autostart_bridgelink(&handle));
             clipboard::start(app.state::<BridgeLinkManager>().inner().clone());
             tray::install(app)?;
+            send_to::deliver(app.handle(), send_to::paths_from_args(std::env::args()));
             Ok(())
         })
         .on_window_event(tray::on_window_event)
@@ -525,6 +532,8 @@ pub fn run() {
             desktop_notify,
             notification_settings,
             tray::tray_update,
+            send_to::send_files_pending,
+            send_to::send_to_integration,
             contacts_save,
             upgrade_info,
             upgrade_self,
@@ -595,6 +604,11 @@ pub fn run() {
             // Clicking the Dock icon brings back a window hidden by closing it.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            // Files opened with BridgeDeck in Finder, or dropped on its Dock icon.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
+            }
             tauri::RunEvent::Exit => sync_sidecar::shutdown(app),
             _ => {}
         });

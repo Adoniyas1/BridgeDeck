@@ -43,6 +43,8 @@ export type AppConfig = {
   clipboard: { sync: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
   notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean }
+  /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */
+  sendTo: { enabled: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'

@@ -287,6 +287,12 @@ Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health
 - **Tray actions (built)**: the tray / menu-bar menu lists paired computers under Control and Send
   files to (a file picker, then LocalSend), and has a Share clipboard switch. The UI sends the device
   list with `tray_update` whenever it changes; picks come back as `tray-action` events.
+- **Send to / Open With (built)**: Windows gets a BridgeDeck shortcut in Explorer's Send to menu
+  (rewritten at each start, removable in Settings → Files); it starts BridgeDeck with `--send`, and
+  the single-instance plugin hands the paths to the running app. On the Mac, the bundle declares
+  `public.data`/`public.folder` as an Alternate viewer, so BridgeDeck is under Open With and takes
+  files dropped on its Dock icon (`RunEvent::Opened`). The files wait in the Files tab for a computer
+  to be picked.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

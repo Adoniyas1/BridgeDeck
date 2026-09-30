@@ -39,6 +39,18 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [],
+        "name": "Send with BridgeDeck",
+        "contentTypes": [
+          "public.data",
+          "public.folder"
+        ],
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
   }
 }

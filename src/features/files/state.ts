@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { listen } from '@tauri-apps/api/event'
 import {
   localSendAccept, localSendDecline, localSendNativeSend, localSendReceiverStart, localSendReceiverStatus,
-  localSendReceiverStop, localSendSetTrustedHosts, pickTransferPaths,
+  localSendReceiverStop, localSendSetTrustedHosts, pickTransferPaths, sendFilesPending, sendToIntegration,
 } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { configStore, serviceConfig } from '../../core/config'
@@ -20,6 +21,18 @@ export const transferBusyStore = createStore(false)
 const setTransferState = transferStateStore.set
 const addPaths = (paths: string[]) => transferPathsStore.set(current => Array.from(new Set([...current, ...paths])))
 export const clearTransferPaths = () => transferPathsStore.set([])
+
+/** Integration with the file manager's Send to / Open With (see `send_to.rs`). */
+export const sendToStore = createStore<{ kind: 'send-to' | 'open-with' | ''; installed: boolean; error?: string }>({ kind: '', installed: false })
+
+/** Files handed over from the file manager wait here for a computer to be picked. */
+async function takeSentFiles() {
+  const paths = await sendFilesPending().catch(() => [] as string[])
+  if (!paths.length) return
+  addPaths(paths)
+  setTransferState(`${paths.length} item${paths.length === 1 ? '' : 's'} ready to send. Pick a computer.`)
+  activateTab('files')
+}
 
 export async function addTransferPaths(directory = false) {
   try {
@@ -119,6 +132,22 @@ export function FilesBackground() {
   useEffect(() => {
     void localSendSetTrustedHosts(pairedHosts ? pairedHosts.split(',') : []).catch(() => undefined)
   }, [pairedHosts, running])
+
+  // Explorer's Send to / Finder's Open With hand files over; some may have arrived before the UI loaded.
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return
+    let unlisten: (() => void) | undefined
+    let closed = false
+    void takeSentFiles()
+    void listen('send-files', () => void takeSentFiles()).then(fn => { if (closed) fn(); else unlisten = fn })
+    return () => { closed = true; unlisten?.() }
+  }, [])
+
+  const sendToEnabled = useStore(configStore).sendTo.enabled
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return
+    void sendToIntegration(sendToEnabled).then(sendToStore.set).catch(error => sendToStore.set(current => ({ ...current, error: String(error) })))
+  }, [sendToEnabled])
 
   // Dropping files anywhere on the window queues them for sending.
   useEffect(() => {

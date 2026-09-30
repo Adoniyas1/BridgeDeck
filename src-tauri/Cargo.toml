@@ -20,6 +20,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 # BridgeDeck v0.7 uses the pinned LocalSend core directly for native send/receive.
 # vendor/localsend is populated by vendor:fetch or upgrade-from-previous.sh before native builds.
 localsend = { path = "../vendor/localsend/packages/core", features = ["full"] }
