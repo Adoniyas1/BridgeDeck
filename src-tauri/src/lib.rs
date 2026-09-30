@@ -1,5 +1,6 @@
 mod localsend_bridge;
 mod bridgelink;
+mod clipboard;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
@@ -505,6 +506,7 @@ pub fn run() {
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
             std::thread::spawn(move || autostart_bridgelink(&handle));
+            clipboard::start(app.state::<BridgeLinkManager>().inner().clone());
             tray::install(app)?;
             Ok(())
         })
@@ -548,6 +550,8 @@ pub fn run() {
             imessage::imessage_send_file,
             remote::host::remote_host_status,
             remote::host::remote_host_settings,
+            clipboard::clipboard_status,
+            clipboard::clipboard_settings,
             remote::host::remote_host_stop,
             remote::viewer::remote_connect,
             remote::viewer::remote_frame_drawn,

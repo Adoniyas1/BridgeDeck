@@ -39,6 +39,8 @@ export type AppConfig = {
   services: ServiceConfig[]
   /** This computer being controlled by paired devices (D15: allowed without asking by default). */
   remote: { allowControl: boolean; askFirst: boolean }
+  /** Copying on one paired computer makes it pasteable on the others. */
+  clipboard: { sync: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'

@@ -274,6 +274,13 @@ Tailscale, with no RustDesk installed.
 ### Phase 6: Everyday
 Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health fix-its, auto-update.
 
+- **Clipboard sync (built)**: a thread in `clipboard.rs` owns the system clipboard. Changes are noticed
+  by the Mac's pasteboard change count and Windows' clipboard sequence number (Linux compares text).
+  Text and pictures (PNG) go to every paired device on a `/clipboard` stream; nothing is queued for
+  devices that are off. What password managers mark as concealed (nspasteboard.org types on the Mac,
+  `ExcludeClipboardContentFromMonitorProcessing` on Windows) is never sent. On by default; one toggle
+  on the Computers tab turns sending and receiving off on that computer.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

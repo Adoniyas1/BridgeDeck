@@ -37,6 +37,11 @@ describe('config migration from v0.7', () => {
     expect(config.syncthing.sharedFolderId).toBe('bridgedeck-shared')
   })
 
+  it('shares the clipboard unless it was turned off', () => {
+    expect(config.clipboard.sync).toBe(true)
+    expect(mergeConfig({ clipboard: { sync: false } } as never).clipboard.sync).toBe(false)
+  })
+
   it('drops untouched default slots and keeps hand-configured ones', () => {
     const migrated = mergeConfig({ machines: [
       { id: 'mac', name: 'Mac', agentUrl: 'http://127.0.0.1:4141', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', bridgeInstanceId: '', syncthingDeviceId: '' },

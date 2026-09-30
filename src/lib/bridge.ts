@@ -107,6 +107,14 @@ export const legacyAppsStop = () => native<LegacyApp[]>('legacy_apps_stop')
 export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
 export const remoteHostStatus = () => native<RemoteHostStatus>('remote_host_status')
 export const remoteHostSettings = (allow: boolean, askFirst: boolean) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst })
+export type ClipboardStatus = {
+  enabled: boolean
+  available: boolean
+  last: { direction: 'sent' | 'received'; peers: string[]; kind: 'text' | 'image'; summary: string; at: number } | null
+  errors: string[]
+}
+export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
+export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
 export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
 /** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
 export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>

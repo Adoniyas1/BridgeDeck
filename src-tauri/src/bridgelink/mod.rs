@@ -44,9 +44,9 @@ const MAX_AI_BODY: usize = 24 * 1024;
 const DEFAULT_AI_CHANNEL: &str = "shared-agents";
 /// What this build can do for a paired device; reported in `/status`.
 #[cfg(target_os = "macos")]
-pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "messages"];
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "messages", "clipboard"];
 #[cfg(not(target_os = "macos"))]
-pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade"];
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "clipboard"];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,10 +1,11 @@
-import { ArrowLeftRight, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
+import { ArrowLeftRight, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { bridgeLinkStore, deviceStatusStore } from '../../core/bridgelink'
 import { sortedDevices, useConfig } from '../../core/config'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
 import { Card, SectionTitle, StatusPill } from '../../ui'
 import type { FeatureManifest } from '../features'
+import { clipboardDetail, clipboardStore } from '../devices/clipboard'
 import { receiverStore } from '../files/state'
 import { messagesSourceStore } from '../messages/state'
 import { controlDevice, hostStore } from '../remote/state'
@@ -36,6 +37,7 @@ function HomePage() {
   const syncthing = useStore(syncthingStore)
   const messages = useStore(messagesSourceStore)
   const host = useStore(hostStore)
+  const clipboard = useStore(clipboardStore)
   const devices = sortedDevices(config.devices)
   const onlineMachines = devices.filter(d => machineStatus[d.id]?.ok).length
   const builtIn = [
@@ -43,6 +45,7 @@ function HomePage() {
     { name: 'Sync', icon: FolderSync, on: syncthing.ok, detail: syncthing.ok ? 'Syncing (runs inside BridgeDeck)' : 'Starting…', tab: 'sync' },
     { name: 'Messages', icon: MessageSquare, on: messages.ready, detail: messages.ready ? `From ${messages.name}` : messages.detail || 'Looking for your Mac…', tab: 'messages' },
     { name: 'Remote', icon: MonitorUp, on: true, detail: host.sessions.length ? `${host.sessions.map(s => s.peerName).join(', ')} is controlling this computer` : host.supported ? (config.remote.allowControl ? 'Paired devices can control this computer' : 'Control of this computer is off') : 'Can control your other computers', tab: 'remote' },
+    { name: 'Clipboard', icon: ClipboardCopy, on: config.clipboard.sync && clipboard.available, detail: clipboardDetail(clipboard, config.clipboard.sync), tab: 'computers' },
   ]
   // Every online computer should run the same build; 0.7 and older don't report a version.
   const versions = new Set(devices.filter(d => machineStatus[d.id]?.ok).map(d => machineStatus[d.id]?.version || '0.7 or older'))
