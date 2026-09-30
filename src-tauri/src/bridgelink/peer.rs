@@ -293,12 +293,24 @@ pub(super) struct PeerHandler {
 
 impl Handler for PeerHandler {
     fn stream_paths(&self) -> &'static [&'static str] {
-        &["/pair"]
+        &["/pair", crate::remote::SESSION_PATH]
     }
 
-    fn stream(&self, caller: Caller, request: Request, send: quinn::SendStream, recv: quinn::RecvStream) -> BoxFuture {
+    fn stream(&self, caller: Caller, request: Request, mut send: quinn::SendStream, recv: quinn::RecvStream) -> BoxFuture {
         let manager = self.manager.clone();
         Box::pin(async move {
+            if request.path == crate::remote::SESSION_PATH {
+                // Only a paired device, identified by the certificate it proved, may control this computer.
+                let found = manager.lock().ok().map(|r| (r.paired.values().find(|p| p.fingerprint == caller.fingerprint).cloned(), r.app.clone(), r.display_name.clone()));
+                match found {
+                    Some((Some(peer), app, host_name)) => crate::remote::host::serve(app, peer.instance_id, peer.name, host_name, send, recv).await,
+                    _ => {
+                        let _ = write_frame(&mut send, &crate::remote::HostMsg::Ended { reason: "This device is not paired with this computer".into() }).await;
+                        let _ = send.finish();
+                    }
+                }
+                return;
+            }
             if let Ok(hello) = serde_json::from_str::<PairMessage>(&request.body) {
                 respond(manager, caller, hello, send, recv).await;
             }
@@ -440,6 +452,14 @@ pub fn forward_messages(manager: &BridgeLinkManager, instance_id: &str, op: serd
         return Err(response_error(&peer, &response));
     }
     Ok(value["result"].take())
+}
+
+/// What a long-lived stream to a paired device needs: the link, its addresses and its pinned certificate.
+pub fn link_to(manager: &BridgeLinkManager, instance_id: &str) -> Result<(Arc<Link>, Vec<SocketAddr>, String), String> {
+    let runtime = manager.lock()?;
+    let link = runtime.link.clone().ok_or("BridgeLink is not running")?;
+    let peer = runtime.paired.get(instance_id).ok_or("Paired computer not found")?;
+    Ok((link, peer_addresses(&runtime, peer), peer.fingerprint.clone()))
 }
 
 /// Sends this device's workspace view to a paired device (see `workspace::push`).
@@ -825,7 +845,7 @@ pub async fn bridgelink_legacy_upgrade(instance_id: String, request: UpgradeRequ
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::link::identity::Identity;
 
@@ -927,6 +947,14 @@ mod tests {
         a.lock().unwrap().paired.insert(b_id.clone(), new_peer(&b_id, &b_name, "linux", "127.0.0.1".into(), b_port, b_fp));
         b.lock().unwrap().paired.insert(a_id.clone(), new_peer(&a_id, &a_name, "linux", "127.0.0.1".into(), a_port, a_fp));
         (a_id, b_id)
+    }
+
+    /// Two running nodes paired with each other: (a, b, b's instance id).
+    pub(crate) fn paired_pair() -> (BridgeLinkManager, BridgeLinkManager, String) {
+        let (a, a_port) = node("A");
+        let (b, b_port) = node("B");
+        let (_, b_id) = pair_directly(&a, a_port, &b, b_port);
+        (a, b, b_id)
     }
 
     #[test]

@@ -14,6 +14,7 @@ export const defaultConfig: AppConfig = {
     { id: 'syncthing', name: 'Syncthing', enabled: true, autoStart: false, host: '127.0.0.1', port: 8384, webUrl: 'http://127.0.0.1:8384', notes: 'Persistent shared folders' },
     { id: 'localsend', name: 'LocalSend', enabled: true, autoStart: false, notes: 'Quick file transfers' },
   ],
+  remote: { allowControl: true, askFirst: false },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
   localsend: { alias: 'BridgeDeck', destination: '', port: 53317, pin: '', autoAccept: false },
   pairing: { displayName: '', apiPort: 41416, autoStart: true },
@@ -69,6 +70,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     services,
     // Existing setups keep their separately installed Syncthing until the user moves it into BridgeDeck.
     syncthing: { ...defaultConfig.syncthing, mode: input.syncthing?.apiKey ? 'external' : 'builtin', ...(input.syncthing || {}) },
+    remote: { ...defaultConfig.remote, ...(input.remote || {}) },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
     pairing: { ...defaultConfig.pairing, ...(input.pairing || {}) },
     messages: { nicknames: { ...(input.messages?.nicknames || {}) } },

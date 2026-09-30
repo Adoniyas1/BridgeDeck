@@ -39,7 +39,7 @@ BridgeLink provides discovery (LAN and Tailscale), pairing confirmed with a six-
 BridgeDeck UI
 │
 ├── Computers ── BridgeLink ───────── Mac ↔ Windows pairing/status/metadata
-├── Remote ───── native adapter ───── RustDesk runtime/source
+├── Remote ───── BridgeLink ───────── screen in a tab (tiles over QUIC), input back; RustDesk as fallback
 ├── Files ────── native Rust ──────── LocalSend core source
 ├── Sync ─────── native HTTP ──────── Syncthing REST config + shared workspace
 ├── Messages ─── BridgeLink ───────── read on the Mac (chat.db, Contacts), sent with Messages.app

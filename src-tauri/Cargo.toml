@@ -34,6 +34,7 @@ mime_guess = "2"
 anyhow = "1"
 base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }
+jpeg-encoder = "0.7"
 sha2 = "0.10"
 # BridgeLink v2: QUIC between paired devices with pinned self-signed certificates.
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
@@ -46,6 +47,11 @@ url = "2"
 sysinfo = { version = ">=0.30, <1", default-features = false, features = ["system"] }
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
+# Remote control host: screen capture and input (macOS and Windows only).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+xcap = "0.9"
+enigo = "0.6"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 

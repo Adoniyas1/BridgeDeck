@@ -142,6 +142,20 @@ export async function managedServiceStop(serviceId: ServiceKey): Promise<Managed
   return result
 }
 
+/** Remote control: this computer as host. */
+export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
+export const remoteHostStatus = () => native<RemoteHostStatus>('remote_host_status')
+export const remoteHostSettings = (allow: boolean, askFirst: boolean) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst })
+export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
+/** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
+export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>
+  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent })
+export const remoteFrameDrawn = (session: string) => native<void>('remote_frame_drawn', { session })
+export const remoteInput = (session: string, events: unknown[]) => native<void>('remote_input', { session, events })
+export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number }) =>
+  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null })
+export const remoteDisconnect = (session: string) => native<void>('remote_disconnect', { session })
+
 /** Messages, read by BridgeDeck on the Mac. `peer`: the paired Mac's instance id, or null on the Mac itself. */
 export const imessage = <T>(peer: string | null, op: Record<string, unknown>) => native<T>('imessage', { peer, op })
 /** An attachment as a `data:` URL (HEIC photos arrive as JPEG). */

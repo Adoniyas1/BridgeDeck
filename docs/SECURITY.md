@@ -84,3 +84,22 @@ strict character set, attachments are served only from `~/Library/Messages`, upl
 `~/Pictures/BridgeDeck Sent` (Messages is sandboxed and can send from there) with a cleaned file name
 and a 100 MB limit, and sends are limited to 30 a minute. Any paired device can read and send your
 messages: pair only your own devices.
+
+## Remote control (0.9)
+
+A paired device can open this computer's screen in a tab and control it (decision D15: no prompt for
+paired devices). The session runs on the encrypted BridgeLink connection (`/remote/session`), and
+the host checks that the certificate the caller proved belongs to a paired device before anything
+else; unpaired devices are refused. On the controlled computer:
+
+- a banner at the top of BridgeDeck names who is in control, with **Stop**; the tray menu has
+  **Stop remote control**; a notification is shown when a session starts;
+- **Settings → Remote**: "Let my paired devices control this computer" (on by default) and "Ask me
+  each time" (a dialog, denied after 60 s without an answer);
+- turning control off ends running sessions.
+
+Frames are JPEG tiles of the shared monitor; input events are mouse moves (0–1 positions clamped to
+that monitor), buttons, wheel steps, key presses by name and nothing else: there is no command,
+clipboard or file channel in a session. macOS needs Screen Recording and Accessibility for
+BridgeDeck. Known limit: Windows UAC prompts appear on the secure desktop and can't be seen or
+clicked remotely.

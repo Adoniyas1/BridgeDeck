@@ -39,6 +39,8 @@ export type AppConfig = {
   configVersion: 8
   devices: DeviceConfig[]
   services: ServiceConfig[]
+  /** This computer being controlled by paired devices (D15: allowed without asking by default). */
+  remote: { allowControl: boolean; askFirst: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'

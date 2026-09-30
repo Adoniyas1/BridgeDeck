@@ -24,14 +24,16 @@ pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
 
 pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show BridgeDeck", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop-remote", "Stop remote control", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit BridgeDeck", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &stop, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("BridgeDeck")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main(app),
+            "stop-remote" => crate::remote::host::stop_all(),
             "quit" => app.exit(0),
             _ => {}
         })

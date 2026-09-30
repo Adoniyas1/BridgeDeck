@@ -5,6 +5,7 @@ mod secrets;
 mod tray;
 mod imessage;
 mod link;
+mod remote;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -948,6 +949,14 @@ pub fn run() {
             imessage::imessage,
             imessage::imessage_attachment,
             imessage::imessage_send_file,
+            remote::host::remote_host_status,
+            remote::host::remote_host_settings,
+            remote::host::remote_host_stop,
+            remote::viewer::remote_connect,
+            remote::viewer::remote_frame_drawn,
+            remote::viewer::remote_input,
+            remote::viewer::remote_settings,
+            remote::viewer::remote_disconnect,
             bridgelink::workspace::ai_workspace,
             bridgelink::workspace::ai_room_create,
             bridgelink::workspace::ai_room_update,

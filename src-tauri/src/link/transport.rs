@@ -77,6 +77,29 @@ pub async fn read_frame<T: DeserializeOwned>(recv: &mut quinn::RecvStream) -> Re
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
+/// Binary frames (remote-control video): a 4-byte big-endian length, then the bytes.
+pub const MAX_RAW: usize = 32 * 1024 * 1024;
+
+pub async fn write_raw(send: &mut quinn::SendStream, bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_RAW {
+        return Err("Frame too large".into());
+    }
+    send.write_all(&(bytes.len() as u32).to_be_bytes()).await.map_err(|e| e.to_string())?;
+    send.write_all(bytes).await.map_err(|e| e.to_string())
+}
+
+pub async fn read_raw(recv: &mut quinn::RecvStream) -> Result<Vec<u8>, String> {
+    let mut len = [0u8; 4];
+    recv.read_exact(&mut len).await.map_err(|e| e.to_string())?;
+    let len = u32::from_be_bytes(len) as usize;
+    if len > MAX_RAW {
+        return Err("Frame too large".into());
+    }
+    let mut bytes = vec![0u8; len];
+    recv.read_exact(&mut bytes).await.map_err(|e| e.to_string())?;
+    Ok(bytes)
+}
+
 pub struct Link {
     endpoint: quinn::Endpoint,
     identity: Identity,
@@ -192,6 +215,26 @@ impl Link {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(error)) => {
                 // A stale cached connection fails here; drop it so the next attempt reconnects.
+                if let Ok(mut connections) = self.connections.lock() {
+                    connections.remove(fingerprint);
+                }
+                Err(error)
+            }
+            Err(_) => Err("The other device did not answer in time".into()),
+        }
+    }
+
+    /// Opens a long-lived stream to a paired device (the other side's `Handler::stream` gets it).
+    pub async fn open_stream(&self, addresses: &[SocketAddr], fingerprint: &str, request: &Request) -> Result<(quinn::SendStream, quinn::RecvStream), String> {
+        let (connection, _) = self.connect(addresses, Some(fingerprint)).await?;
+        let opened = async {
+            let (mut send, recv) = connection.open_bi().await.map_err(|e| e.to_string())?;
+            write_frame(&mut send, request).await?;
+            Ok::<_, String>((send, recv))
+        };
+        match tokio::time::timeout(CONNECT_TIMEOUT, opened).await {
+            Ok(Ok(streams)) => Ok(streams),
+            Ok(Err(error)) => {
                 if let Ok(mut connections) = self.connections.lock() {
                     connections.remove(fingerprint);
                 }
