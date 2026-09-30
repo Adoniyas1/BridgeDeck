@@ -1,3 +1,32 @@
+# Syncthing in BridgeDeck
+
+## Built in (0.9)
+
+BridgeDeck ships the pinned, unmodified Syncthing (`vendor/syncthing`, built by
+`scripts/build-syncthing.mjs` into `runtime/<platform>/syncthing/`) and runs it as a hidden helper
+(`src-tauri/src/sync_sidecar.rs`):
+
+- its own home folder inside BridgeDeck's app-config folder (`syncthing/`), so it never touches a
+  separately installed Syncthing;
+- `serve --no-browser --no-restart --no-upgrade`, the web UI/API on `127.0.0.1` at a free port, with an
+  API key BridgeDeck generates; no "Default Folder" is created;
+- started with BridgeDeck, restarted if it exits (up to 5 times in 10 minutes), stopped on quit.
+
+**Moving an existing Syncthing in.** When a separately installed Syncthing is found, the Sync tab offers
+"Move into BridgeDeck": BridgeDeck stops it through its API, copies its certificate (device ID), settings
+and database, and starts its own copy. Paired devices and shared folders keep working. Remove the old
+Syncthing app from your login items afterwards. Setups that used a separate Syncthing before 0.9 keep
+using it (Settings → Syncthing → "Run Syncthing inside BridgeDeck" is off) until you move it in.
+
+**Sync tab.** Folder progress, pause/resume, "Share a folder" (shares with every paired device), stop
+syncing a folder (files stay), and a **Conflicts** tab per folder: when a file was changed on two computers
+before they synced, pick the version to keep; the other goes to the Trash / Recycle Bin.
+
+**Addresses.** When BridgeDeck adds a paired computer to Syncthing it includes the address BridgeLink last
+reached it at (LAN or Tailscale) next to Syncthing's own discovery, and updates it when the computer moves.
+
+All Syncthing API calls go to `127.0.0.1` only; the API key never leaves the computer.
+
 # Automatic Syncthing setup
 
 BridgeDeck v0.7 can turn a completed BridgeLink Mac/Windows pairing into a Syncthing device relationship and a shared workspace without sending the Syncthing API key to the other computer.

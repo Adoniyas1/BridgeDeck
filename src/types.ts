@@ -44,6 +44,8 @@ export type AppConfig = {
     password: string
   }
   syncthing: {
+    /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
+    mode: 'builtin' | 'external'
     baseUrl: string
     apiKey: string
     autoSetup: boolean
@@ -155,6 +157,38 @@ export type SyncthingFolder = {
   type?: string
 }
 
+export type SyncSidecarStatus = {
+  available: boolean
+  running: boolean
+  baseUrl: string
+  apiKey: string
+  home: string
+  detail: string
+  /** A separately installed Syncthing whose identity and folders can be moved into BridgeDeck. */
+  adoptable?: string | null
+  adoptedFrom?: string | null
+}
+
+export type SyncConflict = {
+  conflictPath: string
+  originalPath: string
+  originalExists: boolean
+  conflictSize: number
+  originalSize: number
+  conflictModified: number
+  originalModified: number
+}
+
+/** `/rest/db/status` for one folder. */
+export type SyncthingFolderStatus = {
+  state?: string
+  globalBytes?: number
+  inSyncBytes?: number
+  needBytes?: number
+  needFiles?: number
+  errors?: number
+}
+
 export type SyncthingStatus = {
   ok: boolean
   myID?: string
@@ -184,6 +218,8 @@ export type AiRelayMessage = {
   peerInstanceId: string
   peerName: string
   createdAt: number
+  /** Outgoing message waiting for the other computer to come online. */
+  pending?: boolean
 }
 
 
@@ -268,32 +304,35 @@ export type BridgeLinkPeer = {
   platform: string
   host: string
   apiPort: number
+  /** 1 = BridgeDeck 0.8 or older (update it before pairing), 2 = current. */
+  protocol: number
+  via: 'lan' | 'tailscale'
   lastSeen: number
 }
 
+/** A pairing another computer started; shown with its code until both people confirm. */
 export type BridgeLinkPending = {
   requestId: string
   peerInstanceId: string
   peerName: string
   peerPlatform: string
   host: string
-  apiPort: number
   pairingCode: string
-  rustdeskPeerId?: string
-  localsendTarget: string
-  syncthingDeviceId?: string
+  /** waiting = for this computer's answer; approved = waiting for the other computer. */
+  state: 'waiting' | 'approved'
   createdAt: number
 }
 
+/** A pairing this computer started. */
 export type BridgeLinkOutgoing = {
   requestId: string
   peerInstanceId: string
   peerName: string
   peerPlatform: string
   host: string
-  apiPort: number
+  /** Empty until the secure exchange finishes. */
   pairingCode: string
-  state: string
+  state: 'connecting' | 'confirm' | 'waiting' | 'failed'
   createdAt: number
 }
 
@@ -303,12 +342,22 @@ export type BridgeLinkPairedPeer = {
   platform: string
   host: string
   apiPort: number
-  accessToken: string
+  /** SHA-256 of the device's certificate, pinned at pairing. */
+  fingerprint: string
   rustdeskPeerId?: string
   localsendTarget: string
   syncthingDeviceId?: string
   bluebubblesUrl?: string
+  via: 'lan' | 'tailscale'
   pairedAt: number
+}
+
+/** Paired with BridgeDeck 0.8 or older: must be paired again (and can be asked to update first). */
+export type BridgeLinkLegacyPeer = {
+  instanceId: string
+  name: string
+  platform: string
+  host: string
 }
 
 export type BridgeLinkStatus = {
@@ -317,10 +366,13 @@ export type BridgeLinkStatus = {
   displayName: string
   platform: string
   apiPort: number
+  fingerprint?: string
+  tailscale?: boolean
   discovered: BridgeLinkPeer[]
   pending: BridgeLinkPending[]
   outgoing?: BridgeLinkOutgoing
   paired: BridgeLinkPairedPeer[]
+  legacy?: BridgeLinkLegacyPeer[]
   detail?: string
 }
 

@@ -24,9 +24,9 @@ Syncthing's REST API uses an API key locally, and BridgeDeck uses Syncthing's gr
 
 ### BridgeLink remains the one-time machine pairing layer
 
-BridgeLink still provides LAN discovery, a six-digit approval code, persisted bearer-token authentication, RustDesk ID exchange, LocalSend endpoint exchange, and machine status. v0.7 adds Syncthing device ID exchange to that metadata.
+BridgeLink provides discovery (LAN and Tailscale), pairing confirmed with a six-digit code on both computers, and an encrypted QUIC link with pinned certificates for everything paired computers say to each other (see `docs/SECURITY.md`).
 
-> **Security boundary:** Pair only on a trusted home/work LAN and verify the six-digit code on both computers. The initial BridgeLink pairing/token exchange is not yet TLS-encrypted. Syncthing API keys stay local and are never sent through BridgeLink.
+> **Security boundary:** Confirm pairing only when both computers show the same six-digit code. Syncthing API keys stay local and are never sent through BridgeLink.
 
 ### Native LocalSend and RustDesk behavior
 
@@ -95,7 +95,7 @@ BridgeDeck will configure each local Syncthing instance using its own API key. T
 Typical LAN permissions:
 
 - UDP `41415` — BridgeLink discovery;
-- TCP `41416` — BridgeLink status/pairing API;
+- UDP `41416` — BridgeLink encrypted link between paired devices (QUIC);
 - TCP/UDP `53317` — LocalSend;
 - Syncthing's normal sync/discovery ports according to your Syncthing configuration;
 - RustDesk ports according to your RustDesk configuration.

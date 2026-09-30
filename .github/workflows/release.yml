@@ -31,7 +31,13 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      - run: node scripts/vendor.mjs fetch --only localsend
+      - run: node scripts/vendor.mjs fetch --only localsend,syncthing
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/syncthing/go.mod
+          cache: false
+      - name: Build the bundled Syncthing
+        run: node scripts/build-syncthing.mjs ${{ matrix.platform == 'macos-latest' && '--universal' || '' }}
       - uses: tauri-apps/tauri-action@v0
         id: tauri
         env:

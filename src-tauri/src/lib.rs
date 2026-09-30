@@ -3,6 +3,9 @@ mod bridgelink;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
+mod link;
+mod sync_conflicts;
+mod sync_sidecar;
 mod upgrade;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
@@ -111,7 +114,7 @@ fn runtime_filename(service_id: &str) -> Option<&'static str> {
     }
 }
 
-fn bundled_runtime_path(app: &AppHandle, service_id: &str) -> Option<PathBuf> {
+pub(crate) fn bundled_runtime_path(app: &AppHandle, service_id: &str) -> Option<PathBuf> {
     let filename = runtime_filename(service_id)?;
     let rel = PathBuf::from("runtime").join(platform_key()).join(service_id).join(filename);
 
@@ -897,9 +900,57 @@ async fn bluebubbles_recent(base_url: String, password: String, after: u64, limi
     Ok(value)
 }
 
+/// True for http(s) URLs on this computer. Syncthing's API key never leaves the computer (audit MEDIUM).
+pub(crate) fn is_loopback_url(url: &str) -> bool {
+    reqwest::Url::parse(url.trim()).ok().is_some_and(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && match u.host() {
+                Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+                Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+                Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+                None => false,
+            }
+    })
+}
+
+fn checked_syncthing_base(base_url: &str) -> Result<String, String> {
+    if !is_loopback_url(base_url) {
+        return Err("BridgeDeck only talks to Syncthing on this computer (127.0.0.1)".into());
+    }
+    checked_http_base(base_url)
+}
+
+/// Any Syncthing REST call (`/rest/...`) on this computer, for the Sync tab.
+#[tauri::command]
+async fn syncthing_request(base_url: String, api_key: String, method: String, path: String, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+    let base = checked_syncthing_base(&base_url)?;
+    if !path.starts_with("/rest/") || path.contains("..") {
+        return Err("Only Syncthing REST paths are allowed".into());
+    }
+    let method = match method.as_str() {
+        "GET" => reqwest::Method::GET,
+        "POST" => reqwest::Method::POST,
+        "PUT" => reqwest::Method::PUT,
+        "PATCH" => reqwest::Method::PATCH,
+        "DELETE" => reqwest::Method::DELETE,
+        _ => return Err("Unsupported method".into()),
+    };
+    let mut request = http_client()?.request(method, format!("{base}{path}")).header("X-API-Key", api_key.trim());
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(net_err)?;
+    let status = response.status();
+    let text = response.text().await.map_err(net_err)?;
+    if !status.is_success() {
+        return Err(format!("Syncthing returned HTTP {status}: {}", text.trim()));
+    }
+    Ok(if text.trim().is_empty() { serde_json::Value::Null } else { serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text)) })
+}
+
 #[tauri::command]
 async fn syncthing_status(base_url: String, api_key: String) -> Result<SyncthingStatus, String> {
-    let base = checked_http_base(&base_url)?;
+    let base = checked_syncthing_base(&base_url)?;
     if api_key.trim().is_empty() {
         return Ok(SyncthingStatus { ok: false, my_id: None, uptime: None, alloc: None, sys: None, goroutines: None, error: Some("Add the Syncthing API key in Settings.".into()) });
     }
@@ -922,7 +973,7 @@ async fn syncthing_status(base_url: String, api_key: String) -> Result<Syncthing
 
 #[tauri::command]
 async fn syncthing_folders(base_url: String, api_key: String) -> Result<Vec<SyncthingFolder>, String> {
-    let base = checked_http_base(&base_url)?;
+    let base = checked_syncthing_base(&base_url)?;
     if api_key.trim().is_empty() { return Ok(Vec::new()); }
     let response = http_client()?.get(format!("{base}/rest/config/folders")).header("X-API-Key", api_key).send().await.map_err(net_err)?;
     let status = response.status();
@@ -1000,7 +1051,9 @@ pub fn run() {
         .manage(ServiceManager { children: Mutex::new(HashMap::new()) })
         .manage(LocalSendManager::default())
         .manage(BridgeLinkManager::default())
+        .manage(sync_sidecar::SyncSidecar::default())
         .setup(|app| {
+            sync_sidecar::init(app.handle());
             // Start BridgeLink with the process, not when the window's UI loads: a hidden or
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
@@ -1042,12 +1095,15 @@ pub fn run() {
             bridgelink::bridgelink_start,
             bridgelink::bridgelink_stop,
             bridgelink::bridgelink_status,
-            bridgelink::bridgelink_request_pair,
-            bridgelink::bridgelink_poll_pair,
-            bridgelink::bridgelink_approve,
-            bridgelink::bridgelink_decline,
+            bridgelink::peer::bridgelink_request_pair,
+            bridgelink::peer::bridgelink_poll_pair,
+            bridgelink::peer::bridgelink_approve,
+            bridgelink::peer::bridgelink_decline,
             bridgelink::bridgelink_forget,
-            bridgelink::bridgelink_refresh_peer,
+            bridgelink::peer::bridgelink_refresh_peer,
+            bridgelink::peer::bridgelink_peer_status,
+            bridgelink::peer::bridgelink_confirm_pair,
+            bridgelink::peer::bridgelink_legacy_upgrade,
             bridgelink::bridgelink_ai_messages,
             bridgelink::bridgelink_ai_send,
             bridgelink::bridgelink_ai_token_path,
@@ -1062,15 +1118,22 @@ pub fn run() {
             bluebubbles_send,
             syncthing_status,
             syncthing_folders,
-            syncthing_bridge::syncthing_setup_peer
+            syncthing_bridge::syncthing_setup_peer,
+            syncthing_request,
+            sync_sidecar::sync_sidecar_status,
+            sync_sidecar::sync_sidecar_start,
+            sync_sidecar::sync_sidecar_stop,
+            sync_sidecar::sync_sidecar_adopt,
+            sync_conflicts::sync_conflicts,
+            sync_conflicts::sync_resolve_conflict
         ])
         .build(tauri::generate_context!())
         .expect("error while building BridgeDeck")
-        .run(|_app, _event| {
+        .run(|app, event| match event {
             // Clicking the Dock icon brings back a window hidden by closing it.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = _event {
-                tray::show_main(_app);
-            }
+            tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            tauri::RunEvent::Exit => sync_sidecar::shutdown(app),
+            _ => {}
         });
 }

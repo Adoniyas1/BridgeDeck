@@ -1,21 +1,31 @@
-# BridgeDeck security notes — v0.6
+# BridgeDeck security notes
 
 BridgeDeck is a local control plane. Native integrations are deliberately constrained rather than exposing a generic remote shell.
 
-## BridgeLink automatic pairing
+## BridgeLink v2 (0.9): pairing and the encrypted link
 
-- Discovery uses a dedicated LAN multicast message containing only the BridgeDeck instance ID, display name, platform and API port.
-- Pairing requires explicit approval and a matching six-digit code shown on both computers.
-- After pairing, remote `/status` requests require a long random bearer token. Loopback status is permitted without a token for the local BridgeDeck instance.
-- Peer records and bearer tokens are persisted under the BridgeDeck app-config directory. On Unix, BridgeLink identity/peer files are written with mode `0600`.
-- Pairing endpoints do not expose arbitrary command execution.
-- The status endpoint is read-only.
-- Pending pairing requests expire from the in-memory list.
-- The pairing API includes CORS handling because the Tauri WebView queries the paired peer status endpoint directly.
-
-### Current limitation
-
-The initial BridgeLink pairing/token exchange in v0.6 uses local TCP and is not TLS-encrypted. The six-digit confirmation protects against accidentally approving the wrong discovered computer, but it is not a replacement for encrypted transport on a hostile network. Use automatic pairing only on a trusted LAN. A future hardening step should move the pairing exchange to authenticated TLS or an ephemeral-key handshake.
+- **Identity.** Each install creates a long-term key pair and a self-signed certificate on first run
+  (`bridgelink/identity-v2.json`, mode `0600` on Unix). The certificate's SHA-256 fingerprint is the
+  device's identity; the private key never leaves the device.
+- **Pairing** is numeric comparison with a commitment (as in Bluetooth Secure Simple Pairing), over a
+  TLS 1.3 QUIC connection: the responder commits to a random nonce before seeing the initiator's; both
+  compute a six-digit code from both certificates and both nonces. A device in the middle sees different
+  certificates on each side, so the two screens show different codes unless it wins a one-in-a-million
+  guess, and every attempt is a visible pairing request. **Both people confirm** ("Codes match") before
+  either side stores anything. Code: `src-tauri/src/link/sas.rs`, `src-tauri/src/bridgelink/peer.rs`.
+- **After pairing** each side pins the other's certificate fingerprint (`bridgelink/peers-v2.json`). Every
+  connection is mutually authenticated TLS 1.3 over QUIC (UDP 41416); a request from a certificate that
+  isn't paired gets nothing but pairing. No password or token crosses the network, and there is nothing
+  to steal from the settings file that would let another device impersonate a paired one.
+- **Discovery** announcements (UDP 41415, multicast on the LAN and direct to Tailscale devices) carry only
+  the instance ID, name, platform and port. They are hints: an announcement can move where BridgeDeck
+  looks for a device, never whom it trusts.
+- **The HTTP API** listens on `127.0.0.1` only (this computer's AI tools and BridgeDeck's own status).
+  Requests with an `Origin` header are refused unless it is BridgeDeck's own WebView, so web pages can't
+  use it; `/ai/*` also needs the local AI token.
+- **Upgrading from 0.8.** Old pairings (plaintext bearer tokens) are not used any more. They are listed
+  under "Pair again"; the one thing BridgeDeck still does with an old token is ask that device to update
+  itself (its user approves there), so it can then be paired securely.
 
 ## LocalSend
 
@@ -48,7 +58,7 @@ Automatic setup creates or patches only the configured BridgeDeck folder/device 
 
 ## Settings secrets (v0.8)
 
-The Syncthing API key, BlueBubbles password, LocalSend PINs and each device's bearer token are kept
+The Syncthing API key, BlueBubbles password, LocalSend PINs and any hand-entered device token are kept
 in the OS credential store (macOS Keychain, Windows Credential Manager) as a single BridgeDeck entry
 (service `dev.bridgedeck.app`, account `settings-secrets`), not in `config-v7.json`. Settings saved
 by older builds are migrated on first load, and the copy older builds kept in the WebView's
@@ -59,5 +69,5 @@ stored entry.
 A locally signed Mac build looks like a new app to the Keychain after each rebuild, so macOS asks
 once to allow access; choose **Always Allow**.
 
-BridgeLink pairing tokens (`bridgelink/peers.json`) and the local AI relay token (`bridgelink/ai-token`,
-read by `agent/ai-relay.mjs`) are still files; BridgeLink v2 (roadmap Phase 1) replaces the pairing tokens.
+The BridgeLink identity key (`bridgelink/identity-v2.json`) and the local AI relay token (`bridgelink/ai-token`,
+read by `agent/ai-relay.mjs`) are user-only files.

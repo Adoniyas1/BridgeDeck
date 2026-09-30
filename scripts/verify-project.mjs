@@ -9,7 +9,7 @@ const need = path => existsSync(join(root, path)) ? ok(path) : fail(`missing ${p
 
 for (const p of [
   'src/shell/App.tsx', 'src/shell/TabBar.tsx', 'src/core/tabs.ts', 'src/features/registry.ts', 'src/lib/bridge.ts', 'src/lib/config.ts', 'src/types.ts',
-  'src-tauri/src/lib.rs', 'src-tauri/src/localsend_bridge.rs', 'src-tauri/src/bridgelink.rs', 'src-tauri/src/syncthing_bridge.rs',
+  'src-tauri/src/lib.rs', 'src-tauri/src/localsend_bridge.rs', 'src-tauri/src/bridgelink/mod.rs', 'src-tauri/src/bridgelink/peer.rs', 'src-tauri/src/link/transport.rs', 'src-tauri/src/syncthing_bridge.rs',
   'src-tauri/capabilities/default.json', 'vendor-lock.json', 'docs/SYNCTHING_AUTO_SETUP.md',
 ]) need(p)
 
@@ -25,19 +25,22 @@ if (cargo.includes('path = "../vendor/localsend/packages/core"')) ok('native Loc
 
 const lib = readFileSync(join(root, 'src-tauri/src/lib.rs'), 'utf8')
 const localSend = readFileSync(join(root, 'src-tauri/src/localsend_bridge.rs'), 'utf8')
-const bridgeLink = readFileSync(join(root, 'src-tauri/src/bridgelink.rs'), 'utf8')
+const bridgeLink = ['mod.rs', 'peer.rs', 'discovery.rs', 'local.rs'].map(f => readFileSync(join(root, 'src-tauri/src/bridgelink', f), 'utf8')).join('\n')
+  + readFileSync(join(root, 'src-tauri/src/link/sas.rs'), 'utf8') + readFileSync(join(root, 'src-tauri/src/link/tls.rs'), 'utf8')
 const sync = readFileSync(join(root, 'src-tauri/src/syncthing_bridge.rs'), 'utf8')
 const rust = lib + localSend + bridgeLink + sync
 for (const command of [
   'rustdesk_session', 'rustdesk_identity',
   'localsend_receiver_status', 'localsend_receiver_start', 'localsend_receiver_stop', 'localsend_accept', 'localsend_decline', 'localsend_send_native',
-  'bridgelink_start', 'bridgelink_stop', 'bridgelink_status', 'bridgelink_request_pair', 'bridgelink_poll_pair', 'bridgelink_approve', 'bridgelink_decline', 'bridgelink_forget', 'bridgelink_refresh_peer',
+  'bridgelink_start', 'bridgelink_stop', 'bridgelink_status', 'bridgelink_request_pair', 'bridgelink_poll_pair', 'bridgelink_approve', 'bridgelink_decline', 'bridgelink_forget', 'bridgelink_refresh_peer', 'bridgelink_confirm_pair', 'bridgelink_peer_status',
   'syncthing_setup_peer',
 ]) rust.includes(command) ? ok(`native command ${command}`) : fail(`native command ${command} missing`)
 
 for (const marker of [
   '239, 255, 77, 77', 'DISCOVERY_PORT: u16 = 41415', 'DEFAULT_API_PORT: u16 = 41416',
-  'pairing_code()', 'Bearer token required', 'Access-Control-Allow-Origin', 'save_peers', 'syncthingDeviceId',
+  // v2: pinned certificates, committed pairing codes, loopback-only HTTP with an Origin allowlist.
+  'sas::commitment', 'fn peer_fingerprint', 'This device is not paired', 'fn origin_allowed', 'TcpListener::bind(("127.0.0.1"',
+  'save_peers', 'syncthingDeviceId',
 ]) bridgeLink.includes(marker) ? ok(`BridgeLink guard ${marker}`) : fail(`BridgeLink guard missing: ${marker}`)
 
 for (const marker of [

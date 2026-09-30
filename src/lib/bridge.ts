@@ -301,16 +301,68 @@ export async function bridgeLinkAiTokenPath(): Promise<string> {
   return (await invokeSafe<string>('bridgelink_ai_token_path')) ?? ''
 }
 
+/** This computer's person compared the codes of the pairing it started: `true` = they match. */
+export async function bridgeLinkConfirmPair(confirm: boolean): Promise<import('../types').BridgeLinkStatus> {
+  const result = await invokeSafe<import('../types').BridgeLinkStatus>('bridgelink_confirm_pair', { confirm })
+  if (!result) throw new Error('Pairing requires the native BridgeDeck app.')
+  return result
+}
+
+/** A paired device's live status over the encrypted link (same shape as a local /status). */
+export async function bridgeLinkPeerStatus(instanceId: string): Promise<import('../types').AgentStatus> {
+  return (await invokeSafe<import('../types').AgentStatus>('bridgelink_peer_status', { instanceId })) ?? { ok: false, error: 'Requires the native BridgeDeck app' }
+}
+
+/** Asks a device paired with BridgeDeck 0.8 or older to update itself (its user approves there). */
+export async function bridgeLinkLegacyUpgrade(instanceId: string, fromVersion: string): Promise<void> {
+  await invokeSafe('bridgelink_legacy_upgrade', { instanceId, request: { mode: 'git', fileName: '', sha256: '', fromVersion } })
+}
+
 export async function bridgeLinkRefreshPeer(instanceId: string): Promise<import('../types').BridgeLinkPairResult> {
   const result = await invokeSafe<import('../types').BridgeLinkPairResult>('bridgelink_refresh_peer', { instanceId })
   if (!result) throw new Error('Automatic pairing requires the native BridgeDeck app.')
   return result
 }
 
-export async function syncthingSetupPeer(settings: { baseUrl: string; apiKey: string; peerDeviceId: string; peerName: string; folderId: string; folderLabel: string; folderPath: string }): Promise<import('../types').SyncthingAutoSetupResult> {
+export async function syncthingSetupPeer(settings: { baseUrl: string; apiKey: string; peerDeviceId: string; peerName: string; folderId: string; folderLabel: string; folderPath: string; peerHost?: string }): Promise<import('../types').SyncthingAutoSetupResult> {
   const result = await invokeSafe<import('../types').SyncthingAutoSetupResult>('syncthing_setup_peer', settings)
   if (!result) throw new Error('Automatic Syncthing setup requires the native BridgeDeck app.')
   return result
+}
+
+// ---- Built-in Syncthing (src-tauri/src/sync_sidecar.rs, sync_conflicts.rs) ----
+
+const noSidecar: import('../types').SyncSidecarStatus = { available: false, running: false, baseUrl: '', apiKey: '', home: '', detail: 'Requires the native BridgeDeck app' }
+
+export async function syncSidecarStatus() {
+  return (await invokeSafe<import('../types').SyncSidecarStatus>('sync_sidecar_status')) ?? noSidecar
+}
+
+export async function syncSidecarStart() {
+  return (await invokeSafe<import('../types').SyncSidecarStatus>('sync_sidecar_start')) ?? noSidecar
+}
+
+export async function syncSidecarStop() {
+  return (await invokeSafe<import('../types').SyncSidecarStatus>('sync_sidecar_stop')) ?? noSidecar
+}
+
+/** Moves a separately installed Syncthing (identity, folders, database) into BridgeDeck. */
+export async function syncSidecarAdopt(source: string, baseUrl: string, apiKey: string) {
+  return (await invokeSafe<import('../types').SyncSidecarStatus>('sync_sidecar_adopt', { source, baseUrl, apiKey })) ?? noSidecar
+}
+
+/** Any Syncthing REST call on this computer. */
+export async function syncthingRequest<T = unknown>(baseUrl: string, apiKey: string, method: string, path: string, body?: unknown): Promise<T> {
+  return (await invokeSafe<T>('syncthing_request', { baseUrl, apiKey, method, path, body: body ?? null })) as T
+}
+
+export async function syncConflicts(folderPath: string) {
+  return (await invokeSafe<import('../types').SyncConflict[]>('sync_conflicts', { folderPath })) ?? []
+}
+
+/** keep: 'current' trashes the conflict copy; 'conflict' puts it in place and trashes the current file. */
+export async function syncResolveConflict(folderPath: string, conflictPath: string, keep: 'current' | 'conflict') {
+  await invokeSafe('sync_resolve_conflict', { folderPath, conflictPath, keep })
 }
 
 // ---- Upgrading this computer or a paired one (src-tauri/src/upgrade.rs) ----

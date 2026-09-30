@@ -58,4 +58,10 @@ describe('message nicknames', () => {
     const saved = { ...mergeConfig(null), messages: { nicknames: { 'address:3104311447': 'Delina', 'contact:ABC:ABPerson': 'Mom' } } }
     expect(mergeConfig(JSON.parse(JSON.stringify(saved))).messages.nicknames).toEqual({ 'address:3104311447': 'Delina', 'contact:ABC:ABPerson': 'Mom' })
   })
+
+  it('keeps an existing separate Syncthing and uses the built-in one for new setups', () => {
+    expect(mergeConfig({ syncthing: { apiKey: 'existing-key' } } as never).syncthing.mode).toBe('external')
+    expect(mergeConfig({} as never).syncthing.mode).toBe('builtin')
+    expect(mergeConfig({ syncthing: { apiKey: 'k', mode: 'builtin' } } as never).syncthing.mode).toBe('builtin')
+  })
 })
