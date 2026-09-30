@@ -60,7 +60,7 @@ describe('message nicknames', () => {
   })
 
   it('keeps an existing separate Syncthing and uses the built-in one for new setups', () => {
-    expect(config.syncthing.mode).toBe('external')
+    expect(mergeConfig({ syncthing: { apiKey: 'existing-key' } } as never).syncthing.mode).toBe('external')
     expect(mergeConfig({} as never).syncthing.mode).toBe('builtin')
     expect(mergeConfig({ syncthing: { apiKey: 'k', mode: 'builtin' } } as never).syncthing.mode).toBe('builtin')
   })
