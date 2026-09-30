@@ -43,6 +43,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # The repo also carries a pnpm lockfile; without this the action picks pnpm, which isn't installed.
+          tauriScript: npm run tauri
           args: ${{ matrix.args }}
           # Only tag builds publish a (draft) release; manual runs just upload the installers below.
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
