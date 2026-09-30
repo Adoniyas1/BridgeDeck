@@ -29,11 +29,23 @@ pub trait Injector {
 
 pub const UNSUPPORTED: &str = "This computer can't be controlled remotely (BridgeDeck supports macOS and Windows hosts).";
 
+/// Same picture, allowing for the mouse pointer (streams on the Mac draw it; screenshots don't).
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+fn nearly_same(a: &(Vec<u8>, u32, u32), b: &(Vec<u8>, u32, u32)) -> bool {
+    if (a.1, a.2) != (b.1, b.2) || a.0.len() != b.0.len() {
+        return false;
+    }
+    let differing = a.0.chunks_exact(4).zip(b.0.chunks_exact(4)).filter(|(x, y)| x != y).count();
+    differing <= (a.0.len() / 4) / 200
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native {
     use super::*;
     use crate::remote::input::{self, Area, Key, WheelAccumulator};
     use enigo::{Axis, Button, Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
+    use std::time::{Duration, Instant};
 
     fn permission_hint(error: String) -> String {
         if cfg!(target_os = "macos") {
@@ -43,11 +55,122 @@ mod native {
         }
     }
 
+    type Pixels = (Vec<u8>, u32, u32);
+
     /// Keeps the display list between frames; it's listed again only when a capture fails
     /// (a display was unplugged or rearranged).
     #[derive(Default)]
     pub struct Screen {
         monitors: Option<Vec<xcap::Monitor>>,
+        /// The OS frame stream for the shared display (AVFoundation on macOS, Desktop Duplication
+        /// on Windows): far cheaper than a full screenshot per frame.
+        stream: Option<Stream>,
+        /// Streams that stopped working this session; after a few, screenshots only.
+        stream_failures: u8,
+    }
+
+    const MAX_STREAM_FAILURES: u8 = 3;
+    /// A stream that hasn't delivered a single frame by now isn't going to.
+    const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
+    /// After this long without a streamed frame, a screenshot confirms the screen really is still
+    /// (Windows' stream can stop silently, e.g. after the lock screen or a resolution change).
+    const QUIET_CHECK: Duration = Duration::from_secs(2);
+
+    type Recorder = (xcap::VideoRecorder, Receiver<xcap::Frame>);
+
+    /// Windows' recorder keeps its thread and its screen duplication after being stopped, so each
+    /// display's recorder is parked here when a session ends and reused by the next one.
+    #[cfg(target_os = "windows")]
+    static PARKED: std::sync::Mutex<Vec<(u32, Recorder)>> = std::sync::Mutex::new(Vec::new());
+
+    struct Stream {
+        monitor: usize,
+        #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+        id: u32,
+        recorder: Option<Recorder>,
+        /// The newest picture, returned again while the screen doesn't change (Windows only sends
+        /// a frame when something changed).
+        last: Pixels,
+        delivered: bool,
+        started: Instant,
+        /// When a frame last arrived, or a screenshot last matched `last`.
+        confirmed: Instant,
+        /// Screenshots in a row that showed something the stream didn't.
+        misses: u8,
+    }
+
+    impl Stream {
+        /// `now` is a screenshot taken as the stream starts, shown until the first streamed frame.
+        fn start(monitor: &xcap::Monitor, index: usize, now: Pixels) -> Result<Self, String> {
+            let id = monitor.id().map_err(|e| e.to_string())?;
+            #[cfg(target_os = "windows")]
+            let parked = {
+                let mut parked = PARKED.lock().unwrap_or_else(|e| e.into_inner());
+                parked.iter().position(|(parked_id, _)| *parked_id == id).map(|i| parked.swap_remove(i).1)
+            };
+            #[cfg(not(target_os = "windows"))]
+            let parked: Option<Recorder> = None;
+            let reused = parked.is_some();
+            let (recorder, frames) = match parked {
+                Some(recorder) => recorder,
+                None => monitor.video_recorder().map_err(|e| e.to_string())?,
+            };
+            recorder.start().map_err(|e| e.to_string())?;
+            // A reused recorder may be holding a frame from the last session: drop it. If nothing
+            // changes from here on it sends nothing, which is fine, since `now` is current.
+            while frames.try_recv().is_ok() {}
+            Ok(Self { monitor: index, id, recorder: Some((recorder, frames)), last: now, delivered: reused, started: Instant::now(), confirmed: Instant::now(), misses: 0 })
+        }
+
+        /// The newest picture. Frames are handed over one at a time and the one waiting may be a
+        /// little old, so a fresher one that follows at once is preferred. Err: the stream died.
+        fn latest(&mut self) -> Result<Pixels, ()> {
+            let frames = &self.recorder.as_ref().ok_or(())?.1;
+            let mut newest = match frames.try_recv() {
+                Ok(frame) => Some(frame),
+                Err(TryRecvError::Disconnected) => return Err(()),
+                Err(TryRecvError::Empty) => match frames.recv_timeout(Duration::from_millis(40)) {
+                    Ok(frame) => Some(frame),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => return Err(()),
+                },
+            };
+            if newest.is_some() {
+                while let Ok(frame) = frames.recv_timeout(Duration::from_millis(15)) {
+                    newest = Some(frame);
+                }
+            }
+            match newest {
+                Some(frame) => {
+                    self.delivered = true;
+                    self.confirmed = Instant::now();
+                    self.misses = 0;
+                    self.last = (frame.raw, frame.width, frame.height);
+                }
+                None if !self.delivered && self.started.elapsed() > FIRST_FRAME_TIMEOUT => return Err(()),
+                None => {}
+            }
+            Ok(self.last.clone())
+        }
+
+        /// Stops it for good (it failed), rather than parking it for reuse.
+        fn discard(mut self) {
+            if let Some((recorder, _)) = self.recorder.take() {
+                let _ = recorder.stop();
+            }
+        }
+    }
+
+    impl Drop for Stream {
+        fn drop(&mut self) {
+            if let Some((recorder, frames)) = self.recorder.take() {
+                let _ = recorder.stop();
+                #[cfg(target_os = "windows")]
+                PARKED.lock().unwrap_or_else(|e| e.into_inner()).push((self.id, (recorder, frames)));
+                #[cfg(not(target_os = "windows"))]
+                drop(frames);
+            }
+        }
     }
 
     impl Screen {
@@ -56,6 +179,20 @@ mod native {
                 self.monitors = Some(all()?);
             }
             Ok(self.monitors.as_ref().expect("just set"))
+        }
+
+        fn screenshot(&mut self, index: usize) -> Result<Pixels, String> {
+            let monitors = self.cached()?;
+            let monitor = monitors.get(index).or(monitors.first()).ok_or("No display found")?;
+            let image = match monitor.capture_image() {
+                Ok(image) => image,
+                Err(error) => {
+                    self.monitors = None;
+                    return Err(permission_hint(error.to_string()));
+                }
+            };
+            let (width, height) = (image.width(), image.height());
+            Ok((image.into_raw(), width, height))
         }
     }
 
@@ -83,18 +220,47 @@ mod native {
                 .collect())
         }
 
-        fn capture(&mut self, index: usize) -> Result<(Vec<u8>, u32, u32), String> {
-            let monitors = self.cached()?;
-            let monitor = monitors.get(index).or(monitors.first()).ok_or("No display found")?;
-            let image = match monitor.capture_image() {
-                Ok(image) => image,
-                Err(error) => {
-                    self.monitors = None;
-                    return Err(permission_hint(error.to_string()));
+        fn capture(&mut self, index: usize) -> Result<Pixels, String> {
+            if self.stream.as_ref().is_some_and(|s| s.monitor != index) {
+                self.stream = None;
+            }
+            if let Some(stream) = self.stream.as_mut() {
+                match stream.latest() {
+                    Ok(pixels) if stream.confirmed.elapsed() < QUIET_CHECK => return Ok(pixels),
+                    Ok(pixels) => {
+                        let now = self.screenshot(index)?;
+                        let stream = self.stream.as_mut().expect("checked");
+                        stream.confirmed = Instant::now();
+                        if nearly_same(&now, &pixels) {
+                            stream.misses = 0;
+                            return Ok(pixels);
+                        }
+                        // The screen changed and the stream didn't say so; twice in a row: it's dead.
+                        stream.misses += 1;
+                        stream.last = now.clone();
+                        if stream.misses < 2 {
+                            return Ok(now);
+                        }
+                        self.stream.take().expect("checked").discard();
+                        self.stream_failures += 1;
+                        return Ok(now);
+                    }
+                    Err(()) => {
+                        self.stream.take().expect("checked").discard();
+                        self.stream_failures += 1;
+                    }
                 }
-            };
-            let (width, height) = (image.width(), image.height());
-            Ok((image.into_raw(), width, height))
+            }
+            let now = self.screenshot(index)?;
+            if self.stream.is_none() && self.stream_failures < MAX_STREAM_FAILURES {
+                let monitors = self.cached()?;
+                let monitor = monitors.get(index).or(monitors.first()).ok_or("No display found")?;
+                match Stream::start(monitor, index, now.clone()) {
+                    Ok(stream) => self.stream = Some(stream),
+                    Err(_) => self.stream_failures = MAX_STREAM_FAILURES,
+                }
+            }
+            Ok(now)
         }
     }
 
@@ -260,5 +426,17 @@ pub(crate) mod tests {
             self.input.lock().unwrap().push((monitor, event.clone()));
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_moved_pointer_is_still_the_same_picture() {
+        let screen = (vec![10u8; 100 * 100 * 4], 100, 100);
+        let mut pointer = screen.clone();
+        pointer.0[..40 * 4].fill(255); // 40 of 10,000 pixels
+        assert!(nearly_same(&screen, &pointer));
+        let mut window = screen.clone();
+        window.0[..2000 * 4].fill(255);
+        assert!(!nearly_same(&screen, &window));
+        assert!(!nearly_same(&screen, &(vec![10u8; 50 * 200 * 4], 50, 200)));
     }
 }
