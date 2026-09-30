@@ -273,6 +273,7 @@ Tailscale, with no RustDesk installed.
 
 ### Phase 6: Everyday
 Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health fix-its, auto-update.
+All built (PR #10); none of it has run on Mac or Windows hardware yet.
 
 - **Clipboard sync (built)**: a thread in `clipboard.rs` owns the system clipboard. Changes are noticed
   by the Mac's pasteboard change count and Windows' clipboard sequence number (Linux compares text).
@@ -299,6 +300,12 @@ Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health
   `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`), built-in sync or file receiving stopped,
   sync conflicts, and a clipboard that couldn't be opened. The Mac buttons open the exact
   Privacy & Security pane. Start-up states are ignored for the first 20 seconds.
+- **Auto-update (built)**: every six hours (and at start) BridgeDeck runs `git fetch` in its clone
+  and counts the commits it's missing on its branch's upstream. New changes are announced once and
+  offered on Home ("Update" runs the existing GitHub upgrade: pull, rebuild, restart). Settings →
+  Computers → Updates can install them automatically, never while this computer is being controlled,
+  and not again for a day after a failed update. Installed builds without a clone can't update
+  themselves yet (the Tauri updater needs a signing key; Phase 7 with code signing).
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

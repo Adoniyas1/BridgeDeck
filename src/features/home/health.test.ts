@@ -5,7 +5,7 @@ const healthy: HealthInput = {
   pairingRunning: true, pairedCount: 1, mac: true, messages: { ready: true, detail: '' },
   permissions: { screenRecording: true, accessibility: true }, remoteAllowed: true,
   sync: { builtin: true, available: true, running: true }, receiver: { enabled: true, running: true },
-  clipboard: { on: true, available: true }, conflicts: 0, settled: true,
+  clipboard: { on: true, available: true }, conflicts: 0, update: { behind: 0, installing: false }, settled: true,
 }
 
 describe('health', () => {
@@ -23,6 +23,11 @@ describe('health', () => {
     const starting = { ...healthy, settled: false, pairingRunning: false, sync: { ...healthy.sync, running: false }, receiver: { enabled: true, running: false } }
     expect(healthIssues(starting)).toEqual([])
     expect(healthIssues({ ...starting, settled: true }).map(i => i.id)).toEqual(['pairing', 'sync', 'receiver'])
+  })
+
+  it('offers an update, but not twice while it installs', () => {
+    expect(healthIssues({ ...healthy, update: { behind: 3, installing: false } })[0]).toMatchObject({ id: 'update', fix: { action: 'update' } })
+    expect(healthIssues({ ...healthy, update: { behind: 3, installing: true } })[0].fix).toBeUndefined()
   })
 
   it('counts conflicts', () => {

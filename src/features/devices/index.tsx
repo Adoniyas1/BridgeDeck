@@ -15,6 +15,7 @@ import { configureSyncthingPeer, syncthingSetupStore } from '../sync/state'
 import { UpgradeControls } from './UpgradeControls'
 import { ClipboardBackground, ClipboardCard } from './clipboard'
 import { TrayBackground } from './tray'
+import { UpdatesBackground, UpdatesCard } from './updates'
 import { version } from '../../../package.json'
 
 const isManual = (device: DeviceConfig) => device.id.startsWith('manual-')
@@ -60,9 +61,9 @@ function DevicesPage() {
   </>
 }
 
-/** The clipboard thread's setting and the tray menu's device lists. */
+/** The clipboard thread's setting, the tray menu's device lists and update checks. */
 function DevicesBackground() {
-  return <><ClipboardBackground /><TrayBackground /></>
+  return <><ClipboardBackground /><TrayBackground /><UpdatesBackground /></>
 }
 
 function DevicesSettings() {
@@ -70,6 +71,7 @@ function DevicesSettings() {
   const bridgeLink = useStore(bridgeLinkStore)
   return <>
     <Card><SectionTitle title="Automatic pairing" subtitle="BridgeLink discovers and pairs BridgeDeck instances on the same LAN" action={<StatusPill online={bridgeLink.running} label={bridgeLink.running ? 'Running' : 'Stopped'}/>} /><label>Computer display name<input value={config.pairing.displayName} onChange={e => setConfig(c => ({ ...c, pairing: { ...c.pairing, displayName: e.target.value } }))} placeholder="Blank = system computer name"/></label><label>BridgeLink API port<input type="number" value={config.pairing.apiPort} onChange={e => setConfig(c => ({ ...c, pairing: { ...c.pairing, apiPort: Number(e.target.value) || 41416 } }))}/></label><Toggle checked={config.pairing.autoStart} onChange={autoStart => setConfig(c => ({ ...c, pairing: { ...c.pairing, autoStart } }))} label="Start LAN discovery automatically"/><div className="actions"><button onClick={() => void startAutomaticPairing()}><Wifi size={17}/>Start / restart pairing</button><button className="secondary" onClick={() => void stopAutomaticPairing()}><Square size={16}/>Stop</button></div><p className="vendor-note">Discovery uses UDP 41415 (multicast on the local network, direct to Tailscale devices). Paired devices talk over encrypted QUIC on UDP 41416; the local API for AI tools listens on 127.0.0.1:41416 only.</p></Card>
+    <UpdatesCard />
     <Card><SectionTitle title="Computers" subtitle="BridgeLink pairing fills these fields automatically; manual overrides remain available" action={<button className="ghost" onClick={addManualDevice}><Plus size={15}/>Add computer manually</button>} />{sortedDevices(config.devices).map(m => <div className="settings-block" key={m.id}><div className="settings-heading"><h3>{m.local ? `${m.name} (this computer)` : m.name}</h3>{isManual(m) && <button className="ghost" title="Remove" onClick={() => removeDevice(m.id)}><Trash2 size={15}/></button>}</div><label>Name<input value={m.name} onChange={e => updateDevice(m.id, { name: e.target.value })}/></label><label>Agent URL<input value={m.agentUrl} onChange={e => updateDevice(m.id, { agentUrl: e.target.value })}/></label><label>Agent bearer token<input type="password" value={m.agentToken} onChange={e => updateDevice(m.id, { agentToken: e.target.value })} placeholder="Blank for localhost-only agent"/></label><label>LocalSend target<input value={m.localsendTarget} onChange={e => updateDevice(m.id, { localsendTarget: e.target.value })} placeholder="Exact LocalSend alias or LAN IP"/></label><label>Remote LocalSend PIN<input type="password" value={m.localsendPin} onChange={e => updateDevice(m.id, { localsendPin: e.target.value })} placeholder="Only if that receiver requires one"/></label><label>Syncthing device ID<input value={m.syncthingDeviceId} onChange={e => updateDevice(m.id, { syncthingDeviceId: e.target.value })} placeholder="Filled automatically after pairing"/></label><label>Shared folder path<input value={m.sharedPath} onChange={e => updateDevice(m.id, { sharedPath: e.target.value })}/></label></div>)}{!config.devices.length && <div className="bb-placeholder">Computers appear here once BridgeLink starts and pairs.</div>}</Card>
   </>
 }

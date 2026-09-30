@@ -347,6 +347,9 @@ export async function upgradeInfo(): Promise<UpgradeInfo | null> {
 }
 
 /** Pull the latest main from GitHub and rebuild this computer's BridgeDeck. */
+export type UpdateCheck = { git: boolean; behind: number; upstream: string; latest: string }
+export const upgradeCheck = () => native<UpdateCheck>('upgrade_check')
+
 export async function upgradeSelf(): Promise<void> {
   await invokeSafe('upgrade_self')
 }

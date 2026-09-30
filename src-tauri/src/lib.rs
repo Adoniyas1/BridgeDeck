@@ -481,6 +481,12 @@ fn upgrade_self(app: AppHandle) -> Result<(), String> {
     upgrade::start(&app, upgrade::UpgradeMode::Git, None, "this computer")
 }
 
+/// Whether GitHub has changes this computer doesn't (checked every few hours by the UI).
+#[tauri::command]
+async fn upgrade_check() -> Result<upgrade::UpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(upgrade::check_for_update).await.map_err(|e| e.to_string())?
+}
+
 /// Packs this computer's source for sending to the paired computer ("Send my source").
 #[tauri::command]
 async fn upgrade_create_bundle(app: AppHandle) -> Result<upgrade::SourceBundle, String> {
@@ -540,6 +546,7 @@ pub fn run() {
             contacts_save,
             upgrade_info,
             upgrade_self,
+            upgrade_check,
             upgrade_create_bundle,
             upgrade_request_peer,
             upgrade_peer_status,

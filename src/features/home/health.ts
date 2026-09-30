@@ -13,11 +13,13 @@ export type HealthInput = {
   receiver: { enabled: boolean; running: boolean }
   clipboard: { on: boolean; available: boolean }
   conflicts: number
+  /** Changes on GitHub this computer doesn't have yet. */
+  update: { behind: number; installing: boolean }
   /** Things that are normal for a few seconds after start-up aren't reported until this is true. */
   settled: boolean
 }
 
-export type Fix = 'start-pairing' | 'pair' | 'files-access' | 'screen-recording' | 'accessibility' | 'start-sync' | 'start-receiver' | 'open-sync'
+export type Fix = 'update' | 'start-pairing' | 'pair' | 'files-access' | 'screen-recording' | 'accessibility' | 'start-sync' | 'start-receiver' | 'open-sync'
 export type Issue = { id: string; title: string; detail: string; fix?: { label: string; action: Fix } }
 
 /** What's wrong, most important first, each with the one click that fixes it where there is one. */
@@ -45,6 +47,9 @@ export function healthIssues(input: HealthInput): Issue[] {
   }
   if (input.conflicts) {
     issues.push({ id: 'conflicts', title: `${input.conflicts} sync conflict${input.conflicts === 1 ? '' : 's'}`, detail: 'A file was changed on two computers; pick the version to keep.', fix: { label: 'Review', action: 'open-sync' } })
+  }
+  if (input.update.behind) {
+    issues.push({ id: 'update', title: 'BridgeDeck update available', detail: `${input.update.behind} new change${input.update.behind === 1 ? '' : 's'} on GitHub. Updating rebuilds and restarts BridgeDeck.`, fix: input.update.installing ? undefined : { label: 'Update', action: 'update' } })
   }
   if (input.settled && input.clipboard.on && !input.clipboard.available) {
     issues.push({ id: 'clipboard', title: 'Clipboard sharing isn’t working', detail: 'BridgeDeck couldn’t open this computer’s clipboard. Restart BridgeDeck to try again.' })

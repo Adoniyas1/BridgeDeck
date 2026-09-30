@@ -7,6 +7,7 @@ const KINDS: Array<[NotifyKind, string]> = [
   ['ai', 'Messages from AI agents'],
   ['files', 'Files received, and requests to send you files'],
   ['sync', 'Sync conflicts (a file changed on two computers)'],
+  ['updates', 'BridgeDeck updates on GitHub'],
 ]
 
 export default function NotificationSettings() {

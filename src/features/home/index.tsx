@@ -14,6 +14,7 @@ import { messagesSourceStore } from '../messages/state'
 import { controlDevice, hostStore } from '../remote/state'
 import { conflictsStore, sidecarStore, startBuiltIn, syncthingStore } from '../sync/state'
 import { healthIssues, type Fix } from './health'
+import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
@@ -36,6 +37,7 @@ function Leftovers() {
 const openedAt = Date.now()
 
 const FIXES: Record<Fix, () => unknown> = {
+  update: installUpdate,
   'start-pairing': startAutomaticPairing,
   pair: () => activateTab('computers'),
   'files-access': () => openPrivacySettings('files'),
@@ -55,6 +57,7 @@ function NeedsAttention() {
   const receiver = useStore(receiverStore)
   const clipboard = useStore(clipboardStore)
   const conflicts = useStore(conflictsStore)
+  const updates = useStore(updatesStore)
   const [permissions, setPermissions] = useState<Permissions | null>(null)
   usePeriodicRefresh(async () => { if (isTauri()) setPermissions(await healthPermissions()) }, 10_000, [])
   const issues = healthIssues({
@@ -68,6 +71,7 @@ function NeedsAttention() {
     receiver: { enabled: !!serviceConfig(config, 'localsend')?.enabled, running: receiver.running },
     clipboard: { on: config.clipboard.sync, available: clipboard.available || !isTauri() },
     conflicts: Object.values(conflicts).flat().length,
+    update: { behind: updates.behind, installing: updates.installing },
     settled: Date.now() - openedAt > 20_000,
   })
   if (!issues.length) return null
