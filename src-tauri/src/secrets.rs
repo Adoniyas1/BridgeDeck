@@ -14,7 +14,6 @@ const ACCOUNT: &str = "settings-secrets";
 /// keyed by their `id`, so a secret follows its device when the list is reordered.
 const SECRET_PATHS: &[&str] = &[
     "/syncthing/apiKey",
-    "/bluebubbles/password",
     "/localsend/pin",
     "/devices/*/agentToken",
     "/devices/*/localsendPin",
@@ -117,7 +116,6 @@ mod tests {
     fn sample() -> Value {
         json!({
             "syncthing": { "baseUrl": "http://127.0.0.1:8384", "apiKey": "st-key" },
-            "bluebubbles": { "baseUrl": "", "password": "" },
             "localsend": { "pin": "1234", "port": 53317 },
             "devices": [
                 { "id": "mac-instance", "name": "Mac", "agentToken": "peer-token", "localsendPin": "" },

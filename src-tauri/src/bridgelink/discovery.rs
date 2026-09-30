@@ -208,7 +208,7 @@ mod tests {
         let mut runtime = Runtime { instance_id: "me".into(), ..Default::default() };
         runtime.paired.insert("mac-1".into(), PersistedPeer {
             instance_id: "mac-1".into(), name: "Mac".into(), platform: "macos".into(), host: host.into(), api_port: 41416,
-            fingerprint: "f".into(), rustdesk_peer_id: None, localsend_port: 53317, syncthing_device_id: None, bluebubbles_port: None, paired_at: 0,
+            fingerprint: "f".into(), rustdesk_peer_id: None, localsend_port: 53317, syncthing_device_id: None, paired_at: 0,
         });
         runtime
     }

@@ -48,6 +48,18 @@ for (const marker of [
   'Method::PATCH', 'BridgeDeck Shared', 'X-API-Key', 'fs::create_dir_all',
 ]) sync.includes(marker) ? ok(`Syncthing auto-setup ${marker}`) : fail(`Syncthing auto-setup missing: ${marker}`)
 
+// Phase 3: the AI workspace; Phase 4: Messages read on the Mac, BlueBubbles gone.
+const workspace = readFileSync(join(root, 'src-tauri/src/bridgelink/workspace.rs'), 'utf8')
+const imessage = ['mod.rs', 'chatdb.rs', 'typedstream.rs', 'contacts.rs'].map(f => readFileSync(join(root, 'src-tauri/src/imessage', f), 'utf8')).join('\n')
+for (const marker of ['fn merge(', 'fn claim(', 'fn is_for(', 'pub fn ai_workspace']) workspace.includes(marker) ? ok(`AI workspace ${marker}`) : fail(`AI workspace missing: ${marker}`)
+for (const marker of ['SQLITE_OPEN_READ_ONLY', 'fn text(data: &[u8])', 'Full Disk Access', '.args([chat, kind, payload])', 'Library/Messages']) imessage.includes(marker) ? ok(`Messages engine ${marker}`) : fail(`Messages engine missing: ${marker}`)
+if (!/bluebubbles/i.test(rust)) ok('BlueBubbles removed from the native side'); else fail('BlueBubbles code still present in Rust')
+// Phase 5: remote control in tabs, paired devices only, with a stop banner.
+const remote = ['mod.rs', 'host.rs', 'viewer.rs', 'codec.rs', 'input.rs', 'platform.rs'].map(f => readFileSync(join(root, 'src-tauri/src/remote', f), 'utf8')).join('\n')
+for (const marker of ['pub async fn serve(', 'fn stop_all()', 'ask_first', 'fn encode(', 'Coordinate::Abs', 'SESSION_PATH']) remote.includes(marker) ? ok(`Remote control ${marker}`) : fail(`Remote control missing: ${marker}`)
+bridgeLink.includes('This device is not paired with this computer".into() }') ? ok('Remote sessions only for paired devices') : fail('Remote session pairing check missing')
+existsSync(join(root, 'agent/bridgedeck-mcp.mjs')) ? ok('MCP server present') : fail('agent/bridgedeck-mcp.mjs missing')
+
 if (!rust.includes('command.arg("send").arg("--to")')) ok('obsolete LocalSend CLI send --to path removed'); else fail('obsolete LocalSend CLI send --to path still present')
 
 // The UI is split into src/shell, src/core and src/features/<id>; check the markers across all of it.
@@ -62,6 +74,7 @@ for (const text of [
   'pickTransferPaths', 'sendWithLocalSend',
   'Automatic pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
   'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId', 'openTab', 'closeTab',
+  'remote-session', 'remote-banner', 'ai-room',
 ]) app.includes(text) ? ok(`UI integration ${text}`) : fail(`UI integration ${text} missing`)
 
 const config = readFileSync(join(root, 'src/lib/config.ts'), 'utf8')

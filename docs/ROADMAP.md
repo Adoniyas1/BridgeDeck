@@ -294,20 +294,45 @@ None at the moment. Answers from 2026-09-29 are recorded as D12–D15.
 
 ---
 
-## Where things stand (2026-09-29)
+## Where things stand (2026-09-30)
 
-**Phase 0 is built** (0.8.0), compile-checked for Linux and Windows and unit-tested, but not yet run on
-the Mac or Windows hardware. Next: test it on both computers, then Phase 1.
+**Phases 0–5 are built** (0.9.0, PR #5) and checked on Linux (Rust and frontend tests, including
+pairing, the AI workspace, a remote session over real QUIC, and Syncthing started by the sidecar
+code) and by cross-compiling for Windows. **None of it has run on the Mac or Windows hardware yet**,
+and the macOS-only code (Messages sending, screen capture and input, the sidecar on macOS) has only
+been compiled by CI's release build. Next: install on both computers (U), pair them again, go
+through the checks below, then Phase 6.
 
 | Area | State |
 |---|---|
-| App shell | Tab bar with fixed and closable tabs; features are modules in `src/features/<id>`; closes to tray |
-| Devices | Any number; v0.7 settings migrate; versions shown, mismatch warned on Home |
-| Pairing (BridgeLink v1) | Works on the LAN; plaintext pairing tokens (audit HIGH #2, Phase 1) |
-| AI relay | Works between two computers; one agent per side sees the other side's messages (Phase 3) |
-| Files | LocalSend core built in; auto-accept from paired computers |
-| Sync | Uses a separately installed Syncthing (Phase 2) |
-| Remote | RustDesk launched as a separate app (Phase 5) |
-| Messages | Needs BlueBubbles Server (Phase 4) |
-| Security | `cmd /C start` fixed; settings secrets in the OS keychain; open: plaintext pairing, wildcard CORS (Phase 1) |
-| Engineering | GitHub is the source of truth; CI workflows added; vitest + Rust unit tests; Matrix removed |
+| App shell | Tab bar with fixed and closable tabs; features are modules; closes to tray |
+| Pairing (BridgeLink v2) | QUIC with pinned certificates; six-digit code compared on both screens; LAN + Tailscale discovery; 0.8 pairings must pair again |
+| Sync | Syncthing runs hidden inside BridgeDeck; an existing install can be moved in; conflicts tab |
+| AI workspace | Agents, rooms, to-dos, file claims, addressed messages on every paired device; MCP server |
+| Messages | Read and sent by BridgeDeck on the Mac (Full Disk Access + Automation); BlueBubbles removed |
+| Remote | Built-in, in a tab, paired devices only, banner + Stop on the host; RustDesk kept as fallback |
+| Security | Audit HIGH #1/#2 and the MEDIUMs closed; loopback-only local API; CSP no longer allows LAN URLs |
+
+### How the build differs from the plan (for review)
+
+- **Identity key** (1.1) is kept in a user-only file (`identity-v2.json`, mode 0600), not the
+  keychain: locally signed Mac builds look like a new app after every rebuild, and each would ask
+  for Keychain access. Revisit with code signing (Phase 7).
+- **AI workspace store** (Phase 3) is a JSON file (`ai-workspace.json`) and the message log a JSONL
+  file, not SQLite: the data is small (capped at 200 rooms / 500 claims / 500 messages).
+- **Messages "watcher"** (Phase 4) is the UI polling the new-message feed every 3 s (a cheap indexed
+  query), rather than a file-system watcher on `chat.db`.
+- **Remote video** (Phase 5) is changed-tile JPEG pulled by the viewer, not H.264 + WebCodecs: no
+  platform encoder code or codec patents, and desktop content (mostly still) sends little. Full-screen
+  video costs more bandwidth than H.264 would; the wire format allows swapping in H.264 later.
+- **Remote options not built yet**: "ask first" is one setting for all devices (not per device), no
+  stop hotkey (banner and tray only), no clipboard or audio in sessions. RustDesk is not removed
+  until the built-in one is proven on both computers.
+
+### Checks on real hardware (U)
+
+1. Install 0.9 on both; pair again (codes match on both screens).
+2. Sync tab: "Move into BridgeDeck" on each; `bridgedeck-shared` keeps syncing; uninstall the old app from login items.
+3. Mac: give BridgeDeck Full Disk Access; Messages tab shows chats on both computers; send a text and a photo from Windows.
+4. Remote: from Windows open the Mac in a tab (Mac asks for Screen Recording and Accessibility once); type, click, scroll; Stop from the Mac's banner. Then the other way round, and once over Tailscale away from home.
+5. AI: `claude mcp add bridgedeck -- node agent/bridgedeck-mcp.mjs --agent claude-win` on Windows and the Mac equivalent; open a room, claim a file from one side, see it on the other.

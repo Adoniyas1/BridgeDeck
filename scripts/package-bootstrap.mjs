@@ -9,7 +9,6 @@ const out = join(parent, 'BridgeDeck-v0.7-auto-sync-bootstrap.zip')
 const excluded = [
   `${folder}/node_modules/*`, `${folder}/dist/*`, `${folder}/src-tauri/target/*`,
   `${folder}/vendor/rustdesk/*`, `${folder}/vendor/syncthing/*`, `${folder}/vendor/localsend/*`,
-  `${folder}/vendor/bluebubbles-app/*`, `${folder}/vendor/bluebubbles-server/*`,
   `${folder}/.vendor-tmp/*`,
 ]
 execFileSync('zip', ['-qr', out, folder, '-x', ...excluded], { cwd: parent, stdio: 'inherit' })

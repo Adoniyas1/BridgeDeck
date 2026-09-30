@@ -27,7 +27,14 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
+    env:
+      # Linux, Windows and test builds of the whole crate don't fit the runner's disk with debug info.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
     steps:
+      - name: Free disk space (preinstalled SDKs the build doesn't use)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost && df -h /
       - uses: actions/checkout@v4
       - name: Install Tauri system libraries and the MinGW cross compiler
         run: |

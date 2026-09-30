@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import type {
-  AgentStatus, BlueBubblesChat, BlueBubblesMessage,
+  AgentStatus,
   ManagedServiceState, RustDeskIdentity, RustDeskMode, ServiceKey,
   SyncthingFolder, SyncthingStatus,
 } from '../types'
@@ -10,7 +10,7 @@ export function isTauri() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
-/** Masks credentials that could appear in error text (e.g. BlueBubbles' `?password=` query parameter). */
+/** Masks credentials that could appear in error text (e.g. a `?password=` query parameter). */
 export function redactSecrets(text: string) {
   return text.replace(/(password|apikey|api_key|access_token|token)=([^&\s)"']+)/gi, '$1=***')
 }
@@ -76,11 +76,6 @@ export async function connectRustDesk(peerId: string, executable?: string, mode:
   return (await invokeSafe<string>('rustdesk_session', { peerId, executable: executable || null, mode, host: host || null })) ?? ''
 }
 
-/** Port of a BlueBubbles Server on this computer (so the Mac talks to it over loopback), or null. */
-export async function blueBubblesLocalPort(): Promise<number | null> {
-  return invokeSafe<number | null>('bluebubbles_local_port')
-}
-
 export type ContactSaveRequest = {
   personId: string
   firstName: string
@@ -101,11 +96,6 @@ export async function contactsSave(request: ContactSaveRequest): Promise<string>
 /** Desktop notification (new iMessages). */
 export async function desktopNotify(title: string, body: string): Promise<void> {
   await invokeSafe('desktop_notify', { title, body })
-}
-
-/** Mac only: starts BlueBubbles Server hidden if it isn't running. */
-export async function blueBubblesEnsureRunning(): Promise<{ running: boolean; started: boolean; detail?: string } | null> {
-  return invokeSafe<{ running: boolean; started: boolean; detail?: string }>('bluebubbles_ensure_running')
 }
 
 /** Starts RustDesk in the background if it isn't running. */
@@ -152,40 +142,25 @@ export async function managedServiceStop(serviceId: ServiceKey): Promise<Managed
   return result
 }
 
-export async function blueBubblesPing(baseUrl: string, password: string): Promise<boolean> {
-  const result = await invokeSafe<boolean>('bluebubbles_ping', { baseUrl, password })
-  return result ?? false
-}
+/** Remote control: this computer as host. */
+export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
+export const remoteHostStatus = () => native<RemoteHostStatus>('remote_host_status')
+export const remoteHostSettings = (allow: boolean, askFirst: boolean) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst })
+export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
+/** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
+export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>
+  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent })
+export const remoteFrameDrawn = (session: string) => native<void>('remote_frame_drawn', { session })
+export const remoteInput = (session: string, events: unknown[]) => native<void>('remote_input', { session, events })
+export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number }) =>
+  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null })
+export const remoteDisconnect = (session: string) => native<void>('remote_disconnect', { session })
 
-export async function blueBubblesChats(baseUrl: string, password: string, limit = 25): Promise<BlueBubblesChat[]> {
-  const result = await invokeSafe<{ data?: BlueBubblesChat[] }>('bluebubbles_chats', { baseUrl, password, limit: Math.min(limit, 200) })
-  return Array.isArray(result?.data) ? result.data : []
-}
-
-export async function blueBubblesMessages(baseUrl: string, password: string, chatGuid: string, limit = 30): Promise<BlueBubblesMessage[]> {
-  const result = await invokeSafe<{ data?: BlueBubblesMessage[] }>('bluebubbles_messages', { baseUrl, password, chatGuid, limit })
-  return Array.isArray(result?.data) ? result.data : []
-}
-
-/** Server-wide messages newer than `after` (ms), newest first, each carrying its chat. */
-export async function blueBubblesRecent(baseUrl: string, password: string, after: number, limit = 200): Promise<BlueBubblesMessage[]> {
-  const result = await invokeSafe<{ data?: BlueBubblesMessage[] }>('bluebubbles_recent', { baseUrl, password, after: Math.max(0, Math.floor(after)), limit })
-  return Array.isArray(result?.data) ? result.data : []
-}
-
-export async function blueBubblesContacts(baseUrl: string, password: string): Promise<import('../types').BlueBubblesContact[]> {
-  const result = await invokeSafe<{ data?: import('../types').BlueBubblesContact[] }>('bluebubbles_contacts', { baseUrl, password })
-  return Array.isArray(result?.data) ? result.data : []
-}
-
-/** Image attachment as a data: URL (the WebView can't send the server password itself). */
-export async function blueBubblesAttachment(baseUrl: string, password: string, attachmentGuid: string): Promise<string> {
-  return (await invokeSafe<string>('bluebubbles_attachment', { baseUrl, password, attachmentGuid })) ?? ''
-}
-
-export async function blueBubblesSend(baseUrl: string, password: string, chatGuid: string, message: string): Promise<void> {
-  await invokeSafe('bluebubbles_send', { baseUrl, password, chatGuid, message })
-}
+/** Messages, read by BridgeDeck on the Mac. `peer`: the paired Mac's instance id, or null on the Mac itself. */
+export const imessage = <T>(peer: string | null, op: Record<string, unknown>) => native<T>('imessage', { peer, op })
+/** An attachment as a `data:` URL (HEIC photos arrive as JPEG). */
+export const imessageAttachment = (peer: string | null, guid: string) => native<string>('imessage_attachment', { peer, guid })
+export const imessageSendFile = (peer: string | null, chat: string, path: string) => native<void>('imessage_send_file', { peer, chat, path })
 
 export async function syncthingStatus(baseUrl: string, apiKey: string): Promise<SyncthingStatus> {
   const result = await invokeSafe<SyncthingStatus>('syncthing_status', { baseUrl, apiKey })
@@ -291,11 +266,29 @@ export async function bridgeLinkAiMessages(since = 0): Promise<import('../types'
   return (await invokeSafe<import('../types').AiRelayMessage[]>('bridgelink_ai_messages', { since })) ?? []
 }
 
-export async function bridgeLinkAiSend(author: string, body: string, channel?: string): Promise<import('../types').AiRelayMessage> {
-  const result = await invokeSafe<import('../types').AiRelayMessage>('bridgelink_ai_send', { author, body, channel: channel ?? null })
+export async function bridgeLinkAiSend(author: string, body: string, options: { channel?: string; to?: string[]; room?: string } = {}): Promise<import('../types').AiRelayMessage> {
+  const result = await invokeSafe<import('../types').AiRelayMessage>('bridgelink_ai_send', { author, body, channel: options.channel ?? null, to: options.to ?? [], room: options.room ?? null })
   if (!result) throw new Error('The AI relay requires native desktop mode.')
   return result
 }
+
+/** A native command that has no browser fallback. */
+async function native<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return (await invokeSafe<T>(command, args)) as T
+}
+export async function aiWorkspace(): Promise<import('../types').AiWorkspace> {
+  return (await invokeSafe<import('../types').AiWorkspace>('ai_workspace')) ?? { agents: [], rooms: [], claims: [] }
+}
+export const aiRoomCreate = (title: string, participants: string[] = []) => native<import('../types').AiRoom>('ai_room_create', { title, participants })
+export const aiRoomUpdate = (room: string, changes: { title?: string; status?: string; participants?: string[] }) =>
+  native<import('../types').AiRoom>('ai_room_update', { room, title: changes.title ?? null, status: changes.status ?? null, participants: changes.participants ?? null })
+export const aiRoomRemove = (room: string) => native<boolean>('ai_room_remove', { room })
+export const aiTaskAdd = (room: string, title: string, assignee?: string) => native<import('../types').AiTask>('ai_task_add', { room, title, assignee: assignee ?? null })
+/** `assignee: ''` unassigns. */
+export const aiTaskUpdate = (room: string, task: string, changes: { status?: string; assignee?: string; title?: string }) =>
+  native<import('../types').AiTask>('ai_task_update', { room, task, status: changes.status ?? null, assignee: changes.assignee ?? null, title: changes.title ?? null })
+export const aiClaimRelease = (path: string) => native<void>('ai_claim_release', { path })
 
 export async function bridgeLinkAiTokenPath(): Promise<string> {
   return (await invokeSafe<string>('bridgelink_ai_token_path')) ?? ''

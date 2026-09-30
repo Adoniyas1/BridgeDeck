@@ -30,26 +30,6 @@
       "license": "Apache-2.0",
       "platforms": ["macos", "windows"],
       "purpose": "Quick peer-to-peer file transfer"
-    },
-    {
-      "id": "bluebubbles-app",
-      "name": "BlueBubbles Client",
-      "repo": "https://github.com/BlueBubblesApp/bluebubbles-app.git",
-      "ref": "v2.1.1+91",
-      "commitPrefix": "b23ba1e",
-      "license": "Apache-2.0",
-      "platforms": ["macos", "windows"],
-      "purpose": "iMessage client source"
-    },
-    {
-      "id": "bluebubbles-server",
-      "name": "BlueBubbles Server",
-      "repo": "https://github.com/BlueBubblesApp/bluebubbles-server.git",
-      "ref": "v1.9.9",
-      "commitPrefix": "ba31cd1",
-      "license": "Apache-2.0",
-      "platforms": ["macos"],
-      "purpose": "Mac-side iMessage bridge server"
     }
   ]
 }

@@ -1,18 +1,48 @@
-import { FolderOpen, MonitorUp, RefreshCw, ShieldCheck } from 'lucide-react'
+import { FolderOpen, MonitorUp, MousePointer2, RefreshCw, ShieldCheck } from 'lucide-react'
 import { launchApp } from '../../lib/bridge'
-import { sortedDevices, useConfig } from '../../core/config'
+import { bridgeLinkStore } from '../../core/bridgelink'
+import { setConfig, sortedDevices, useConfig } from '../../core/config'
 import { useStore } from '../../core/store'
-import { Card, SectionTitle, StatusPill } from '../../ui'
-import { refreshRustDeskIdentity, rustdeskExecutable, rustdeskInfoStore, startRustDeskSession } from './state'
+import { Card, SectionTitle, StatusPill, Toggle } from '../../ui'
+import { controlDevice, hostStore, refreshRustDeskIdentity, rustdeskExecutable, rustdeskInfoStore, startRustDeskSession, stopHosting } from './state'
+
+const canHost = (platform: string) => platform === 'macos' || platform === 'windows'
+const since = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
 export default function RemotePage() {
   const config = useConfig()
+  const paired = useStore(bridgeLinkStore).paired
+  const host = useStore(hostStore)
   const rustdeskInfo = useStore(rustdeskInfoStore)
+  const setRemote = (changes: Partial<typeof config.remote>) => setConfig(c => ({ ...c, remote: { ...c.remote, ...changes } }))
+
   return <>
     <div className="remote-hero">
-      <Card><SectionTitle title="This computer" subtitle="RustDesk identity detected by BridgeDeck" action={<StatusPill online={rustdeskInfo.available} label={rustdeskInfo.available ? 'Ready' : 'Missing'}/>} /><div className="remote-id"><MonitorUp size={28}/><div><span>RustDesk ID</span><strong>{rustdeskInfo.id || 'Not available yet'}</strong><small>{rustdeskInfo.executable || rustdeskInfo.detail || 'Build/import the RustDesk runtime or install RustDesk.'}</small></div></div><div className="actions"><button className="secondary" onClick={() => void launchApp('rustdesk', rustdeskExecutable())}>Open original RustDesk UI</button><button className="secondary" onClick={() => void refreshRustDeskIdentity()}><RefreshCw size={16}/>Refresh ID</button></div></Card>
-      <Card><SectionTitle title="BridgeDeck Remote" subtitle="BridgeDeck owns peer selection and session mode" /><div className="remote-note"><ShieldCheck size={22}/><p>Control and file-transfer sessions are launched directly from this page. RustDesk still renders the remote desktop window and handles its authentication/transport.</p></div></Card>
+      <Card><SectionTitle title="Control a device" subtitle="Opens its screen in a tab, over the encrypted link (LAN or Tailscale)" />
+        <div className="stack">{paired.map(peer => <div className="machine-row" key={peer.instanceId}>
+          <div className="machine-avatar"><MonitorUp size={18}/></div>
+          <div className="grow"><strong>{peer.name}</strong><small>{canHost(peer.platform) ? `${peer.platform === 'macos' ? 'Mac' : 'Windows'} · ${peer.via === 'tailscale' ? 'Tailscale' : 'local network'}` : 'This device can’t be controlled'}</small></div>
+          <button disabled={!canHost(peer.platform)} onClick={() => controlDevice({ id: peer.instanceId, name: peer.name })}><MousePointer2 size={15}/>Control</button>
+        </div>)}
+        {!paired.length && <div className="bb-placeholder">Pair another computer on the Devices tab to control it from here.</div>}</div>
+      </Card>
+      <Card><SectionTitle title="This computer" subtitle={host.supported ? 'Paired devices can see and control this screen' : 'Can control other computers; can’t be controlled (macOS and Windows only)'} action={<StatusPill online={host.supported && config.remote.allowControl} label={!host.supported ? 'View only' : config.remote.allowControl ? 'Allowed' : 'Off'}/>} />
+        {host.supported && <>
+          <Toggle checked={config.remote.allowControl} onChange={allowControl => setRemote({ allowControl })} label="Let my paired devices control this computer" />
+          <Toggle checked={config.remote.askFirst} onChange={askFirst => setRemote({ askFirst })} label="Ask me each time" />
+          <div className="remote-note"><ShieldCheck size={22}/><p>Only devices you paired can connect. While one does, a banner at the top of BridgeDeck says who, with Stop; the tray menu has Stop too.{navigator.userAgent.includes('Mac') ? ' On the Mac, allow BridgeDeck under Privacy & Security → Screen Recording and Accessibility.' : ''}</p></div>
+        </>}
+        {!!host.sessions.length && <div className="actions">{host.sessions.map(s => <span key={s.id} className="vendor-note">{s.peerName} since {since(s.since)}</span>)}<button className="danger" onClick={() => void stopHosting()}>Stop remote control</button></div>}
+      </Card>
     </div>
-    <div className="machine-cards">{sortedDevices(config.devices).filter(device => !device.local).map(machine => <Card key={machine.id}><SectionTitle title={machine.name} subtitle={machine.rustdeskPeerId ? `Peer ${machine.rustdeskPeerId}` : 'Add RustDesk peer ID in Settings'} action={<StatusPill online={Boolean(machine.rustdeskPeerId && rustdeskInfo.available)} label={machine.rustdeskPeerId ? 'Paired' : 'Unpaired'}/>} /><div className="remote-actions"><button disabled={!machine.rustdeskPeerId || !rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'control')}><MonitorUp size={18}/><span><strong>Control computer</strong><small>Interactive RustDesk desktop session</small></span></button><button disabled={!machine.rustdeskPeerId || !rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'file-transfer')}><FolderOpen size={18}/><span><strong>RustDesk file transfer</strong><small>Use RustDesk's direct peer transfer mode</small></span></button></div></Card>)}{!config.devices.some(device => !device.local) && <div className="bb-placeholder">Pair another computer on the Computers tab to control it from here.</div>}</div>
+
+    <Card><SectionTitle title="RustDesk (fallback)" subtitle="The separate RustDesk app, kept while the built-in remote control is new" action={<StatusPill online={rustdeskInfo.available} label={rustdeskInfo.available ? 'Ready' : 'Missing'}/>} />
+      <div className="remote-id"><MonitorUp size={28}/><div><span>RustDesk ID</span><strong>{rustdeskInfo.id || 'Not available yet'}</strong><small>{rustdeskInfo.executable || rustdeskInfo.detail || 'Build/import the RustDesk runtime or install RustDesk.'}</small></div></div>
+      <div className="actions"><button className="secondary" onClick={() => void launchApp('rustdesk', rustdeskExecutable())}>Open RustDesk</button><button className="secondary" onClick={() => void refreshRustDeskIdentity()}><RefreshCw size={16}/>Refresh ID</button></div>
+      <div className="machine-cards">{sortedDevices(config.devices).filter(device => !device.local && device.rustdeskPeerId).map(machine => <div className="remote-actions" key={machine.id}>
+        <button disabled={!rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'control')}><MonitorUp size={18}/><span><strong>{machine.name} in RustDesk</strong><small>Peer {machine.rustdeskPeerId}</small></span></button>
+        <button disabled={!rustdeskInfo.available} onClick={() => void startRustDeskSession(machine, 'file-transfer')}><FolderOpen size={18}/><span><strong>RustDesk file transfer</strong><small>{machine.name}</small></span></button>
+      </div>)}</div>
+    </Card>
   </>
 }

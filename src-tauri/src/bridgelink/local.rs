@@ -156,7 +156,7 @@ fn route(manager: &BridgeLinkManager, request: &HttpRequest, path: &str) -> (u16
             Some(app) => (200, serde_json::json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "status": crate::upgrade::read_status(&app) }).to_string()),
             None => (200, r#"{"ok":false,"error":"not ready"}"#.into()),
         },
-        (_, "/ai/wait" | "/ai/messages" | "/ai/send") => {
+        (_, p) if p.starts_with("/ai/") => {
             let authorized = !runtime.ai_token.is_empty() && bearer(&request.headers) == Some(runtime.ai_token.as_str());
             drop(runtime);
             if !authorized {
@@ -176,12 +176,15 @@ fn ai_route(manager: &BridgeLinkManager, request: &HttpRequest, path: &str) -> (
         ("GET", "/ai/wait") => {
             let since = since();
             let direction = query_value(&request.target, "direction").filter(|v| v == "in" || v == "out");
+            let agent = query_value(&request.target, "for").filter(|v| !v.is_empty());
+            let room = query_value(&request.target, "room").filter(|v| !v.is_empty());
+            let filter = AiFilter { channel: None, agent: agent.as_deref(), room: room.as_deref() };
             let timeout = query_value(&request.target, "timeout").and_then(|v| v.parse::<u64>().ok()).unwrap_or(25).min(55);
             let deadline = Instant::now() + Duration::from_secs(timeout);
             let messages = loop {
                 let found: Vec<AiMessage> = manager
                     .lock()
-                    .map(|runtime| ai_messages_since(&runtime, since, None))
+                    .map(|runtime| ai_messages_since(&runtime, since, &filter))
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|m| direction.as_deref().is_none_or(|d| m.direction == d))
@@ -195,20 +198,71 @@ fn ai_route(manager: &BridgeLinkManager, request: &HttpRequest, path: &str) -> (
         }
         ("GET", "/ai/messages") => {
             let channel = query_value(&request.target, "channel").filter(|v| !v.is_empty());
-            let messages = manager.lock().map(|runtime| ai_messages_since(&runtime, since(), channel.as_deref())).unwrap_or_default();
+            let agent = query_value(&request.target, "for").filter(|v| !v.is_empty());
+            let room = query_value(&request.target, "room").filter(|v| !v.is_empty());
+            let filter = AiFilter { channel: channel.as_deref(), agent: agent.as_deref(), room: room.as_deref() };
+            let messages = manager.lock().map(|runtime| ai_messages_since(&runtime, since(), &filter)).unwrap_or_default();
             (200, serde_json::json!({ "ok": true, "now": now_ms(), "messages": messages }).to_string())
         }
         ("POST", "/ai/send") => {
             let Ok(send) = serde_json::from_str::<AiSendWire>(&request.body) else {
-                return (400, r#"{"ok":false,"error":"Expected JSON {author, body, channel?, replyTo?}"}"#.into());
+                return (400, r#"{"ok":false,"error":"Expected JSON {author, body, channel?, replyTo?, to?, room?}"}"#.into());
             };
             match ai_send_internal(manager, send) {
                 Ok(message) => (200, serde_json::json!({ "ok": true, "message": message }).to_string()),
                 Err(error) => (409, serde_json::json!({ "ok": false, "error": error }).to_string()),
             }
         }
+        ("GET", "/ai/workspace") => match manager.lock() {
+            Ok(runtime) => (200, serde_json::json!({ "ok": true, "now": now_ms(), "workspace": runtime.workspace.state(now_ms()) }).to_string()),
+            Err(error) => (500, serde_json::json!({ "ok": false, "error": error }).to_string()),
+        },
+        ("POST", _) => match serde_json::from_str::<serde_json::Value>(&request.body) {
+            Ok(body) => match workspace_route(manager, path, &body) {
+                Ok(value) => (200, serde_json::json!({ "ok": true, "result": value }).to_string()),
+                Err(error) if error == "Not found" => (404, r#"{"error":"Not found"}"#.into()),
+                Err(error) => (409, serde_json::json!({ "ok": false, "error": error }).to_string()),
+            },
+            Err(_) => (400, r#"{"ok":false,"error":"Expected a JSON body"}"#.into()),
+        },
         _ => (404, r#"{"error":"Not found"}"#.into()),
     }
+}
+
+/// Workspace changes from this computer's agents. Every change is saved and pushed to paired devices.
+fn workspace_route(manager: &BridgeLinkManager, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let text = |key: &str| body.get(key).and_then(|v| v.as_str());
+    let list = |key: &str| body.get(key).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>());
+    let need = |key: &str| text(key).filter(|v| !v.trim().is_empty()).ok_or(format!("`{key}` is required"));
+    let now = now_ms();
+    let value = {
+        let mut runtime = manager.lock()?;
+        let (device_id, device_name) = (runtime.instance_id.clone(), runtime.display_name.clone());
+        let ws = &mut runtime.workspace;
+        match path {
+            "/ai/agents/hello" => {
+                let agent = ws.hello(need("agent")?, text("status").unwrap_or(""), &device_id, &device_name, now);
+                // Saying hello doesn't change shared data worth pushing at once; the minute push carries it.
+                return serde_json::to_value(agent).map_err(|e| e.to_string());
+            }
+            "/ai/rooms" => serde_json::to_value(ws.create_room(need("title")?, need("agent")?, list("participants").unwrap_or_default(), now)?),
+            "/ai/rooms/update" => serde_json::to_value(ws.update_room(need("room")?, text("title"), text("status"), list("participants"), now)?),
+            "/ai/tasks" => serde_json::to_value(ws.add_task(need("room")?, need("title")?, text("assignee"), now)?),
+            "/ai/tasks/update" => {
+                let assignee = body.get("assignee").map(|v| v.as_str());
+                serde_json::to_value(ws.update_task(need("room")?, need("task")?, text("status"), assignee, text("title"), now)?)
+            }
+            "/ai/claims" => serde_json::to_value(ws.claim(need("path")?, need("agent")?, text("room"), &device_id, &device_name, now)?),
+            "/ai/claims/release" => {
+                ws.release(need("path")?, Some(need("agent")?), now)?;
+                Ok(serde_json::json!({ "released": true }))
+            }
+            _ => return Err("Not found".into()),
+        }
+        .map_err(|e| e.to_string())?
+    };
+    workspace::changed(manager);
+    Ok(value)
 }
 
 #[cfg(test)]

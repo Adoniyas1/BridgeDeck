@@ -7,8 +7,6 @@ BridgeDeck is designed to vendor upstream open-source projects so their engines 
 | RustDesk | 1.4.9 | AGPL-3.0 | Remote desktop/control |
 | Syncthing | 2.1.5 | MPL-2.0 | Continuous file synchronization |
 | LocalSend | 1.18.2 | Apache-2.0 | Native local file-transfer core linked into BridgeDeck |
-| BlueBubbles Client | 2.1.1+91 | Apache-2.0 | iMessage client source |
-| BlueBubbles Server | 1.9.9 | Apache-2.0 | Mac-side iMessage bridge |
 
 The authoritative upstream source, commit pin, repository URL, and platform scope live in `vendor-lock.json`.
 

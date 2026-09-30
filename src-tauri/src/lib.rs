@@ -3,7 +3,9 @@ mod bridgelink;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
+mod imessage;
 mod link;
+mod remote;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -17,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command},
     sync::Mutex,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -73,11 +75,11 @@ struct RustDeskIdentity {
 
 
 fn allowed_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing" | "localsend" | "bluebubbles")
+    matches!(service_id, "rustdesk" | "syncthing" | "localsend")
 }
 
 fn manageable_service(service_id: &str) -> bool {
-    matches!(service_id, "rustdesk" | "syncthing" | "bluebubbles")
+    matches!(service_id, "rustdesk" | "syncthing")
 }
 
 fn platform_key() -> &'static str {
@@ -98,7 +100,6 @@ fn runtime_filename(service_id: &str) -> Option<&'static str> {
             "rustdesk" => Some("rustdesk.exe"),
             "syncthing" => Some("syncthing.exe"),
             "localsend" => Some("localsend_app.exe"),
-            "bluebubbles" => Some("BlueBubbles.exe"),
             _ => None,
         };
     }
@@ -108,7 +109,6 @@ fn runtime_filename(service_id: &str) -> Option<&'static str> {
             "rustdesk" => Some("rustdesk"),
             "syncthing" => Some("syncthing"),
             "localsend" => Some("localsend_app"),
-            "bluebubbles" => Some("BlueBubbles"),
             _ => None,
         }
     }
@@ -180,7 +180,6 @@ fn app_default_name(service_id: &str) -> Option<(&'static str, &'static str)> {
         "rustdesk" => Some(("RustDesk", "rustdesk.exe")),
         "localsend" => Some(("LocalSend", "localsend_app.exe")),
         "syncthing" => Some(("Syncthing", "syncthing.exe")),
-        "bluebubbles" => Some(("BlueBubbles", "BlueBubbles.exe")),
         _ => None,
     }
 }
@@ -405,39 +404,6 @@ async fn rustdesk_ensure_running(app: AppHandle, executable: Option<String>) -> 
     })
     .await
     .unwrap_or_else(|e| serde_json::json!({ "running": false, "started": false, "detail": e.to_string() }))
-}
-
-/// Keeps BlueBubbles Server running on the Mac while BridgeDeck runs (it hosts iMessage for the
-/// Windows Messages page). A no-op elsewhere: the server only exists for macOS.
-#[tauri::command]
-async fn bluebubbles_ensure_running() -> serde_json::Value {
-    #[cfg(target_os = "macos")]
-    {
-        return tauri::async_runtime::spawn_blocking(|| {
-            let running = |system: &mut sysinfo::System| {
-                system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                system.processes().values().any(|p| p.name().to_string_lossy().to_ascii_lowercase().starts_with("bluebubbles"))
-            };
-            let mut system = sysinfo::System::new();
-            if running(&mut system) {
-                return serde_json::json!({ "running": true, "started": false });
-            }
-            let home = std::env::var("HOME").unwrap_or_default();
-            let bundle = [PathBuf::from("/Applications/BlueBubbles.app"), PathBuf::from(home).join("Applications/BlueBubbles.app")]
-                .into_iter()
-                .find(|p| p.exists());
-            let Some(bundle) = bundle else {
-                return serde_json::json!({ "running": false, "started": false, "detail": "BlueBubbles Server is not installed" });
-            };
-            let status = Command::new("open").args(["-g", "-j", "-a"]).arg(&bundle).status();
-            std::thread::sleep(Duration::from_secs(2));
-            serde_json::json!({ "running": running(&mut system), "started": status.map(|s| s.success()).unwrap_or(false) })
-        })
-        .await
-        .unwrap_or_else(|e| serde_json::json!({ "running": false, "started": false, "detail": e.to_string() }));
-    }
-    #[allow(unreachable_code)]
-    serde_json::json!({ "running": false, "started": false, "detail": "BlueBubbles Server runs on the Mac" })
 }
 
 #[cfg(target_os = "windows")]
@@ -755,6 +721,7 @@ end run"#;
             format!("Contacts refused the change: {err}")
         });
     }
+    imessage::forget_contacts();
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -771,133 +738,13 @@ fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), Str
     app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())
 }
 
-/// Port of a BlueBubbles Server running on this computer (the Mac), if any.
-#[tauri::command]
-fn bluebubbles_local_port() -> Option<u16> {
-    bridgelink::local_bluebubbles_port()
-}
-
-/// reqwest error text without the request URL. BlueBubbles authenticates with a `password` query
-/// parameter, so the URL must never reach the UI, notifications or logs.
+/// reqwest error text without the request URL (URLs can carry keys or tokens), for the UI and logs.
 fn net_err(error: reqwest::Error) -> String {
     error.without_url().to_string()
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder().timeout(Duration::from_secs(20)).build().map_err(|e| e.to_string())
-}
-
-fn bluebubbles_url(base_url: &str, endpoint: &str) -> Result<reqwest::Url, String> {
-    let base = checked_http_base(base_url)?;
-    reqwest::Url::parse(&format!("{}/api/v1/{}", base, endpoint.trim_start_matches('/'))).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn bluebubbles_ping(base_url: String, password: String) -> Result<bool, String> {
-    let url = bluebubbles_url(&base_url, "server/info")?;
-    let response = http_client()?.get(url).query(&[("password", password)]).send().await.map_err(net_err)?;
-    Ok(response.status().is_success())
-}
-
-#[tauri::command]
-async fn bluebubbles_chats(base_url: String, password: String, limit: u32) -> Result<serde_json::Value, String> {
-    let url = bluebubbles_url(&base_url, "chat/query")?;
-    // Participants and the last message drive the conversation list (names, preview, time).
-    let body = serde_json::json!({ "limit": limit.min(200), "with": ["participants", "lastMessage"], "sort": "lastmessage" });
-    let response = http_client()?.post(url).query(&[("password", password)]).json(&body).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("BlueBubbles returned HTTP {}", status)); }
-    Ok(value)
-}
-
-/// Messages of one chat, newest first. Uses `GET chat/:guid/message`: `POST message/query` ignores a
-/// bare `chatGuid` and returned nothing, which left every conversation empty.
-#[tauri::command]
-async fn bluebubbles_messages(base_url: String, password: String, chat_guid: String, limit: u32) -> Result<serde_json::Value, String> {
-    let mut url = reqwest::Url::parse(&format!("{}/", checked_http_base(&base_url)?)).map_err(|e| e.to_string())?;
-    {
-        // Path-segment encoding keeps chat GUIDs such as "iMessage;-;+15551234567" intact.
-        let mut path = url.path_segments_mut().map_err(|_| "Invalid BlueBubbles URL")?;
-        path.pop_if_empty().extend(["api", "v1", "chat", chat_guid.as_str(), "message"]);
-    }
-    let limit = limit.clamp(1, 200).to_string();
-    let response = http_client()?.get(url)
-        .query(&[("password", password.as_str()), ("limit", limit.as_str()), ("sort", "DESC"), ("with", "handle,attachment")])
-        .send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("BlueBubbles returned HTTP {}", status)); }
-    Ok(value)
-}
-
-/// The Mac's Contacts as BlueBubbles exposes them (names, phone numbers, emails, avatars).
-#[tauri::command]
-async fn bluebubbles_contacts(base_url: String, password: String) -> Result<serde_json::Value, String> {
-    let url = bluebubbles_url(&base_url, "contact")?;
-    // Photos are only included on request.
-    let response = http_client()?.get(url).query(&[("password", password.as_str()), ("extraProperties", "avatar")]).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("BlueBubbles returned HTTP {}", status)); }
-    Ok(value)
-}
-
-/// Downloads an image attachment and returns it as a `data:` URL for inline display.
-#[tauri::command]
-async fn bluebubbles_attachment(base_url: String, password: String, attachment_guid: String) -> Result<String, String> {
-    use base64::Engine;
-    const MAX_BYTES: usize = 12 * 1024 * 1024;
-    let mut url = reqwest::Url::parse(&format!("{}/", checked_http_base(&base_url)?)).map_err(|e| e.to_string())?;
-    {
-        let mut path = url.path_segments_mut().map_err(|_| "Invalid BlueBubbles URL")?;
-        path.pop_if_empty().extend(["api", "v1", "attachment", attachment_guid.as_str(), "download"]);
-    }
-    // Ask for a JPEG rendition so HEIC photos from iPhones display in the WebView.
-    let response = http_client()?.get(url).query(&[("password", password.as_str()), ("width", "800"), ("quality", "better")])
-        .send().await.map_err(net_err)?;
-    if !response.status().is_success() { return Err(format!("BlueBubbles returned HTTP {}", response.status())); }
-    let mime = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
-    if !mime.starts_with("image/") { return Err(format!("Not an image ({mime})")); }
-    let bytes = response.bytes().await.map_err(net_err)?;
-    if bytes.len() > MAX_BYTES { return Err("Image too large to preview".into()); }
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
-}
-
-#[tauri::command]
-async fn bluebubbles_send(base_url: String, password: String, chat_guid: String, message: String) -> Result<serde_json::Value, String> {
-    if message.trim().is_empty() { return Err("Message is empty".into()); }
-    let url = bluebubbles_url(&base_url, "message/text")?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis();
-    let temp_guid = format!("bridgedeck-{}-{}", now, std::process::id());
-    let response = http_client()?.post(url).query(&[("password", password)]).json(&serde_json::json!({ "chatGuid": chat_guid, "tempGuid": temp_guid, "message": message })).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.unwrap_or(serde_json::Value::Null);
-    if !status.is_success() {
-        // Pass the server's reason through (e.g. AppleScript -1728 for SMS without Text Message Forwarding).
-        let reason = value.pointer("/error/message").or_else(|| value.get("message")).and_then(|v| v.as_str()).unwrap_or("");
-        return Err(if reason.is_empty() { format!("BlueBubbles returned HTTP {status}") } else { format!("Not sent: {reason}") });
-    }
-    Ok(value)
-}
-
-/// Server-wide message feed, newest first, each with its chat and participants. The conversation
-/// list is built from this because `chat/query`'s lastMessage ordering is unreliable on 1.9.9
-/// (it fails to decode some chats and lists recently active chats far down).
-#[tauri::command]
-async fn bluebubbles_recent(base_url: String, password: String, after: u64, limit: u32) -> Result<serde_json::Value, String> {
-    let url = bluebubbles_url(&base_url, "message/query")?;
-    let body = serde_json::json!({
-        "limit": limit.clamp(1, 1000),
-        "sort": "DESC",
-        "after": after,
-        "with": ["chat", "chat.participants", "handle", "attachment"],
-    });
-    let response = http_client()?.post(url).query(&[("password", password)]).json(&body).send().await.map_err(net_err)?;
-    let status = response.status();
-    let value = response.json::<serde_json::Value>().await.map_err(net_err)?;
-    if !status.is_success() { return Err(format!("BlueBubbles returned HTTP {}", status)); }
-    Ok(value)
 }
 
 /// True for http(s) URLs on this computer. Syncthing's API key never leaves the computer (audit MEDIUM).
@@ -1071,9 +918,6 @@ pub fn run() {
             rustdesk_session,
             agent_status,
             rustdesk_ensure_running,
-            bluebubbles_ensure_running,
-            bluebubbles_contacts,
-            bluebubbles_local_port,
             desktop_notify,
             contacts_save,
             upgrade_info,
@@ -1081,8 +925,6 @@ pub fn run() {
             upgrade_create_bundle,
             upgrade_request_peer,
             upgrade_peer_status,
-            bluebubbles_recent,
-            bluebubbles_attachment,
             source_update_status,
             rustdesk_identity,
             localsend_bridge::localsend_receiver_status,
@@ -1104,6 +946,24 @@ pub fn run() {
             bridgelink::peer::bridgelink_peer_status,
             bridgelink::peer::bridgelink_confirm_pair,
             bridgelink::peer::bridgelink_legacy_upgrade,
+            imessage::imessage,
+            imessage::imessage_attachment,
+            imessage::imessage_send_file,
+            remote::host::remote_host_status,
+            remote::host::remote_host_settings,
+            remote::host::remote_host_stop,
+            remote::viewer::remote_connect,
+            remote::viewer::remote_frame_drawn,
+            remote::viewer::remote_input,
+            remote::viewer::remote_settings,
+            remote::viewer::remote_disconnect,
+            bridgelink::workspace::ai_workspace,
+            bridgelink::workspace::ai_room_create,
+            bridgelink::workspace::ai_room_update,
+            bridgelink::workspace::ai_room_remove,
+            bridgelink::workspace::ai_task_add,
+            bridgelink::workspace::ai_task_update,
+            bridgelink::workspace::ai_claim_release,
             bridgelink::bridgelink_ai_messages,
             bridgelink::bridgelink_ai_send,
             bridgelink::bridgelink_ai_token_path,
@@ -1112,10 +972,6 @@ pub fn run() {
             managed_service_status,
             managed_service_start,
             managed_service_stop,
-            bluebubbles_ping,
-            bluebubbles_chats,
-            bluebubbles_messages,
-            bluebubbles_send,
             syncthing_status,
             syncthing_folders,
             syncthing_bridge::syncthing_setup_peer,

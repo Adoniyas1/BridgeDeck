@@ -1,6 +1,6 @@
 export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
 
-export type ServiceKey = 'rustdesk' | 'bluebubbles' | 'syncthing' | 'localsend'
+export type ServiceKey = 'rustdesk' | 'syncthing' | 'localsend'
 export type RustDeskMode = 'control' | 'file-transfer'
 
 export type ServiceConfig = {
@@ -39,10 +39,8 @@ export type AppConfig = {
   configVersion: 8
   devices: DeviceConfig[]
   services: ServiceConfig[]
-  bluebubbles: {
-    baseUrl: string
-    password: string
-  }
+  /** This computer being controlled by paired devices (D15: allowed without asking by default). */
+  remote: { allowControl: boolean; askFirst: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'
@@ -73,15 +71,15 @@ export type AppConfig = {
 }
 
 
-export type BlueBubblesChat = {
+export type ImChat = {
   guid?: string
   displayName?: string
   chatIdentifier?: string
   participants?: Array<{ address?: string; firstName?: string; lastName?: string }>
-  lastMessage?: BlueBubblesMessage | null
+  lastMessage?: ImMessage | null
 }
 
-export type BlueBubblesAttachment = {
+export type ImAttachment = {
   guid?: string
   mimeType?: string | null
   transferName?: string
@@ -91,7 +89,7 @@ export type BlueBubblesAttachment = {
   hideAttachment?: boolean
 }
 
-export type BlueBubblesMessage = {
+export type ImMessage = {
   guid?: string
   text?: string | null
   message?: string
@@ -107,12 +105,12 @@ export type BlueBubblesMessage = {
   /** For tapbacks: "p:0/<guid>" of the message reacted to. */
   associatedMessageGuid?: string | null
   handle?: { address?: string } | null
-  attachments?: BlueBubblesAttachment[]
-  /** Present on the server-wide feed (`bluebubbles_recent`). */
-  chats?: BlueBubblesChat[]
+  attachments?: ImAttachment[]
+  /** Present on the cross-chat feed (`recent`). */
+  chats?: ImChat[]
 }
 
-export type BlueBubblesContact = {
+export type ImContact = {
   /** macOS Contacts identifier, "<UUID>:ABPerson". */
   id?: string
   firstName?: string
@@ -220,7 +218,17 @@ export type AiRelayMessage = {
   createdAt: number
   /** Outgoing message waiting for the other computer to come online. */
   pending?: boolean
+  /** Agent names it's addressed to; empty = everyone. */
+  to?: string[]
+  /** Workspace room id. */
+  room?: string | null
 }
+
+export type AiAgent = { name: string; status: string; deviceId: string; deviceName: string; lastSeen: number; online: boolean; local: boolean }
+export type AiTask = { id: string; title: string; assignee?: string | null; status: 'todo' | 'doing' | 'done'; updatedAt: number }
+export type AiRoom = { id: string; title: string; createdBy: string; createdAt: number; updatedAt: number; status: 'open' | 'in-progress' | 'done'; participants: string[]; tasks: AiTask[] }
+export type AiClaim = { path: string; agent: string; deviceId: string; deviceName: string; room?: string | null; claimedAt: number; updatedAt: number }
+export type AiWorkspace = { agents: AiAgent[]; rooms: AiRoom[]; claims: AiClaim[] }
 
 
 export type LocalSendTransferResult = {
@@ -347,7 +355,6 @@ export type BridgeLinkPairedPeer = {
   rustdeskPeerId?: string
   localsendTarget: string
   syncthingDeviceId?: string
-  bluebubblesUrl?: string
   via: 'lan' | 'tailscale'
   pairedAt: number
 }

@@ -11,11 +11,10 @@ export const defaultConfig: AppConfig = {
   devices: [],
   services: [
     { id: 'rustdesk', name: 'RustDesk', enabled: true, autoStart: false, notes: 'Two-way remote control' },
-    { id: 'bluebubbles', name: 'BlueBubbles', enabled: true, autoStart: false, host: '127.0.0.1', port: 1234, notes: 'iMessage bridge from the Mac' },
     { id: 'syncthing', name: 'Syncthing', enabled: true, autoStart: false, host: '127.0.0.1', port: 8384, webUrl: 'http://127.0.0.1:8384', notes: 'Persistent shared folders' },
     { id: 'localsend', name: 'LocalSend', enabled: true, autoStart: false, notes: 'Quick file transfers' },
   ],
-  bluebubbles: { baseUrl: '', password: '' },
+  remote: { allowControl: true, askFirst: false },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
   localsend: { alias: 'BridgeDeck', destination: '', port: 53317, pin: '', autoAccept: false },
   pairing: { displayName: '', apiPort: 41416, autoStart: true },
@@ -58,7 +57,8 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
   if (!input) return structuredClone(defaultConfig)
   // Services missing from defaultConfig (Matrix, removed after v0.7) are dropped here.
   const services = defaultConfig.services.map(base => ({ ...base, ...(input.services?.find(s => s.id === base.id) || {}) }))
-  const { matrix: _removedMatrix, machines, ...rest } = input as Partial<AppConfig> & { matrix?: unknown; machines?: LegacyMachine[] }
+  // Matrix (0.8) and BlueBubbles (0.9: Messages are read by BridgeDeck on the Mac) are gone.
+  const { matrix: _removedMatrix, bluebubbles: _removedBlueBubbles, machines, ...rest } = input as Partial<AppConfig> & { matrix?: unknown; bluebubbles?: unknown; machines?: LegacyMachine[] }
   const devices = Array.isArray(input.devices)
     ? input.devices.map(device => ({ ...blankDevice, ...device }))
     : migrateMachines(machines ?? [])
@@ -68,9 +68,9 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     configVersion: 8,
     devices,
     services,
-    bluebubbles: { ...defaultConfig.bluebubbles, ...(input.bluebubbles || {}) },
     // Existing setups keep their separately installed Syncthing until the user moves it into BridgeDeck.
     syncthing: { ...defaultConfig.syncthing, mode: input.syncthing?.apiKey ? 'external' : 'builtin', ...(input.syncthing || {}) },
+    remote: { ...defaultConfig.remote, ...(input.remote || {}) },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
     pairing: { ...defaultConfig.pairing, ...(input.pairing || {}) },
     messages: { nicknames: { ...(input.messages?.nicknames || {}) } },

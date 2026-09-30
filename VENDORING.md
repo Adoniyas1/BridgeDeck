@@ -28,4 +28,4 @@ vendor/localsend/packages/core
 
 Therefore the pinned LocalSend source must be present before `npm run tauri dev` or `npm run tauri build`.
 
-Standalone runtimes under `runtime/` are still used for components such as RustDesk, Syncthing and BlueBubbles when you choose to bundle their executables.
+Standalone runtimes under `runtime/` are still used for components such as RustDesk and Syncthing when you choose to bundle their executables.
