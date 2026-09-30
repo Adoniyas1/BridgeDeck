@@ -21,6 +21,9 @@ pub struct SyncthingAutoSetupResult {
 }
 
 fn checked_base(base_url: &str) -> Result<String, String> {
+    if !crate::is_loopback_url(base_url) {
+        return Err("BridgeDeck only talks to Syncthing on this computer (127.0.0.1)".into());
+    }
     let base = base_url.trim().trim_end_matches('/');
     if !(base.starts_with("http://") || base.starts_with("https://")) {
         return Err("Syncthing URL must start with http:// or https://".into());
@@ -105,7 +108,19 @@ pub async fn syncthing_setup_peer(
     folder_id: String,
     folder_label: String,
     folder_path: String,
+    peer_host: Option<String>,
 ) -> Result<SyncthingAutoSetupResult, String> {
+    // Where BridgeLink last reached the paired device (LAN or Tailscale): Syncthing tries it directly
+    // before falling back to its own discovery ("dynamic").
+    let direct: Vec<String> = peer_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && h.parse::<std::net::IpAddr>().is_ok())
+        .map(|h| {
+            let host = if h.contains(':') { format!("[{h}]") } else { h.to_string() };
+            vec![format!("tcp://{host}:22000"), format!("quic://{host}:22000")]
+        })
+        .unwrap_or_default();
     if api_key.trim().is_empty() {
         return Err("Add the local Syncthing API key in BridgeDeck Settings first".into());
     }
@@ -154,11 +169,26 @@ pub async fn syncthing_setup_peer(
         let object = device.as_object_mut().ok_or("Syncthing default device template was not an object")?;
         object.insert("deviceID".into(), Value::String(peer_device_id.clone()));
         object.insert("name".into(), Value::String(peer_name.trim().to_string()));
+        let addresses: Vec<Value> = std::iter::once("dynamic".to_string()).chain(direct.iter().cloned()).map(Value::String).collect();
+        object.insert("addresses".into(), Value::Array(addresses));
         let (post_status, post_body) = request_json(&client, &base, &api_key, Method::POST, "/rest/config/devices", Some(&device)).await?;
         if !post_status.is_success() {
             return Err(format!("Could not add Syncthing device: HTTP {post_status} {post_body}"));
         }
         device_added = true;
+    } else if !direct.is_empty() {
+        let existing = devices_value.as_array().and_then(|items| items.iter().find(|item| item.get("deviceID").and_then(Value::as_str).is_some_and(|id| id.eq_ignore_ascii_case(&peer_device_id)))).cloned();
+        let mut addresses: Vec<String> = existing
+            .as_ref()
+            .and_then(|d| d.get("addresses"))
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_else(|| vec!["dynamic".to_string()]);
+        // Replace old direct addresses (the device moved) with the current ones.
+        addresses.retain(|a| a == "dynamic" || !(a.ends_with(":22000") && (a.starts_with("tcp://") || a.starts_with("quic://"))));
+        addresses.extend(direct.iter().cloned());
+        let path = format!("/rest/config/devices/{peer_device_id}");
+        let _ = request_json(&client, &base, &api_key, Method::PATCH, &path, Some(&json!({ "addresses": addresses }))).await;
     }
 
     let (folders_status, folders_value) = request_json(&client, &base, &api_key, Method::GET, "/rest/config/folders", None).await?;

@@ -302,3 +302,14 @@ main>.notice{margin-bottom:12px}
 .upgrade-row button{display:inline-flex;align-items:center;gap:6px}
 .upgrade-row small{flex:1 1 100%;color:var(--muted);font-size:12px;line-height:1.4}
 .pair-note{margin:0 0 10px;color:var(--faint);font-size:12px}
+/* Sync conflicts tab */
+.conflict-list{display:flex;flex-direction:column;gap:10px}
+.conflict-row{padding:12px;background:var(--surface-2);border-radius:var(--radius-sm)}
+.conflict-row>strong{display:block;margin-bottom:8px}
+.conflict-versions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.conflict-versions>div{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;background:var(--surface-3);border-radius:var(--radius-sm)}
+.conflict-versions span{flex-basis:100%;font-size:12px;color:var(--muted)}
+.conflict-versions small{flex-basis:100%;color:var(--faint)}
+.conflict-versions button{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 9px;border-radius:var(--radius-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--text)}
+.error-text svg{vertical-align:-2px}
+@media(max-width:700px){.conflict-versions{grid-template-columns:1fr}}

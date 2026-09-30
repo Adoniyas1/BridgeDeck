@@ -44,6 +44,8 @@ export type AppConfig = {
     password: string
   }
   syncthing: {
+    /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
+    mode: 'builtin' | 'external'
     baseUrl: string
     apiKey: string
     autoSetup: boolean
@@ -153,6 +155,38 @@ export type SyncthingFolder = {
   path?: string
   paused?: boolean
   type?: string
+}
+
+export type SyncSidecarStatus = {
+  available: boolean
+  running: boolean
+  baseUrl: string
+  apiKey: string
+  home: string
+  detail: string
+  /** A separately installed Syncthing whose identity and folders can be moved into BridgeDeck. */
+  adoptable?: string | null
+  adoptedFrom?: string | null
+}
+
+export type SyncConflict = {
+  conflictPath: string
+  originalPath: string
+  originalExists: boolean
+  conflictSize: number
+  originalSize: number
+  conflictModified: number
+  originalModified: number
+}
+
+/** `/rest/db/status` for one folder. */
+export type SyncthingFolderStatus = {
+  state?: string
+  globalBytes?: number
+  inSyncBytes?: number
+  needBytes?: number
+  needFiles?: number
+  errors?: number
 }
 
 export type SyncthingStatus = {
