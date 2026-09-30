@@ -39,6 +39,14 @@ export type AppConfig = {
   services: ServiceConfig[]
   /** This computer being controlled by paired devices (D15: allowed without asking by default). */
   remote: { allowControl: boolean; askFirst: boolean }
+  /** Copying on one paired computer makes it pasteable on the others. */
+  clipboard: { sync: boolean }
+  /** Desktop notifications by kind (remote control and pairing requests always notify). */
+  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean }
+  /** Install GitHub updates without asking (never while this computer is being controlled). */
+  updates: { auto: boolean }
+  /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */
+  sendTo: { enabled: boolean }
   syncthing: {
     /** builtin = BridgeDeck runs its own hidden Syncthing; external = a separately installed one. */
     mode: 'builtin' | 'external'

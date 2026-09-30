@@ -1,5 +1,7 @@
 mod localsend_bridge;
 mod bridgelink;
+mod clipboard;
+mod health;
 mod syncthing_bridge;
 mod secrets;
 mod tray;
@@ -7,6 +9,7 @@ mod imessage;
 mod legacy_apps;
 mod link;
 mod remote;
+mod send_to;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -344,6 +347,12 @@ fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), Str
 }
 
 /// reqwest error text without the request URL (URLs can carry keys or tokens), for the UI and logs.
+/// Which notifications the native side shows itself (the rest are sent by the UI).
+#[tauri::command]
+fn notification_settings(ai: bool) {
+    bridgelink::AI_NOTIFICATIONS.store(ai, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn net_err(error: reqwest::Error) -> String {
     error.without_url().to_string()
 }
@@ -472,6 +481,12 @@ fn upgrade_self(app: AppHandle) -> Result<(), String> {
     upgrade::start(&app, upgrade::UpgradeMode::Git, None, "this computer")
 }
 
+/// Whether GitHub has changes this computer doesn't (checked every few hours by the UI).
+#[tauri::command]
+async fn upgrade_check() -> Result<upgrade::UpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(upgrade::check_for_update).await.map_err(|e| e.to_string())?
+}
+
 /// Packs this computer's source for sending to the paired computer ("Send my source").
 #[tauri::command]
 async fn upgrade_create_bundle(app: AppHandle) -> Result<upgrade::SourceBundle, String> {
@@ -493,6 +508,11 @@ async fn upgrade_peer_status(instance_id: String, manager: State<'_, BridgeLinkM
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // A second start (Explorer's Send to) hands its files to the running BridgeDeck and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let paths = send_to::paths_from_args(args);
+            if paths.is_empty() { tray::show_main(app) } else { send_to::deliver(app, paths) }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -505,7 +525,9 @@ pub fn run() {
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
             std::thread::spawn(move || autostart_bridgelink(&handle));
+            clipboard::start(app.state::<BridgeLinkManager>().inner().clone());
             tray::install(app)?;
+            send_to::deliver(app.handle(), send_to::paths_from_args(std::env::args()));
             Ok(())
         })
         .on_window_event(tray::on_window_event)
@@ -515,9 +537,16 @@ pub fn run() {
             open_path,
             agent_status,
             desktop_notify,
+            notification_settings,
+            tray::tray_update,
+            send_to::send_files_pending,
+            send_to::send_to_integration,
+            health::health_permissions,
+            health::open_privacy_settings,
             contacts_save,
             upgrade_info,
             upgrade_self,
+            upgrade_check,
             upgrade_create_bundle,
             upgrade_request_peer,
             upgrade_peer_status,
@@ -548,6 +577,8 @@ pub fn run() {
             imessage::imessage_send_file,
             remote::host::remote_host_status,
             remote::host::remote_host_settings,
+            clipboard::clipboard_status,
+            clipboard::clipboard_settings,
             remote::host::remote_host_stop,
             remote::viewer::remote_connect,
             remote::viewer::remote_frame_drawn,
@@ -583,6 +614,11 @@ pub fn run() {
             // Clicking the Dock icon brings back a window hidden by closing it.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            // Files opened with BridgeDeck in Finder, or dropped on its Dock icon.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
+            }
             tauri::RunEvent::Exit => sync_sidecar::shutdown(app),
             _ => {}
         });

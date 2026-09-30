@@ -205,6 +205,43 @@ pub fn start(app: &AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, reques
     })
 }
 
+#[derive(Clone, Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheck {
+    /// This build runs from a git clone, so it can check and update itself.
+    pub git: bool,
+    /// Commits on GitHub that this clone doesn't have.
+    pub behind: u32,
+    /// What's compared against, e.g. `origin/main`.
+    pub upstream: String,
+    /// The newest of those commits' titles.
+    pub latest: String,
+}
+
+fn git_output(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let mut cmd = Command::new(git_program());
+    cmd.arg("-C").arg(dir).args(args).env("GIT_TERMINAL_PROMPT", "0");
+    hide_console(&mut cmd);
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Fetches from GitHub and counts the commits this clone is missing (what "Update" would pull).
+pub fn check_for_update() -> Result<UpdateCheck, String> {
+    let dir = source_dir();
+    if !git_ready(&dir) {
+        return Ok(UpdateCheck::default());
+    }
+    git_output(&dir, &["fetch", "--quiet"]).map_err(|e| format!("Could not reach GitHub: {e}"))?;
+    let upstream = git_output(&dir, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).unwrap_or_else(|_| "origin/main".into());
+    let behind = git_output(&dir, &["rev-list", "--count", &format!("HEAD..{upstream}")])?.parse().unwrap_or(0);
+    let latest = if behind > 0 { git_output(&dir, &["log", "-1", "--format=%s", &upstream]).unwrap_or_default() } else { String::new() };
+    Ok(UpdateCheck { git: true, behind, upstream, latest })
+}
+
 /// Installed app to replace: the `.app` bundle on macOS, the executable elsewhere.
 fn current_app_path() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();

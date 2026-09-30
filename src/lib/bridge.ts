@@ -107,6 +107,22 @@ export const legacyAppsStop = () => native<LegacyApp[]>('legacy_apps_stop')
 export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
 export const remoteHostStatus = () => native<RemoteHostStatus>('remote_host_status')
 export const remoteHostSettings = (allow: boolean, askFirst: boolean) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst })
+export type ClipboardStatus = {
+  enabled: boolean
+  available: boolean
+  last: { direction: 'sent' | 'received'; peers: string[]; kind: 'text' | 'image'; summary: string; at: number } | null
+  errors: string[]
+}
+export type TrayPeer = { id: string; name: string; canControl: boolean; canReceive: boolean }
+export const trayUpdate = (peers: TrayPeer[], clipboard: boolean) => native<void>('tray_update', { peers, clipboard })
+export const sendFilesPending = () => native<string[]>('send_files_pending')
+export const sendToIntegration = (enabled: boolean) => native<{ kind: 'send-to' | 'open-with' | ''; installed: boolean }>('send_to_integration', { enabled })
+export type Permissions = { screenRecording: boolean | null; accessibility: boolean | null }
+export const healthPermissions = () => native<Permissions>('health_permissions')
+export const openPrivacySettings = (pane: 'screen' | 'accessibility' | 'files' | 'automation') => native<void>('open_privacy_settings', { pane })
+export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
+export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
+export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
 export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
 /** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
 export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>
@@ -331,6 +347,9 @@ export async function upgradeInfo(): Promise<UpgradeInfo | null> {
 }
 
 /** Pull the latest main from GitHub and rebuild this computer's BridgeDeck. */
+export type UpdateCheck = { git: boolean; behind: number; upstream: string; latest: string }
+export const upgradeCheck = () => native<UpdateCheck>('upgrade_check')
+
 export async function upgradeSelf(): Promise<void> {
   await invokeSafe('upgrade_self')
 }

@@ -20,6 +20,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 # BridgeDeck v0.7 uses the pinned LocalSend core directly for native send/receive.
 # vendor/localsend is populated by vendor:fetch or upgrade-from-previous.sh before native builds.
 localsend = { path = "../vendor/localsend/packages/core", features = ["full"] }
@@ -45,6 +46,9 @@ rand = "0.8"
 trash = "5"
 url = "2"
 sysinfo = { version = ">=0.30, <1", default-features = false, features = ["system"] }
+# Clipboard sync between paired devices.
+arboard = "3"
+png = "0.17"
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
 # Remote control host: screen capture and input (macOS and Windows only).
@@ -53,6 +57,8 @@ xcap = "0.9"
 enigo = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString"] }
 keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

@@ -273,6 +273,39 @@ Tailscale, with no RustDesk installed.
 
 ### Phase 6: Everyday
 Clipboard sync, tray actions, Send to / Quick Action, notifications, Home health fix-its, auto-update.
+All built (PR #10); none of it has run on Mac or Windows hardware yet.
+
+- **Clipboard sync (built)**: a thread in `clipboard.rs` owns the system clipboard. Changes are noticed
+  by the Mac's pasteboard change count and Windows' clipboard sequence number (Linux compares text).
+  Text and pictures (PNG) go to every paired device on a `/clipboard` stream; nothing is queued for
+  devices that are off. What password managers mark as concealed (nspasteboard.org types on the Mac,
+  `ExcludeClipboardContentFromMonitorProcessing` on Windows) is never sent. On by default; one toggle
+  on the Computers tab turns sending and receiving off on that computer.
+- **Notifications (built)**: Settings → Notifications turns each kind on or off: iMessages, AI
+  messages (shown by the native side), files received or waiting for Accept, and new Syncthing
+  conflict copies (looked for every 5 minutes, and every minute while the Sync tab is open). Remote
+  control starting and pairing requests always notify.
+- **Tray actions (built)**: the tray / menu-bar menu lists paired computers under Control and Send
+  files to (a file picker, then LocalSend), and has a Share clipboard switch. The UI sends the device
+  list with `tray_update` whenever it changes; picks come back as `tray-action` events.
+- **Send to / Open With (built)**: Windows gets a BridgeDeck shortcut in Explorer's Send to menu
+  (rewritten at each start, removable in Settings → Files); it starts BridgeDeck with `--send`, and
+  the single-instance plugin hands the paths to the running app. On the Mac, the bundle declares
+  `public.data`/`public.folder` as an Alternate viewer, so BridgeDeck is under Open With and takes
+  files dropped on its Dock icon (`RunEvent::Opened`). The files wait in the Files tab for a computer
+  to be picked.
+- **Home health fix-its (built)**: a "Needs attention" card on Home lists what's wrong, each with the
+  click that fixes it: pairing stopped or nothing paired, Messages without Full Disk Access, remote
+  control without Screen Recording or Accessibility (checked without prompting via
+  `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`), built-in sync or file receiving stopped,
+  sync conflicts, and a clipboard that couldn't be opened. The Mac buttons open the exact
+  Privacy & Security pane. Start-up states are ignored for the first 20 seconds.
+- **Auto-update (built)**: every six hours (and at start) BridgeDeck runs `git fetch` in its clone
+  and counts the commits it's missing on its branch's upstream. New changes are announced once and
+  offered on Home ("Update" runs the existing GitHub upgrade: pull, rebuild, restart). Settings →
+  Computers → Updates can install them automatically, never while this computer is being controlled,
+  and not again for a day after a failed update. Installed builds without a clone can't update
+  themselves yet (the Tauri updater needs a signing key; Phase 7 with code signing).
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

@@ -13,6 +13,9 @@ import type { FeatureManifest } from '../features'
 import { controlDevice } from '../remote/state'
 import { configureSyncthingPeer, syncthingSetupStore } from '../sync/state'
 import { UpgradeControls } from './UpgradeControls'
+import { ClipboardBackground, ClipboardCard } from './clipboard'
+import { TrayBackground } from './tray'
+import { UpdatesBackground, UpdatesCard } from './updates'
 import { version } from '../../../package.json'
 
 const isManual = (device: DeviceConfig) => device.id.startsWith('manual-')
@@ -51,10 +54,16 @@ function DevicesPage() {
       {!!bridgeLink.paired.length && <div className="pair-section"><h3>Paired</h3><div className="pair-list">{bridgeLink.paired.map(peer => { const syncState = syncthingSetup[peer.instanceId]; return <div className="pair-peer" key={peer.instanceId}><div><Lock size={18}/><span><strong>{peer.name}</strong><small>{peer.platform} · {peer.via === 'tailscale' ? 'Tailscale' : 'local network'} · Syncthing {peer.syncthingDeviceId ? 'ID received' : 'waiting for ID'}</small>{syncState && <small>{'error' in syncState ? syncState.error : syncState.detail}</small>}</span></div><div className="actions"><button className="secondary" disabled={!config.syncthing.apiKey} onClick={() => void configureSyncthingPeer(peer)}><ArrowLeftRight size={16}/>Setup sync</button><button className="ghost" title="Forget pairing" onClick={() => void forgetAutomaticPair(peer.instanceId)}><Trash2 size={16}/></button></div></div> })}</div></div>}
       <p className="vendor-note">Pairing and everything after it is encrypted. Confirm only when both computers show the same six-digit code.{bridgeLink.fingerprint ? ` This computer's key: ${bridgeLink.fingerprint.slice(0, 16)}…` : ''}</p>
     </Card>
+    <ClipboardCard />
     <div className="machine-cards">
       {sortedDevices(config.devices).map(m => { const status = machineStatus[m.id]; return <Card key={m.id}><SectionTitle title={m.name} subtitle={status?.hostname || m.agentUrl || platformLabel(m.platform)} action={<StatusPill online={!!status?.ok}/>} /><div className="spec-grid"><div><Gauge/><span>Uptime<strong>{fmtUptime(status?.uptimeSeconds)}</strong></span></div><div><HardDrive/><span>Memory free<strong>{fmtBytes(status?.freeMemory)}</strong></span></div><div><TerminalSquare/><span>Platform<strong>{status?.platform || platformLabel(m.platform)} {status?.arch || ''}</strong></span></div><div><ShieldCheck/><span>Connection<strong>{connectionLabel(m, viaOf(m.id))}</strong></span></div><div><Info/><span>BridgeDeck<strong>{status?.version || (status?.ok ? '0.7 or older' : '—')}</strong></span></div></div><div className="actions">{!m.local && <button disabled={!bridgeLink.paired.some(p => p.instanceId === m.id && (p.platform === 'macos' || p.platform === 'windows'))} onClick={() => controlDevice({ id: m.id, name: m.name })}><Computer size={17}/>Control</button>}<button className="secondary" disabled={!m.sharedPath} onClick={() => void openPath(m.sharedPath)}><FolderOpen size={17}/>Shared folder</button></div>{(m.local || !isManual(m)) && <UpgradeControls device={m} peerVersion={status?.version} online={!!status?.ok} />}{status?.error && <p className="error-text">{status.error}</p>}</Card> })}
     </div>
   </>
+}
+
+/** The clipboard thread's setting, the tray menu's device lists and update checks. */
+function DevicesBackground() {
+  return <><ClipboardBackground /><TrayBackground /><UpdatesBackground /></>
 }
 
 function DevicesSettings() {
@@ -62,8 +71,9 @@ function DevicesSettings() {
   const bridgeLink = useStore(bridgeLinkStore)
   return <>
     <Card><SectionTitle title="Automatic pairing" subtitle="BridgeLink discovers and pairs BridgeDeck instances on the same LAN" action={<StatusPill online={bridgeLink.running} label={bridgeLink.running ? 'Running' : 'Stopped'}/>} /><label>Computer display name<input value={config.pairing.displayName} onChange={e => setConfig(c => ({ ...c, pairing: { ...c.pairing, displayName: e.target.value } }))} placeholder="Blank = system computer name"/></label><label>BridgeLink API port<input type="number" value={config.pairing.apiPort} onChange={e => setConfig(c => ({ ...c, pairing: { ...c.pairing, apiPort: Number(e.target.value) || 41416 } }))}/></label><Toggle checked={config.pairing.autoStart} onChange={autoStart => setConfig(c => ({ ...c, pairing: { ...c.pairing, autoStart } }))} label="Start LAN discovery automatically"/><div className="actions"><button onClick={() => void startAutomaticPairing()}><Wifi size={17}/>Start / restart pairing</button><button className="secondary" onClick={() => void stopAutomaticPairing()}><Square size={16}/>Stop</button></div><p className="vendor-note">Discovery uses UDP 41415 (multicast on the local network, direct to Tailscale devices). Paired devices talk over encrypted QUIC on UDP 41416; the local API for AI tools listens on 127.0.0.1:41416 only.</p></Card>
+    <UpdatesCard />
     <Card><SectionTitle title="Computers" subtitle="BridgeLink pairing fills these fields automatically; manual overrides remain available" action={<button className="ghost" onClick={addManualDevice}><Plus size={15}/>Add computer manually</button>} />{sortedDevices(config.devices).map(m => <div className="settings-block" key={m.id}><div className="settings-heading"><h3>{m.local ? `${m.name} (this computer)` : m.name}</h3>{isManual(m) && <button className="ghost" title="Remove" onClick={() => removeDevice(m.id)}><Trash2 size={15}/></button>}</div><label>Name<input value={m.name} onChange={e => updateDevice(m.id, { name: e.target.value })}/></label><label>Agent URL<input value={m.agentUrl} onChange={e => updateDevice(m.id, { agentUrl: e.target.value })}/></label><label>Agent bearer token<input type="password" value={m.agentToken} onChange={e => updateDevice(m.id, { agentToken: e.target.value })} placeholder="Blank for localhost-only agent"/></label><label>LocalSend target<input value={m.localsendTarget} onChange={e => updateDevice(m.id, { localsendTarget: e.target.value })} placeholder="Exact LocalSend alias or LAN IP"/></label><label>Remote LocalSend PIN<input type="password" value={m.localsendPin} onChange={e => updateDevice(m.id, { localsendPin: e.target.value })} placeholder="Only if that receiver requires one"/></label><label>Syncthing device ID<input value={m.syncthingDeviceId} onChange={e => updateDevice(m.id, { syncthingDeviceId: e.target.value })} placeholder="Filled automatically after pairing"/></label><label>Shared folder path<input value={m.sharedPath} onChange={e => updateDevice(m.id, { sharedPath: e.target.value })}/></label></div>)}{!config.devices.length && <div className="bb-placeholder">Computers appear here once BridgeLink starts and pairs.</div>}</Card>
   </>
 }
 
-export const devices: FeatureManifest = { id: 'computers', title: 'Computers', icon: Computer, Page: DevicesPage, Settings: DevicesSettings, settingsOrder: 10 }
+export const devices: FeatureManifest = { id: 'computers', title: 'Computers', icon: Computer, Page: DevicesPage, Background: DevicesBackground, Settings: DevicesSettings, settingsOrder: 10 }

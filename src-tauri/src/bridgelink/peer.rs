@@ -292,7 +292,7 @@ pub(super) struct PeerHandler {
 
 impl Handler for PeerHandler {
     fn stream_paths(&self) -> &'static [&'static str] {
-        &["/pair", crate::remote::SESSION_PATH]
+        &["/pair", crate::remote::SESSION_PATH, crate::clipboard::PATH]
     }
 
     fn stream(&self, caller: Caller, request: Request, mut send: quinn::SendStream, recv: quinn::RecvStream) -> BoxFuture {
@@ -305,6 +305,17 @@ impl Handler for PeerHandler {
                     Some((Some(peer), app, host_name)) => crate::remote::host::serve(app, peer.instance_id, peer.name, host_name, send, recv).await,
                     _ => {
                         let _ = write_frame(&mut send, &crate::remote::HostMsg::Ended { reason: "This device is not paired with this computer".into() }).await;
+                        let _ = send.finish();
+                    }
+                }
+                return;
+            }
+            if request.path == crate::clipboard::PATH {
+                let peer = manager.lock().ok().and_then(|r| r.paired.values().find(|p| p.fingerprint == caller.fingerprint).cloned());
+                match peer {
+                    Some(peer) => crate::clipboard::serve(peer.name, request.body, send, recv).await,
+                    None => {
+                        let _ = write_frame(&mut send, &json!({ "ok": false, "error": "This device is not paired with this computer" })).await;
                         let _ = send.finish();
                     }
                 }
@@ -451,6 +462,11 @@ pub fn forward_messages(manager: &BridgeLinkManager, instance_id: &str, op: serd
         return Err(response_error(&peer, &response));
     }
     Ok(value["result"].take())
+}
+
+/// Every paired device: (instance ID, name).
+pub fn paired_peers(manager: &BridgeLinkManager) -> Vec<(String, String)> {
+    manager.lock().map(|runtime| runtime.paired.values().map(|p| (p.instance_id.clone(), p.name.clone())).collect()).unwrap_or_default()
 }
 
 /// What a long-lived stream to a paired device needs: the link, its addresses and its pinned certificate.

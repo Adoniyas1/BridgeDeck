@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X, RefreshCw } from 'lucide-react'
-import { contactsSave, desktopNotify, imessage, imessageAttachment, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
+import { contactsSave, imessage, imessageAttachment, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
+import { notify } from '../../core/notify'
 import type { ImAttachment, ImChat, ImContact, ImMessage } from '../../types'
 import { setConfig, useConfig } from '../../core/config'
 import type { MessagesSource } from './state'
@@ -294,12 +295,12 @@ export default function Messages({ source, visible, onUnreadChange, onCheckAgain
     const unseen = fresh.filter(m => !(visibleRef.current && document.hasFocus() && selectedGuidsRef.current.includes(m.chats![0].guid!)))
     if (!unseen.length) return
     const nameOf = (address?: string | null) => peopleRef.current.get(addressKey(address))?.name ?? formatAddress(address)
-    if (unseen.length > 3) { void desktopNotify('Messages', `${unseen.length} new messages`).catch(() => undefined); return }
+    if (unseen.length > 3) { notify('messages', 'Messages', `${unseen.length} new messages`); return }
     for (const m of unseen) {
       const chat = m.chats![0]
       const sender = nameOf(m.handle?.address ?? chat.chatIdentifier)
       const group = (chat.participants?.length ?? 0) > 1 || (chat.guid ?? '').includes(';+;')
-      void desktopNotify(group ? `${sender} · ${chat.displayName?.trim() || 'Group'}` : sender, previewText(m) || 'New message').catch(() => undefined)
+      notify('messages', group ? `${sender} · ${chat.displayName?.trim() || 'Group'}` : sender, previewText(m) || 'New message')
     }
   }
 

@@ -6,6 +6,7 @@ import {
 import { advertise, applyPairedPeer, bridgeLinkStore, refreshPeer } from '../../core/bridgelink'
 import { configStore, serviceConfig, setConfig, updateDevice } from '../../core/config'
 import { setNotice } from '../../core/notice'
+import { newConflicts, notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
 import { errorText } from '../../core/util'
@@ -84,10 +85,18 @@ export async function refreshSyncthing() {
   }
 }
 
+let conflictsScanned = false
+
 export async function scanConflicts() {
   const folders = syncthingFoldersStore.get().filter(f => f.path)
+  if (!folders.length) return
   const found = await Promise.all(folders.map(async f => [f.id, await syncConflicts(f.path!).catch(() => [])] as const))
-  conflictsStore.set(Object.fromEntries(found))
+  const next = Object.fromEntries(found)
+  // The first scan only learns what's already there.
+  const fresh = conflictsScanned ? newConflicts(conflictsStore.get(), next) : []
+  conflictsScanned = true
+  conflictsStore.set(next)
+  if (fresh.length) notify('sync', 'Sync conflict', fresh.length === 1 ? `${fresh[0].originalPath.split(/[\\/]/).pop()} was changed on two computers. Open the Sync tab to pick a version.` : `${fresh.length} files were changed on two computers. Open the Sync tab to pick versions.`)
 }
 
 export async function setFolderPaused(folder: SyncthingFolder, paused: boolean) {
@@ -184,6 +193,14 @@ export function SyncBackground() {
   }, [config.syncthing.mode])
 
   usePeriodicRefresh(refreshSyncthing, 15000, [config.services, config.syncthing])
+  // Looks for new conflict copies when the folders are known, then every few minutes (the Sync tab
+  // scans more often while open).
+  const folderCount = useStore(syncthingFoldersStore).length
+  useEffect(() => { void scanConflicts() }, [folderCount])
+  useEffect(() => {
+    const timer = window.setInterval(() => void scanConflicts(), 5 * 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   // Newly paired computers (and every paired computer at start-up) get the shared folder automatically.
   // Results for forgotten computers are dropped, so pairing one again sets it up again. A device whose

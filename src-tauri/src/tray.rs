@@ -1,11 +1,12 @@
 //! Closing the window hides BridgeDeck to the tray (Windows) or menu bar (macOS) instead of quitting,
 //! so pairing, file receiving and the AI relay keep running. Quit from the tray menu, or Cmd+Q on macOS.
 
+use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager, Runtime, Window, WindowEvent,
+    App, AppHandle, Emitter, Manager, Runtime, Window, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
 
@@ -22,11 +23,58 @@ pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
+/// A paired computer as the tray menu shows it (sent by the UI whenever the list changes).
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayPeer {
+    id: String,
+    name: String,
+    can_control: bool,
+    can_receive: bool,
+}
+
+fn as_items<R: Runtime>(items: &[MenuItem<R>]) -> Vec<&dyn IsMenuItem<R>> {
+    items.iter().map(|i| i as &dyn IsMenuItem<R>).collect()
+}
+
+fn build_menu<R: Runtime, M: Manager<R>>(app: &M, peers: &[TrayPeer], clipboard: bool) -> tauri::Result<Menu<R>> {
     let show = MenuItem::with_id(app, "show", "Show BridgeDeck", true, None::<&str>)?;
+    let control_items = peers
+        .iter()
+        .filter(|p| p.can_control)
+        .map(|p| MenuItem::with_id(app, format!("control:{}", p.id), &p.name, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let send_items = peers
+        .iter()
+        .filter(|p| p.can_receive)
+        .map(|p| MenuItem::with_id(app, format!("send:{}", p.id), &p.name, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let control = Submenu::with_items(app, "Control", !control_items.is_empty(), &as_items(&control_items))?;
+    let send = Submenu::with_items(app, "Send files to", !send_items.is_empty(), &as_items(&send_items))?;
+    let clipboard = CheckMenuItem::with_id(app, "clipboard", "Share clipboard", true, clipboard, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop-remote", "Stop remote control", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit BridgeDeck", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &stop, &quit])?;
+    let (line1, line2) = (PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?);
+    Menu::with_items(app, &[&show, &line1, &control, &send, &clipboard, &line2, &stop, &quit])
+}
+
+/// Rebuilds the tray menu with the current paired computers and settings.
+#[tauri::command]
+pub fn tray_update(app: AppHandle, peers: Vec<TrayPeer>, clipboard: bool) -> Result<(), String> {
+    let menu = build_menu(&app, &peers, clipboard).map_err(|e| e.to_string())?;
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Tray choices the UI carries out (it has the device details and the tabs).
+fn ui_action<R: Runtime>(app: &AppHandle<R>, action: serde_json::Value) {
+    let _ = app.emit("tray-action", action);
+}
+
+pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
+    let menu = build_menu(app, &[], false)?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("BridgeDeck")
         .menu(&menu)
@@ -35,7 +83,16 @@ pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
             "show" => show_main(app),
             "stop-remote" => crate::remote::host::stop_all(),
             "quit" => app.exit(0),
-            _ => {}
+            "clipboard" => ui_action(app, serde_json::json!({ "action": "clipboard" })),
+            id => {
+                if let Some(peer) = id.strip_prefix("control:") {
+                    show_main(app);
+                    ui_action(app, serde_json::json!({ "action": "control", "peer": peer }));
+                } else if let Some(peer) = id.strip_prefix("send:") {
+                    show_main(app);
+                    ui_action(app, serde_json::json!({ "action": "send", "peer": peer }));
+                }
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
