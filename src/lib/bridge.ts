@@ -301,6 +301,23 @@ export async function bridgeLinkAiTokenPath(): Promise<string> {
   return (await invokeSafe<string>('bridgelink_ai_token_path')) ?? ''
 }
 
+/** This computer's person compared the codes of the pairing it started: `true` = they match. */
+export async function bridgeLinkConfirmPair(confirm: boolean): Promise<import('../types').BridgeLinkStatus> {
+  const result = await invokeSafe<import('../types').BridgeLinkStatus>('bridgelink_confirm_pair', { confirm })
+  if (!result) throw new Error('Pairing requires the native BridgeDeck app.')
+  return result
+}
+
+/** A paired device's live status over the encrypted link (same shape as a local /status). */
+export async function bridgeLinkPeerStatus(instanceId: string): Promise<import('../types').AgentStatus> {
+  return (await invokeSafe<import('../types').AgentStatus>('bridgelink_peer_status', { instanceId })) ?? { ok: false, error: 'Requires the native BridgeDeck app' }
+}
+
+/** Asks a device paired with BridgeDeck 0.8 or older to update itself (its user approves there). */
+export async function bridgeLinkLegacyUpgrade(instanceId: string, fromVersion: string): Promise<void> {
+  await invokeSafe('bridgelink_legacy_upgrade', { instanceId, request: { mode: 'git', fileName: '', sha256: '', fromVersion } })
+}
+
 export async function bridgeLinkRefreshPeer(instanceId: string): Promise<import('../types').BridgeLinkPairResult> {
   const result = await invokeSafe<import('../types').BridgeLinkPairResult>('bridgelink_refresh_peer', { instanceId })
   if (!result) throw new Error('Automatic pairing requires the native BridgeDeck app.')

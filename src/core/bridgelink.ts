@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import {
-  bridgeLinkApprove, bridgeLinkDecline, bridgeLinkForget, bridgeLinkPollPair, bridgeLinkRefreshPeer,
-  bridgeLinkRequestPair, bridgeLinkStart, bridgeLinkStatus, bridgeLinkStop, fetchAgent, sourceUpdateStatus,
+  bridgeLinkApprove, bridgeLinkConfirmPair, bridgeLinkDecline, bridgeLinkForget, bridgeLinkLegacyUpgrade, bridgeLinkPeerStatus,
+  bridgeLinkPollPair, bridgeLinkRefreshPeer, bridgeLinkRequestPair, bridgeLinkStart, bridgeLinkStatus, bridgeLinkStop, fetchAgent,
+  sourceUpdateStatus,
 } from '../lib/bridge'
 import type { AgentStatus, BridgeLinkPairedPeer, BridgeLinkPeer, BridgeLinkStatus, DeviceConfig, SourceUpdateStatus } from '../types'
 import { configStore, hydratedStore, removeDevice, setConfig, upsertDevice } from './config'
@@ -46,8 +47,9 @@ function applyLocalBridge(status: BridgeLinkStatus, rustdeskId?: string, syncthi
 export function applyPairedPeer(peer: BridgeLinkPairedPeer) {
   upsertDevice(peer.instanceId, {
     platform: peer.platform,
+    // Status travels over the encrypted link (bridgeLinkPeerStatus); the URL is kept for the address.
     agentUrl: agentUrlFor(peer.host, peer.apiPort),
-    agentToken: peer.accessToken,
+    agentToken: '',
     ...known({ rustdeskPeerId: peer.rustdeskPeerId, localsendTarget: peer.localsendTarget, syncthingDeviceId: peer.syncthingDeviceId }),
   }, { name: peer.name, platform: peer.platform, local: false })
 }
@@ -87,21 +89,41 @@ export async function requestAutomaticPair(peer: BridgeLinkPeer) {
   try {
     const status = await bridgeLinkRequestPair(peer.instanceId)
     bridgeLinkStore.set(status)
-    pairingStateStore.set(`Pair request sent to ${peer.name}. Confirm code ${status.outgoing?.pairingCode || 'shown on both computers'}.`)
+    pairingStateStore.set(`Connecting securely to ${peer.name}…`)
   } catch (error) {
     pairingStateStore.set(errorText(error, 'Could not request pairing'))
   }
 }
 
+/** This computer's person saw the same code on both screens and approves an incoming pairing. */
 export async function approveAutomaticPair(requestId: string) {
   try {
     const result = await bridgeLinkApprove(requestId)
-    if (result.peer) applyPairedPeer(result.peer)
     bridgeLinkStore.set(await bridgeLinkStatus())
     pairingStateStore.set(result.detail)
-    setNotice(result.peer ? `Paired with ${result.peer.name}. Connection settings were filled automatically.` : result.detail)
   } catch (error) {
     pairingStateStore.set(errorText(error, 'Could not approve pairing'))
+  }
+}
+
+/** Answer on a pairing this computer started, after comparing the codes: `true` = they match. */
+export async function confirmOutgoingPair(match: boolean) {
+  try {
+    bridgeLinkStore.set(await bridgeLinkConfirmPair(match))
+    pairingStateStore.set(match ? 'Waiting for the other computer to confirm…' : 'Pairing cancelled.')
+  } catch (error) {
+    pairingStateStore.set(errorText(error, 'Could not confirm pairing'))
+  }
+}
+
+/** Asks a computer still on BridgeDeck 0.8 to update itself so it can be paired securely. */
+export async function upgradeLegacyPeer(instanceId: string, name: string, version: string) {
+  try {
+    setNotice(`Asking ${name} to update; allow it there…`)
+    await bridgeLinkLegacyUpgrade(instanceId, version)
+    setNotice(`${name} is updating. Pair it again when it restarts.`)
+  } catch (error) {
+    setNotice(errorText(error, `Could not ask ${name} to update`))
   }
 }
 
@@ -144,16 +166,17 @@ export function BridgeLinkBackground() {
       try {
         const status = await bridgeLinkStatus()
         bridgeLinkStore.set(status)
-        if (status.outgoing && !pairPollBusy.current) {
+        // Finished pairings, started on either computer.
+        if (!pairPollBusy.current) {
           pairPollBusy.current = true
           try {
             const result = await bridgeLinkPollPair()
             if (result.paired && result.peer) {
               applyPairedPeer(result.peer)
-              setNotice(`Paired with ${result.peer.name}. RustDesk, LocalSend, and machine-status settings were filled automatically.`)
+              setNotice(`Paired with ${result.peer.name}. The connection is encrypted and settings were filled automatically.`)
               pairingStateStore.set(result.detail)
               bridgeLinkStore.set(await bridgeLinkStatus())
-            } else {
+            } else if (result.detail) {
               pairingStateStore.set(result.detail)
             }
           } finally {
@@ -177,8 +200,10 @@ export function BridgeLinkBackground() {
   }, [hydrated, rustdeskId, syncthingId])
 
   usePeriodicRefresh(async () => {
-    const devices = configStore.get().devices.filter(d => d.agentUrl)
-    const statuses = await Promise.all(devices.map(async d => [d.id, await fetchAgent(d.agentUrl, d.agentToken)] as const))
+    // Paired devices over the encrypted link; this computer and hand-added ones over HTTP.
+    const paired = new Set(bridgeLinkStore.get().paired.map(p => p.instanceId))
+    const devices = configStore.get().devices.filter(d => paired.has(d.id) || d.agentUrl)
+    const statuses = await Promise.all(devices.map(async d => [d.id, paired.has(d.id) && !d.local ? await bridgeLinkPeerStatus(d.id) : await fetchAgent(d.agentUrl, d.agentToken)] as const))
     deviceStatusStore.set(Object.fromEntries(statuses))
     try { sourceUpdateStore.set(await sourceUpdateStatus()) } catch { /* browser mode */ }
     // Pick up peer changes made after pairing (new IP, RustDesk/Syncthing IDs).

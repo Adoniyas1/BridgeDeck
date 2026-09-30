@@ -51,7 +51,7 @@ When the other machine appears:
 
 The matching Mac/Windows slot is populated with the peer's BridgeLink status URL/token, RustDesk ID and LocalSend target.
 
-If discovery is blocked, check the local firewall for UDP `41415` and TCP `41416`.
+If discovery is blocked, check the local firewall for UDP `41415` (discovery) and UDP `41416` (the encrypted link).
 
 ## 6. Configure local file receiving
 

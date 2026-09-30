@@ -109,7 +109,9 @@ async function main() {
     const body = opts._.join(' ') || await readStdin()
     if (!body.trim()) throw new Error('Nothing to send')
     const { message } = await request('POST', '/ai/send', { author, body, channel: opts.channel, replyTo: opts['reply-to'] })
-    console.log(`sent id=${message.id} to ${message.peerName}`)
+    console.log(message.pending
+      ? `queued id=${message.id} for ${message.peerName} (offline; it is delivered when ${message.peerName} is back)`
+      : `sent id=${message.id} to ${message.peerName}`)
     return
   }
   if (command === 'read') {
