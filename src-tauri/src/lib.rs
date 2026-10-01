@@ -13,6 +13,7 @@ mod send_to;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
+mod wake;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -516,6 +517,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(LocalSendManager::default())
         .manage(BridgeLinkManager::default())
         .manage(sync_sidecar::SyncSidecar::default())
@@ -540,6 +542,7 @@ pub fn run() {
             notification_settings,
             tray::tray_update,
             send_to::send_files_pending,
+            bridgelink::peer::bridgelink_wake,
             send_to::send_to_integration,
             health::health_permissions,
             health::open_privacy_settings,

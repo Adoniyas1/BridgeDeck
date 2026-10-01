@@ -24,7 +24,8 @@
     "verify:project": "node scripts/verify-project.mjs",
     "upgrade:previous": "sh scripts/upgrade-from-previous.sh",
     "verify:localsend-core": "node scripts/verify-localsend-core.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mac:signing": "bash scripts/mac-signing.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

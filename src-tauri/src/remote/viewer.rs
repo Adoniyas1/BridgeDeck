@@ -275,9 +275,9 @@ mod tests {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
         // Settings are process-wide; this test only reads the refusal, then restores them.
-        crate::remote::host::remote_host_settings(false, false);
+        crate::remote::host::remote_host_settings(false, false, None);
         let error = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70 }, |_| {})).unwrap_err();
-        crate::remote::host::remote_host_settings(true, false);
+        crate::remote::host::remote_host_settings(true, false, None);
         assert!(error.contains("turned off") || error.contains("can't be controlled"), "{error}");
     }
 }

@@ -85,6 +85,7 @@ fn new_peer(instance_id: &str, name: &str, platform: &str, host: String, api_por
         localsend_port: 53317,
         syncthing_device_id: None,
         paired_at: now_ms(),
+        mac_addresses: Vec::new(),
     }
 }
 
@@ -502,10 +503,28 @@ fn fetch_peer_status(manager: &BridgeLinkManager, instance_id: &str) -> Result<(
     if let Some(id) = text("syncthingDeviceId") {
         stored.syncthing_device_id = Some(id);
     }
+    if let Some(macs) = value.get("macAddresses").and_then(|v| v.as_array()) {
+        let macs: Vec<String> = macs.iter().filter_map(|m| m.as_str()).filter(|m| crate::wake::parse_mac(m).is_some()).take(8).map(str::to_string).collect();
+        if !macs.is_empty() {
+            stored.mac_addresses = macs;
+        }
+    }
     // Present-or-absent on every refresh: the server can be stopped or started at any time.
     let public = stored.public();
     save_peers(&runtime)?;
     Ok((value, public))
+}
+
+/// Sends the Wake-on-LAN packet for a paired computer that's asleep.
+#[tauri::command]
+pub async fn bridgelink_wake(instance_id: String, manager: State<'_, BridgeLinkManager>) -> Result<String, String> {
+    let (name, macs, addresses) = {
+        let runtime = manager.lock()?;
+        let peer = runtime.paired.get(&instance_id).ok_or("Paired computer not found")?;
+        (peer.name.clone(), peer.mac_addresses.clone(), peer_addresses(&runtime, peer))
+    };
+    crate::wake::send(&macs, &addresses)?;
+    Ok(format!("Wake-up sent to {name}. It can take half a minute to come back."))
 }
 
 #[tauri::command]

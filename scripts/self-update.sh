@@ -51,7 +51,14 @@ if ! ditto "$NEW_APP" "$APP_BUNDLE"; then
   rm -rf "$APP_BUNDLE"; mv "$APP_BUNDLE.previous" "$APP_BUNDLE"
   fail install "Could not copy the new app; the previous version was restored"
 fi
-codesign --force --deep -s - "$APP_BUNDLE" >> "$LOG" 2>&1
+# The free local certificate (npm run mac:signing) keeps macOS permissions across updates; without it
+# the build is signed ad hoc and macOS asks for them again.
+IDENTITY="BridgeDeck Local Signing"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
+  codesign --force --deep -s "$IDENTITY" "$APP_BUNDLE" >> "$LOG" 2>&1 || codesign --force --deep -s - "$APP_BUNDLE" >> "$LOG" 2>&1
+else
+  codesign --force --deep -s - "$APP_BUNDLE" >> "$LOG" 2>&1
+fi
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >> "$LOG" 2>&1
 rm -rf "$APP_BUNDLE.previous"
 set_status succeeded done "Updated to v$VERSION"
