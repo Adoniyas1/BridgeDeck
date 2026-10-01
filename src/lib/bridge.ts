@@ -120,6 +120,10 @@ export const sendToIntegration = (enabled: boolean) => native<{ kind: 'send-to' 
 export type Permissions = { screenRecording: boolean | null; accessibility: boolean | null }
 export const healthPermissions = () => native<Permissions>('health_permissions')
 export const openPrivacySettings = (pane: 'screen' | 'accessibility' | 'files' | 'automation') => native<void>('open_privacy_settings', { pane })
+export type MimirStatus = { phase: 'stopped' | 'setup' | 'starting' | 'running' | 'failed'; detail: string; url: string | null; log: string[]; available: boolean }
+export const mimirStatus = () => native<MimirStatus>('mimir_status')
+export const mimirStart = () => native<MimirStatus>('mimir_start')
+export const mimirStop = () => native<MimirStatus>('mimir_stop')
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })

@@ -5,5 +5,10 @@
   <!-- Merged into the app's Info.plist by Tauri. Shown when macOS asks to allow Automation. -->
   <key>NSAppleEventsUsageDescription</key>
   <string>BridgeDeck sends your messages with Messages and saves contact changes in Contacts when you ask it to, from this Mac or your paired computers.</string>
+  <!-- The Mimir tab talks and listens (push-to-talk, wake word) and can take a photo to look at. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Mimir listens when you talk to it (push-to-talk or its wake word).</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Mimir can take a photo when you ask it to look at something.</string>
 </dict>
 </plist>
