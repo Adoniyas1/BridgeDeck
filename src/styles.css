@@ -525,3 +525,11 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .transfer-actions{display:flex;gap:6px;flex:none}
 .transfer-actions button{display:inline-flex;align-items:center;gap:5px}
 .device-discovery-list>div{display:flex;align-items:center;gap:10px}
+.notes-fold,.notes-fold-space{width:16px;flex:none}
+.notes-fold{height:22px;margin-top:3px;border:0;background:transparent;color:var(--muted);padding:0;display:grid;place-items:center;border-radius:4px}
+.notes-fold:hover{background:var(--surface-3);color:var(--text)}
+.notes-sub-count{flex:none;font-size:11px;color:var(--muted);background:var(--surface-3);border-radius:999px;padding:2px 7px;margin-top:4px}
+.notes-sub-count.all{color:var(--ok)}
+.notes-add-sub{flex:none;border:0;background:transparent;color:var(--faint);border-radius:var(--radius-sm);padding:5px;opacity:0;display:grid;place-items:center}
+.notes-block:hover .notes-add-sub,.notes-block:focus-within .notes-add-sub{opacity:1}
+.notes-add-sub:hover{background:var(--surface-3);color:var(--text)}
