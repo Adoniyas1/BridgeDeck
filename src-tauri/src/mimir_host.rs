@@ -58,6 +58,8 @@ struct Host {
     stopping: bool,
     crashes: Vec<Instant>,
     token: String,
+    /// What Mimir shows BridgeDeck's local API to use its toolbox (`bridgelink::mimir_api`).
+    api_token: String,
     /// Bumped on every start, so a stale exit can't touch the next run.
     generation: u64,
 }
@@ -72,11 +74,17 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     stopping: false,
     crashes: Vec::new(),
     token: String::new(),
+    api_token: String::new(),
     generation: 0,
 });
 
 fn host() -> std::sync::MutexGuard<'static, Host> {
     HOST.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The token Mimir's toolbox requests must carry; empty until Mimir has been started.
+pub fn api_token() -> String {
+    host().api_token.clone()
 }
 
 fn mimir_dir() -> PathBuf {
@@ -237,8 +245,13 @@ fn setup_and_spawn(app: AppHandle) -> Result<(), String> {
     spawn(&app, &node, &dir)
 }
 
+fn api_port(app: &AppHandle) -> u16 {
+    use tauri::Manager;
+    crate::bridgelink::bridgelink_status(app.state::<crate::bridgelink::BridgeLinkManager>()).map(|s| s.api_port).unwrap_or(crate::bridgelink::DEFAULT_API_PORT)
+}
+
 fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
-    let (token, generation) = {
+    let (token, api_token, generation) = {
         let mut host = host();
         if host.child.is_some() {
             return Ok(());
@@ -246,9 +259,12 @@ fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
         if host.token.is_empty() {
             host.token = uuid::Uuid::new_v4().simple().to_string();
         }
+        if host.api_token.is_empty() {
+            host.api_token = uuid::Uuid::new_v4().simple().to_string();
+        }
         host.generation += 1;
         host.stopping = false;
-        (host.token.clone(), host.generation)
+        (host.token.clone(), host.api_token.clone(), host.generation)
     };
     set_phase(Phase::Starting, "Starting Mimir");
     let mut cmd = Command::new(node);
@@ -256,6 +272,9 @@ fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
         .current_dir(dir)
         .env("MIMIR_TOKEN", &token)
         .env("MIMIR_EXIT_WITH_STDIN", "1")
+        // Mimir's BridgeDeck tools (notes, calendar, Messages, files…) call back here.
+        .env("BRIDGEDECK_API", format!("http://127.0.0.1:{}", api_port(app)))
+        .env("BRIDGEDECK_TOKEN", &api_token)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

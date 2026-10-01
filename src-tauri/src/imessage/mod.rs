@@ -303,6 +303,15 @@ fn send(_chat: &str, _kind: &str, _payload: &str) -> Result<(), String> {
     Err("Messages can only send from the Mac".into())
 }
 
+/// A Messages request from Mimir: answered here on the Mac, or by the paired Mac.
+pub fn query(manager: &crate::bridgelink::BridgeLinkManager, op: Value) -> Result<Value, String> {
+    if available() {
+        return run(manager, None, op);
+    }
+    let mac = crate::bridgelink::peer::paired_macs(manager).into_iter().next().ok_or("Messages needs a paired Mac")?;
+    run(manager, Some(mac), op)
+}
+
 // ---- Tauri commands: this computer's UI. With `peer`, the request goes to that paired Mac. ----
 
 fn run(manager: &crate::bridgelink::BridgeLinkManager, peer: Option<String>, op: Value) -> Result<Value, String> {

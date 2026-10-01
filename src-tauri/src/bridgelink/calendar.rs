@@ -298,7 +298,7 @@ fn changed(manager: &BridgeLinkManager) {
     });
 }
 
-fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut CalendarStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
+pub(super) fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut CalendarStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
     let value = {
         let mut runtime = manager.lock()?;
         let device = runtime.instance_id.clone();

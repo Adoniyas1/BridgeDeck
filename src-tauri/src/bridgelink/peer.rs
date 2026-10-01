@@ -560,6 +560,11 @@ pub fn peer_diagnostics(manager: &BridgeLinkManager, instance_id: &str) -> Resul
 }
 
 /// Every paired device: (instance ID, name).
+/// Paired Macs (they can serve Messages).
+pub fn paired_macs(manager: &BridgeLinkManager) -> Vec<String> {
+    manager.lock().map(|runtime| runtime.paired.values().filter(|p| p.platform == "macos").map(|p| p.instance_id.clone()).collect()).unwrap_or_default()
+}
+
 pub fn paired_peers(manager: &BridgeLinkManager) -> Vec<(String, String)> {
     manager.lock().map(|runtime| runtime.paired.values().map(|p| (p.instance_id.clone(), p.name.clone())).collect()).unwrap_or_default()
 }
@@ -607,6 +612,11 @@ fn fetch_peer_status(manager: &BridgeLinkManager, instance_id: &str) -> Result<(
     let public = stored.public();
     save_peers(&runtime)?;
     Ok((value, public))
+}
+
+/// A paired computer's live status as `/status` reports it (Mimir's toolbox).
+pub(super) fn fetch_status_value(manager: &BridgeLinkManager, instance_id: &str) -> Result<serde_json::Value, String> {
+    fetch_peer_status(manager, instance_id).map(|(value, _)| value)
 }
 
 /// Sends the Wake-on-LAN packet for a paired computer that's asleep.
