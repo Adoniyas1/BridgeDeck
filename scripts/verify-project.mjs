@@ -20,6 +20,19 @@ if (pkg.version === tauri.version && pkg.version === cargoVersion) ok(`version $
 else fail(`versions differ: package.json ${pkg.version}, tauri.conf.json ${tauri.version}, Cargo.toml ${cargoVersion}`)
 if (pkg.dependencies?.['@tauri-apps/plugin-dialog']) ok('Tauri dialog dependency'); else fail('Tauri dialog dependency missing')
 
+// `tauri build` refuses to run when the Rust crate and the npm packages are on different minor
+// releases (a new Rust plugin can pull a newer tauri crate into Cargo.lock).
+const lockedVersion = (text, name) => text.match(new RegExp(`name = "${name}"\\nversion = "([^"]+)"`))?.[1]
+const minor = version => version?.split('.').slice(0, 2).join('.')
+const cargoLock = readFileSync(join(root, 'src-tauri/Cargo.lock'), 'utf8')
+const npmLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
+const tauriCrate = lockedVersion(cargoLock, 'tauri')
+for (const name of ['@tauri-apps/api', '@tauri-apps/cli']) {
+  const npmVersion = npmLock.packages?.[`node_modules/${name}`]?.version
+  if (minor(npmVersion) === minor(tauriCrate)) ok(`${name} ${npmVersion} matches the tauri crate ${tauriCrate}`)
+  else fail(`${name} is ${npmVersion} but Cargo.lock has tauri ${tauriCrate}: put them on the same minor release (npm install ${name}@^${minor(tauriCrate)}.0)`)
+}
+
 const cargo = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8')
 if (cargo.includes('path = "../vendor/localsend/packages/core"')) ok('native LocalSend path dependency'); else fail('native LocalSend path dependency missing')
 
