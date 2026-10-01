@@ -4,7 +4,7 @@ import { configStore } from './config'
 
 /** Kinds of desktop notification the user can turn off. Remote control starting and pairing
  *  requests always notify: someone else is reaching this computer. */
-export type NotifyKind = 'messages' | 'ai' | 'files' | 'sync' | 'updates'
+export type NotifyKind = 'messages' | 'ai' | 'files' | 'sync' | 'updates' | 'reminders'
 
 export function notify(kind: NotifyKind, title: string, body: string) {
   if (!configStore.get().notifications[kind]) return

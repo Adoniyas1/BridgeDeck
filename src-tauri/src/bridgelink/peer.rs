@@ -370,6 +370,18 @@ impl Handler for PeerHandler {
                     Err(error) => Response::json(409, json!({ "ok": false, "error": error }).to_string()),
                 }
             }
+            ("POST", "/notes/pull") => match super::notes::answer_pull(manager, &request.body) {
+                Ok(body) => Response::json(200, body),
+                Err(error) => Response::json(400, json!({ "ok": false, "error": error }).to_string()),
+            },
+            ("POST", "/notes/poke") => {
+                // Pull its changes now, off the request thread.
+                let (manager, id) = (manager.clone(), peer.instance_id.clone());
+                thread::spawn(move || {
+                    let _ = super::notes::pull_from(&manager, &id);
+                });
+                Response::json(202, r#"{"ok":true}"#)
+            }
             ("GET", "/diagnostics") => match manager.lock().ok().and_then(|r| r.app.clone()) {
                 Some(app) => Response::json(200, json!({ "ok": true, "report": crate::diagnostics::local_report(&app) }).to_string()),
                 None => Response::json(200, r#"{"ok":false,"error":"not ready"}"#),
@@ -467,6 +479,21 @@ pub fn forward_messages(manager: &BridgeLinkManager, instance_id: &str, op: serd
         return Err(response_error(&peer, &response));
     }
     Ok(value["result"].take())
+}
+
+/// A paired computer's notes changed after `since` (see `super::notes`).
+pub(super) fn pull_notes(manager: &BridgeLinkManager, instance_id: &str, since: u64) -> Result<super::notes::PullAnswer, String> {
+    let body = json!({ "since": since }).to_string();
+    let (peer, response) = peer_request(manager, instance_id, "POST", "/notes/pull", body, Duration::from_secs(20))?;
+    if response.status != 200 {
+        return Err(response_error(&peer, &response));
+    }
+    serde_json::from_str(&response.body).map_err(|e| format!("Invalid notes answer: {e}"))
+}
+
+/// Tells a paired computer this one's notes changed.
+pub(super) fn poke_notes(manager: &BridgeLinkManager, instance_id: &str) -> Result<(), String> {
+    peer_request(manager, instance_id, "POST", "/notes/poke", String::new(), PEER_REQUEST_TIMEOUT).map(|_| ())
 }
 
 /// A paired computer's own diagnostics report (see `crate::diagnostics`).
@@ -1000,6 +1027,28 @@ pub(crate) mod tests {
         let (b, b_port) = node("B");
         let (_, b_id) = pair_directly(&a, a_port, &b, b_port);
         (a, b, b_id)
+    }
+
+    #[test]
+    fn notes_sync_both_ways_over_the_link() {
+        let (a, a_port) = node("Mac");
+        let (b, b_port) = node("Windows");
+        let (a_id, b_id) = pair_directly(&a, a_port, &b, b_port);
+        // A checklist made on the Mac shows up on Windows after one pull.
+        let list = a.lock().unwrap().notes.create("list", "Home", "mac", now_ms()).unwrap();
+        assert_eq!(super::notes::pull_from(&b, &a_id).unwrap(), 1);
+        let on_b = b.lock().unwrap().notes.list();
+        assert_eq!((on_b.len(), on_b[0].id.as_str(), on_b[0].folder.as_str()), (1, list.id.as_str(), "Home"));
+        // Windows ticks the item; the Mac pulls the change back. Pulling again brings nothing new.
+        let mut edited = on_b[0].clone();
+        edited.blocks[0].text = "milk".into();
+        edited.blocks[0].checked = true;
+        b.lock().unwrap().notes.save_from_ui(edited, "win", now_ms() + 1).unwrap();
+        assert_eq!(super::notes::pull_from(&a, &b_id).unwrap(), 1);
+        let block = a.lock().unwrap().notes.list()[0].blocks[0].clone();
+        assert_eq!((block.text.as_str(), block.checked), ("milk", true));
+        assert_eq!(super::notes::pull_from(&a, &b_id).unwrap(), 0);
+        assert_eq!(super::notes::pull_from(&b, &a_id).unwrap(), 0);
     }
 
     #[test]

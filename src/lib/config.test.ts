@@ -42,6 +42,12 @@ describe('config migration from v0.7', () => {
     expect(mergeConfig({ clipboard: { sync: false } } as never).clipboard.sync).toBe(false)
   })
 
+  it('skips the setup checklist for computers that were already set up', () => {
+    expect(config.setup.dismissed).toBe(true)
+    expect(mergeConfig({}).setup.dismissed).toBe(false)
+    expect(mergeConfig({ setup: { dismissed: false, notificationsReviewed: true } } as never).setup).toEqual({ dismissed: false, notificationsReviewed: true })
+  })
+
   it('drops untouched default slots and keeps hand-configured ones', () => {
     const migrated = mergeConfig({ machines: [
       { id: 'mac', name: 'Mac', agentUrl: 'http://127.0.0.1:4141', agentToken: '', rustdeskPeerId: '', localsendTarget: '', localsendPin: '', sharedPath: '', bridgeInstanceId: '', syncthingDeviceId: '' },

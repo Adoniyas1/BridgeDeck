@@ -1,7 +1,7 @@
-import { ArrowLeftRight, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
+import { ArrowLeftRight, CheckCircle2, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing, wakeDevice } from '../../core/bridgelink'
-import { serviceConfig, sortedDevices, useConfig } from '../../core/config'
+import { serviceConfig, setConfig, sortedDevices, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { healthPermissions, isTauri, openPrivacySettings, type Permissions } from '../../lib/bridge'
 import { useStore } from '../../core/store'
@@ -13,7 +13,8 @@ import { receiverStore, startLocalSendReceiver } from '../files/state'
 import { messagesSourceStore } from '../messages/state'
 import { controlDevice, hostStore } from '../remote/state'
 import { conflictsStore, sidecarStore, startBuiltIn, syncthingStore } from '../sync/state'
-import { healthIssues, type Fix } from './health'
+import { healthIssues, type Fix, type HealthInput } from './health'
+import { setupSteps, type SetupFix } from './setup'
 import DiagnosticsButton from '../../shell/DiagnosticsButton'
 import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
@@ -37,7 +38,7 @@ function Leftovers() {
 
 const openedAt = Date.now()
 
-const FIXES: Record<Fix, () => unknown> = {
+export const FIXES: Record<Fix, () => unknown> = {
   update: installUpdate,
   'start-pairing': startAutomaticPairing,
   pair: () => activateTab('computers'),
@@ -50,7 +51,8 @@ const FIXES: Record<Fix, () => unknown> = {
 }
 
 /** Problems BridgeDeck can see, each with the click that fixes it. Hidden when all is well. */
-function NeedsAttention() {
+/** Everything the health checks look at, live. */
+export function useHealthInput(): HealthInput {
   const config = useConfig()
   const link = useStore(bridgeLinkStore)
   const messages = useStore(messagesSourceStore)
@@ -61,7 +63,7 @@ function NeedsAttention() {
   const updates = useStore(updatesStore)
   const [permissions, setPermissions] = useState<Permissions | null>(null)
   usePeriodicRefresh(async () => { if (isTauri()) setPermissions(await healthPermissions()) }, 10_000, [])
-  const issues = healthIssues({
+  return {
     pairingRunning: link.running,
     pairedCount: link.paired.length,
     mac: link.platform === 'macos',
@@ -74,7 +76,43 @@ function NeedsAttention() {
     conflicts: Object.values(conflicts).flat().length,
     update: { behind: updates.behind, installing: updates.installing },
     settled: Date.now() - openedAt > 20_000,
-  })
+  }
+}
+
+const SETUP_FIXES: Record<SetupFix, () => unknown> = {
+  pair: FIXES.pair,
+  'start-pairing': FIXES['start-pairing'],
+  'files-access': FIXES['files-access'],
+  'screen-recording': FIXES['screen-recording'],
+  accessibility: FIXES.accessibility,
+  'start-sync': FIXES['start-sync'],
+  'start-receiver': FIXES['start-receiver'],
+  'open-mimir': () => activateTab('mimir'),
+  'review-notifications': () => {
+    setConfig(c => ({ ...c, setup: { ...c.setup, notificationsReviewed: true } }))
+    activateTab('settings')
+  },
+}
+
+/** First-run checklist: ticks itself as things start working; closed for good with Done. */
+function SetupChecklist() {
+  const config = useConfig()
+  const steps = setupSteps({ ...useHealthInput(), mimirEnabled: config.mimir.enabled, notificationsReviewed: config.setup.notificationsReviewed })
+  const required = steps.filter(s => !s.optional)
+  const done = required.filter(s => s.done).length
+  const finish = () => setConfig(c => ({ ...c, setup: { ...c.setup, dismissed: true } }))
+  return <Card className="incoming-card setup-card"><SectionTitle title={done === required.length ? 'All set' : 'Set up BridgeDeck'} subtitle={`${done} of ${required.length} done${done === required.length ? ': your computers are connected' : ''}`} action={<CheckCircle2 size={20}/>} />
+    <div className="stack">{steps.map(step => <div className="service-row" key={step.id}>
+      <span className="service-dot" data-on={step.done}/>
+      <div className="grow"><strong>{step.title}</strong><small>{step.detail}</small></div>
+      {step.fix && <button className="secondary" onClick={() => void Promise.resolve(SETUP_FIXES[step.fix!.action]()).catch(() => undefined)}>{step.fix.label}</button>}
+    </div>)}</div>
+    <div className="actions"><button onClick={finish}>{done === required.length ? 'Done' : 'Skip for now'}</button><small className="vendor-note">You can open this again from Settings. Anything that breaks later shows up on Home.</small></div>
+  </Card>
+}
+
+function NeedsAttention() {
+  const issues = healthIssues(useHealthInput())
   if (!issues.length) return null
   return <Card className="incoming-card"><SectionTitle title="Needs attention" subtitle={`${issues.length} thing${issues.length === 1 ? '' : 's'} to fix`} action={<CircleAlert size={20}/>} />
     <div className="stack">{issues.map(issue => <div className="service-row" key={issue.id}>
@@ -108,7 +146,7 @@ function HomePage() {
   const versions = new Set(devices.filter(d => machineStatus[d.id]?.ok).map(d => machineStatus[d.id]?.version || '0.7 or older'))
   return <>
     {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
-    <NeedsAttention />
+    {config.setup.dismissed ? <NeedsAttention /> : <SetupChecklist />}
     <Leftovers />
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>

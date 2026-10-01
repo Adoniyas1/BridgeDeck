@@ -1,6 +1,7 @@
 import { CheckCircle2, Settings2 } from 'lucide-react'
 import { defaultConfig } from '../lib/config'
 import { setConfig } from '../core/config'
+import { activateTab } from '../core/tabs'
 import { refreshAll } from '../core/refresh'
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
@@ -14,6 +15,6 @@ export default function SettingsPage() {
   return <div className="settings-stack">
     {sections.map(({ id, Settings }) => Settings && <Settings key={id} />)}
     <NotificationSettings />
-    <Card><SectionTitle title={`BridgeDeck ${version}`} subtitle="Settings are saved in the BridgeDeck app-config folder; passwords, tokens and API keys are kept in the system keychain (macOS Keychain or Windows Credential Manager)." /><div className="actions"><button className="secondary" onClick={() => setConfig(structuredClone(defaultConfig))}><Settings2 size={17}/>Reset defaults</button><button className="secondary" onClick={() => void refreshAll()}><CheckCircle2 size={17}/>Recheck integrations</button><DiagnosticsButton /></div></Card>
+    <Card><SectionTitle title={`BridgeDeck ${version}`} subtitle="Settings are saved in the BridgeDeck app-config folder; passwords, tokens and API keys are kept in the system keychain (macOS Keychain or Windows Credential Manager)." /><div className="actions"><button className="secondary" onClick={() => setConfig(structuredClone(defaultConfig))}><Settings2 size={17}/>Reset defaults</button><button className="secondary" onClick={() => void refreshAll()}><CheckCircle2 size={17}/>Recheck integrations</button><DiagnosticsButton /><button className="secondary" onClick={() => { setConfig(c => ({ ...c, setup: { ...c.setup, dismissed: false } })); activateTab('home') }}>Show setup checklist</button></div></Card>
   </div>
 }

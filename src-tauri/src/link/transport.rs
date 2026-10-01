@@ -103,8 +103,10 @@ pub async fn read_raw(recv: &mut quinn::RecvStream) -> Result<Vec<u8>, String> {
 pub struct Link {
     endpoint: quinn::Endpoint,
     identity: Identity,
-    /// Open connections by the peer's certificate fingerprint.
+    /// Open connections by the peer's certificate fingerprint, whichever side opened them.
     connections: Mutex<HashMap<String, quinn::Connection>>,
+    /// Serves requests on every connection: the other side may reuse one this side opened.
+    handler: Arc<dyn Handler>,
 }
 
 impl Link {
@@ -120,7 +122,7 @@ impl Link {
             endpoint.set_default_client_config(client);
             Ok::<_, String>(endpoint)
         })?;
-        let link = Arc::new(Self { endpoint, identity, connections: Mutex::new(HashMap::new()) });
+        let link = Arc::new(Self { endpoint, identity, connections: Mutex::new(HashMap::new()), handler: handler.clone() });
         let accept = link.clone();
         tauri::async_runtime::spawn(async move { accept.accept_loop(handler).await });
         Ok(link)
@@ -193,6 +195,11 @@ impl Link {
                         }
                     }
                     self.remember(&fingerprint, &connection);
+                    // The other side caches this connection too and sends its own requests on it.
+                    if expected.is_some() {
+                        let (connection, fingerprint, handler) = (connection.clone(), fingerprint.clone(), self.handler.clone());
+                        tauri::async_runtime::spawn(async move { serve_connection(connection, fingerprint, handler).await });
+                    }
                     return Ok((connection, fingerprint));
                 }
                 Ok(Err(error)) => last_error = format!("Could not reach {address}: {error}"),
@@ -220,7 +227,14 @@ impl Link {
                 }
                 Err(error)
             }
-            Err(_) => Err("The other device did not answer in time".into()),
+            Err(_) => {
+                // Don't keep sending into a connection that stopped answering (keep-alives would
+                // otherwise hold it open forever); the next request connects afresh.
+                if let Ok(mut connections) = self.connections.lock() {
+                    connections.remove(fingerprint);
+                }
+                Err("The other device did not answer in time".into())
+            }
         }
     }
 
