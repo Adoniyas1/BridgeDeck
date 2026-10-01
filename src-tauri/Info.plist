@@ -10,5 +10,14 @@
   <string>Mimir listens when you talk to it (push-to-talk or its wake word).</string>
   <key>NSCameraUsageDescription</key>
   <string>Mimir can take a photo when you ask it to look at something.</string>
+  <!-- The Calendar tab can show Apple Calendar and Reminders (read-only), here and on the paired PC. -->
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>BridgeDeck shows your Apple Calendar events in its Calendar tab, on this Mac and your paired computer, when you turn that on.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>BridgeDeck shows your Apple Calendar events in its Calendar tab, on this Mac and your paired computer, when you turn that on.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>BridgeDeck shows your Apple Reminders with due dates in its Calendar tab, on this Mac and your paired computer, when you turn that on.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>BridgeDeck shows your Apple Reminders with due dates in its Calendar tab, on this Mac and your paired computer, when you turn that on.</string>
 </dict>
 </plist>

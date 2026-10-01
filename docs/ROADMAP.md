@@ -331,12 +331,17 @@ One PR each, in this order:
    Mimir: switching its brain to Claude no longer keeps the Ollama model name (Claude rejected it),
    Claude models get a picker (default Claude Opus 5.5), refusals show a message, and requests opt
    into the server-side refusal fallback.
-2. **First-run setup**: a checklist (pair, Mac permissions, sync, files, Mimir, notifications) with
+2. **First-run setup (built)**: a checklist (pair, Mac permissions, sync, files, Mimir, notifications) with
    live ticks, built on the "Needs attention" checks.
-3. **Notes & Checklists**: rich-text notes, folders, pins, search, checklists with due dates and
-   reminders; synced between paired computers with per-paragraph merging; Markdown export.
-4. **Calendar**: day/week/month, repeating events, reminders, quick-add; the Mac shares Apple
-   Calendar and Reminders (one permission prompt); `.ics` import/export; today's agenda on Home.
+3. **Notes & Checklists (built)**: block notes (headings, lists, checklists, quotes, code) with
+   Markdown shortcuts, folders, pins, search, due dates and reminders; synced between paired computers
+   with per-paragraph merging (`notes.rs`, `/notes/pull`); Copy as Markdown. Also fixed: requests
+   arriving on a connection this computer opened were never answered.
+4. **Calendar (built)**: day/week/month, repeating events (single occurrences can be changed or
+   removed), reminders, quick-add in plain words, due checklist items; synced like notes
+   (`calendar.rs`, `/calendar/pull`); `.ics` import/export; today's agenda on Home. The Mac can show
+   Apple Calendar and Reminders read-only (EventKit via JavaScript for Automation, one permission
+   prompt), also on the paired PC (`/calendar/apple`, only when the Mac turns sharing on).
 5. **Files over BridgeLink**: transfers on the paired QUIC link (LAN and Tailscale), progress,
    cancel, resume; Send to, tray, drag-and-drop and "Send my source" move to it; LocalSend stays
    for other devices.

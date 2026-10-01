@@ -18,6 +18,7 @@ import { setupSteps, type SetupFix } from './setup'
 import DiagnosticsButton from '../../shell/DiagnosticsButton'
 import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
+import TodayAgenda from '../calendar/Agenda'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
 
@@ -148,6 +149,7 @@ function HomePage() {
     {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
     {config.setup.dismissed ? <NeedsAttention /> : <SetupChecklist />}
     <Leftovers />
+    <TodayAgenda />
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>
       <Card><div className="metric-icon"><FolderSync /></div><div className="metric"><span>Built-in features ready</span><strong>{builtIn.filter(f => f.on).length}<small>/ {builtIn.length}</small></strong></div></Card>
