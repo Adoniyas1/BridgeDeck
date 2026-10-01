@@ -404,3 +404,15 @@ export async function pickIcsFile(mode: 'open' | 'save', defaultPath = 'BridgeDe
   const picked = await open({ multiple: false, filters })
   return typeof picked === 'string' ? picked : null
 }
+/** Files between paired computers over BridgeLink (src-tauri/src/transfer.rs). */
+export type TransferStatus = {
+  id: string; direction: 'send' | 'receive'; peerId: string; peerName: string; files: number; names: string[]
+  totalBytes: number; doneBytes: number; state: 'connecting' | 'sending' | 'receiving' | 'retrying' | 'done' | 'failed' | 'cancelled'
+  error: string | null; startedAt: number; finishedAt: number | null; folder: string | null; rate: number; canResume: boolean
+}
+export const transferSend = (peer: string, paths: string[]) => native<string>('transfer_send', { peer, paths })
+export const transfersList = () => native<TransferStatus[]>('transfers_list')
+export const transferCancel = (id: string) => native<void>('transfer_cancel', { id })
+export const transferResume = (id: string) => native<string>('transfer_resume', { id })
+export const transfersClear = () => native<void>('transfers_clear')
+export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this way'

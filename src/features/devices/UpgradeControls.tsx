@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, GitPullRequestArrow, Send } from 'lucide-react'
-import { localSendNativeSend, upgradeCreateBundle, upgradeInfo, upgradePeerStatus, upgradeRequestPeer, upgradeSelf } from '../../lib/bridge'
+import { localSendNativeSend, OLD_PEER_ERROR, transferSend, upgradeCreateBundle, upgradeInfo, upgradePeerStatus, upgradeRequestPeer, upgradeSelf } from '../../lib/bridge'
+import { waitForTransfer } from '../files/state'
 import type { UpgradeInfo, UpgradeStatus } from '../../lib/bridge'
 import type { DeviceConfig } from '../../types'
 
@@ -78,12 +79,16 @@ export function UpgradeControls({ device, peerVersion, online }: { device: Devic
     setRemote(undefined)
     try {
       if (mode === 'source') {
-        if (!device.localsendTarget) throw new Error(`No file-transfer address for ${device.name} yet`)
         setMessage('Packing this computer\'s source…')
         const bundle = await upgradeCreateBundle()
         setMessage(`Sending source (${(bundle.bytes / 1_000_000).toFixed(1)} MB)…`)
-        const sent = await localSendNativeSend(device.localsendTarget, [bundle.path], device.localsendPin)
-        if (!sent.ok) throw new Error(sent.stderr || sent.stdout || 'The source could not be sent')
+        // Over the paired link; a BridgeDeck too old for that gets it by LocalSend.
+        const sent = await waitForTransfer(await transferSend(device.id, [bundle.path]))
+        if (sent.state !== 'done') {
+          if (!sent.error?.includes(OLD_PEER_ERROR) || !device.localsendTarget) throw new Error(sent.error || 'The source could not be sent')
+          const fallback = await localSendNativeSend(device.localsendTarget, [bundle.path], device.localsendPin)
+          if (!fallback.ok) throw new Error(fallback.stderr || fallback.stdout || 'The source could not be sent')
+        }
         setMessage(`Waiting for approval on ${device.name}…`)
         await upgradeRequestPeer(device.id, { mode: 'source', fileName: bundle.fileName, sha256: bundle.sha256, fromVersion: local!.version })
       } else {

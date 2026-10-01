@@ -293,7 +293,7 @@ pub(super) struct PeerHandler {
 
 impl Handler for PeerHandler {
     fn stream_paths(&self) -> &'static [&'static str] {
-        &["/pair", crate::remote::SESSION_PATH, crate::clipboard::PATH]
+        &["/pair", crate::remote::SESSION_PATH, crate::clipboard::PATH, crate::transfer::PATH]
     }
 
     fn stream(&self, caller: Caller, request: Request, mut send: quinn::SendStream, recv: quinn::RecvStream) -> BoxFuture {
@@ -317,6 +317,20 @@ impl Handler for PeerHandler {
                     Some(peer) => crate::clipboard::serve(peer.name, request.body, send, recv).await,
                     None => {
                         let _ = write_frame(&mut send, &json!({ "ok": false, "error": "This device is not paired with this computer" })).await;
+                        let _ = send.finish();
+                    }
+                }
+                return;
+            }
+            if request.path == crate::transfer::PATH {
+                let found = manager.lock().ok().map(|r| (r.paired.values().find(|p| p.fingerprint == caller.fingerprint).cloned(), r.app.clone(), r.display_name.clone()));
+                match found {
+                    Some((Some(peer), app, local_name)) => {
+                        let dirs = crate::transfer::receive_dirs(app.as_ref());
+                        crate::transfer::serve(dirs, local_name, peer.instance_id, peer.name, request.body, send, recv).await
+                    }
+                    _ => {
+                        let _ = write_frame(&mut send, &json!({ "type": "refuse", "reason": "This device is not paired with this computer" })).await;
                         let _ = send.finish();
                     }
                 }
@@ -1088,6 +1102,93 @@ pub(crate) mod tests {
         assert_eq!((block.text.as_str(), block.checked), ("milk", true));
         assert_eq!(super::notes::pull_from(&a, &b_id).unwrap(), 0);
         assert_eq!(super::notes::pull_from(&b, &a_id).unwrap(), 0);
+    }
+
+    /// The file tests share the receive folders set in `transfer::TEST_DIRS`, so they take turns.
+    static FILE_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn files_go_over_the_link_resume_after_an_interruption_and_land_without_overwriting() {
+        let _turn = FILE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (a, a_port) = node("Mac");
+        let (b, b_port) = node("Windows");
+        let (_, b_id) = pair_directly(&a, a_port, &b, b_port);
+        let root = std::env::temp_dir().join(format!("bd-transfer-{}", uuid::Uuid::new_v4()));
+        let (outbox, dest, partial) = (root.join("out"), root.join("Downloads"), root.join("incoming"));
+        std::fs::create_dir_all(outbox.join("Album")).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        let big: Vec<u8> = (0..(3 * 1024 * 1024 + 123)).map(|i| (i % 251) as u8).collect();
+        std::fs::write(outbox.join("Album/big.bin"), &big).unwrap();
+        std::fs::write(outbox.join("Album/empty.txt"), b"").unwrap();
+        std::fs::write(outbox.join("report.pdf"), b"new report").unwrap();
+        std::fs::write(dest.join("report.pdf"), b"older report").unwrap();
+        *crate::transfer::TEST_DIRS.lock().unwrap() = Some((dest.clone(), partial.clone()));
+
+        let sources = crate::transfer::expand(&[outbox.join("Album"), outbox.join("report.pdf")]).unwrap();
+        // An earlier try of this transfer got 1 MB of the big file across. It's marked (zeros) so the
+        // result shows that part was kept and only the rest was sent.
+        let id = "resume-test-1".to_string();
+        let offer = crate::transfer::Offer { id: id.clone(), files: sources.iter().map(|(p, rel)| {
+            let meta = std::fs::metadata(p).unwrap();
+            crate::transfer::OfferFile { rel: rel.clone(), size: meta.len(), modified: meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 }
+        }).collect() };
+        std::fs::create_dir_all(partial.join(&id)).unwrap();
+        std::fs::write(partial.join(&id).join("offer.json"), serde_json::to_string(&offer.files).unwrap()).unwrap();
+        let big_index = offer.files.iter().position(|f| f.rel == "Album/big.bin").unwrap();
+        std::fs::write(partial.join(&id).join(format!("{big_index}.part")), vec![0u8; 1024 * 1024]).unwrap();
+        let mut expected = vec![0u8; 1024 * 1024];
+        expected.extend_from_slice(&big[1024 * 1024..]);
+
+        crate::transfer::start_send(a.clone(), b_id.clone(), sources, Some(id.clone())).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            let status = crate::transfer::status_of("send", &id).unwrap();
+            if status.finished_at.is_some() || std::time::Instant::now() > deadline { break status; }
+            thread::sleep(Duration::from_millis(50));
+        };
+        assert_eq!(status.state, "done", "{status:?}");
+        assert_eq!(status.done_bytes, status.total_bytes);
+        assert_eq!(std::fs::read(dest.join("Album/big.bin")).unwrap(), expected);
+        assert_eq!(std::fs::read(dest.join("Album/empty.txt")).unwrap(), b"");
+        assert_eq!(std::fs::read(dest.join("report.pdf")).unwrap(), b"older report");
+        assert_eq!(std::fs::read(dest.join("report (1).pdf")).unwrap(), b"new report");
+        assert!(!partial.join(&id).exists());
+        assert_eq!(crate::transfer::status_of("receive", &id).unwrap().state, "done");
+        *crate::transfer::TEST_DIRS.lock().unwrap() = None;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_cancelled_send_can_be_resumed() {
+        let _turn = FILE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (a, a_port) = node("Mac");
+        let (b, b_port) = node("Windows");
+        let (_, b_id) = pair_directly(&a, a_port, &b, b_port);
+        let root = std::env::temp_dir().join(format!("bd-cancel-{}", uuid::Uuid::new_v4()));
+        let (dest, partial) = (root.join("Downloads"), root.join("incoming"));
+        std::fs::create_dir_all(&dest).unwrap();
+        let data: Vec<u8> = (0..(8 * 1024 * 1024)).map(|i| (i % 253) as u8).collect();
+        std::fs::write(root.join("video.mp4"), &data).unwrap();
+        *crate::transfer::TEST_DIRS.lock().unwrap() = Some((dest.clone(), partial.clone()));
+        let wait = |id: &str| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                let status = crate::transfer::status_of("send", id).unwrap();
+                if status.finished_at.is_some() || std::time::Instant::now() > deadline { return status; }
+                thread::sleep(Duration::from_millis(20));
+            }
+        };
+        let sources = crate::transfer::expand(&[root.join("video.mp4")]).unwrap();
+        let id = crate::transfer::start_send(a.clone(), b_id.clone(), sources.clone(), None).unwrap();
+        crate::transfer::transfer_cancel(id.clone()).unwrap();
+        let stopped = wait(&id);
+        assert_eq!((stopped.state.as_str(), stopped.can_resume), ("cancelled", true), "{stopped:?}");
+        assert!(!dest.join("video.mp4").exists());
+        crate::transfer::start_send(a.clone(), b_id.clone(), sources, Some(id.clone())).unwrap();
+        assert_eq!(wait(&id).state, "done");
+        assert_eq!(std::fs::read(dest.join("video.mp4")).unwrap(), data);
+        *crate::transfer::TEST_DIRS.lock().unwrap() = None;
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

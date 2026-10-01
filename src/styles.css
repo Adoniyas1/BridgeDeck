@@ -507,3 +507,21 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .agenda-sub{font-size:11px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 4px}
 @media(max-width:700px){.cal-month-cell{min-height:70px}.cal-chip-time{display:none}.agenda-time{width:96px}}
 .card + .agenda-card,.notice + .agenda-card{margin-top:14px}
+/* Transfers over BridgeLink */
+.send-inline{display:inline-flex;align-items:center;gap:6px;border:0;background:var(--accent);color:#0b0c0e;border-radius:var(--radius-sm);padding:7px 12px;font-weight:600;font-size:12px}
+.transfers-card{margin-bottom:14px}
+.transfer-rows{display:flex;flex-direction:column;gap:6px}
+.transfer-row{display:flex;align-items:center;gap:12px;padding:10px;border-radius:var(--radius-sm);background:var(--surface-2);border:1px solid var(--line)}
+.transfer-icon{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--surface-3);color:var(--accent);flex:none}
+.transfer-row.state-done .transfer-icon{color:var(--ok)}.transfer-row.state-failed .transfer-icon{color:var(--bad)}.transfer-row.state-cancelled .transfer-icon{color:var(--faint)}
+.transfer-row-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.transfer-row-head strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.transfer-row-head small{color:var(--muted);font-size:11px;flex:none}
+.transfer-bar{height:4px;background:var(--bg);border-radius:4px;overflow:hidden;margin:6px 0 4px}
+.transfer-bar span{display:block;height:100%;background:var(--accent);transition:width .4s}
+.transfer-row.state-failed .transfer-bar span{background:var(--bad)}.transfer-row.state-cancelled .transfer-bar span{background:var(--faint)}
+.transfer-detail{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.transfer-row.state-failed .transfer-detail{color:var(--bad)}
+.transfer-actions{display:flex;gap:6px;flex:none}
+.transfer-actions button{display:inline-flex;align-items:center;gap:5px}
+.device-discovery-list>div{display:flex;align-items:center;gap:10px}

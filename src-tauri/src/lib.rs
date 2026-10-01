@@ -5,6 +5,7 @@ mod diagnostics;
 mod health;
 mod syncthing_bridge;
 mod secrets;
+mod transfer;
 mod tray;
 mod imessage;
 mod legacy_apps;
@@ -525,6 +526,7 @@ pub fn run() {
         .manage(sync_sidecar::SyncSidecar::default())
         .setup(|app| {
             sync_sidecar::init(app.handle());
+            transfer::init(app.handle());
             // Start BridgeLink with the process, not when the window's UI loads: a hidden or
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
@@ -554,6 +556,11 @@ pub fn run() {
             bridgelink::notes::notes_create,
             bridgelink::notes::notes_save,
             bridgelink::notes::notes_delete,
+            transfer::transfer_send,
+            transfer::transfers_list,
+            transfer::transfer_cancel,
+            transfer::transfer_resume,
+            transfer::transfers_clear,
             bridgelink::calendar::calendar_list,
             bridgelink::calendar::calendar_save,
             bridgelink::calendar::calendar_delete,
