@@ -47,6 +47,8 @@ export type AppConfig = {
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
   mimir: { enabled: boolean }
+  /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
+  setup: { dismissed: boolean; notificationsReviewed: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */
   sendTo: { enabled: boolean }
   syncthing: {
