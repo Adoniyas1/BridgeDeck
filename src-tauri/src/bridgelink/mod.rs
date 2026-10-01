@@ -111,6 +111,8 @@ pub struct BridgeLinkPairedPeer {
     pub paired_at: u64,
     /// It reported a hardware address, so Wake-on-LAN can be tried.
     pub wakeable: bool,
+    /// Every IP address it has been reached at (current first), e.g. to trust its file transfers.
+    pub addresses: Vec<String>,
 }
 
 /// A device paired with BridgeDeck 0.8 or older. Its pairing can't be used any more (it relied on
@@ -249,6 +251,7 @@ impl PersistedPeer {
             via: if is_tailscale_host(&self.host) { "tailscale" } else { "lan" }.into(),
             paired_at: self.paired_at,
             wakeable: !self.mac_addresses.is_empty(),
+            addresses: Vec::new(),
         }
     }
 }
@@ -632,7 +635,24 @@ fn snapshot(runtime: &mut Runtime) -> BridgeLinkStatus {
         })
         .collect();
     pending.sort_by_key(|p| p.created_at);
-    let mut paired: Vec<_> = runtime.paired.values().map(PersistedPeer::public).collect();
+    let mut paired: Vec<_> = runtime
+        .paired
+        .values()
+        .map(|p| {
+            let mut public = p.public();
+            // IP literals only: this runs on every status refresh, so no name lookups.
+            let seen = runtime.seen.get(&p.instance_id).into_iter().flatten().map(|(host, _, _)| host);
+            for host in std::iter::once(&p.host).chain(seen) {
+                if let Ok(ip) = host.trim_matches(['[', ']']).parse::<std::net::IpAddr>() {
+                    let ip = ip.to_canonical().to_string();
+                    if !public.addresses.contains(&ip) {
+                        public.addresses.push(ip);
+                    }
+                }
+            }
+            public
+        })
+        .collect();
     paired.sort_by_key(|p| p.name.to_lowercase());
     let mut legacy: Vec<_> = runtime
         .legacy
