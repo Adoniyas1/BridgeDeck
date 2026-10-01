@@ -441,7 +441,7 @@ fn changed(manager: &BridgeLinkManager) {
     });
 }
 
-fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut NoteStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
+pub(super) fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut NoteStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
     let value = {
         let mut runtime = manager.lock()?;
         let device = runtime.instance_id.clone();
@@ -472,6 +472,244 @@ pub fn notes_save(patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Re
 #[tauri::command]
 pub fn notes_delete(id: String, manager: State<'_, BridgeLinkManager>) -> Result<bool, String> {
     local(&manager, |notes, _, now| Ok(notes.delete(&id, now)))
+}
+
+// ---- Markdown, for Mimir (see `mimir_api.rs`) ----
+
+/// The note's blocks in order, without deletion markers.
+fn shown(note: &Note) -> Vec<&Block> {
+    let mut blocks: Vec<&Block> = note.blocks.iter().filter(|b| !b.deleted).collect();
+    blocks.sort_by(|a, b| a.pos.cmp(&b.pos).then_with(|| a.id.cmp(&b.id)));
+    blocks
+}
+
+pub fn display_title(note: &Note) -> String {
+    if !note.title.trim().is_empty() {
+        return note.title.trim().to_string();
+    }
+    shown(note).iter().find(|b| !b.text.trim().is_empty()).map(|b| b.text.lines().next().unwrap_or("").chars().take(80).collect()).unwrap_or_else(|| "Untitled".into())
+}
+
+pub fn preview(note: &Note, max: usize) -> String {
+    shown(note).iter().map(|b| b.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" · ").chars().take(max).collect()
+}
+
+fn due_text(ms: u64) -> String {
+    // Kept as UTC so it reads the same on every computer; Mimir converts.
+    let secs = (ms / 1000) as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}Z", rem / 3600, (rem % 3600) / 60)
+}
+
+/// "2026-10-03T15:00Z" (as `due_text` writes it) back to ms.
+fn parse_due(text: &str) -> Option<u64> {
+    let t = text.trim().strip_suffix('Z')?;
+    let (date, time) = t.split_once('T')?;
+    let mut d = date.split('-').map(|p| p.parse::<i64>().ok());
+    let (y, m, day) = (d.next()??, d.next()??, d.next()??);
+    let mut hm = time.split(':').map(|p| p.parse::<i64>().ok());
+    let (h, min) = (hm.next()??, hm.next()??);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&day) || !(0..24).contains(&h) || !(0..60).contains(&min) {
+        return None;
+    }
+    // Days from civil (Howard Hinnant).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from((days * 86_400 + h * 3600 + min * 60) * 1000).ok()
+}
+
+/// A checklist item's text without a trailing "(due …)" tag, and the due time it gave.
+fn split_due(text: &str) -> (String, Option<u64>) {
+    if let Some(start) = text.rfind(" (due ") {
+        if let Some(inner) = text[start + 6..].strip_suffix(')') {
+            if let Some(due) = parse_due(inner) {
+                return (text[..start].to_string(), Some(due));
+            }
+        }
+    }
+    (text.to_string(), None)
+}
+
+pub fn to_markdown(note: &Note) -> String {
+    let mut lines = Vec::new();
+    let mut number = 0;
+    for block in shown(note) {
+        let pad = "  ".repeat(block.indent as usize);
+        number = if block.kind == "ol" { number + 1 } else { 0 };
+        let due = block.due.map(|d| format!(" (due {})", due_text(d))).unwrap_or_default();
+        lines.push(match block.kind.as_str() {
+            "h1" => format!("# {}", block.text),
+            "h2" => format!("## {}", block.text),
+            "h3" => format!("### {}", block.text),
+            "li" => format!("{pad}- {}", block.text),
+            "ol" => format!("{pad}{number}. {}", block.text),
+            "todo" => format!("{pad}- [{}] {}{due}", if block.checked { "x" } else { " " }, block.text),
+            "quote" => block.text.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"),
+            "code" => format!("```\n{}\n```", block.text),
+            _ => block.text.clone(),
+        });
+    }
+    lines.join("\n")
+}
+
+/// Blocks from Markdown: headings, bullet and numbered lists, checklists (`- [ ]`, nested by two
+/// spaces), quotes, code fences and paragraphs. Positions continue after `after`.
+pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    let mut code: Option<Vec<String>> = None;
+    let push = |blocks: &mut Vec<Block>, kind: &str, text: String, checked: bool, indent: u8| {
+        let pos = format!("{after}{:05}V", blocks.len() + 1);
+        blocks.push(Block { id: Uuid::new_v4().to_string(), kind: kind.into(), text: clean_text(&text, MAX_TEXT), checked, indent: indent.min(MAX_INDENT), pos, updated: now, by: device.into(), ..Default::default() });
+    };
+    let flush = |blocks: &mut Vec<Block>, paragraph: &mut Vec<String>| {
+        if !paragraph.is_empty() {
+            let text = paragraph.join("\n");
+            paragraph.clear();
+            let pos = format!("{after}{:05}V", blocks.len() + 1);
+            blocks.push(Block { id: Uuid::new_v4().to_string(), kind: "p".into(), text: clean_text(&text, MAX_TEXT), pos, updated: now, by: device.into(), ..Default::default() });
+        }
+    };
+    for raw in markdown.lines() {
+        if let Some(lines) = code.as_mut() {
+            if raw.trim_start().starts_with("```") {
+                let text = lines.join("\n");
+                code = None;
+                push(&mut blocks, "code", text, false, 0);
+            } else {
+                lines.push(raw.to_string());
+            }
+            continue;
+        }
+        let spaces = raw.len() - raw.trim_start().len();
+        let indent = (spaces / 2).min(MAX_INDENT as usize) as u8;
+        let line = raw.trim();
+        if line.starts_with("```") {
+            flush(&mut blocks, &mut paragraph);
+            code = Some(Vec::new());
+            continue;
+        }
+        if line.is_empty() {
+            flush(&mut blocks, &mut paragraph);
+            continue;
+        }
+        let item = line.strip_prefix("- ").or_else(|| line.strip_prefix("* "));
+        let checkbox = item.and_then(|rest| {
+            let lower = rest.get(..3).map(|s| s.to_ascii_lowercase());
+            match lower.as_deref() {
+                Some("[ ]") => Some((false, rest[3..].trim().to_string())),
+                Some("[x]") => Some((true, rest[3..].trim().to_string())),
+                _ => None,
+            }
+        });
+        let numbered = line.split_once(". ").filter(|(n, _)| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()));
+        let kind_text: Option<(&str, String, bool)> = if let Some((checked, text)) = checkbox {
+            Some(("todo", text, checked))
+        } else if let Some(text) = item {
+            Some(("li", text.to_string(), false))
+        } else if let Some((_, text)) = numbered {
+            Some(("ol", text.to_string(), false))
+        } else if let Some(text) = line.strip_prefix("### ") {
+            Some(("h3", text.to_string(), false))
+        } else if let Some(text) = line.strip_prefix("## ") {
+            Some(("h2", text.to_string(), false))
+        } else if let Some(text) = line.strip_prefix("# ") {
+            Some(("h1", text.to_string(), false))
+        } else {
+            line.strip_prefix("> ").map(|text| ("quote", text.to_string(), false))
+        };
+        match kind_text {
+            Some((kind, text, checked)) => {
+                flush(&mut blocks, &mut paragraph);
+                let indent = if matches!(kind, "todo" | "li" | "ol") { indent } else { 0 };
+                let (text, due) = if kind == "todo" { split_due(&text) } else { (text, None) };
+                push(&mut blocks, kind, text, checked, indent);
+                if let Some(last) = blocks.last_mut() {
+                    last.due = due;
+                }
+            }
+            None => paragraph.push(line.to_string()),
+        }
+    }
+    if let Some(lines) = code {
+        push(&mut blocks, "code", lines.join("\n"), false, 0);
+    }
+    flush(&mut blocks, &mut paragraph);
+    blocks.truncate(MAX_BLOCKS);
+    blocks
+}
+
+impl NoteStore {
+    /// A new note from Markdown (Mimir). `id` is only used for Mimir's memory note.
+    pub fn create_from_markdown(&mut self, id: Option<String>, kind: &str, title: &str, folder: &str, markdown: &str, device: &str, now: u64) -> Result<Note, String> {
+        if self.notes.len() >= MAX_NOTES {
+            return Err("There are too many notes; delete some first".into());
+        }
+        let id = match id {
+            Some(id) if self.notes.get(&id).is_some_and(|n| !n.deleted) => return Err("That note already exists".into()),
+            Some(id) => id,
+            None => Uuid::new_v4().to_string(),
+        };
+        let mut blocks = blocks_from_markdown(markdown, "i", device, now);
+        if blocks.is_empty() {
+            blocks.push(Block { id: Uuid::new_v4().to_string(), kind: if kind == "list" { "todo" } else { "p" }.into(), pos: "i".into(), updated: now, by: device.into(), ..Default::default() });
+        }
+        let note = Note { id: id.clone(), title: clean_text(title, MAX_TITLE).replace(['\n', '\t'], " "), kind: if kind == "list" { "list" } else { "note" }.into(), folder: clean_text(folder, 80), created: now, title_updated: now, meta_updated: now, blocks, ..Default::default() };
+        self.notes.insert(id.clone(), note);
+        self.bump(&id);
+        Ok(self.notes[&id].clone())
+    }
+
+    pub fn append_markdown(&mut self, id: &str, markdown: &str, device: &str, now: u64) -> Result<Note, String> {
+        let note = self.notes.get(id).filter(|n| !n.deleted).ok_or("No such note")?;
+        let last = note.blocks.iter().filter(|b| !b.deleted).map(|b| b.pos.clone()).max().unwrap_or_default();
+        let blocks = blocks_from_markdown(markdown, &last, device, now);
+        self.apply(NotePatch { id: id.into(), blocks, ..Default::default() }, device, now)
+    }
+
+    /// Replaces everything in a note with Markdown (Mimir's memory).
+    pub fn replace_markdown(&mut self, id: &str, markdown: &str, device: &str, now: u64) -> Result<Note, String> {
+        let note = self.notes.get(id).filter(|n| !n.deleted).ok_or("No such note")?;
+        let removed = note.blocks.iter().filter(|b| !b.deleted).map(|b| b.id.clone()).collect();
+        let blocks = blocks_from_markdown(markdown, &format!("r{now}"), device, now);
+        self.apply(NotePatch { id: id.into(), blocks, removed, ..Default::default() }, device, now)
+    }
+
+    /// Ticks (or unticks) the checklist item whose text best matches `item`, with its sub-tasks.
+    pub fn set_item(&mut self, id: &str, item: &str, done: bool, device: &str, now: u64) -> Result<usize, String> {
+        let note = self.notes.get(id).filter(|n| !n.deleted).ok_or("No such note")?;
+        let blocks: Vec<Block> = shown(note).into_iter().cloned().collect();
+        let wanted = item.trim().to_lowercase();
+        let index = blocks
+            .iter()
+            .position(|b| b.kind == "todo" && b.text.trim().to_lowercase() == wanted)
+            .or_else(|| blocks.iter().position(|b| b.kind == "todo" && b.text.to_lowercase().contains(&wanted)))
+            .ok_or_else(|| format!("No checklist item like “{item}” in that note"))?;
+        let level = blocks[index].indent;
+        let mut changed = vec![Block { checked: done, ..blocks[index].clone() }];
+        for child in blocks[index + 1..].iter().take_while(|b| b.indent > level) {
+            if child.kind == "todo" && child.checked != done {
+                changed.push(Block { checked: done, ..child.clone() });
+            }
+        }
+        let count = changed.len();
+        self.apply(NotePatch { id: id.into(), blocks: changed, ..Default::default() }, device, now)?;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
@@ -618,6 +856,31 @@ mod tests {
         // Moving it back out is a change like any other.
         let out = store.apply(NotePatch { id: note.id.clone(), blocks: vec![Block { indent: 0, ..sub }], ..Default::default() }, "mac", 300).unwrap();
         assert_eq!(out.blocks.iter().find(|b| b.id == "s1").unwrap().indent, 0);
+    }
+
+    #[test]
+    fn markdown_goes_in_and_out_with_checklists_and_sub_tasks() {
+        let mut store = NoteStore::default();
+        let md = "# Book\n\nRead slowly.\nTake notes.\n\n- [ ] Ch 11\n  - [x] Ch 11.1\n  - [ ] Ch 11.2\n- point\n1. first\n> quoted\n```\nlet x = 1;\n```";
+        let note = store.create_from_markdown(None, "list", "Study", "School", md, "mac", 100).unwrap();
+        let kinds: Vec<(&str, u8)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.indent)).collect();
+        assert_eq!(kinds, vec![("h1", 0), ("p", 0), ("todo", 0), ("todo", 1), ("todo", 1), ("li", 0), ("ol", 0), ("quote", 0), ("code", 0)]);
+        assert_eq!(to_markdown(&note), "# Book\nRead slowly.\nTake notes.\n- [ ] Ch 11\n  - [x] Ch 11.1\n  - [ ] Ch 11.2\n- point\n1. first\n> quoted\n```\nlet x = 1;\n```");
+        // Ticking a task by name ticks its sub-tasks too.
+        assert_eq!(store.set_item(&note.id, "ch 11", true, "mac", 200).unwrap(), 2);
+        let after = store.list()[0].clone();
+        assert!(shown(&after).iter().filter(|b| b.kind == "todo").all(|b| b.checked));
+        // Appending keeps the order; replacing swaps everything.
+        let appended = store.append_markdown(&note.id, "- [ ] Ch 12", "mac", 300).unwrap();
+        assert_eq!(shown(&appended).last().unwrap().text, "Ch 12");
+        let replaced = store.replace_markdown(&note.id, "Only this", "mac", 400).unwrap();
+        assert_eq!(to_markdown(&replaced), "Only this");
+        assert!(store.create_from_markdown(Some(note.id.clone()), "note", "", "", "", "mac", 500).is_err());
+        // Due times survive the trip.
+        let due = store.append_markdown(&note.id, "- [ ] Submit (due 2026-10-03T15:00Z)", "mac", 600).unwrap();
+        let item = shown(&due).into_iter().find(|b| b.text == "Submit").unwrap().clone();
+        assert_eq!(item.due, Some(1_791_039_600_000));
+        assert!(to_markdown(&due).ends_with("- [ ] Submit (due 2026-10-03T15:00Z)"));
     }
 
     #[test]

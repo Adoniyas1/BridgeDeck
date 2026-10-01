@@ -16,6 +16,13 @@ import { buildSkillsToolset } from "../skills/tools.js";
 import { buildDynamicSkillTools } from "../skills/dynamicTools.js";
 import { defaultSkillsRoot } from "../skills/paths.js";
 import { buildMacToolset, openWithMac } from "../mac/tools.js";
+import { bridgeDeckFromEnv } from "../bridgedeck/client.js";
+import { BRIDGEDECK_CORE_TOOLS, buildBridgeDeckToolset } from "../bridgedeck/tools.js";
+import { syncMemory } from "../bridgedeck/memory.js";
+import { readPersonaFile } from "../persona/compose.js";
+import { personaRelativePath } from "../persona/paths.js";
+import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
+import path from "node:path";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
 import { buildEngineeringWorkflowToolset } from "../engineering/workflow.js";
@@ -153,12 +160,26 @@ export class AgentSession {
     const mac = buildMacToolset({ projectsRoot: defaultProjectsRoot(), open: openWithMac });
     const engineering = buildEngineeringToolset({ projectsRoot: defaultProjectsRoot(), runFreeCad: runFreeCadMacro, runCalculiX, runNgspice, runKicadErc, runKicadDrc });
     const workflow = buildEngineeringWorkflowToolset(defaultProjectsRoot());
+    // BridgeDeck's notes, calendar, Messages, files… (only when BridgeDeck started this Mimir).
+    const bridgedeckClient = bridgeDeckFromEnv();
+    const bridgedeck = bridgedeckClient ? buildBridgeDeckToolset(bridgedeckClient) : { defs: [], handlers: {} };
+    if (bridgedeckClient) {
+      // MEMORY.md and the "Mimir's memory" note stay the same, before the prompt reads memory.
+      await syncMemory({
+        client: bridgedeckClient,
+        readMemory: () => readPersonaFile(workspaceRoot, "MEMORY.md"),
+        writeMemory: async (markdown) => {
+          await transaction.run({ summary: "MEMORY.md edited in BridgeDeck Notes", tier: "persona", writes: [{ path: personaRelativePath("MEMORY.md"), content: markdown }], verifySteps: PERSONA_VERIFY_STEPS });
+        },
+        statePath: path.join(path.dirname(workspaceRoot), "bridgedeck-memory-sync.json")
+      }).catch(() => undefined);
+    }
     // Rebuilt fresh every turn (cheap — just a directory read per skill) so
     // a skill created mid-conversation via create_skill's parameters
     // argument is callable as its own tool on the very next turn, no
     // restart. This is the entire "the model can make a tool" mechanism.
     const dynamicSkills = await buildDynamicSkillTools({ skillsRoot: defaultSkillsRoot(), runPython });
-    const fullDefs = [...(selfEdit?.defs ?? []), ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...dynamicSkills.defs];
+    const fullDefs = [...(selfEdit?.defs ?? []), ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...dynamicSkills.defs];
     const fullHandlers = {
       ...(selfEdit?.handlers ?? {}),
       ...persona.handlers,
@@ -168,6 +189,7 @@ export class AgentSession {
       ...mac.handlers,
       ...engineering.handlers,
       ...workflow.handlers,
+      ...bridgedeck.handlers,
       ...dynamicSkills.handlers
     };
     // Every dynamic skill_<name> tool is core-tier eligible regardless of
@@ -276,7 +298,8 @@ const CORE_TOOL_NAMES = new Set([
   "list_project_files",
   "read_project_file",
   "write_project_file",
-  "memory_replace"
+  "memory_replace",
+  ...BRIDGEDECK_CORE_TOOLS
 ]);
 
 /** Two tool tiers, never zero tools. "full" is the complete 30-tool surface

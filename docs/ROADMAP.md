@@ -348,9 +348,15 @@ One PR each, in this order:
    dropped connection). Received files never overwrite ("name (1).ext"). The Files tab, tray,
    drag-and-drop, Send to / Open With and "Send my source" use it; LocalSend stays for other devices
    (and as the fallback for a paired computer on an older BridgeDeck).
-6. **Mimir toolbox + memory**: tools for notes, checklists, calendar, Messages (sending needs a
-   confirm), files, the other computer (wake, status, screenshot, optional control with a banner
-   and confirm), clipboard and AI rooms; long-term memory kept as visible, editable notes.
+6. **Mimir toolbox + memory (built)**: BridgeDeck starts Mimir with `BRIDGEDECK_API` and a token
+   for `/mimir/…` on the loopback API (`bridgelink/mimir_api.rs`). Mimir's tools
+   (`mimir/src/main/bridgedeck/`): search, read, create and append notes; add, tick and due-date
+   checklist items; list, add and delete calendar events; read Messages and send them; paired
+   computers' status and Wake-on-LAN; send files; clipboard; AI rooms. Sending a message or files
+   shows a BridgeDeck dialog first. Long-term memory (MEMORY.md) is mirrored both ways with the
+   "Mimir's memory" note, so it can be read and edited in Notes and on the other computer.
+   Still to come: looking at or controlling the other computer from Mimir (with a banner and a
+   confirm), moved to step 7.
 7. **Mimir proactive + voice + skills + safety**: morning brief, deadline nudges, "while you were
    away"; wake word and hotkey on both computers; self-written skills can use the tools; every
    outward action needs a confirm and goes in an activity log.

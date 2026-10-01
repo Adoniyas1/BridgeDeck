@@ -12,6 +12,7 @@
 
 mod discovery;
 pub mod calendar;
+mod mimir_api;
 pub mod notes;
 mod local;
 pub(crate) mod peer;
@@ -39,7 +40,7 @@ use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u8 = 2;
-const DEFAULT_API_PORT: u16 = 41416;
+pub const DEFAULT_API_PORT: u16 = 41416;
 const MAX_PENDING: usize = 20;
 const MAX_AI_MESSAGES: usize = 500;
 const MAX_AI_BODY: usize = 24 * 1024;

@@ -11,7 +11,8 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
 };
 
-const MAX_HTTP_BYTES: usize = 64 * 1024;
+/// Large enough for a note (Mimir sends whole notes, its memory included).
+const MAX_HTTP_BYTES: usize = 512 * 1024;
 
 /// Origins of BridgeDeck's own WebView on each platform, and the dev server.
 const ALLOWED_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://localhost:1420", "http://127.0.0.1:1420"];
@@ -156,6 +157,14 @@ fn route(manager: &BridgeLinkManager, request: &HttpRequest, path: &str) -> (u16
             Some(app) => (200, serde_json::json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "status": crate::upgrade::read_status(&app) }).to_string()),
             None => (200, r#"{"ok":false,"error":"not ready"}"#.into()),
         },
+        (_, p) if p.starts_with("/mimir/") => {
+            drop(runtime);
+            let token = crate::mimir_host::api_token();
+            if request.method != "POST" || token.is_empty() || bearer(&request.headers) != Some(token.as_str()) {
+                return (401, r#"{"ok":false,"error":"Mimir token required"}"#.into());
+            }
+            super::mimir_api::route(manager, path, &request.body)
+        }
         (_, p) if p.starts_with("/ai/") => {
             let authorized = !runtime.ai_token.is_empty() && bearer(&request.headers) == Some(runtime.ai_token.as_str());
             drop(runtime);
@@ -276,6 +285,21 @@ mod tests {
         assert!(origin_allowed(Some("http://tauri.localhost")));
         assert!(!origin_allowed(Some("https://evil.example")));
         assert!(!origin_allowed(Some("null")));
+    }
+
+    #[test]
+    fn mimir_routes_need_mimirs_token() {
+        let manager = BridgeLinkManager::default();
+        let request = |auth: Option<&str>| HttpRequest {
+            method: "POST".into(),
+            target: "/mimir/notes/search".into(),
+            headers: auth.map(|a| HashMap::from([("authorization".to_string(), a.to_string())])).unwrap_or_default(),
+            body: "{}".into(),
+        };
+        // Before Mimir has started there is no token, so nothing gets in.
+        assert_eq!(route(&manager, &request(None), "/mimir/notes/search").0, 401);
+        assert_eq!(route(&manager, &request(Some("Bearer ")), "/mimir/notes/search").0, 401);
+        assert_eq!(route(&manager, &request(Some("Bearer guess")), "/mimir/notes/search").0, 401);
     }
 
     #[test]
