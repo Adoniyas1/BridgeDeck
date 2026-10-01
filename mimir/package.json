@@ -1,0 +1,57 @@
+{
+  "name": "mimir",
+  "version": "0.1.0",
+  "description": "Mimir, the self-editing AI assistant, running inside BridgeDeck (a Node process; its UI is a BridgeDeck tab).",
+  "private": true,
+  "type": "module",
+  "main": "server-entry.mjs",
+  "scripts": {
+    "dev:renderer": "node scripts/prepare-vad-assets.mjs && vite",
+    "build:renderer": "node scripts/prepare-vad-assets.mjs && vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:supervisor": "tsc -p tsconfig.supervisor.json",
+    "build": "npm run build:renderer && npm run build:main && npm run build:supervisor",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.supervisor.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "npm run build && node server-entry.mjs",
+    "supervisor": "npm run build && tsx supervisor/index.ts",
+    "serve": "node server-entry.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
+    "@huggingface/transformers": "^3.2.1",
+    "@ricky0123/vad-web": "^0.0.30",
+    "katex": "^0.18.3",
+    "keytar": "^7.9.0",
+    "mermaid": "^11.16.1",
+    "pdfkit": "^0.20.2",
+    "simple-git": "^3.27.0",
+    "ws": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "@picovoice/porcupine-node": "^3.0.3",
+    "@picovoice/pvrecorder-node": "^1.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.0",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.9.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.66.0",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

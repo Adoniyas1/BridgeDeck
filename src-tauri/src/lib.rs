@@ -8,6 +8,7 @@ mod tray;
 mod imessage;
 mod legacy_apps;
 mod link;
+mod mimir_host;
 mod remote;
 mod send_to;
 mod sync_conflicts;
@@ -546,6 +547,9 @@ pub fn run() {
             send_to::send_to_integration,
             health::health_permissions,
             health::open_privacy_settings,
+            mimir_host::mimir_status,
+            mimir_host::mimir_start,
+            mimir_host::mimir_stop,
             contacts_save,
             upgrade_info,
             upgrade_self,
@@ -622,7 +626,10 @@ pub fn run() {
             tauri::RunEvent::Opened { urls } => {
                 send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
             }
-            tauri::RunEvent::Exit => sync_sidecar::shutdown(app),
+            tauri::RunEvent::Exit => {
+                mimir_host::stop();
+                sync_sidecar::shutdown(app);
+            }
             _ => {}
         });
 }

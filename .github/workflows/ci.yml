@@ -25,6 +25,25 @@ jobs:
       - run: npm test
       - run: npm run verify:project
 
+  # Mimir (mimir/) is its own Node project: its typecheck, tests and lint.
+  mimir:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mimir
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mimir/package-lock.json
+      # No native add-ons are needed for the checks (keytar falls back to memory; wake word is optional).
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run lint
+
   rust:
     runs-on: ubuntu-latest
     env:

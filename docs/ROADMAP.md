@@ -307,6 +307,23 @@ All built (PR #10); none of it has run on Mac or Windows hardware yet.
   and not again for a day after a failed update. Installed builds without a clone can't update
   themselves yet (the Tauri updater needs a signing key; Phase 7 with code signing).
 
+### Mimir (built, 2026-10-01)
+Mimir, the self-editing assistant from `Adoniyas1/mimir` (commit 23b15bc), now lives in `mimir/` and
+runs inside BridgeDeck instead of as an Electron app:
+- Its main process is a Node server (`mimir/src/main/server.ts`) that serves the renderer on
+  127.0.0.1 and carries Electron's IPC channels over a token-protected WebSocket; the renderer's
+  `bridge.ts` is the new `window.mimir`. PDF export uses pdfkit instead of Chromium printing.
+- BridgeDeck's `mimir_host.rs` installs and builds it on first use (`npm ci`, `npm run build`),
+  starts it with BridgeDeck, restarts it on exit 75 (a self-edit) or a crash (gives up after 5 in
+  5 minutes), turns `MIMIR_NOTIFY` lines into notifications, and owns the voice shortcut
+  (Cmd/Ctrl+Shift+Space) while it runs.
+- The Mimir tab shows its page in an iframe (CSP `frame-src http://127.0.0.1:*`); the Mac build
+  asks for the microphone and camera (`src-tauri/Info.plist`).
+- `server-entry.mjs` keeps the immutable-launcher rule: self-edited builds run from the workspace,
+  and three starts in a row that never got healthy fall back to the original.
+- Not tried on hardware yet: microphone access inside the tab (WKWebView / WebView2 permission
+  prompts) is the part most likely to need work.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

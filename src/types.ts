@@ -1,4 +1,4 @@
-export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'files' | 'sync' | 'services' | 'settings'
+export type PageKey = 'home' | 'computers' | 'remote' | 'messages' | 'ai' | 'mimir' | 'files' | 'sync' | 'services' | 'settings'
 
 export type ServiceKey = 'syncthing' | 'localsend'
 
@@ -45,6 +45,8 @@ export type AppConfig = {
   notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
+  /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
+  mimir: { enabled: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */
   sendTo: { enabled: boolean }
   syncthing: {
