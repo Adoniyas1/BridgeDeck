@@ -83,7 +83,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     updates: { ...defaultConfig.updates, ...(input.updates || {}) },
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
     // Setups from before the checklist existed are already set up.
-    setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: Array.isArray(input.devices) && input.devices.length > 1, notificationsReviewed: false },
+    setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
     pairing: { ...defaultConfig.pairing, ...(input.pairing || {}) },
     messages: { nicknames: { ...(input.messages?.nicknames || {}) } },
