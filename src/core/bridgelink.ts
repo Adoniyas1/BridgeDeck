@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import {
   bridgeLinkApprove, bridgeLinkConfirmPair, bridgeLinkDecline, bridgeLinkForget, bridgeLinkLegacyUpgrade, bridgeLinkPeerStatus,
   bridgeLinkPollPair, bridgeLinkRefreshPeer, bridgeLinkRequestPair, bridgeLinkStart, bridgeLinkStatus, bridgeLinkStop, fetchAgent,
-  sourceUpdateStatus,
+  bridgeLinkWake, sourceUpdateStatus,
 } from '../lib/bridge'
 import type { AgentStatus, BridgeLinkPairedPeer, BridgeLinkPeer, BridgeLinkStatus, DeviceConfig, SourceUpdateStatus } from '../types'
 import { configStore, hydratedStore, removeDevice, setConfig, upsertDevice } from './config'
@@ -12,6 +12,11 @@ import { createStore, useStore } from './store'
 import { agentUrlFor, errorText } from './util'
 
 // BridgeLink is shared infrastructure: every feature reaches the paired computers through it.
+
+/** Sends the Wake-on-LAN packet to a sleeping paired computer and says so. */
+export async function wakeDevice(instanceId: string) {
+  try { setNotice(await bridgeLinkWake(instanceId)) } catch (error) { setNotice(errorText(error, 'Could not send the wake-up')) }
+}
 
 export const bridgeLinkStore = createStore<BridgeLinkStatus>({ running: false, instanceId: '', displayName: 'BridgeDeck', platform: '', apiPort: 41416, discovered: [], pending: [], paired: [] })
 export const pairingStateStore = createStore('Automatic pairing has not started yet.')

@@ -25,8 +25,8 @@ export function RemoteBackground() {
   // The host settings live in the config; the native side starts permissive (D15) until told.
   useEffect(() => {
     if (!isTauri()) return
-    void remoteHostSettings(config.remote.allowControl, config.remote.askFirst).then(hostStore.set).catch(() => undefined)
-  }, [config.remote.allowControl, config.remote.askFirst])
+    void remoteHostSettings(config.remote.allowControl, config.remote.askFirst, config.remote.askDevices).then(hostStore.set).catch(() => undefined)
+  }, [config.remote.allowControl, config.remote.askFirst, config.remote.askDevices.join(',')])
   usePeriodicRefresh(async () => { if (isTauri()) hostStore.set(await remoteHostStatus()) }, 2000, [])
 
   // Always visible while this computer is being controlled.

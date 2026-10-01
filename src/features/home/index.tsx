@@ -1,6 +1,6 @@
 import { ArrowLeftRight, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { useState } from 'react'
-import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing } from '../../core/bridgelink'
+import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing, wakeDevice } from '../../core/bridgelink'
 import { serviceConfig, sortedDevices, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { healthPermissions, isTauri, openPrivacySettings, type Permissions } from '../../lib/bridge'
@@ -117,7 +117,7 @@ function HomePage() {
       <Card><SectionTitle title="Computers" subtitle="Paired devices, and one click to control them" />
         <div className="stack">{devices.map(m => {
           const peer = paired.find(p => p.instanceId === m.id)
-          return <div className="machine-row" key={m.id}><div className="machine-avatar"><Computer size={22}/></div><div className="grow"><strong>{m.name}</strong><small>{machineStatus[m.id]?.hostname || (m.local ? 'This computer' : '')}</small></div><StatusPill online={!!machineStatus[m.id]?.ok}/>{!m.local && <button className="ghost" disabled={!peer || !canHost(peer.platform)} onClick={() => peer && controlDevice({ id: peer.instanceId, name: peer.name })}>Control</button>}</div>
+          return <div className="machine-row" key={m.id}><div className="machine-avatar"><Computer size={22}/></div><div className="grow"><strong>{m.name}</strong><small>{machineStatus[m.id]?.hostname || (m.local ? 'This computer' : '')}</small></div><StatusPill online={!!machineStatus[m.id]?.ok}/>{!m.local && peer?.wakeable && !machineStatus[m.id]?.ok && <button className="ghost" title="Wake-on-LAN (same network only)" onClick={() => void wakeDevice(peer.instanceId)}>Wake</button>}{!m.local && <button className="ghost" disabled={!peer || !canHost(peer.platform)} onClick={() => peer && controlDevice({ id: peer.instanceId, name: peer.name })}>Control</button>}</div>
         })}</div>
       </Card>
       <Card><SectionTitle title="Built in" subtitle="Everything runs inside BridgeDeck; no other apps needed" />

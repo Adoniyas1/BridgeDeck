@@ -13,7 +13,7 @@ export const defaultConfig: AppConfig = {
     { id: 'syncthing', name: 'Syncthing', enabled: true, autoStart: false, host: '127.0.0.1', port: 8384, webUrl: 'http://127.0.0.1:8384', notes: 'Persistent shared folders' },
     { id: 'localsend', name: 'LocalSend', enabled: true, autoStart: false, notes: 'Quick file transfers' },
   ],
-  remote: { allowControl: true, askFirst: false },
+  remote: { allowControl: true, askFirst: false, askDevices: [] },
   clipboard: { sync: true },
   notifications: { messages: true, ai: true, files: true, sync: true, updates: true },
   updates: { auto: false },

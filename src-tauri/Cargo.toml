@@ -21,6 +21,7 @@ tauri-plugin-dialog = "2.7.2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
 # BridgeDeck v0.7 uses the pinned LocalSend core directly for native send/receive.
 # vendor/localsend is populated by vendor:fetch or upgrade-from-previous.sh before native builds.
 localsend = { path = "../vendor/localsend/packages/core", features = ["full"] }
@@ -49,6 +50,8 @@ sysinfo = { version = ">=0.30, <1", default-features = false, features = ["syste
 # Clipboard sync between paired devices.
 arboard = "3"
 png = "0.17"
+# Wake-on-LAN: paired computers report their hardware addresses.
+mac_address = "1"
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
 # Remote control host: screen capture and input (macOS and Windows only).

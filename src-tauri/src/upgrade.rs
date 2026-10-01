@@ -167,6 +167,10 @@ pub fn start(app: &AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, reques
         from_version: env!("CARGO_PKG_VERSION").into(),
         updated_at: now_ms(),
     })?;
+    if running_from_source() {
+        update_in_place(app.clone(), mode, bundle, dir);
+        return Ok(());
+    }
     let mode_arg = if mode == UpgradeMode::Git { "git" } else { "source" };
     let bundle_arg = bundle.map(|b| b.to_string_lossy().to_string()).unwrap_or_default();
     let app_path = current_app_path();
@@ -240,6 +244,63 @@ pub fn check_for_update() -> Result<UpdateCheck, String> {
     let behind = git_output(&dir, &["rev-list", "--count", &format!("HEAD..{upstream}")])?.parse().unwrap_or(0);
     let latest = if behind > 0 { git_output(&dir, &["log", "-1", "--format=%s", &upstream]).unwrap_or_default() } else { String::new() };
     Ok(UpdateCheck { git: true, behind, upstream, latest })
+}
+
+/// Started by `npm run tauri dev` (a debug build): the dev server watches the source and rebuilds and
+/// restarts BridgeDeck when it changes, so there is no installed app to replace.
+fn running_from_source() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Updates the source the dev server is watching: pull (or unpack), then `npm install` if the
+/// dependencies changed. The dev server rebuilds and restarts BridgeDeck by itself.
+fn update_in_place(app: AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, dir: PathBuf) {
+    std::thread::spawn(move || {
+        let status = |state: &str, stage: &str, message: String| {
+            let mut current = read_status(&app);
+            current.state = state.into();
+            current.stage = stage.into();
+            current.message = message;
+            current.updated_at = now_ms();
+            let _ = write_status(&app, &current);
+        };
+        let lock = |dir: &Path| fs::read(dir.join("package-lock.json")).ok();
+        let result = (|| -> Result<String, String> {
+            let before = lock(&dir);
+            match mode {
+                UpgradeMode::Git => {
+                    status("running", "pull", "Pulling the latest version from GitHub".into());
+                    git_output(&dir, &["pull", "--ff-only"]).map_err(|e| format!("git pull failed: {e}"))?;
+                }
+                UpgradeMode::Source => {
+                    status("running", "unpack", "Unpacking the source sent by the other computer".into());
+                    let bundle = bundle.ok_or("The source bundle is missing")?;
+                    let mut cmd = Command::new("tar");
+                    cmd.arg("-xzf").arg(&bundle).arg("-C").arg(&dir);
+                    hide_console(&mut cmd);
+                    let output = cmd.output().map_err(|e| e.to_string())?;
+                    if !output.status.success() {
+                        return Err(format!("Unpacking failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+                    }
+                }
+            }
+            if lock(&dir) != before {
+                status("running", "deps", "Installing dependencies".into());
+                let mut cmd = Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" });
+                cmd.arg("install").current_dir(&dir);
+                hide_console(&mut cmd);
+                let output = cmd.output().map_err(|e| format!("npm install: {e}"))?;
+                if !output.status.success() {
+                    return Err(format!("npm install failed: {}", String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("")));
+                }
+            }
+            Ok("Updated. BridgeDeck rebuilds and restarts by itself in a minute or two".into())
+        })();
+        match result {
+            Ok(message) => status("succeeded", "done", message),
+            Err(error) => status("failed", "update", error),
+        }
+    });
 }
 
 /// Installed app to replace: the `.app` bundle on macOS, the executable elsewhere.

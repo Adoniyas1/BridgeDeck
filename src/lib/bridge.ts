@@ -106,7 +106,7 @@ export const legacyAppsStop = () => native<LegacyApp[]>('legacy_apps_stop')
 /** Remote control: this computer as host. */
 export type RemoteHostStatus = { supported: boolean; settings: { allow: boolean; askFirst: boolean }; sessions: Array<{ id: string; peerId: string; peerName: string; since: number }> }
 export const remoteHostStatus = () => native<RemoteHostStatus>('remote_host_status')
-export const remoteHostSettings = (allow: boolean, askFirst: boolean) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst })
+export const remoteHostSettings = (allow: boolean, askFirst: boolean, askPeers: string[]) => native<RemoteHostStatus>('remote_host_settings', { allow, askFirst, askPeers })
 export type ClipboardStatus = {
   enabled: boolean
   available: boolean
@@ -287,6 +287,8 @@ export async function bridgeLinkPeerStatus(instanceId: string): Promise<import('
 export async function bridgeLinkLegacyUpgrade(instanceId: string, fromVersion: string): Promise<void> {
   await invokeSafe('bridgelink_legacy_upgrade', { instanceId, request: { mode: 'git', fileName: '', sha256: '', fromVersion } })
 }
+
+export const bridgeLinkWake = (instanceId: string) => native<string>('bridgelink_wake', { instanceId })
 
 export async function bridgeLinkRefreshPeer(instanceId: string): Promise<import('../types').BridgeLinkPairResult> {
   const result = await invokeSafe<import('../types').BridgeLinkPairResult>('bridgelink_refresh_peer', { instanceId })

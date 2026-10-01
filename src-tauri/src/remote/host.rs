@@ -26,6 +26,28 @@ pub struct Settings {
 }
 
 static SETTINGS: Mutex<Settings> = Mutex::new(Settings { allow: true, ask_first: false });
+/// Devices to ask about each time even when "ask first" is off for everyone.
+static ASK_PEERS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Pressed on this computer, ends every remote session (registered only while one is running).
+pub const STOP_SHORTCUT: &str = "CommandOrControl+Alt+Shift+S";
+
+fn stop_shortcut(app: &Option<AppHandle>, on: bool) {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    let Some(app) = app else { return };
+    let shortcuts = app.global_shortcut();
+    if on {
+        if !shortcuts.is_registered(STOP_SHORTCUT) {
+            let _ = shortcuts.on_shortcut(STOP_SHORTCUT, |_, _, event| {
+                if event.state == ShortcutState::Pressed {
+                    stop_all();
+                }
+            });
+        }
+    } else {
+        let _ = shortcuts.unregister(STOP_SHORTCUT);
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,8 +99,9 @@ pub fn remote_host_status() -> HostStatus {
 }
 
 #[tauri::command]
-pub fn remote_host_settings(allow: bool, ask_first: bool) -> HostStatus {
+pub fn remote_host_settings(allow: bool, ask_first: bool, ask_peers: Option<Vec<String>>) -> HostStatus {
     *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = Settings { allow, ask_first };
+    *ASK_PEERS.lock().unwrap_or_else(|e| e.into_inner()) = ask_peers.unwrap_or_default();
     if !allow {
         stop_all();
     }
@@ -183,7 +206,8 @@ pub async fn serve(app: Option<AppHandle>, peer_id: String, peer_name: String, h
     if !settings.allow {
         return end(&mut send, format!("Remote control of {host_name} is turned off in its BridgeDeck settings")).await;
     }
-    if settings.ask_first {
+    let ask_this_one = ASK_PEERS.lock().map(|peers| peers.contains(&peer_id)).unwrap_or(false);
+    if settings.ask_first || ask_this_one {
         let approved = match app.clone() {
             Some(app) => {
                 let name = peer_name.clone();
@@ -220,9 +244,11 @@ pub async fn serve(app: Option<AppHandle>, peer_id: String, peer_name: String, h
         sessions.push(ActiveSession { id: id.clone(), peer_id, peer_name: peer_name.clone(), since: now_ms(), stop: stop.clone() });
     }
     emit(&app);
+    stop_shortcut(&app, true);
     if let Some(app) = &app {
         use tauri_plugin_notification::NotificationExt;
-        let _ = app.notification().builder().title("Remote control started").body(format!("{peer_name} is controlling this computer. Stop it from BridgeDeck or its tray menu.")).show();
+        let keys = if cfg!(target_os = "macos") { "Cmd+Option+Shift+S" } else { "Ctrl+Alt+Shift+S" };
+        let _ = app.notification().builder().title("Remote control started").body(format!("{peer_name} is controlling this computer. Press {keys} to stop it, or use BridgeDeck's banner or tray menu.")).show();
     }
 
     let monitor = Arc::new(AtomicUsize::new(monitor.min(monitors.len() - 1)));
@@ -323,8 +349,12 @@ pub async fn serve(app: Option<AppHandle>, peer_id: String, peer_name: String, h
     }
     stop.store(true, Ordering::Relaxed);
     reader.abort();
-    if let Ok(mut sessions) = SESSIONS.lock() {
+    let none_left = SESSIONS.lock().map(|mut sessions| {
         sessions.retain(|s| s.id != id);
+        sessions.is_empty()
+    }).unwrap_or(true);
+    if none_left {
+        stop_shortcut(&app, false);
     }
     emit(&app);
 }

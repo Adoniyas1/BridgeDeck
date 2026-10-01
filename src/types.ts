@@ -38,7 +38,7 @@ export type AppConfig = {
   devices: DeviceConfig[]
   services: ServiceConfig[]
   /** This computer being controlled by paired devices (D15: allowed without asking by default). */
-  remote: { allowControl: boolean; askFirst: boolean }
+  remote: { allowControl: boolean; askFirst: boolean; askDevices: string[] }
   /** Copying on one paired computer makes it pasteable on the others. */
   clipboard: { sync: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
@@ -347,6 +347,8 @@ export type BridgeLinkPairedPeer = {
   syncthingDeviceId?: string
   via: 'lan' | 'tailscale'
   pairedAt: number
+  /** It reported a hardware address, so Wake-on-LAN can be tried. */
+  wakeable?: boolean
 }
 
 /** Paired with BridgeDeck 0.8 or older: must be paired again (and can be asked to update first). */

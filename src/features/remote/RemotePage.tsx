@@ -28,7 +28,8 @@ export default function RemotePage() {
         {host.supported && <>
           <Toggle checked={config.remote.allowControl} onChange={allowControl => setRemote({ allowControl })} label="Let my paired devices control this computer" />
           <Toggle checked={config.remote.askFirst} onChange={askFirst => setRemote({ askFirst })} label="Ask me each time" />
-          <div className="remote-note"><ShieldCheck size={22}/><p>Only devices you paired can connect. While one does, a banner at the top of BridgeDeck says who, with Stop; the tray menu has Stop too.{navigator.userAgent.includes('Mac') ? ' On the Mac, allow BridgeDeck under Privacy & Security → Screen Recording and Accessibility.' : ''}</p></div>
+          {!config.remote.askFirst && paired.map(peer => <Toggle key={peer.instanceId} checked={config.remote.askDevices.includes(peer.instanceId)} onChange={ask => setRemote({ askDevices: ask ? [...config.remote.askDevices, peer.instanceId] : config.remote.askDevices.filter(id => id !== peer.instanceId) })} label={`Ask me each time ${peer.name} connects`} />)}
+          <div className="remote-note"><ShieldCheck size={22}/><p>Only devices you paired can connect. While one does, a banner at the top of BridgeDeck says who, with Stop; the tray menu has Stop too, and so does {navigator.userAgent.includes('Mac') ? '⌘⌥⇧S' : 'Ctrl+Alt+Shift+S'} on this keyboard.{navigator.userAgent.includes('Mac') ? ' On the Mac, allow BridgeDeck under Privacy & Security → Screen Recording and Accessibility.' : ''}</p></div>
         </>}
         {!!host.sessions.length && <div className="actions">{host.sessions.map(s => <span key={s.id} className="vendor-note">{s.peerName} since {since(s.since)}</span>)}<button className="danger" onClick={() => void stopHosting()}>Stop remote control</button></div>}
       </Card>

@@ -315,6 +315,17 @@ All built (PR #10); none of it has run on Mac or Windows hardware yet.
   simply not advertised.
 - Wake-on-LAN button, audio in remote sessions, a SYSTEM service on Windows for UAC prompts, code
   signing and notarisation.
+- **Built so far (free, no paid accounts)**:
+  - Wake-on-LAN: paired computers report their hardware addresses in `/status`; a Wake button on
+    Home and the Computers tab broadcasts the magic packet (same network only, not over Tailscale).
+  - Remote: "ask me each time" can be set per device; Cmd+Option+Shift+S / Ctrl+Alt+Shift+S stops
+    every session (registered only while one runs).
+  - Free Mac signing: `npm run mac:signing` creates a self-signed "BridgeDeck Local Signing"
+    certificate; updates sign with it so macOS keeps Screen Recording / Accessibility / Full Disk
+    Access across rebuilds. Paid Apple signing and notarisation stay optional.
+  - Updates of a copy started with `npm run tauri dev` only pull (and `npm install` when the lock
+    file changed): the dev server rebuilds and restarts BridgeDeck itself. Previously the updater
+    tried to replace the dev binary with an installed app.
 
 Order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7. Rust tests for pairing, crypto and protocol code are
 written together with Phase 1, not after it.
@@ -358,8 +369,8 @@ through the checks below, then Phase 6.
 - **Remote video** (Phase 5) is changed-tile JPEG pulled by the viewer, not H.264 + WebCodecs: no
   platform encoder code or codec patents, and desktop content (mostly still) sends little. Full-screen
   video costs more bandwidth than H.264 would; the wire format allows swapping in H.264 later.
-- **Remote options not built yet**: "ask first" is one setting for all devices (not per device), no
-  stop hotkey (banner and tray only), no clipboard or audio in sessions. RustDesk was removed in
+- **Remote options not built yet**: audio in sessions (clipboard is shared by clipboard sync; "ask
+  first" per device and a stop shortcut came in Phase 7). RustDesk was removed in
   0.9.1 at the user's request (BridgeDeck must not depend on other apps); the Home tab quits RustDesk
   and BlueBubbles left over from older setups and stops them opening at login.
 

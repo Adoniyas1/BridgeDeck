@@ -109,6 +109,8 @@ pub struct BridgeLinkPairedPeer {
     /// "lan" or "tailscale": the network the current address belongs to.
     pub via: String,
     pub paired_at: u64,
+    /// It reported a hardware address, so Wake-on-LAN can be tried.
+    pub wakeable: bool,
 }
 
 /// A device paired with BridgeDeck 0.8 or older. Its pairing can't be used any more (it relied on
@@ -228,6 +230,9 @@ struct PersistedPeer {
     localsend_port: u16,
     syncthing_device_id: Option<String>,
     paired_at: u64,
+    /// Hardware addresses it reported while awake, for Wake-on-LAN.
+    #[serde(default)]
+    mac_addresses: Vec<String>,
 }
 
 impl PersistedPeer {
@@ -243,6 +248,7 @@ impl PersistedPeer {
             syncthing_device_id: self.syncthing_device_id.clone(),
             via: if is_tailscale_host(&self.host) { "tailscale" } else { "lan" }.into(),
             paired_at: self.paired_at,
+            wakeable: !self.mac_addresses.is_empty(),
         }
     }
 }
@@ -680,6 +686,7 @@ fn status_body(runtime: &Runtime) -> String {
         "bridgeInstanceId": runtime.instance_id,
         "localsendPort": runtime.localsend_port,
         "syncthingDeviceId": runtime.syncthing_device_id,
+        "macAddresses": crate::wake::local_macs(),
     })
     .to_string()
 }
@@ -1041,7 +1048,7 @@ mod tests {
         let mut runtime = Runtime::default();
         let peer = PersistedPeer {
             instance_id: "p".into(), name: "Mac".into(), platform: "macos".into(), host: "192.168.4.28".into(), api_port: 41416,
-            fingerprint: "f".into(), localsend_port: 53317, syncthing_device_id: None, paired_at: 0,
+            fingerprint: "f".into(), localsend_port: 53317, syncthing_device_id: None, paired_at: 0, mac_addresses: Vec::new(),
         };
         runtime.seen.insert("p".into(), vec![("100.100.1.2".into(), 5, true), ("192.168.4.28".into(), 9, false), ("192.168.1.50".into(), 3, false)]);
         let addresses: Vec<String> = peer_addresses(&runtime, &peer).iter().map(|a| a.ip().to_string()).collect();
