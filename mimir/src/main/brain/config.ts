@@ -35,11 +35,22 @@ export async function loadBrainConfig(): Promise<BrainConfig> {
   return { ...stored, hasApiKey: Boolean(apiKey) };
 }
 
+/** The model a provider starts with when switched to (the previous provider's model name would
+ * mean nothing to it: Claude's API rejects "llama3.2:3b"). */
+const PROVIDER_DEFAULT_MODEL: Partial<Record<BrainProviderKind, string>> = {
+  anthropic: "claude-opus-5-5",
+  ollama: DEFAULTS.model
+};
+
 export async function saveBrainConfig(
   patch: Partial<Omit<BrainConfig, "hasApiKey">>
 ): Promise<BrainConfig> {
   const current = await readJsonFile<StoredBrainConfig>(FILE, DEFAULTS);
   const next: StoredBrainConfig = { ...current, ...patch };
+  const switched = patch.provider !== undefined && patch.provider !== current.provider;
+  if (switched && patch.model === undefined) {
+    next.model = PROVIDER_DEFAULT_MODEL[next.provider] ?? next.model;
+  }
   await writeJsonFile(FILE, next);
   return loadBrainConfig();
 }

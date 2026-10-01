@@ -261,6 +261,18 @@ fn git_output(dir: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// "main @ 1a2b3c4" (plus "with local edits") for diagnostics; None outside a git clone.
+pub fn git_summary() -> Option<String> {
+    let dir = source_dir();
+    if !git_ready(&dir) {
+        return None;
+    }
+    let branch = git_output(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
+    let commit = git_output(&dir, &["rev-parse", "--short", "HEAD"]).ok()?;
+    let edited = git_output(&dir, &["status", "--porcelain", "--untracked-files=no"]).map(|s| !s.is_empty()).unwrap_or(false);
+    Some(format!("{branch} @ {commit}{}", if edited { " with local edits" } else { "" }))
+}
+
 /// BridgeDeck's releases: every merged change lands here.
 const MAIN: &str = "main";
 /// Rewritten by npm / cargo on every install; local copies never hold anyone's work.
