@@ -42,7 +42,7 @@ export type AppConfig = {
   /** Copying on one paired computer makes it pasteable on the others. */
   clipboard: { sync: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
-  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean }
+  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean; reminders: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */

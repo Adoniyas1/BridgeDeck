@@ -46,7 +46,7 @@ export function setupSteps(input: SetupInput): SetupStep[] {
   })
   steps.push({
     id: 'notifications', title: 'Choose your notifications',
-    detail: input.notificationsReviewed ? 'Done' : 'Messages, AI, files, sync conflicts and updates can each be turned off.',
+    detail: input.notificationsReviewed ? 'Done' : 'Messages, AI, files, sync conflicts, updates and reminders can each be turned off.',
     done: input.notificationsReviewed,
     fix: input.notificationsReviewed ? undefined : { label: 'Review', action: 'review-notifications' },
   })

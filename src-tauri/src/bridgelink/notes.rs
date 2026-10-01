@@ -1,0 +1,616 @@
+//! Notes and checklists, kept on every paired computer.
+//!
+//! A note is a list of blocks (a paragraph, heading, list item, checklist item…), each with its own id
+//! and last-change time, so two computers editing the same note merge block by block: the newer
+//! version of each block wins, and a deleted block stays as a marker so the deletion spreads.
+//!
+//! Sync is pulled: every change here gets the next number in this store's sequence, and a paired
+//! computer asks for "everything after N" (`POST /notes/pull`), page by page. A local change pokes the
+//! paired computers (`POST /notes/poke`) so they pull at once; upkeep pulls every 30 seconds anyway.
+//! Everything here is data: nothing in a note is ever run.
+
+use super::*;
+
+const MAX_NOTES: usize = 5_000;
+const MAX_BLOCKS: usize = 3_000;
+const MAX_TEXT: usize = 20_000;
+const MAX_TITLE: usize = 300;
+/// Keeps each pull answer well under the link's 1 MB frame.
+const PAGE_BYTES: usize = 600 * 1024;
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code"];
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Block {
+    pub id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub checked: bool,
+    /// Checklist items: when it's due (ms since 1970), shown in the calendar and reminded.
+    #[serde(default)]
+    pub due: Option<u64>,
+    /// Order within the note: blocks sort by this string (a fractional index).
+    #[serde(default)]
+    pub pos: String,
+    #[serde(default)]
+    pub updated: u64,
+    #[serde(default)]
+    pub by: String,
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub folder: String,
+    #[serde(default)]
+    pub pinned: bool,
+    /// "note" or "list" (a checklist first).
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub created: u64,
+    #[serde(default)]
+    pub title_updated: u64,
+    /// When folder, pin, kind or deletion last changed.
+    #[serde(default)]
+    pub meta_updated: u64,
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub blocks: Vec<Block>,
+    /// This store's change number for the note (not sent between computers' merges as truth).
+    #[serde(default)]
+    pub seq: u64,
+}
+
+impl Note {
+    /// The newest change to anything in the note.
+    pub fn updated(&self) -> u64 {
+        self.blocks.iter().map(|b| b.updated).chain([self.title_updated, self.meta_updated, self.created]).max().unwrap_or(0)
+    }
+}
+
+/// What the UI changed in a note. Fields left out stay as they are.
+#[derive(Clone, Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NotePatch {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Blocks added or edited.
+    #[serde(default)]
+    pub blocks: Vec<Block>,
+    /// Ids of blocks removed.
+    #[serde(default)]
+    pub removed: Vec<String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Persisted {
+    notes: Vec<Note>,
+    seq: u64,
+    /// Highest change number pulled from each paired computer.
+    seen: HashMap<String, u64>,
+}
+
+#[derive(Default)]
+pub struct NoteStore {
+    notes: HashMap<String, Note>,
+    seq: u64,
+    seen: HashMap<String, u64>,
+}
+
+fn clean_text(value: &str, max: usize) -> String {
+    value.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).take(max).collect()
+}
+
+fn clean_id(value: &str) -> Option<String> {
+    let id: String = value.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+    (!id.is_empty()).then_some(id)
+}
+
+/// Cleans a block from the network or the UI; None if it can't be kept.
+fn sanitize_block(block: Block) -> Option<Block> {
+    Some(Block {
+        id: clean_id(&block.id)?,
+        kind: if BLOCK_KINDS.contains(&block.kind.as_str()) { block.kind } else { "p".into() },
+        text: clean_text(&block.text, MAX_TEXT),
+        checked: block.checked,
+        due: block.due,
+        pos: block.pos.chars().filter(|c| c.is_ascii_alphanumeric()).take(64).collect(),
+        updated: block.updated,
+        by: clean_text(&block.by, 64),
+        deleted: block.deleted,
+    })
+}
+
+fn sanitize_note(note: Note) -> Option<Note> {
+    let mut seen = std::collections::HashSet::new();
+    let blocks = note.blocks.into_iter().filter_map(sanitize_block).filter(|b| seen.insert(b.id.clone())).take(MAX_BLOCKS).collect();
+    Some(Note {
+        id: clean_id(&note.id)?,
+        title: clean_text(&note.title, MAX_TITLE).replace(['\n', '\t'], " "),
+        folder: clean_text(&note.folder, 80).replace(['\n', '\t'], " ").trim().to_string(),
+        pinned: note.pinned,
+        kind: if note.kind == "list" { "list".into() } else { "note".into() },
+        created: note.created,
+        title_updated: note.title_updated,
+        meta_updated: note.meta_updated,
+        deleted: note.deleted,
+        blocks,
+        seq: 0,
+    })
+}
+
+/// Newer wins; equal times are settled by the device id so both computers pick the same one.
+fn newer(a_time: u64, a_by: &str, b_time: u64, b_by: &str) -> bool {
+    (a_time, a_by) > (b_time, b_by)
+}
+
+impl NoteStore {
+    pub(super) fn load(dir: &Path) -> Self {
+        let persisted = load_json::<Persisted>(&dir.join("notes.json")).unwrap_or_default();
+        Self { notes: persisted.notes.into_iter().map(|n| (n.id.clone(), n)).collect(), seq: persisted.seq, seen: persisted.seen }
+    }
+
+    pub(super) fn save(&self, dir: Option<&PathBuf>) {
+        let Some(dir) = dir else { return };
+        let persisted = Persisted { notes: self.notes.values().cloned().collect(), seq: self.seq, seen: self.seen.clone() };
+        if let Ok(raw) = serde_json::to_string(&persisted) {
+            let _ = secure_write(&dir.join("notes.json"), &raw);
+        }
+    }
+
+    fn bump(&mut self, id: &str) {
+        self.seq += 1;
+        let seq = self.seq;
+        if let Some(note) = self.notes.get_mut(id) {
+            note.seq = seq;
+        }
+    }
+
+    /// Notes that aren't deleted, most recently changed first.
+    pub fn list(&self) -> Vec<Note> {
+        let mut notes: Vec<Note> = self.notes.values().filter(|n| !n.deleted).cloned().collect();
+        notes.sort_by_key(|n| std::cmp::Reverse(n.updated()));
+        notes
+    }
+
+    pub fn create(&mut self, kind: &str, folder: &str, device: &str, now: u64) -> Result<Note, String> {
+        if self.notes.len() >= MAX_NOTES {
+            return Err("There are too many notes; delete some first".into());
+        }
+        let id = Uuid::new_v4().to_string();
+        let first = Block { id: Uuid::new_v4().to_string(), kind: if kind == "list" { "todo" } else { "p" }.into(), pos: "i".into(), updated: now, by: device.into(), ..Default::default() };
+        let note = Note { id: id.clone(), kind: if kind == "list" { "list" } else { "note" }.into(), folder: clean_text(folder, 80), created: now, title_updated: now, meta_updated: now, blocks: vec![first], ..Default::default() };
+        self.notes.insert(id.clone(), note);
+        self.bump(&id);
+        Ok(self.notes[&id].clone())
+    }
+
+    /// The whole edited note, turned into a patch (tests; the UI sends patches so it never undoes
+    /// changes that arrived from another computer while it was editing).
+    #[cfg(test)]
+    pub fn save_from_ui(&mut self, edited: Note, device: &str, now: u64) -> Result<Note, String> {
+        let current = self.notes.get(&edited.id).cloned().ok_or("That note no longer exists")?;
+        let ids: std::collections::HashSet<&str> = edited.blocks.iter().map(|b| b.id.as_str()).collect();
+        let patch = NotePatch {
+            id: edited.id.clone(),
+            title: Some(edited.title.clone()),
+            folder: Some(edited.folder.clone()),
+            pinned: Some(edited.pinned),
+            kind: Some(edited.kind.clone()),
+            removed: current.blocks.iter().filter(|b| !b.deleted && !ids.contains(b.id.as_str())).map(|b| b.id.clone()).collect(),
+            blocks: edited.blocks,
+        };
+        self.apply(patch, device, now)
+    }
+
+    /// Applies what the UI changed: only the fields and blocks named in the patch.
+    pub fn apply(&mut self, patch: NotePatch, device: &str, now: u64) -> Result<Note, String> {
+        let current = self.notes.get(&patch.id).cloned().filter(|n| !n.deleted).ok_or("That note no longer exists")?;
+        let mut next = current.clone();
+        if let Some(title) = patch.title {
+            let title = clean_text(&title, MAX_TITLE).replace(['\n', '\t'], " ");
+            if title != next.title {
+                next.title = title;
+                next.title_updated = now;
+            }
+        }
+        let folder = patch.folder.map(|f| clean_text(&f, 80).replace(['\n', '\t'], " ").trim().to_string()).unwrap_or_else(|| next.folder.clone());
+        let pinned = patch.pinned.unwrap_or(next.pinned);
+        let kind = match patch.kind.as_deref() {
+            Some("list") => "list".to_string(),
+            Some(_) => "note".to_string(),
+            None => next.kind.clone(),
+        };
+        if (folder.as_str(), pinned, kind.as_str()) != (next.folder.as_str(), next.pinned, next.kind.as_str()) {
+            next.folder = folder;
+            next.pinned = pinned;
+            next.kind = kind;
+            next.meta_updated = now;
+        }
+        for new in patch.blocks.into_iter().filter_map(sanitize_block) {
+            match next.blocks.iter().position(|b| b.id == new.id) {
+                Some(i) => {
+                    let block = &mut next.blocks[i];
+                    let differs = (new.kind.as_str(), new.text.as_str(), new.checked, new.due, new.pos.as_str()) != (block.kind.as_str(), block.text.as_str(), block.checked, block.due, block.pos.as_str());
+                    if differs || block.deleted {
+                        *block = Block { updated: now, by: device.into(), deleted: false, ..new };
+                    }
+                }
+                None if next.blocks.len() < MAX_BLOCKS => next.blocks.push(Block { updated: now, by: device.into(), deleted: false, ..new }),
+                None => {}
+            }
+        }
+        for id in &patch.removed {
+            if let Some(block) = next.blocks.iter_mut().find(|b| &b.id == id && !b.deleted) {
+                block.deleted = true;
+                block.text.clear();
+                block.updated = now;
+                block.by = device.into();
+            }
+        }
+        if next != current {
+            self.notes.insert(next.id.clone(), next.clone());
+            self.bump(&next.id);
+        }
+        Ok(self.notes[&next.id].clone())
+    }
+
+    pub fn delete(&mut self, id: &str, now: u64) -> bool {
+        let Some(note) = self.notes.get_mut(id) else { return false };
+        if note.deleted {
+            return false;
+        }
+        note.deleted = true;
+        note.meta_updated = now;
+        // A deleted note keeps only its marker; its text doesn't linger on the other computer.
+        note.blocks.clear();
+        note.title.clear();
+        self.bump(id);
+        true
+    }
+
+    /// Merges a note from a paired computer. True if anything here changed.
+    pub fn merge(&mut self, incoming: Note) -> bool {
+        let Some(incoming) = sanitize_note(incoming) else { return false };
+        let id = incoming.id.clone();
+        let Some(current) = self.notes.get(&id).cloned() else {
+            if self.notes.len() >= MAX_NOTES {
+                return false;
+            }
+            self.notes.insert(id.clone(), incoming);
+            self.bump(&id);
+            return true;
+        };
+        let mut next = current.clone();
+        if incoming.title_updated > current.title_updated {
+            next.title = incoming.title.clone();
+            next.title_updated = incoming.title_updated;
+        }
+        if incoming.meta_updated > current.meta_updated {
+            next.folder = incoming.folder.clone();
+            next.pinned = incoming.pinned;
+            next.kind = incoming.kind.clone();
+            next.deleted = incoming.deleted;
+            next.meta_updated = incoming.meta_updated;
+        }
+        next.created = match (current.created, incoming.created) {
+            (0, theirs) => theirs,
+            (mine, 0) => mine,
+            (mine, theirs) => mine.min(theirs),
+        };
+        if next.deleted {
+            next.blocks.clear();
+            next.title.clear();
+        } else {
+            for block in incoming.blocks {
+                match next.blocks.iter().position(|b| b.id == block.id) {
+                    Some(i) => {
+                        let mine = &mut next.blocks[i];
+                        if newer(block.updated, &block.by, mine.updated, &mine.by) {
+                            *mine = block;
+                        }
+                    }
+                    None if next.blocks.len() < MAX_BLOCKS => next.blocks.push(block),
+                    None => {}
+                }
+            }
+        }
+        if next != current {
+            self.notes.insert(id.clone(), next);
+            self.bump(&id);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Notes changed after `since` in this store, oldest change first, one page at a time.
+    pub fn changes_since(&self, since: u64) -> PullAnswer {
+        // Asked for more than this store ever had: it was reset, so send everything again.
+        let since = if since > self.seq { 0 } else { since };
+        let mut changed: Vec<&Note> = self.notes.values().filter(|n| n.seq > since).collect();
+        changed.sort_by_key(|n| n.seq);
+        let mut notes = Vec::new();
+        let mut bytes = 0;
+        let mut upto = since;
+        for note in changed {
+            let size = serde_json::to_string(note).map(|s| s.len()).unwrap_or(0);
+            if !notes.is_empty() && bytes + size > PAGE_BYTES {
+                return PullAnswer { notes, upto, more: true };
+            }
+            bytes += size;
+            upto = note.seq;
+            notes.push(note.clone());
+        }
+        PullAnswer { notes, upto, more: false }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullAnswer {
+    pub notes: Vec<Note>,
+    /// Ask for changes after this next time.
+    pub upto: u64,
+    pub more: bool,
+}
+
+#[derive(Deserialize)]
+pub struct PullRequest {
+    pub since: u64,
+}
+
+/// A paired computer asked for this store's changes.
+pub(super) fn answer_pull(manager: &BridgeLinkManager, body: &str) -> Result<String, String> {
+    let request: PullRequest = serde_json::from_str(body).map_err(|_| "Invalid notes request".to_string())?;
+    let runtime = manager.lock()?;
+    serde_json::to_string(&runtime.notes.changes_since(request.since)).map_err(|e| e.to_string())
+}
+
+/// Pulls a paired computer's changes into this store.
+pub(super) fn pull_from(manager: &BridgeLinkManager, instance_id: &str) -> Result<usize, String> {
+    let mut merged = 0;
+    for _ in 0..50 {
+        let since = manager.lock()?.notes.seen.get(instance_id).copied().unwrap_or(0);
+        let answer: PullAnswer = peer::pull_notes(manager, instance_id, since)?;
+        let mut runtime = manager.lock()?;
+        let mut changed = false;
+        for note in answer.notes {
+            changed |= runtime.notes.merge(note);
+        }
+        runtime.notes.seen.insert(instance_id.to_string(), answer.upto);
+        runtime.notes.save(runtime.storage_dir.as_ref());
+        if changed {
+            merged += 1;
+            if let Some(app) = runtime.app.clone() {
+                use tauri::Emitter;
+                let _ = app.emit("notes-changed", ());
+            }
+        }
+        if !answer.more {
+            break;
+        }
+    }
+    Ok(merged)
+}
+
+/// Pulls from every paired computer (upkeep, and after a poke).
+pub(super) fn pull_all(manager: &BridgeLinkManager) {
+    let peers: Vec<String> = manager.lock().map(|r| r.paired.keys().cloned().collect()).unwrap_or_default();
+    for peer in peers {
+        let _ = pull_from(manager, &peer);
+    }
+}
+
+/// Saves after a local change and pokes the paired computers so they pull it now.
+fn changed(manager: &BridgeLinkManager) {
+    let peers = match manager.lock() {
+        Ok(runtime) => {
+            runtime.notes.save(runtime.storage_dir.as_ref());
+            runtime.paired.keys().cloned().collect::<Vec<_>>()
+        }
+        Err(_) => return,
+    };
+    let manager = manager.clone();
+    thread::spawn(move || {
+        for peer in peers {
+            let _ = peer::poke_notes(&manager, &peer);
+        }
+    });
+}
+
+fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut NoteStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
+    let value = {
+        let mut runtime = manager.lock()?;
+        let device = runtime.instance_id.clone();
+        let mut notes = std::mem::take(&mut runtime.notes);
+        let result = change(&mut notes, &device, now_ms());
+        runtime.notes = notes;
+        result?
+    };
+    changed(manager);
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn notes_list(manager: State<'_, BridgeLinkManager>) -> Result<Vec<Note>, String> {
+    Ok(manager.lock()?.notes.list())
+}
+
+#[tauri::command]
+pub fn notes_create(kind: String, folder: String, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    local(&manager, |notes, device, now| notes.create(&kind, &folder, device, now))
+}
+
+#[tauri::command]
+pub fn notes_save(patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    local(&manager, |notes, device, now| notes.apply(patch, device, now))
+}
+
+#[tauri::command]
+pub fn notes_delete(id: String, manager: State<'_, BridgeLinkManager>) -> Result<bool, String> {
+    local(&manager, |notes, _, now| Ok(notes.delete(&id, now)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block(id: &str, text: &str, updated: u64, by: &str) -> Block {
+        Block { id: id.into(), kind: "p".into(), text: text.into(), pos: "i".into(), updated, by: by.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn editing_different_paragraphs_on_two_computers_keeps_both_edits() {
+        let mut mac = NoteStore::default();
+        let note = mac.create("note", "", "mac", 100).unwrap();
+        let mut edited = note.clone();
+        edited.blocks = vec![block(&note.blocks[0].id, "first", 0, ""), block("b2", "second", 0, "")];
+        mac.save_from_ui(edited, "mac", 200).unwrap();
+
+        let mut pc = NoteStore::default();
+        for n in mac.changes_since(0).notes {
+            pc.merge(n);
+        }
+        // Each computer edits a different paragraph.
+        let mut on_mac = mac.list()[0].clone();
+        on_mac.blocks.iter_mut().find(|b| b.id == note.blocks[0].id).unwrap().text = "first (mac)".into();
+        mac.save_from_ui(on_mac, "mac", 300).unwrap();
+        let mut on_pc = pc.list()[0].clone();
+        on_pc.blocks.iter_mut().find(|b| b.id == "b2").unwrap().text = "second (pc)".into();
+        pc.save_from_ui(on_pc, "pc", 310).unwrap();
+
+        // Swap changes both ways.
+        let from_mac = mac.changes_since(0).notes;
+        let from_pc = pc.changes_since(0).notes;
+        for n in from_mac {
+            pc.merge(n);
+        }
+        for n in from_pc {
+            mac.merge(n);
+        }
+        for store in [&mac, &pc] {
+            let texts: Vec<String> = store.list()[0].blocks.iter().map(|b| b.text.clone()).collect();
+            assert_eq!(texts, vec!["first (mac)", "second (pc)"]);
+        }
+    }
+
+    #[test]
+    fn the_newer_edit_of_the_same_paragraph_wins_everywhere() {
+        let mut a = NoteStore::default();
+        let note = a.create("note", "", "a", 1).unwrap();
+        let mut b = NoteStore::default();
+        b.merge(note.clone());
+        let id = note.blocks[0].id.clone();
+        let mut from_a = a.list()[0].clone();
+        from_a.blocks[0].text = "older".into();
+        a.save_from_ui(from_a, "a", 10).unwrap();
+        let mut from_b = b.list()[0].clone();
+        from_b.blocks[0].text = "newer".into();
+        b.save_from_ui(from_b, "b", 20).unwrap();
+        let (x, y) = (a.changes_since(0).notes, b.changes_since(0).notes);
+        for n in y {
+            a.merge(n);
+        }
+        for n in x {
+            b.merge(n);
+        }
+        assert_eq!(a.list()[0].blocks.iter().find(|b| b.id == id).unwrap().text, "newer");
+        assert_eq!(b.list()[0].blocks.iter().find(|b| b.id == id).unwrap().text, "newer");
+    }
+
+    #[test]
+    fn deletions_spread_and_merging_twice_changes_nothing() {
+        let mut a = NoteStore::default();
+        let note = a.create("list", "Groceries", "a", 1).unwrap();
+        let mut b = NoteStore::default();
+        assert!(b.merge(note.clone()));
+        assert!(!b.merge(note.clone()), "same note again is a no-op (no ping-pong)");
+        assert!(a.delete(&note.id, 5));
+        for n in a.changes_since(0).notes {
+            b.merge(n);
+        }
+        assert!(b.list().is_empty());
+        assert!(b.notes[&note.id].blocks.is_empty(), "deleted text doesn't linger");
+    }
+
+    #[test]
+    fn pulls_come_in_pages_and_resume_where_they_stopped() {
+        let mut a = NoteStore::default();
+        for i in 0..30 {
+            let note = a.create("note", "", "a", i).unwrap();
+            let mut big = note.clone();
+            big.blocks[0].text = "x".repeat(MAX_TEXT);
+            big.blocks.extend((0..2).map(|j| block(&format!("b{i}x{j}"), &"y".repeat(MAX_TEXT), 0, "")));
+            a.save_from_ui(big, "a", 100 + i).unwrap();
+        }
+        let mut b = NoteStore::default();
+        let mut since = 0;
+        let mut pages = 0;
+        loop {
+            let answer = a.changes_since(since);
+            pages += 1;
+            for n in answer.notes {
+                b.merge(n);
+            }
+            since = answer.upto;
+            if !answer.more {
+                break;
+            }
+        }
+        assert!(pages > 1);
+        assert_eq!(b.list().len(), 30);
+        assert!(a.changes_since(since).notes.is_empty());
+    }
+
+    #[test]
+    fn a_patch_only_touches_what_it_names() {
+        let mut store = NoteStore::default();
+        let note = store.create("note", "", "mac", 100).unwrap();
+        let first = note.blocks[0].id.clone();
+        // Another computer's paragraph arrives while this one is editing an older copy.
+        let mut remote = store.list()[0].clone();
+        remote.blocks.push(block("from-pc", "added on the PC", 150, "pc"));
+        remote.blocks[0].updated = 150;
+        remote.blocks[0].text = "pc".into();
+        remote.blocks[0].by = "pc".into();
+        store.merge(remote);
+        let patch = NotePatch { id: note.id.clone(), title: Some("Groceries".into()), ..Default::default() };
+        let saved = store.apply(patch, "mac", 200).unwrap();
+        assert_eq!(saved.title, "Groceries");
+        assert!(saved.blocks.iter().any(|b| b.id == "from-pc" && !b.deleted));
+        assert_eq!(saved.blocks.iter().find(|b| b.id == first).unwrap().text, "pc");
+        let removed = store.apply(NotePatch { id: note.id.clone(), removed: vec!["from-pc".into()], ..Default::default() }, "mac", 300).unwrap();
+        assert!(removed.blocks.iter().find(|b| b.id == "from-pc").unwrap().deleted);
+    }
+
+    #[test]
+    fn untrusted_notes_are_cleaned() {
+        let mut store = NoteStore::default();
+        let hostile = Note { id: "../../etc".into(), title: "a\nb".into(), kind: "exec".into(), blocks: vec![Block { id: "x".into(), kind: "script".into(), text: "\u{0007}hi".into(), ..Default::default() }], ..Default::default() };
+        assert!(store.merge(hostile));
+        let note = store.list().into_iter().next().unwrap();
+        assert_eq!(note.id, "etc");
+        assert_eq!(note.title, "a b");
+        assert_eq!(note.kind, "note");
+        assert_eq!(note.blocks[0].kind, "p");
+        assert_eq!(note.blocks[0].text, "hi");
+    }
+}

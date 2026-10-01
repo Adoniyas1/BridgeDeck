@@ -360,3 +360,58 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .mimir-frame{width:100%;height:100%;border:0;border-radius:14px;background:#0b0c10;display:block}
 .mimir-log{max-height:260px;overflow:auto;font-size:11px;line-height:1.45;background:var(--panel-2,#0e141c);border-radius:8px;padding:10px;white-space:pre-wrap;color:var(--muted,#8f9caf)}
 .setup-card .actions{align-items:center}
+/* Notes */
+.notes-layout{display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start}
+.notes-sidebar{display:flex;flex-direction:column;gap:10px;padding:14px;position:sticky;top:12px;max-height:calc(100vh - 140px)}
+.notes-search{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:0 8px;color:var(--faint)}
+.notes-search:focus-within{border-color:var(--accent)}
+.notes-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);padding:8px 0}
+.notes-new button{flex:1;justify-content:center}
+.notes-filters{display:flex;flex-wrap:wrap;gap:5px}
+.notes-filters button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);background:transparent;color:var(--muted);border-radius:999px;padding:4px 9px;font-size:11px}
+.notes-filters button.active{background:var(--surface-3);color:var(--text);border-color:var(--accent)}
+.notes-filters small{color:var(--faint)}
+.notes-list{display:flex;flex-direction:column;gap:3px;overflow:auto;min-height:0}
+.notes-list button{border:0;background:transparent;text-align:left;border-radius:var(--radius-sm);padding:8px 9px;color:var(--text);display:block}
+.notes-list button:hover{background:var(--surface-2)}.notes-list button.active{background:var(--surface-3)}
+.notes-list strong{display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notes-list strong svg{flex:none;color:var(--muted)}
+.notes-list small{display:block;color:var(--muted);font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notes-empty,.notes-error{color:var(--muted);font-size:12px;padding:8px;margin:0}.notes-error{color:var(--bad)}
+.notes-editor{min-height:520px;display:flex;flex-direction:column;padding:16px 22px}
+.notes-blank{align-items:center;justify-content:center;color:var(--muted)}
+.notes-toolbar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.notes-kinds,.notes-meta{display:flex;align-items:center;gap:2px}
+.notes-icon{width:28px;height:28px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted);display:inline-grid;place-items:center;padding:0}
+.notes-icon:hover{background:var(--surface-3);color:var(--text)}.danger-icon:hover{color:var(--bad)}
+.notes-folder{display:flex;align-items:center;gap:5px;color:var(--faint);margin-right:4px}
+.notes-folder input{width:120px;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text);padding:4px 6px;outline:0;font-size:12px}
+.notes-folder input:hover,.notes-folder input:focus{border-color:var(--line-strong)}
+.notes-title{font-size:22px;font-weight:650;letter-spacing:-.02em;background:transparent;border:0;outline:0;color:var(--text);padding:16px 0 6px;width:100%}
+.notes-progress{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin-bottom:6px}
+.notes-progress button{padding:3px 8px!important;font-size:11px!important}
+.notes-blocks{flex:1;display:flex;flex-direction:column}
+.notes-block{display:flex;align-items:flex-start;gap:8px;padding:1px 0}
+.notes-block-body{flex:1;min-width:0}
+.notes-block textarea,.notes-rendered{display:block;width:100%;border:0;outline:0;resize:none;overflow:hidden;background:transparent;color:var(--text);font:inherit;font-size:14px;line-height:1.6;padding:2px 0;margin:0;white-space:pre-wrap;word-break:break-word;min-height:26px;cursor:text}
+.notes-block textarea::placeholder{color:var(--faint)}
+.notes-rendered code,.kind-code textarea,.kind-code .notes-rendered{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+.notes-rendered code{background:var(--surface-3);border-radius:4px;padding:1px 4px}
+.notes-rendered a{color:var(--accent)}
+.kind-h1 textarea,.kind-h1 .notes-rendered{font-size:20px;font-weight:650;padding-top:10px}
+.kind-h2 textarea,.kind-h2 .notes-rendered{font-size:17px;font-weight:620;padding-top:8px}
+.kind-h3 textarea,.kind-h3 .notes-rendered{font-size:15px;font-weight:600;padding-top:6px}
+.kind-quote .notes-block-body{border-left:2px solid var(--line-strong);padding-left:12px;color:var(--muted)}
+.kind-quote textarea,.kind-quote .notes-rendered{color:var(--muted)}
+.kind-code .notes-block-body{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 10px;margin:4px 0}
+.notes-block.checked textarea,.notes-block.checked .notes-rendered{color:var(--faint);text-decoration:line-through}
+.notes-bullet{width:18px;flex:none;text-align:right;color:var(--muted);font-size:14px;line-height:1.6;padding-top:2px}
+.notes-check{flex:none;width:16px;height:16px;margin:6px 1px 0;accent-color:var(--accent);cursor:pointer}
+.notes-due{flex:none;display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;color:var(--faint);font-size:11px;border-radius:var(--radius-sm);padding:5px 6px;opacity:0;transition:opacity .1s}
+.notes-block:hover .notes-due,.notes-due.set,.notes-block:focus-within .notes-due{opacity:1}
+.notes-due:hover{background:var(--surface-3);color:var(--text)}.notes-due.set{color:var(--muted)}.notes-due.overdue{color:var(--warn)}
+.notes-due-pick{display:inline-flex;align-items:center;gap:2px}
+.notes-due-pick input{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:3px 6px;font-size:12px;color-scheme:dark}
+.notes-tail{flex:1;min-height:60px;cursor:text}
+.notes-status{color:var(--faint);font-size:11px;margin:10px 0 0}
+@media(max-width:900px){.notes-layout{grid-template-columns:1fr}.notes-sidebar{position:static;max-height:320px}}

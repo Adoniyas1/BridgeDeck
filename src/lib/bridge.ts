@@ -375,3 +375,12 @@ export async function upgradeRequestPeer(instanceId: string, request: UpgradeReq
 export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boolean; version?: string; status?: UpgradeStatus; error?: string } | null> {
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
+/** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code'
+export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
+export type Note = { id: string; title: string; folder: string; pinned: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
+export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
+export const notesList = () => native<Note[]>('notes_list')
+export const notesCreate = (kind: 'note' | 'list', folder: string) => native<Note>('notes_create', { kind, folder })
+export const notesSave = (patch: NotePatch) => native<Note>('notes_save', { patch })
+export const notesDelete = (id: string) => native<boolean>('notes_delete', { id })

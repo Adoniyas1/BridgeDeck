@@ -15,7 +15,7 @@ export const defaultConfig: AppConfig = {
   ],
   remote: { allowControl: true, askFirst: false, askDevices: [] },
   clipboard: { sync: true },
-  notifications: { messages: true, ai: true, files: true, sync: true, updates: true },
+  notifications: { messages: true, ai: true, files: true, sync: true, updates: true, reminders: true },
   updates: { auto: false },
   mimir: { enabled: false },
   setup: { dismissed: false, notificationsReviewed: false },
