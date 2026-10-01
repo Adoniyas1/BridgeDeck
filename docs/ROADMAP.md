@@ -324,6 +324,32 @@ runs inside BridgeDeck instead of as an Electron app:
 - Not tried on hardware yet: microphone access inside the tab (WKWebView / WebView2 permission
   prompts) is the part most likely to need work.
 
+### Phase 8: Reliable, faster, Notes & Calendar, Mimir maximized (planned 2026-10-01)
+One PR each, in this order:
+1. **Diagnostics + Mimir fixes (built)**: "Copy diagnostics" on Home and in Settings collects a
+   redacted report from this computer and every paired one (`diagnostics.rs`, `GET /diagnostics`).
+   Mimir: switching its brain to Claude no longer keeps the Ollama model name (Claude rejected it),
+   Claude models get a picker (default Claude Opus 5.5), refusals show a message, and requests opt
+   into the server-side refusal fallback.
+2. **First-run setup**: a checklist (pair, Mac permissions, sync, files, Mimir, notifications) with
+   live ticks, built on the "Needs attention" checks.
+3. **Notes & Checklists**: rich-text notes, folders, pins, search, checklists with due dates and
+   reminders; synced between paired computers with per-paragraph merging; Markdown export.
+4. **Calendar**: day/week/month, repeating events, reminders, quick-add; the Mac shares Apple
+   Calendar and Reminders (one permission prompt); `.ics` import/export; today's agenda on Home.
+5. **Files over BridgeLink**: transfers on the paired QUIC link (LAN and Tailscale), progress,
+   cancel, resume; Send to, tray, drag-and-drop and "Send my source" move to it; LocalSend stays
+   for other devices.
+6. **Mimir toolbox + memory**: tools for notes, checklists, calendar, Messages (sending needs a
+   confirm), files, the other computer (wake, status, screenshot, optional control with a banner
+   and confirm), clipboard and AI rooms; long-term memory kept as visible, editable notes.
+7. **Mimir proactive + voice + skills + safety**: morning brief, deadline nudges, "while you were
+   away"; wake word and hotkey on both computers; self-written skills can use the tools; every
+   outward action needs a confirm and goes in an activity log.
+8. **Instant Messages**: the Mac watches `chat.db` and pushes new messages.
+9. **Remote video and audio**: hardware H.264 (VideoToolbox / Media Foundation) decoded with
+   WebCodecs, tiles as the fallback; audio via ScreenCaptureKit / WASAPI loopback.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

@@ -11,7 +11,14 @@ import type {
 
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
-const DEFAULT_MODEL = "claude-opus-5";
+export const DEFAULT_MODEL = "claude-opus-5-5";
+
+/** Models offered in the picker, newest first (any other Claude model id can still be typed in). */
+export const CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5"] as const;
+
+/** Models that take the server-side `fallbacks: "default"` option: when a safety classifier declines
+ * a request, the API re-runs it on a suitable model in the same call instead of stopping. */
+const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
 
 export class AnthropicProvider implements BrainProvider {
   readonly kind = "anthropic" as const;
@@ -61,14 +68,16 @@ export class AnthropicProvider implements BrainProvider {
     if (lastTool) lastTool.cache_control = { type: "ephemeral" };
 
     try {
-      const stream = this.client.messages.stream({
+      const fallback = FALLBACK_MODELS.has(this.model);
+      const stream = this.client.beta.messages.stream({
         model: this.model,
         max_tokens: opts.maxTokens ?? 8192,
         system,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         thinking: { type: "adaptive" },
-        output_config: { effort: opts.effort ?? "high" }
+        output_config: { effort: opts.effort ?? "high" },
+        ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {})
       });
 
       // Track tool_use blocks as they stream in (name arrives at block-start,
@@ -103,6 +112,14 @@ export class AnthropicProvider implements BrainProvider {
       }
 
       const final = await stream.finalMessage();
+      if (final.stop_reason === "refusal") {
+        // Every model in the chain declined; say so instead of ending the turn silently.
+        const details = final.stop_details;
+        const why = details?.explanation || (details?.category ? `category: ${details.category}` : "");
+        yield { type: "error", message: `Claude declined this request${why ? ` (${why})` : ""}. Try rephrasing it.` };
+        yield { type: "done", stopReason: "error" };
+        return;
+      }
       const stopReason =
         final.stop_reason === "tool_use"
           ? "tool_use"

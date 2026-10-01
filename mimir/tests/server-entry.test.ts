@@ -4,13 +4,14 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-// Runs the real launcher with a fake home and a fake build that just reports which file ran.
+// Runs the real launcher with a fake home and a fake build that just reports which file ran. When it
+// falls back to this checkout's own build, MIMIR_NO_AUTOSTART keeps that real server from starting.
 async function launch(home: string, failures: number, activeDir: string | null) {
   const mimirHome = path.join(home, ".mimir");
   await mkdir(mimirHome, { recursive: true });
   await writeFile(path.join(mimirHome, "boot-attempts.json"), JSON.stringify({ consecutiveFailures: failures }));
   await writeFile(path.join(mimirHome, "active.json"), JSON.stringify({ activeDir }));
-  const result = spawnSync(process.execPath, [path.resolve("server-entry.mjs")], { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf-8" });
+  const result = spawnSync(process.execPath, [path.resolve("server-entry.mjs")], { env: { ...process.env, HOME: home, USERPROFILE: home, MIMIR_NO_AUTOSTART: "1" }, encoding: "utf-8", timeout: 15_000 });
   const attempts = JSON.parse(await readFile(path.join(mimirHome, "boot-attempts.json"), "utf-8")) as { consecutiveFailures: number };
   return { output: result.stdout + result.stderr, attempts: attempts.consecutiveFailures };
 }

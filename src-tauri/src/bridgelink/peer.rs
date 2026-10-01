@@ -370,6 +370,10 @@ impl Handler for PeerHandler {
                     Err(error) => Response::json(409, json!({ "ok": false, "error": error }).to_string()),
                 }
             }
+            ("GET", "/diagnostics") => match manager.lock().ok().and_then(|r| r.app.clone()) {
+                Some(app) => Response::json(200, json!({ "ok": true, "report": crate::diagnostics::local_report(&app) }).to_string()),
+                None => Response::json(200, r#"{"ok":false,"error":"not ready"}"#),
+            },
             ("GET", "/upgrade/status") => match manager.lock().ok().and_then(|r| r.app.clone()) {
                 Some(app) => Response::json(200, json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "status": crate::upgrade::read_status(&app) }).to_string()),
                 None => Response::json(200, r#"{"ok":false,"error":"not ready"}"#),
@@ -463,6 +467,16 @@ pub fn forward_messages(manager: &BridgeLinkManager, instance_id: &str, op: serd
         return Err(response_error(&peer, &response));
     }
     Ok(value["result"].take())
+}
+
+/// A paired computer's own diagnostics report (see `crate::diagnostics`).
+pub fn peer_diagnostics(manager: &BridgeLinkManager, instance_id: &str) -> Result<String, String> {
+    let (peer, response) = peer_request(manager, instance_id, "GET", "/diagnostics", String::new(), Duration::from_secs(15))?;
+    let value: serde_json::Value = serde_json::from_str(&response.body).unwrap_or(serde_json::Value::Null);
+    match value.get("report").and_then(|v| v.as_str()) {
+        Some(report) if response.status == 200 => Ok(report.to_string()),
+        _ => Err(response_error(&peer, &response)),
+    }
 }
 
 /// Every paired device: (instance ID, name).

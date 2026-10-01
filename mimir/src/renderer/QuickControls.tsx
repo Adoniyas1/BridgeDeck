@@ -14,6 +14,14 @@ const PROVIDER_LABEL: Record<BrainProviderKind, string> = {
  * Everything used less often (API keys, voice, personality) stays in
  * Settings.
  */
+const CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5"];
+const CLAUDE_LABEL: Record<string, string> = {
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5 (faster, cheaper)",
+  "claude-fable-5-1": "Claude Fable 5.1 (most capable, priciest)",
+  "claude-haiku-4-5": "Claude Haiku 4.5 (fastest, cheapest)"
+};
+
 export default function QuickControls({
   onOpenSkills,
   onError
@@ -65,6 +73,10 @@ export default function QuickControls({
   const ollamaOptions =
     showOllamaPicker && ollamaModels && !ollamaModels.includes(brain.model) ? [brain.model, ...ollamaModels] : ollamaModels;
 
+  // Claude models offered in the picker (main/brain/anthropicProvider.ts keeps the same list); a
+  // custom id stays selectable rather than being overwritten.
+  const claudeOptions = brain.provider === "anthropic" ? (CLAUDE_MODELS.includes(brain.model) ? CLAUDE_MODELS : [brain.model, ...CLAUDE_MODELS]) : null;
+
   return (
     <div className="quick-controls">
       <select
@@ -80,7 +92,21 @@ export default function QuickControls({
           </option>
         ))}
       </select>
-      {showOllamaPicker ? (
+      {claudeOptions ? (
+        <select
+          className="quick-controls__model"
+          value={brain.model}
+          onChange={(e) => void patchBrain({ model: e.target.value })}
+          title="Claude model"
+          aria-label="Model"
+        >
+          {claudeOptions.map((name) => (
+            <option key={name} value={name}>
+              {CLAUDE_LABEL[name] ?? name}
+            </option>
+          ))}
+        </select>
+      ) : showOllamaPicker ? (
         <select
           className="quick-controls__model"
           value={brain.model}

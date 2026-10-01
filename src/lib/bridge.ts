@@ -124,6 +124,7 @@ export type MimirStatus = { phase: 'stopped' | 'setup' | 'starting' | 'running' 
 export const mimirStatus = () => native<MimirStatus>('mimir_status')
 export const mimirStart = () => native<MimirStatus>('mimir_start')
 export const mimirStop = () => native<MimirStatus>('mimir_stop')
+export const diagnosticsReport = () => native<string>('diagnostics_report')
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })

@@ -14,6 +14,7 @@ import { messagesSourceStore } from '../messages/state'
 import { controlDevice, hostStore } from '../remote/state'
 import { conflictsStore, sidecarStore, startBuiltIn, syncthingStore } from '../sync/state'
 import { healthIssues, type Fix } from './health'
+import DiagnosticsButton from '../../shell/DiagnosticsButton'
 import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 
@@ -81,6 +82,7 @@ function NeedsAttention() {
       <div className="grow"><strong>{issue.title}</strong><small>{issue.detail}</small></div>
       {issue.fix && <button className="secondary" onClick={() => void Promise.resolve(FIXES[issue.fix!.action]()).catch(() => undefined)}>{issue.fix.label}</button>}
     </div>)}</div>
+    <div className="actions"><DiagnosticsButton /></div>
   </Card>
 }
 
@@ -120,7 +122,7 @@ function HomePage() {
           return <div className="machine-row" key={m.id}><div className="machine-avatar"><Computer size={22}/></div><div className="grow"><strong>{m.name}</strong><small>{machineStatus[m.id]?.hostname || (m.local ? 'This computer' : '')}</small></div><StatusPill online={!!machineStatus[m.id]?.ok}/>{!m.local && peer?.wakeable && !machineStatus[m.id]?.ok && <button className="ghost" title="Wake-on-LAN (same network only)" onClick={() => void wakeDevice(peer.instanceId)}>Wake</button>}{!m.local && <button className="ghost" disabled={!peer || !canHost(peer.platform)} onClick={() => peer && controlDevice({ id: peer.instanceId, name: peer.name })}>Control</button>}</div>
         })}</div>
       </Card>
-      <Card><SectionTitle title="Built in" subtitle="Everything runs inside BridgeDeck; no other apps needed" />
+      <Card><SectionTitle title="Built in" subtitle="Everything runs inside BridgeDeck; no other apps needed" action={<DiagnosticsButton className="ghost" />} />
         <div className="stack compact">{builtIn.map(f => <button className="service-row" key={f.name} onClick={() => activateTab(f.tab)}><span className="service-dot" data-on={f.on}/><f.icon size={16}/><div className="grow"><strong>{f.name}</strong><small>{f.detail}</small></div></button>)}</div>
       </Card>
     </div>

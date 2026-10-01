@@ -1,6 +1,7 @@
 mod localsend_bridge;
 mod bridgelink;
 mod clipboard;
+mod diagnostics;
 mod health;
 mod syncthing_bridge;
 mod secrets;
@@ -548,6 +549,7 @@ pub fn run() {
             health::health_permissions,
             health::open_privacy_settings,
             mimir_host::mimir_status,
+            diagnostics::diagnostics_report,
             mimir_host::mimir_start,
             mimir_host::mimir_stop,
             contacts_save,
