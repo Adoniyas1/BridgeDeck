@@ -342,9 +342,12 @@ One PR each, in this order:
    (`calendar.rs`, `/calendar/pull`); `.ics` import/export; today's agenda on Home. The Mac can show
    Apple Calendar and Reminders read-only (EventKit via JavaScript for Automation, one permission
    prompt), also on the paired PC (`/calendar/apple`, only when the Mac turns sharing on).
-5. **Files over BridgeLink**: transfers on the paired QUIC link (LAN and Tailscale), progress,
-   cancel, resume; Send to, tray, drag-and-drop and "Send my source" move to it; LocalSend stays
-   for other devices.
+5. **Files over BridgeLink (built)**: files and folders go to paired computers on the encrypted
+   QUIC link (`transfer.rs`, stream `/files/send`) with progress, speed, cancel and resume (partial
+   files wait in app data; an interrupted send continues where it stopped, retrying itself on a
+   dropped connection). Received files never overwrite ("name (1).ext"). The Files tab, tray,
+   drag-and-drop, Send to / Open With and "Send my source" use it; LocalSend stays for other devices
+   (and as the fallback for a paired computer on an older BridgeDeck).
 6. **Mimir toolbox + memory**: tools for notes, checklists, calendar, Messages (sending needs a
    confirm), files, the other computer (wake, status, screenshot, optional control with a banner
    and confirm), clipboard and AI rooms; long-term memory kept as visible, editable notes.

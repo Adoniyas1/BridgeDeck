@@ -95,6 +95,8 @@ export function formatDue(due: number, now = Date.now()) {
   return `${date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...(date.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) })} ${time}`
 }
 
+const pad = (block: NoteBlock) => '  '.repeat(indentOf(block))
+
 /** The note as Markdown, for copying elsewhere. */
 export function toMarkdown(note: Note) {
   const lines: string[] = []
@@ -107,9 +109,9 @@ export function toMarkdown(note: Note) {
       case 'h1': lines.push(`# ${block.text}`); break
       case 'h2': lines.push(`## ${block.text}`); break
       case 'h3': lines.push(`### ${block.text}`); break
-      case 'li': lines.push(`- ${block.text}`); break
-      case 'ol': lines.push(`${number}. ${block.text}`); break
-      case 'todo': lines.push(`- [${block.checked ? 'x' : ' '}] ${block.text}${due}`); break
+      case 'li': lines.push(`${pad(block)}- ${block.text}`); break
+      case 'ol': lines.push(`${pad(block)}${number}. ${block.text}`); break
+      case 'todo': lines.push(`${pad(block)}- [${block.checked ? 'x' : ' '}] ${block.text}${due}`); break
       case 'quote': lines.push(block.text.split('\n').map(l => `> ${l}`).join('\n')); break
       case 'code': lines.push('```', block.text, '```'); break
       default: lines.push(block.text, '')
@@ -166,7 +168,7 @@ export function diff(before: Note, after: Note) {
   const changed = after.blocks.filter(b => {
     if (b.deleted) return false
     const was = old.get(b.id)
-    return !was || was.kind !== b.kind || was.text !== b.text || was.checked !== b.checked || was.due !== b.due || was.pos !== b.pos
+    return !was || was.kind !== b.kind || was.text !== b.text || was.checked !== b.checked || indentOf(was) !== indentOf(b) || was.due !== b.due || was.pos !== b.pos
   })
   if (changed.length) patch.blocks = changed
   const removed = [...old.keys()].filter(id => !now.has(id))
@@ -189,4 +191,110 @@ export function rebase(stored: Note, base: Note, draft: Note): Note {
     kind: pending.kind ?? stored.kind,
     blocks,
   }
+}
+
+// ---- Sub-tasks ----
+
+export const MAX_INDENT = 4
+
+export function indentOf(block: NoteBlock) {
+  return Math.max(0, Math.min(MAX_INDENT, block.indent ?? 0))
+}
+
+/** The blocks nested under the one at `index` (everything after it that is indented further). */
+export function descendants(blocks: NoteBlock[], index: number) {
+  const level = indentOf(blocks[index])
+  const out: NoteBlock[] = []
+  for (let i = index + 1; i < blocks.length && indentOf(blocks[i]) > level; i++) out.push(blocks[i])
+  return out
+}
+
+/** The block a nested block sits under, if any. */
+export function parentIndex(blocks: NoteBlock[], index: number) {
+  const level = indentOf(blocks[index])
+  for (let i = index - 1; i >= 0; i--) if (indentOf(blocks[i]) < level) return i
+  return -1
+}
+
+/** The previous block at the same level under the same parent. */
+export function previousSibling(blocks: NoteBlock[], index: number) {
+  const level = indentOf(blocks[index])
+  for (let i = index - 1; i >= 0; i--) {
+    const at = indentOf(blocks[i])
+    if (at === level) return i
+    if (at < level) return -1
+  }
+  return -1
+}
+
+/** Ticks or unticks an item with everything under it, then updates the items above: a task is
+ *  done when all its sub-tasks are. Returns the changed blocks. */
+export function toggleTask(shown: NoteBlock[], id: string): NoteBlock[] {
+  const blocks = shown.map(b => ({ ...b }))
+  const index = blocks.findIndex(b => b.id === id)
+  if (index < 0) return []
+  const checked = !blocks[index].checked
+  const changed = new Set<string>([id])
+  blocks[index].checked = checked
+  for (const child of descendants(blocks, index)) {
+    if (child.kind === 'todo' && child.checked !== checked) { child.checked = checked; changed.add(child.id) }
+  }
+  for (let at = parentIndex(blocks, index); at >= 0; at = parentIndex(blocks, at)) {
+    const parent = blocks[at]
+    if (parent.kind !== 'todo') break
+    const level = indentOf(parent) + 1
+    const kids = descendants(blocks, at).filter(b => b.kind === 'todo' && indentOf(b) === level)
+    const done = kids.length > 0 && kids.every(b => b.checked)
+    if (parent.checked !== done) { parent.checked = done; changed.add(parent.id) }
+  }
+  return blocks.filter(b => changed.has(b.id))
+}
+
+/** "3/5" for a task with sub-tasks. */
+export function subProgress(blocks: NoteBlock[], index: number) {
+  const level = indentOf(blocks[index]) + 1
+  const kids = descendants(blocks, index).filter(b => b.kind === 'todo' && indentOf(b) === level)
+  return kids.length ? { done: kids.filter(b => b.checked).length, total: kids.length } : null
+}
+
+/** A leading label with a number: "Ch 11", "11.2 Intro", "Step 3:". */
+function numbering(text: string) {
+  const m = text.trim().match(/^(\D{0,24}?)(\d+(?:\.\d+)*)(?=$|[\s:.)\-])/)
+  return m ? { prefix: m[1], parts: m[2].split('.').map(Number) } : null
+}
+
+/** The first sub-task's label under a numbered task: "Ch 11" → "Ch 11.1". */
+export function firstSubLabel(parent: string) {
+  const n = numbering(parent)
+  return n ? `${n.prefix}${[...n.parts, 1].join('.')} ` : ''
+}
+
+/** The next item's label when numbered items are being typed: after "Ch 11.1" under "Ch 11" comes
+ *  "Ch 11.2"; after "Step 1", "Step 2" comes "Step 3". Plain text that merely ends in a number
+ *  ("Buy 2 apples") isn't counted. */
+export function nextLabel(text: string, parent?: string, previous?: string) {
+  const n = numbering(text)
+  if (!n) return ''
+  const p = parent ? numbering(parent) : null
+  const s = previous ? numbering(previous) : null
+  const underParent = !!p && n.prefix === p.prefix && n.parts.length === p.parts.length + 1 && p.parts.every((x, i) => x === n.parts[i])
+  const follows = !!s && s.prefix === n.prefix && s.parts.length === n.parts.length && s.parts.slice(0, -1).every((x, i) => x === n.parts[i]) && s.parts[s.parts.length - 1] + 1 === n.parts[n.parts.length - 1]
+  if (!underParent && !follows) return ''
+  const parts = [...n.parts]
+  parts[parts.length - 1]++
+  return `${n.prefix}${parts.join('.')} `
+}
+
+/** Just a label, nothing typed after it ("Ch 11.3 "). */
+export function labelOnly(text: string) {
+  return /^\D{0,24}?\d+(?:\.\d+)*\s*$/.test(text) && numbering(text) !== null
+}
+
+/** The label after a task's own: "Ch 11" → "Ch 12 ", "11.2 Intro" → "11.3 ". */
+export function bumpLabel(text: string) {
+  const n = numbering(text)
+  if (!n) return ''
+  const parts = [...n.parts]
+  parts[parts.length - 1]++
+  return `${n.prefix}${parts.join('.')} `
 }

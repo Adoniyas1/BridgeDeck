@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { CalendarClock, CheckSquare, Code, Copy, FilePlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Pin, PinOff, Quote, Search, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Pin, PinOff, Quote, Search, Trash2, X } from 'lucide-react'
 import { notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
-import { between, diff, folders, formatDue, inline, matches, newId, nextKind, noteTitle, preview, rebase, shortcut, toMarkdown, visible } from './model'
+import { between, bumpLabel, descendants, diff, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, refreshNotes } from './state'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
@@ -73,6 +73,8 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
   const base = useRef(stored)
   const [draft, setDraftState] = useState(stored)
   const draftRef = useRef(stored)
+  /** Tasks whose sub-tasks are folded away (on this computer only). */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [focus, setFocus] = useState<Focus>(() => fresh && stored.kind === 'list' && stored.blocks[0] ? { id: stored.blocks[0].id, caret: 0 } : null)
   const [editing, setEditing] = useState<string | null>(null)
   const [status, setStatus] = useState('')
@@ -129,13 +131,62 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
     change({ ...draftRef.current, blocks: draftRef.current.blocks.map(b => b.id === id ? { ...b, ...changes } : b) })
   }
 
+  /** Several blocks changed at once (ticking with sub-tasks, moving a task with its sub-tasks). */
+  function updateMany(changed: NoteBlock[]) {
+    const byId = new Map(changed.map(b => [b.id, b]))
+    change({ ...draftRef.current, blocks: draftRef.current.blocks.map(b => byId.get(b.id) ?? b) })
+  }
+
+  function toggle(id: string) {
+    updateMany(toggleTask(visible(draftRef.current), id))
+  }
+
+  /** Moves a block in or out one level, with everything nested under it. */
+  function shiftIndent(index: number, by: 1 | -1) {
+    const list = visible(draftRef.current)
+    const block = list[index]
+    const level = indentOf(block)
+    if (by > 0 && (index === 0 || level >= MAX_INDENT || level > indentOf(list[index - 1]))) return false
+    if (by < 0 && level === 0) return false
+    const moved = [block, ...descendants(list, index)].map(b => ({ ...b, indent: Math.max(0, Math.min(MAX_INDENT, indentOf(b) + by)) }))
+    // Leaving the sub-tasks of "Ch 11" with an unwritten item makes it "Ch 12".
+    if (by < 0 && block.kind === 'todo' && (!block.text.trim() || labelOnly(block.text))) {
+      const parent = parentIndex(list, index)
+      if (parent >= 0) moved[0].text = bumpLabel(list[parent].text) || (labelOnly(block.text) ? '' : block.text)
+    }
+    // A new, empty sub-task under a numbered task starts with the next number ("Ch 11" → "Ch 11.1").
+    if (by > 0 && !block.text && block.kind === 'todo') {
+      const shifted = list.map((b, i) => i === index ? moved[0] : b)
+      const parent = parentIndex(shifted, index)
+      const sibling = previousSibling(shifted, index)
+      moved[0].text = sibling >= 0 ? nextLabel(shifted[sibling].text, parent >= 0 ? shifted[parent].text : undefined, (() => { const before = previousSibling(shifted, sibling); return before >= 0 ? shifted[before].text : undefined })()) || '' : parent >= 0 ? firstSubLabel(shifted[parent].text) : ''
+    }
+    updateMany(moved)
+    setFocus({ id: block.id, caret: 'end' })
+    return true
+  }
+
+  /** A new sub-task at the end of a task's sub-tasks. */
+  function addSubTask(index: number) {
+    const list = visible(draftRef.current)
+    const block = list[index]
+    const kids = descendants(list, index)
+    const level = indentOf(block) + 1
+    const lastKid = [...kids].reverse().find(k => indentOf(k) === level)
+    const lastKidIndex = lastKid ? list.indexOf(lastKid) : -1
+    const before = lastKidIndex >= 0 ? previousSibling(list, lastKidIndex) : -1
+    const text = lastKid ? nextLabel(lastKid.text, block.text, before >= 0 ? list[before].text : undefined) : firstSubLabel(block.text)
+    setCollapsed(current => { const next = new Set(current); next.delete(block.id); return next })
+    insertAfter(kids.length ? kids[kids.length - 1].id : block.id, { kind: 'todo', indent: level, text })
+  }
+
   function insertAfter(id: string | null, block: Partial<NoteBlock>, current = draftRef.current) {
     const list = visible(current)
     const at = id ? list.findIndex(b => b.id === id) : list.length - 1
     const pos = between(list[at]?.pos ?? '', list[at + 1]?.pos ?? '')
     const added: NoteBlock = { id: newId(), kind: 'p', text: '', checked: false, due: null, pos, updated: 0, by: '', deleted: false, ...block }
     change({ ...current, blocks: [...current.blocks, added] })
-    setFocus({ id: added.id, caret: 0 })
+    setFocus({ id: added.id, caret: added.text.length })
     return added
   }
 
@@ -148,18 +199,32 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
   function onKey(event: KeyboardEvent<HTMLTextAreaElement>, block: NoteBlock, index: number) {
     const area = event.currentTarget
     const caret = area.selectionStart
-    const collapsed = area.selectionStart === area.selectionEnd
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && block.kind === 'todo') {
+    const collapsedSelection = area.selectionStart === area.selectionEnd
+    const nestable = block.kind === 'todo' || block.kind === 'li' || block.kind === 'ol'
+    if (event.key === 'Tab' && nestable) {
       event.preventDefault()
-      updateBlock(block.id, { checked: !block.checked })
+      shiftIndent(index, event.shiftKey ? -1 : 1)
+    } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && block.kind === 'todo') {
+      event.preventDefault()
+      toggle(block.id)
     } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && (block.kind === 'code' ? event.shiftKey : !event.shiftKey)) {
       event.preventDefault()
+      // An empty sub-task moves out a level; an empty top-level item becomes plain text.
+      if (!block.text.trim() && nestable && indentOf(block) > 0) { shiftIndent(index, -1); return }
       if (!block.text && block.kind !== 'p' && block.kind !== 'code') { updateBlock(block.id, { kind: 'p' }); return }
       const before = block.text.slice(0, caret)
       const after = block.text.slice(area.selectionEnd)
       const current = { ...draftRef.current, blocks: draftRef.current.blocks.map(b => b.id === block.id ? { ...b, text: before } : b) }
-      insertAfter(block.id, { kind: nextKind(block.kind), text: after, due: null }, current)
-    } else if (event.key === 'Backspace' && collapsed && caret === 0) {
+      // Numbered items continue their numbering: "Ch 11.1" → "Ch 11.2".
+      const parent = parentIndex(blocks, index)
+      const sibling = previousSibling(blocks, index)
+      const label = nestable && !after ? nextLabel(before, parent >= 0 ? blocks[parent].text : undefined, sibling >= 0 ? blocks[sibling].text : undefined) : ''
+      // After a task with (unfolded) sub-tasks, the new item goes first among them.
+      const kids = descendants(blocks, index)
+      const intoKids = nestable && kids.length > 0 && !collapsed.has(block.id) && !after
+      insertAfter(block.id, { kind: nextKind(block.kind), text: intoKids ? firstSubLabel(before) : label || after, due: null, indent: intoKids ? indentOf(block) + 1 : indentOf(block) }, current)
+    } else if (event.key === 'Backspace' && collapsedSelection && caret === 0) {
+      if (nestable && indentOf(block) > 0) { event.preventDefault(); shiftIndent(index, -1); return }
       if (block.kind !== 'p') { event.preventDefault(); updateBlock(block.id, { kind: 'p' }); return }
       const previous = blocks[index - 1]
       if (!previous) return
@@ -167,10 +232,10 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
       const current = { ...draftRef.current, blocks: draftRef.current.blocks.map(b => b.id === previous.id ? { ...b, text: previous.text + block.text } : b) }
       removeBlock(block.id, current)
       setFocus({ id: previous.id, caret: previous.text.length })
-    } else if (event.key === 'ArrowUp' && collapsed && !block.text.slice(0, caret).includes('\n') && blocks[index - 1]) {
+    } else if (event.key === 'ArrowUp' && collapsedSelection && !block.text.slice(0, caret).includes('\n') && blocks[index - 1]) {
       event.preventDefault()
       setFocus({ id: blocks[index - 1].id, caret: 'end' })
-    } else if (event.key === 'ArrowDown' && collapsed && !block.text.slice(caret).includes('\n') && blocks[index + 1]) {
+    } else if (event.key === 'ArrowDown' && collapsedSelection && !block.text.slice(caret).includes('\n') && blocks[index + 1]) {
       event.preventDefault()
       setFocus({ id: blocks[index + 1].id, caret: 0 })
     } else if (event.key === 'Escape') {
@@ -208,7 +273,9 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
 
   const checked = blocks.filter(b => b.kind === 'todo' && b.checked)
   const todos = blocks.filter(b => b.kind === 'todo')
-  let number = 0
+  // Numbered lists count per level; folded tasks hide what's nested under them.
+  let counters: number[] = []
+  let hideDeeperThan = Infinity
 
   return <section className="card notes-editor">
     <div className="notes-toolbar">
@@ -232,12 +299,20 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
     </div>}
     <div className="notes-blocks">
       {blocks.map((block, index) => {
-        number = block.kind === 'ol' ? number + 1 : 0
-        return <BlockRow key={block.id} block={block} number={number} editing={editing === block.id} focus={focus?.id === block.id ? focus : null}
+        const level = indentOf(block)
+        if (level > hideDeeperThan) return null
+        hideDeeperThan = collapsed.has(block.id) ? level : Infinity
+        let number = 0
+        if (block.kind === 'ol') { counters = counters.slice(0, level + 1); counters[level] = (counters[level] ?? 0) + 1; number = counters[level] } else if (level === 0) counters = []
+        const hasKids = descendants(blocks, index).length > 0
+        return <BlockRow key={block.id} block={block} number={number} sub={block.kind === 'todo' ? subProgress(blocks, index) : null}
+          folded={hasKids ? collapsed.has(block.id) : null}
+          onFold={() => setCollapsed(current => { const next = new Set(current); if (next.has(block.id)) next.delete(block.id); else next.add(block.id); return next })}
+          onAddSub={() => addSubTask(index)} editing={editing === block.id} focus={focus?.id === block.id ? focus : null}
           onFocused={() => { setEditing(block.id); lastKindTarget.current = block.id; setFocus(null) }}
           onBlurred={() => setEditing(current => current === block.id ? null : current)}
           onText={text => onText(block, text)} onKey={e => onKey(e, block, index)}
-          onCheck={() => updateBlock(block.id, { checked: !block.checked })}
+          onCheck={() => toggle(block.id)}
           onDue={due => updateBlock(block.id, { due })}
           onEdit={() => setFocus({ id: block.id, caret: 'end' })} />
       })}
@@ -247,7 +322,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
         else insertAfter(last?.id ?? null, { kind: draft.kind === 'list' ? 'todo' : 'p' })
       }} />
     </div>
-    <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code. ⌘/Ctrl+Enter ticks an item.'}</p>
+    <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code. Tab makes a sub-task, Shift+Tab moves it back. ⌘/Ctrl+Enter ticks an item.'}</p>
   </section>
 }
 
@@ -263,8 +338,13 @@ function nextNineAm() {
   return d.getTime()
 }
 
-function BlockRow({ block, number, editing, focus, onFocused, onBlurred, onText, onKey, onCheck, onDue, onEdit }: {
+function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus, onFocused, onBlurred, onText, onKey, onCheck, onDue, onEdit }: {
   block: NoteBlock; number: number; editing: boolean; focus: Focus
+  /** Sub-tasks done of total, for a task that has them. */
+  sub: { done: number; total: number } | null
+  /** Whether its nested items are folded away; null when it has none. */
+  folded: boolean | null
+  onFold: () => void; onAddSub: () => void
   onFocused: () => void; onBlurred: () => void; onText: (text: string) => void; onKey: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   onCheck: () => void; onDue: (due: number | null) => void; onEdit: () => void
 }) {
@@ -294,7 +374,8 @@ function BlockRow({ block, number, editing, focus, onFocused, onBlurred, onText,
     : null
   const overdue = block.due && !block.checked && block.due <= Date.now()
 
-  return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`}>
+  return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`} style={{ paddingLeft: indentOf(block) * 26 }}>
+    {folded !== null ? <button className="notes-fold" title={folded ? 'Show sub-tasks' : 'Hide sub-tasks'} onClick={onFold}>{folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button> : <span className="notes-fold-space" />}
     {marker}
     <div className="notes-block-body">
       {showArea
@@ -313,6 +394,8 @@ function BlockRow({ block, number, editing, focus, onFocused, onBlurred, onText,
             })}
           </div>}
     </div>
+    {sub && <span className={`notes-sub-count${sub.done === sub.total ? ' all' : ''}`} title="Sub-tasks done">{sub.done}/{sub.total}</span>}
+    {block.kind === 'todo' && <button className="notes-add-sub" title="Add a sub-task" onClick={onAddSub}><ListPlus size={13} /></button>}
     {block.kind === 'todo' && (pickingDue
       ? <span className="notes-due-pick">
           <input type="datetime-local" autoFocus defaultValue={toLocalInput(block.due ?? nextNineAm())}

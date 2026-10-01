@@ -15,6 +15,7 @@ const MAX_NOTES: usize = 5_000;
 const MAX_BLOCKS: usize = 3_000;
 const MAX_TEXT: usize = 20_000;
 const MAX_TITLE: usize = 300;
+const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
 const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code"];
@@ -28,6 +29,9 @@ pub struct Block {
     pub text: String,
     #[serde(default)]
     pub checked: bool,
+    /// Nesting under the block above: sub-tasks and sub-points (0 = top level).
+    #[serde(default)]
+    pub indent: u8,
     /// Checklist items: when it's due (ms since 1970), shown in the calendar and reminded.
     #[serde(default)]
     pub due: Option<u64>,
@@ -130,6 +134,7 @@ fn sanitize_block(block: Block) -> Option<Block> {
         kind: if BLOCK_KINDS.contains(&block.kind.as_str()) { block.kind } else { "p".into() },
         text: clean_text(&block.text, MAX_TEXT),
         checked: block.checked,
+        indent: block.indent.min(MAX_INDENT),
         due: block.due,
         pos: block.pos.chars().filter(|c| c.is_ascii_alphanumeric()).take(64).collect(),
         updated: block.updated,
@@ -248,7 +253,7 @@ impl NoteStore {
             match next.blocks.iter().position(|b| b.id == new.id) {
                 Some(i) => {
                     let block = &mut next.blocks[i];
-                    let differs = (new.kind.as_str(), new.text.as_str(), new.checked, new.due, new.pos.as_str()) != (block.kind.as_str(), block.text.as_str(), block.checked, block.due, block.pos.as_str());
+                    let differs = (new.kind.as_str(), new.text.as_str(), new.checked, new.indent, new.due, new.pos.as_str()) != (block.kind.as_str(), block.text.as_str(), block.checked, block.indent, block.due, block.pos.as_str());
                     if differs || block.deleted {
                         *block = Block { updated: now, by: device.into(), deleted: false, ..new };
                     }
@@ -599,6 +604,20 @@ mod tests {
         assert_eq!(saved.blocks.iter().find(|b| b.id == first).unwrap().text, "pc");
         let removed = store.apply(NotePatch { id: note.id.clone(), removed: vec!["from-pc".into()], ..Default::default() }, "mac", 300).unwrap();
         assert!(removed.blocks.iter().find(|b| b.id == "from-pc").unwrap().deleted);
+    }
+
+    #[test]
+    fn sub_tasks_keep_their_nesting_and_it_is_capped() {
+        let mut store = NoteStore::default();
+        let note = store.create("list", "", "mac", 100).unwrap();
+        let sub = Block { id: "s1".into(), kind: "todo".into(), text: "Ch 11.1".into(), indent: 1, pos: "m".into(), ..Default::default() };
+        let deep = Block { id: "s2".into(), kind: "todo".into(), text: "too deep".into(), indent: 9, pos: "n".into(), ..Default::default() };
+        let saved = store.apply(NotePatch { id: note.id.clone(), blocks: vec![sub.clone(), deep], ..Default::default() }, "mac", 200).unwrap();
+        let find = |id: &str| saved.blocks.iter().find(|b| b.id == id).unwrap().indent;
+        assert_eq!((find("s1"), find("s2")), (1, MAX_INDENT));
+        // Moving it back out is a change like any other.
+        let out = store.apply(NotePatch { id: note.id.clone(), blocks: vec![Block { indent: 0, ..sub }], ..Default::default() }, "mac", 300).unwrap();
+        assert_eq!(out.blocks.iter().find(|b| b.id == "s1").unwrap().indent, 0);
     }
 
     #[test]

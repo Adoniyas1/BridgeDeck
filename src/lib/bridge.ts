@@ -377,7 +377,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
 export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code'
-export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
+export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
 export const notesList = () => native<Note[]>('notes_list')
@@ -404,3 +404,15 @@ export async function pickIcsFile(mode: 'open' | 'save', defaultPath = 'BridgeDe
   const picked = await open({ multiple: false, filters })
   return typeof picked === 'string' ? picked : null
 }
+/** Files between paired computers over BridgeLink (src-tauri/src/transfer.rs). */
+export type TransferStatus = {
+  id: string; direction: 'send' | 'receive'; peerId: string; peerName: string; files: number; names: string[]
+  totalBytes: number; doneBytes: number; state: 'connecting' | 'sending' | 'receiving' | 'retrying' | 'done' | 'failed' | 'cancelled'
+  error: string | null; startedAt: number; finishedAt: number | null; folder: string | null; rate: number; canResume: boolean
+}
+export const transferSend = (peer: string, paths: string[]) => native<string>('transfer_send', { peer, paths })
+export const transfersList = () => native<TransferStatus[]>('transfers_list')
+export const transferCancel = (id: string) => native<void>('transfer_cancel', { id })
+export const transferResume = (id: string) => native<string>('transfer_resume', { id })
+export const transfersClear = () => native<void>('transfers_clear')
+export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this way'

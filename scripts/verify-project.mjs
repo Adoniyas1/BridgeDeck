@@ -84,7 +84,7 @@ for (const feature of ['home', 'devices', 'remote', 'messages', 'ai', 'files', '
   registry.includes(`import { ${feature} } from './${feature}'`) ? ok(`feature registered: ${feature}`) : fail(`feature not registered: ${feature}`)
 }
 for (const text of [
-  'pickTransferPaths', 'sendWithLocalSend',
+  'pickTransferPaths', 'sendToPeer', 'transferSend',
   'Automatic pairing', 'requestAutomaticPair', 'approveAutomaticPair', 'applyPairedPeer',
   'configureSyncthingPeer', 'Setup sync', 'BridgeDeck Shared', 'syncthingDeviceId', 'openTab', 'closeTab',
   'remote-session', 'remote-banner', 'ai-room',

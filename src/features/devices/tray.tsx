@@ -5,7 +5,7 @@ import { bridgeLinkStore } from '../../core/bridgelink'
 import { configStore, setConfig } from '../../core/config'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
-import { addTransferPaths, clearTransferPaths, sendWithLocalSend, transferPathsStore } from '../files/state'
+import { addTransferPaths, clearTransferPaths, sendToPeer, transferPathsStore } from '../files/state'
 import { controlDevice } from '../remote/state'
 
 type TrayAction = { action: 'control' | 'send'; peer: string } | { action: 'clipboard' }
@@ -33,12 +33,10 @@ async function run(action: TrayAction) {
     controlDevice({ id: peer.instanceId, name: peer.name })
     return
   }
-  const device = configStore.get().devices.find(d => d.id === peer.instanceId)
-  if (!device) return
   activateTab('files')
   clearTransferPaths()
   await addTransferPaths()
-  if (transferPathsStore.get().length) await sendWithLocalSend(device)
+  if (transferPathsStore.get().length) await sendToPeer(peer.instanceId)
 }
 
 /** Keeps the tray menu in step with the paired computers and carries out what's picked there. */

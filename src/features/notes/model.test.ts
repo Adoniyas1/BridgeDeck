@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Note, NoteBlock } from '../../lib/bridge'
-import { between, diff, dueItems, inline, matches, noteTitle, rebase, remindersDue, shortcut, sortNotes, toMarkdown, visible } from './model'
+import { between, bumpLabel, diff, dueItems, firstSubLabel, inline, labelOnly, matches, nextLabel, noteTitle, rebase, remindersDue, shortcut, sortNotes, subProgress, toggleTask, toMarkdown, visible } from './model'
 
 const block = (id: string, pos: string, over: Partial<NoteBlock> = {}): NoteBlock =>
   ({ id, kind: 'p', text: '', checked: false, due: null, pos, updated: 1, by: 'mac', deleted: false, ...over })
@@ -89,5 +89,38 @@ describe('notes', () => {
     const merged = rebase(stored, base, draft)
     expect(visible(merged).map(b => b.text)).toEqual(['one!', 'new', 'from pc'])
     expect(merged.title).toBe('T')
+  })
+})
+
+describe('sub-tasks', () => {
+  const todo = (id: string, text: string, indent = 0, checked = false) => block(id, id, { kind: 'todo', text, indent, checked })
+
+  it('ticks a task with its sub-tasks, and a task when all its sub-tasks are done', () => {
+    const list = [todo('a', 'Ch 11'), todo('b', 'Ch 11.1', 1), todo('c', 'Ch 11.2', 1), todo('d', 'Ch 12')]
+    expect(toggleTask(list, 'a').map(b => [b.id, b.checked])).toEqual([['a', true], ['b', true], ['c', true]])
+    const oneDone = [todo('a', 'Ch 11'), todo('b', 'Ch 11.1', 1, true), todo('c', 'Ch 11.2', 1), todo('d', 'Ch 12')]
+    expect(toggleTask(oneDone, 'c').map(b => [b.id, b.checked])).toEqual([['a', true], ['c', true]])
+    const allDone = [todo('a', 'Ch 11', 0, true), todo('b', 'Ch 11.1', 1, true), todo('c', 'Ch 11.2', 1, true)]
+    expect(toggleTask(allDone, 'b').map(b => [b.id, b.checked])).toEqual([['a', false], ['b', false]])
+    expect(subProgress(oneDone, 0)).toEqual({ done: 1, total: 2 })
+    expect(subProgress(oneDone, 3)).toBeNull()
+  })
+
+  it('numbers new sub-tasks and the next ones, but leaves plain text alone', () => {
+    expect(firstSubLabel('Ch 11')).toBe('Ch 11.1 ')
+    expect(firstSubLabel('11.2 Intro')).toBe('11.2.1 ')
+    expect(firstSubLabel('Buy milk')).toBe('')
+    expect(nextLabel('Ch 11.1', 'Ch 11')).toBe('Ch 11.2 ')
+    expect(nextLabel('Ch 11.2 Exercises', 'Ch 11', 'Ch 11.1 Reading')).toBe('Ch 11.3 ')
+    expect(nextLabel('Step 2', undefined, 'Step 1')).toBe('Step 3 ')
+    expect(nextLabel('Buy 2 apples')).toBe('')
+    expect(nextLabel('Ch 12', 'Ch 11')).toBe('')
+    expect([labelOnly('Ch 11.3 '), labelOnly('Ch 11.3 Intro'), labelOnly('Buy milk')]).toEqual([true, false, false])
+    expect(bumpLabel('Ch 11')).toBe('Ch 12 ')
+  })
+
+  it('exports nesting as indented Markdown', () => {
+    const n = note({ title: 'Book', blocks: [block('a', 'a', { kind: 'todo', text: 'Ch 11' }), block('b', 'b', { kind: 'todo', text: 'Ch 11.1', indent: 1, checked: true })] })
+    expect(toMarkdown(n)).toBe('# Book\n\n- [ ] Ch 11\n  - [x] Ch 11.1\n')
   })
 })

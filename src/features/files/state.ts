@@ -2,21 +2,22 @@ import { useEffect } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { listen } from '@tauri-apps/api/event'
 import {
-  localSendAccept, localSendDecline, localSendNativeSend, localSendReceiverStart, localSendReceiverStatus,
+  localSendAccept, localSendDecline, localSendReceiverStart, localSendReceiverStatus,
   localSendReceiverStop, localSendSetTrustedHosts, pickTransferPaths, sendFilesPending, sendToIntegration,
+  isTauri, transferSend, transfersList, type TransferStatus,
 } from '../../lib/bridge'
+import { active, justFinished, what } from './transfers'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { configStore, serviceConfig } from '../../core/config'
 import { freshTransfers, notify } from '../../core/notify'
 import { fmtSize } from '../../core/util'
 import { createStore, useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
-import type { DeviceConfig, LocalSendReceiverStatus } from '../../types'
+import type { LocalSendReceiverStatus } from '../../types'
 
 export const receiverStore = createStore<LocalSendReceiverStatus>({ running: false, alias: 'BridgeDeck', port: 53317, destination: '', recent: [], devices: [] })
 export const transferPathsStore = createStore<string[]>([])
-export const transferStateStore = createStore('Choose files or a folder, then select a destination.')
-export const transferBusyStore = createStore(false)
+export const transferStateStore = createStore('Choose files or a folder, then pick where to send them.')
 
 const setTransferState = transferStateStore.set
 const addPaths = (paths: string[]) => transferPathsStore.set(current => Array.from(new Set([...current, ...paths])))
@@ -45,20 +46,41 @@ export async function addTransferPaths(directory = false) {
   }
 }
 
-export async function sendWithLocalSend(machine: DeviceConfig) {
-  const paths = transferPathsStore.get()
-  if (!machine.localsendTarget || !paths.length || transferBusyStore.get()) return
-  transferBusyStore.set(true)
-  setTransferState(`Sending ${paths.length} selection${paths.length === 1 ? '' : 's'} to ${machine.name}…`)
+/** Transfers over BridgeLink, newest first (see `transfer.rs`). */
+export const transfersStore = createStore<TransferStatus[]>([])
+
+export async function refreshTransfers() {
+  if (!isTauri()) return
   try {
-    const result = await localSendNativeSend(machine.localsendTarget, paths, machine.localsendPin)
-    const detail = result.stdout || result.stderr
-    if (!result.ok) throw new Error(detail || 'LocalSend transfer failed')
-    setTransferState(`Transfer to ${machine.name} completed.${detail ? ` ${detail}` : ''}`)
+    const next = await transfersList()
+    const before = transfersStore.get()
+    transfersStore.set(next)
+    for (const t of justFinished(before, next)) {
+      if (t.state === 'done' && t.direction === 'receive') notify('files', `Files from ${t.peerName}`, `${what(t)} · ${fmtSize(t.totalBytes)} saved${t.folder ? ` to ${t.folder}` : ''}`)
+      else if (t.state === 'failed') notify('files', t.direction === 'send' ? `Couldn’t send to ${t.peerName}` : `Couldn’t receive from ${t.peerName}`, `${what(t)}: ${t.error ?? 'failed'}`)
+    }
+  } catch { /* the next refresh tries again */ }
+}
+
+/** Sends the queued files (or `paths`) to a paired computer over BridgeLink. */
+export async function sendToPeer(peerId: string, paths = transferPathsStore.get()) {
+  if (!paths.length) return
+  try {
+    await transferSend(peerId, paths)
+    if (paths === transferPathsStore.get()) clearTransferPaths()
+    setTransferState('Sending; progress is under Transfers.')
+    await refreshTransfers()
   } catch (error) {
-    setTransferState(error instanceof Error ? error.message : 'LocalSend transfer failed')
-  } finally {
-    transferBusyStore.set(false)
+    setTransferState(error instanceof Error ? error.message : String(error))
+  }
+}
+
+/** Waits until a transfer this computer started has finished, and says how it went. */
+export async function waitForTransfer(id: string): Promise<TransferStatus> {
+  for (;;) {
+    const found = (await transfersList()).find(t => t.id === id && t.direction === 'send')
+    if (found && !active(found)) return found
+    await new Promise(resolve => window.setTimeout(resolve, 500))
   }
 }
 
@@ -97,7 +119,21 @@ const openedAt = Date.now()
 const announced = new Set<string>()
 
 export function FilesBackground() {
-  const running = useStore(receiverStore).running
+  // Transfers: often while one is running, otherwise now and then and whenever one starts.
+  const running = useStore(transfersStore).some(active)
+  useEffect(() => {
+    void refreshTransfers()
+    const timer = window.setInterval(() => void refreshTransfers(), running ? 600 : 4000)
+    return () => window.clearInterval(timer)
+  }, [running])
+  useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | undefined
+    let closed = false
+    void listen('transfers-changed', () => void refreshTransfers()).then(fn => { if (closed) fn(); else unlisten = fn })
+    return () => { closed = true; unlisten?.() }
+  }, [])
+  const receiving = useStore(receiverStore).running
   // Every address a paired computer has used (Wi-Fi, Ethernet, Tailscale), not just the current one:
   // a transfer from any of them is accepted without a prompt nobody might see.
   const pairedHosts = [...new Set(useStore(bridgeLinkStore).paired.flatMap(peer => [peer.host, ...(peer.addresses ?? [])]))].sort().join(',')
@@ -133,7 +169,7 @@ export function FilesBackground() {
   // Files from paired computers are accepted without a prompt; everyone else still needs approval.
   useEffect(() => {
     void localSendSetTrustedHosts(pairedHosts ? pairedHosts.split(',') : []).catch(() => undefined)
-  }, [pairedHosts, running])
+  }, [pairedHosts, receiving])
 
   // Explorer's Send to / Finder's Open With hand files over; some may have arrived before the UI loaded.
   useEffect(() => {
