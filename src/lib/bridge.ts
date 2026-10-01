@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import type {
   AgentStatus,
   SyncthingFolder, SyncthingStatus,
@@ -384,3 +384,23 @@ export const notesList = () => native<Note[]>('notes_list')
 export const notesCreate = (kind: 'note' | 'list', folder: string) => native<Note>('notes_create', { kind, folder })
 export const notesSave = (patch: NotePatch) => native<Note>('notes_save', { patch })
 export const notesDelete = (id: string) => native<boolean>('notes_delete', { id })
+/** Calendar events (src-tauri/src/bridgelink/calendar.rs), kept on every paired computer. */
+export type CalRepeat = { freq: 'daily' | 'weekly' | 'monthly' | 'yearly'; interval: number; days: number[]; until: number | null; count: number | null }
+export type CalEvent = { id: string; title: string; start: number; end: number; allDay: boolean; location: string; notes: string; color: string; repeat: CalRepeat | null; skip: number[]; reminder: number | null; updated: number; by: string; deleted: boolean; seq: number }
+export type AppleItem = { id: string; kind: 'event' | 'reminder'; title: string; start: number; end: number; allDay: boolean; calendar: string; location: string; from: string }
+export const calendarList = () => native<CalEvent[]>('calendar_list')
+export const calendarSave = (event: CalEvent) => native<CalEvent>('calendar_save', { event })
+export const calendarDelete = (id: string) => native<boolean>('calendar_delete', { id })
+export const calendarImport = (events: CalEvent[]) => native<number>('calendar_import', { events })
+export const calendarReadIcs = (path: string) => native<string>('calendar_read_ics', { path })
+export const calendarWriteIcs = (path: string, contents: string) => native<void>('calendar_write_ics', { path, contents })
+export const calendarApple = (from: number, to: number) => native<{ items: AppleItem[]; errors: string[] }>('calendar_apple', { from, to })
+export const calendarAppleShare = (share?: boolean) => native<boolean>('calendar_apple_share', { share: share ?? null })
+/** Asks where to save or which file to open for a calendar export or import. */
+export async function pickIcsFile(mode: 'open' | 'save', defaultPath = 'BridgeDeck.ics'): Promise<string | null> {
+  if (!isTauri()) return null
+  const filters = [{ name: 'Calendar', extensions: ['ics'] }]
+  if (mode === 'save') return (await save({ defaultPath, filters })) ?? null
+  const picked = await open({ multiple: false, filters })
+  return typeof picked === 'string' ? picked : null
+}

@@ -8,7 +8,7 @@ const KINDS: Array<[NotifyKind, string]> = [
   ['files', 'Files received, and requests to send you files'],
   ['sync', 'Sync conflicts (a file changed on two computers)'],
   ['updates', 'BridgeDeck updates on GitHub'],
-  ['reminders', 'Checklist items when they’re due'],
+  ['reminders', 'Checklist items and events (reminders)'],
 ]
 
 export default function NotificationSettings() {

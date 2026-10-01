@@ -11,6 +11,7 @@
 //! - `workspace`: the AI workspace (agents, rooms, tasks, file claims).
 
 mod discovery;
+pub mod calendar;
 pub mod notes;
 mod local;
 pub(crate) mod peer;
@@ -45,9 +46,9 @@ const MAX_AI_BODY: usize = 24 * 1024;
 const DEFAULT_AI_CHANNEL: &str = "shared-agents";
 /// What this build can do for a paired device; reported in `/status`.
 #[cfg(target_os = "macos")]
-pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "messages", "clipboard", "notes"];
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "messages", "clipboard", "notes", "calendar"];
 #[cfg(not(target_os = "macos"))]
-pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "clipboard", "notes"];
+pub const CAPABILITIES: &[&str] = &["status", "ai", "ai-workspace", "contacts", "upgrade", "clipboard", "notes", "calendar"];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -305,6 +306,7 @@ struct Runtime {
     outbox: Vec<OutboxItem>,
     workspace: workspace::Workspace,
     notes: notes::NoteStore,
+    calendar: calendar::CalendarStore,
     ai_token: String,
     link: Option<Arc<Link>>,
     fingerprint: String,
@@ -340,6 +342,7 @@ impl Default for Runtime {
             outbox: Vec::new(),
             workspace: workspace::Workspace::default(),
             notes: notes::NoteStore::default(),
+            calendar: calendar::CalendarStore::default(),
             ai_token: String::new(),
             link: None,
             fingerprint: String::new(),
@@ -866,6 +869,7 @@ fn spawn_upkeep(manager: BridgeLinkManager, shutdown: Arc<AtomicBool>) {
             }
             if rounds % 2 == 1 {
                 notes::pull_all(&manager);
+                calendar::pull_all(&manager);
             }
         }
     });
@@ -932,6 +936,7 @@ pub fn start(
     let ai_messages = load_ai_messages(&dir);
     let ai_workspace = workspace::Workspace::load(&dir);
     let note_store = notes::NoteStore::load(&dir);
+    let calendar_store = calendar::CalendarStore::load(&dir);
     let listener = local::bind(port)?;
     let udp = discovery::bind()?;
     let link = Link::bind(port, identity.clone(), Arc::new(peer::PeerHandler { manager: manager.clone() }))?;
@@ -955,6 +960,7 @@ pub fn start(
         runtime.ai_messages = ai_messages;
         runtime.workspace = ai_workspace;
         runtime.notes = note_store;
+        runtime.calendar = calendar_store;
         runtime.fingerprint = identity.fingerprint.clone();
         runtime.link = Some(link);
         runtime.shutdown = shutdown.clone();

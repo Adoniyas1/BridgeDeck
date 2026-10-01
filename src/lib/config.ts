@@ -18,6 +18,7 @@ export const defaultConfig: AppConfig = {
   notifications: { messages: true, ai: true, files: true, sync: true, updates: true, reminders: true },
   updates: { auto: false },
   mimir: { enabled: false },
+  calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -82,6 +83,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     sendTo: { ...defaultConfig.sendTo, ...(input.sendTo || {}) },
     updates: { ...defaultConfig.updates, ...(input.updates || {}) },
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
+    calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },

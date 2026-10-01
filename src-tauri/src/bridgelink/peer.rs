@@ -382,6 +382,21 @@ impl Handler for PeerHandler {
                 });
                 Response::json(202, r#"{"ok":true}"#)
             }
+            ("POST", "/calendar/pull") => match super::calendar::answer_pull(manager, &request.body) {
+                Ok(body) => Response::json(200, body),
+                Err(error) => Response::json(400, json!({ "ok": false, "error": error }).to_string()),
+            },
+            ("POST", "/calendar/poke") => {
+                let (manager, id) = (manager.clone(), peer.instance_id.clone());
+                thread::spawn(move || {
+                    let _ = super::calendar::pull_from(&manager, &id);
+                });
+                Response::json(202, r#"{"ok":true}"#)
+            }
+            ("POST", "/calendar/apple") => match super::calendar::answer_apple(manager, &request.body) {
+                Ok(body) => Response::json(200, body),
+                Err(error) => Response::json(409, json!({ "ok": false, "error": error }).to_string()),
+            },
             ("GET", "/diagnostics") => match manager.lock().ok().and_then(|r| r.app.clone()) {
                 Some(app) => Response::json(200, json!({ "ok": true, "report": crate::diagnostics::local_report(&app) }).to_string()),
                 None => Response::json(200, r#"{"ok":false,"error":"not ready"}"#),
@@ -494,6 +509,30 @@ pub(super) fn pull_notes(manager: &BridgeLinkManager, instance_id: &str, since: 
 /// Tells a paired computer this one's notes changed.
 pub(super) fn poke_notes(manager: &BridgeLinkManager, instance_id: &str) -> Result<(), String> {
     peer_request(manager, instance_id, "POST", "/notes/poke", String::new(), PEER_REQUEST_TIMEOUT).map(|_| ())
+}
+
+/// A paired computer's calendar changes after `since` (see `super::calendar`).
+pub(super) fn pull_calendar(manager: &BridgeLinkManager, instance_id: &str, since: u64) -> Result<super::calendar::CalendarPullAnswer, String> {
+    let body = json!({ "since": since }).to_string();
+    let (peer, response) = peer_request(manager, instance_id, "POST", "/calendar/pull", body, Duration::from_secs(20))?;
+    if response.status != 200 {
+        return Err(response_error(&peer, &response));
+    }
+    serde_json::from_str(&response.body).map_err(|e| format!("Invalid calendar answer: {e}"))
+}
+
+pub(super) fn poke_calendar(manager: &BridgeLinkManager, instance_id: &str) -> Result<(), String> {
+    peer_request(manager, instance_id, "POST", "/calendar/poke", String::new(), PEER_REQUEST_TIMEOUT).map(|_| ())
+}
+
+/// A paired Mac's Apple Calendar and Reminders between two times (it may first ask its user).
+pub(super) fn peer_apple_calendar(manager: &BridgeLinkManager, instance_id: &str, from: i64, to: i64) -> Result<super::calendar::AppleAnswer, String> {
+    let body = json!({ "from": from, "to": to }).to_string();
+    let (peer, response) = peer_request(manager, instance_id, "POST", "/calendar/apple", body, Duration::from_secs(160))?;
+    if response.status != 200 {
+        return Err(response_error(&peer, &response));
+    }
+    serde_json::from_str(&response.body).map_err(|e| format!("Invalid Apple Calendar answer: {e}"))
 }
 
 /// A paired computer's own diagnostics report (see `crate::diagnostics`).
@@ -1049,6 +1088,23 @@ pub(crate) mod tests {
         assert_eq!((block.text.as_str(), block.checked), ("milk", true));
         assert_eq!(super::notes::pull_from(&a, &b_id).unwrap(), 0);
         assert_eq!(super::notes::pull_from(&b, &a_id).unwrap(), 0);
+    }
+
+    #[test]
+    fn calendar_syncs_over_the_link_and_apple_calendar_is_only_shared_when_allowed() {
+        let (a, a_port) = node("Mac");
+        let (b, b_port) = node("Windows");
+        let (a_id, b_id) = pair_directly(&a, a_port, &b, b_port);
+        let event = super::calendar::Event { id: "standup".into(), title: "Standup".into(), start: 1_000, end: 2_000, ..Default::default() };
+        a.lock().unwrap().calendar.save_from_ui(event, "mac", now_ms()).unwrap();
+        assert_eq!(super::calendar::pull_from(&b, &a_id).unwrap(), 1);
+        assert!(b.lock().unwrap().calendar.delete("standup", "win", now_ms() + 1));
+        assert_eq!(super::calendar::pull_from(&a, &b_id).unwrap(), 1);
+        assert!(a.lock().unwrap().calendar.list().is_empty());
+        assert_eq!(super::calendar::pull_from(&a, &b_id).unwrap(), 0);
+        // The Mac hasn't turned on sharing Apple Calendar, so the PC is told no.
+        let refused = peer_apple_calendar(&b, &a_id, 0, 86_400_000).unwrap_err();
+        assert!(refused.contains("doesn't share"), "{refused}");
     }
 
     #[test]
