@@ -98,7 +98,9 @@ const announced = new Set<string>()
 
 export function FilesBackground() {
   const running = useStore(receiverStore).running
-  const pairedHosts = useStore(bridgeLinkStore).paired.map(peer => peer.host).sort().join(',')
+  // Every address a paired computer has used (Wi-Fi, Ethernet, Tailscale), not just the current one:
+  // a transfer from any of them is accepted without a prompt nobody might see.
+  const pairedHosts = [...new Set(useStore(bridgeLinkStore).paired.flatMap(peer => [peer.host, ...(peer.addresses ?? [])]))].sort().join(',')
 
   // Receiving always starts with the app so the paired computer can send without setup.
   useEffect(() => {

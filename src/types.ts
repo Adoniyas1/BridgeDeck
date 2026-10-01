@@ -351,6 +351,8 @@ export type BridgeLinkPairedPeer = {
   pairedAt: number
   /** It reported a hardware address, so Wake-on-LAN can be tried. */
   wakeable?: boolean
+  /** Every IP address it has been reached at (current first). */
+  addresses?: string[]
 }
 
 /** Paired with BridgeDeck 0.8 or older: must be paired again (and can be asked to update first). */
