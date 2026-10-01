@@ -416,3 +416,6 @@ export const transferCancel = (id: string) => native<void>('transfer_cancel', { 
 export const transferResume = (id: string) => native<string>('transfer_resume', { id })
 export const transfersClear = () => native<void>('transfers_clear')
 export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this way'
+/** Notes kept as Markdown files too (src-tauri/src/bridgelink/vault.rs). */
+export type VaultStatus = { enabled: boolean; path: string; files: number; error: string | null }
+export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })

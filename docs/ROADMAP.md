@@ -357,12 +357,41 @@ One PR each, in this order:
    "Mimir's memory" note, so it can be read and edited in Notes and on the other computer.
    Still to come: looking at or controlling the other computer from Mimir (with a banner and a
    confirm), moved to step 7.
-7. **Mimir proactive + voice + skills + safety**: morning brief, deadline nudges, "while you were
-   away"; wake word and hotkey on both computers; self-written skills can use the tools; every
-   outward action needs a confirm and goes in an activity log.
-8. **Instant Messages**: the Mac watches `chat.db` and pushes new messages.
-9. **Remote video and audio**: hardware H.264 (VideoToolbox / Media Foundation) decoded with
+7–9. Moved into Phase 9 below.
+
+### Phase 9: Study, Projects, a vault, skills, and the rest of Phase 8 (planned 2026-10-01)
+Everything left, combined into one order. One PR each.
+1. **Vault (Obsidian-compatible notes) (built)**: every note is also a Markdown file in a vault folder on
+   each computer (frontmatter keeps its id); edits made in Obsidian, Logseq or Zettlr come back
+   into BridgeDeck and sync as usual. `[[links]]` with suggestions, backlinks, `#tags`, a graph
+   view, and math (KaTeX).
+2. **Study tab**: courses with their textbooks (PDF via pdf.js, EPUB via epub.js), notes,
+   checklists and exam dates; highlights become notes linked to the page; a book's table of
+   contents becomes a chapter checklist with sub-tasks.
+3. **Mimir study help**: answers from the user's books with book-and-page citations (local
+   full-text and embedding search), summaries, practice quizzes, step-by-step explanations;
+   flashcards from highlights or Mimir with FSRS scheduling (ts-fsrs); study sessions and exams on
+   the calendar, a focus timer, progress per course and chapter.
+4. **Projects tab**: a synced folder, notes, a task board and milestones per project; Mimir works
+   with the project's files and notes; merges with Mimir Projects.
+5. **Skill library**: Mimir loads skills in the SKILL.md format (instructions, references,
+   stdlib-only scripts run in its sandbox), with skill packs chosen in Settings, starting with
+   alirezarezvani/claude-skills (MIT; research, productivity, engineering, project management),
+   downloaded at a pinned version.
+6. **Mimir proactive + voice + safety**: morning brief, deadline and exam nudges, "while you were
+   away"; wake word and hotkey on both computers; self-written skills can use the BridgeDeck tools;
+   an activity log, and a confirm for every outward action; looking at or controlling the other
+   computer with a banner and a confirm.
+7. **Instant Messages**: the Mac watches `chat.db` and pushes new messages.
+8. **Remote video and audio**: hardware H.264 (VideoToolbox / Media Foundation) decoded with
    WebCodecs, tiles as the fallback; audio via ScreenCaptureKit / WASAPI loopback.
+9. **Extras**: lecture recording to notes (whisper.cpp, on device), OCR for scanned pages
+   (Tesseract.js), drawings in notes (Excalidraw).
+
+Open-source parts (all permissive licences, so they can be built in): pdf.js, epub.js, KaTeX,
+ts-fsrs, Excalidraw, Mermaid, Tesseract.js, whisper.cpp, SQLite FTS. Obsidian itself is not open
+source, and Logseq / Joplin / SiYuan are AGPL apps, so they are supported through the vault
+folder rather than built in.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any

@@ -545,13 +545,15 @@ fn split_due(text: &str) -> (String, Option<u64>) {
 }
 
 pub fn to_markdown(note: &Note) -> String {
-    let mut lines = Vec::new();
+    let mut out = String::new();
     let mut number = 0;
+    let mut previous: Option<&str> = None;
+    let listy = |kind: &str| matches!(kind, "li" | "ol" | "todo");
     for block in shown(note) {
         let pad = "  ".repeat(block.indent as usize);
         number = if block.kind == "ol" { number + 1 } else { 0 };
         let due = block.due.map(|d| format!(" (due {})", due_text(d))).unwrap_or_default();
-        lines.push(match block.kind.as_str() {
+        let line = match block.kind.as_str() {
             "h1" => format!("# {}", block.text),
             "h2" => format!("## {}", block.text),
             "h3" => format!("### {}", block.text),
@@ -561,9 +563,16 @@ pub fn to_markdown(note: &Note) -> String {
             "quote" => block.text.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"),
             "code" => format!("```\n{}\n```", block.text),
             _ => block.text.clone(),
-        });
+        };
+        // List items sit together; everything else is separated by a blank line, as Markdown
+        // editors expect (two paragraphs on adjacent lines would read back as one).
+        if let Some(prev) = previous {
+            out.push_str(if listy(prev) && listy(&block.kind) { "\n" } else { "\n\n" });
+        }
+        out.push_str(&line);
+        previous = Some(block.kind.as_str());
     }
-    lines.join("\n")
+    out
 }
 
 /// Blocks from Markdown: headings, bullet and numbered lists, checklists (`- [ ]`, nested by two
@@ -865,7 +874,10 @@ mod tests {
         let note = store.create_from_markdown(None, "list", "Study", "School", md, "mac", 100).unwrap();
         let kinds: Vec<(&str, u8)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.indent)).collect();
         assert_eq!(kinds, vec![("h1", 0), ("p", 0), ("todo", 0), ("todo", 1), ("todo", 1), ("li", 0), ("ol", 0), ("quote", 0), ("code", 0)]);
-        assert_eq!(to_markdown(&note), "# Book\nRead slowly.\nTake notes.\n- [ ] Ch 11\n  - [x] Ch 11.1\n  - [ ] Ch 11.2\n- point\n1. first\n> quoted\n```\nlet x = 1;\n```");
+        assert_eq!(to_markdown(&note), "# Book\n\nRead slowly.\nTake notes.\n\n- [ ] Ch 11\n  - [x] Ch 11.1\n  - [ ] Ch 11.2\n- point\n1. first\n\n> quoted\n\n```\nlet x = 1;\n```");
+        // Reading its own Markdown back gives the same blocks.
+        let again = store.create_from_markdown(None, "note", "", "", &to_markdown(&note), "mac", 150).unwrap();
+        assert_eq!(to_markdown(&again), to_markdown(&note));
         // Ticking a task by name ticks its sub-tasks too.
         assert_eq!(store.set_item(&note.id, "ch 11", true, "mac", 200).unwrap(), 2);
         let after = store.list()[0].clone();

@@ -61,27 +61,99 @@ export function nextKind(kind: NoteBlockKind): NoteBlockKind {
   return kind === 'li' || kind === 'ol' || kind === 'todo' ? kind : 'p'
 }
 
-export type Inline = { kind: 'text' | 'bold' | 'italic' | 'code' | 'strike' | 'link'; text: string; href?: string }
+export type Inline = { kind: 'text' | 'bold' | 'italic' | 'code' | 'strike' | 'link' | 'wikilink' | 'tag' | 'math'; text: string; href?: string; target?: string }
 
-/** **bold**, *italic*, `code`, ~~struck~~ and links, for showing a block that isn't being edited.
- *  Returns plain pieces (never HTML), so nothing in a note can run. */
+/** **bold**, *italic*, `code`, ~~struck~~, links, [[note links]], #tags and $math$, for showing a
+ *  block that isn't being edited. Returns plain pieces (never HTML), so nothing in a note can run. */
 export function inline(text: string): Inline[] {
-  const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`|~~([^~]+)~~|\*([^*\s][^*]*)\*|_([^_\s][^_]*)_|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]))/g
+  const pattern = /\[\[(?<wiki>[^\]|\n]+)(?:\|(?<alias>[^\]\n]+))?\]\]|\$(?<math>[^\s$][^$\n]*?[^\s$\\]|[^\s$])\$(?!\d)|(?<pre>^|\s)#(?<tag>[A-Za-z][\w/-]*)|\*\*(?<bold>[^*]+)\*\*|`(?<code>[^`]+)`|~~(?<strike>[^~]+)~~|\*(?<italic>[^*\s][^*]*)\*|_(?<italic2>[^_\s][^_]*)_|\[(?<label>[^\]]+)\]\((?<href>https?:\/\/[^\s)]+)\)|(?<url>https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g
   const out: Inline[] = []
   let last = 0
   for (const m of text.matchAll(pattern)) {
+    const g = m.groups ?? {}
     if (m.index > last) out.push({ kind: 'text', text: text.slice(last, m.index) })
-    if (m[2] !== undefined) out.push({ kind: 'bold', text: m[2] })
-    else if (m[3] !== undefined) out.push({ kind: 'code', text: m[3] })
-    else if (m[4] !== undefined) out.push({ kind: 'strike', text: m[4] })
-    else if (m[5] !== undefined) out.push({ kind: 'italic', text: m[5] })
-    else if (m[6] !== undefined) out.push({ kind: 'italic', text: m[6] })
-    else if (m[7] !== undefined) out.push({ kind: 'link', text: m[7], href: m[8] })
-    else out.push({ kind: 'link', text: m[9], href: m[9] })
+    if (g.wiki !== undefined) out.push({ kind: 'wikilink', text: (g.alias ?? g.wiki).trim(), target: g.wiki.trim() })
+    else if (g.math !== undefined) out.push({ kind: 'math', text: g.math })
+    else if (g.tag !== undefined) {
+      if (g.pre) out.push({ kind: 'text', text: g.pre })
+      out.push({ kind: 'tag', text: g.tag })
+    } else if (g.bold !== undefined) out.push({ kind: 'bold', text: g.bold })
+    else if (g.code !== undefined) out.push({ kind: 'code', text: g.code })
+    else if (g.strike !== undefined) out.push({ kind: 'strike', text: g.strike })
+    else if (g.italic !== undefined) out.push({ kind: 'italic', text: g.italic })
+    else if (g.italic2 !== undefined) out.push({ kind: 'italic', text: g.italic2 })
+    else if (g.label !== undefined) out.push({ kind: 'link', text: g.label, href: g.href })
+    else out.push({ kind: 'link', text: g.url, href: g.url })
     last = m.index + m[0].length
   }
   if (last < text.length) out.push({ kind: 'text', text: text.slice(last) })
   return out
+}
+
+/** A block that is only display math: $$ … $$. */
+export function displayMath(text: string) {
+  const m = text.trim().match(/^\$\$([\s\S]+)\$\$$/)
+  return m ? m[1].trim() : null
+}
+
+// ---- Links between notes, tags ----
+
+const sameTitle = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+
+/** The note a [[link]] points at: by title (or the name shown for untitled notes). */
+export function findByTitle(notes: Note[], title: string) {
+  return notes.find(n => sameTitle(n.title, title)) ?? notes.find(n => sameTitle(noteTitle(n), title))
+}
+
+/** Titles this note links to. */
+export function linksOf(note: Note) {
+  const out = new Set<string>()
+  for (const block of note.blocks) {
+    if (block.deleted) continue
+    for (const m of block.text.matchAll(/\[\[([^\]|\n]+)(?:\|[^\]\n]+)?\]\]/g)) out.add(m[1].trim())
+  }
+  return [...out]
+}
+
+/** Notes that link to this one. */
+export function backlinks(notes: Note[], note: Note) {
+  const names = [note.title, noteTitle(note)].filter(t => t.trim())
+  return notes.filter(n => n.id !== note.id && linksOf(n).some(l => names.some(t => sameTitle(t, l))))
+}
+
+export function tagsOf(note: Note) {
+  const out = new Set<string>()
+  for (const block of note.blocks) {
+    if (block.deleted || block.kind === 'code') continue
+    for (const m of block.text.matchAll(/(?:^|\s)#([A-Za-z][\w/-]*)/g)) out.add(m[1].toLowerCase())
+  }
+  return [...out]
+}
+
+export function allTags(notes: Note[]) {
+  const counts = new Map<string, number>()
+  for (const note of notes) for (const tag of tagsOf(note)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+}
+
+/** The `[[` being typed before the caret, if any: what's typed so far and where it starts. */
+export function linkQuery(text: string, caret: number) {
+  const before = text.slice(0, caret)
+  const open = before.lastIndexOf('[[')
+  if (open < 0 || before.slice(open).includes(']]') || before.slice(open).includes('\n')) return null
+  return { start: open, query: before.slice(open + 2) }
+}
+
+/** Notes and the links between them, for the graph. */
+export function graphOf(notes: Note[]) {
+  const edges: Array<[string, string]> = []
+  for (const note of notes) {
+    for (const title of linksOf(note)) {
+      const target = findByTitle(notes, title)
+      if (target && target.id !== note.id) edges.push([note.id, target.id])
+    }
+  }
+  return edges
 }
 
 export function formatDue(due: number, now = Date.now()) {

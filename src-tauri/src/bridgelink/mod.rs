@@ -13,6 +13,7 @@
 mod discovery;
 pub mod calendar;
 mod mimir_api;
+pub mod vault;
 pub mod notes;
 mod local;
 pub(crate) mod peer;
@@ -973,6 +974,7 @@ pub fn start(
     }
 
     local::spawn(listener, manager.clone(), shutdown.clone());
+    vault::spawn(manager.clone(), shutdown.clone());
     discovery::spawn(udp, manager.clone(), shutdown.clone());
     discovery::spawn_tailscale(manager.clone(), shutdown.clone());
     spawn_upkeep(manager.clone(), shutdown);
