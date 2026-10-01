@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Note, NoteBlock } from '../../lib/bridge'
-import { between, bumpLabel, diff, dueItems, firstSubLabel, inline, labelOnly, matches, nextLabel, noteTitle, rebase, remindersDue, shortcut, sortNotes, subProgress, toggleTask, toMarkdown, visible } from './model'
+import { layoutGraph } from './graph'
+import { allTags, backlinks, between, bumpLabel, diff, displayMath, findByTitle, graphOf, linkQuery, linksOf, dueItems, firstSubLabel, inline, labelOnly, matches, nextLabel, noteTitle, rebase, remindersDue, shortcut, sortNotes, subProgress, toggleTask, toMarkdown, visible } from './model'
 
 const block = (id: string, pos: string, over: Partial<NoteBlock> = {}): NoteBlock =>
   ({ id, kind: 'p', text: '', checked: false, due: null, pos, updated: 1, by: 'mac', deleted: false, ...over })
@@ -122,5 +123,39 @@ describe('sub-tasks', () => {
   it('exports nesting as indented Markdown', () => {
     const n = note({ title: 'Book', blocks: [block('a', 'a', { kind: 'todo', text: 'Ch 11' }), block('b', 'b', { kind: 'todo', text: 'Ch 11.1', indent: 1, checked: true })] })
     expect(toMarkdown(n)).toBe('# Book\n\n- [ ] Ch 11\n  - [x] Ch 11.1\n')
+  })
+})
+
+describe('links, tags and math', () => {
+  const n = (id: string, title: string, text: string) => note({ id, title, blocks: [block(`${id}b`, 'a', { text })] })
+
+  it('reads [[links]], #tags and $math$ as pieces', () => {
+    expect(inline('See [[Thesis|my thesis]] and #study/exam, cost $5 and $x^2$ then #1 not a tag')).toEqual([
+      { kind: 'text', text: 'See ' }, { kind: 'wikilink', text: 'my thesis', target: 'Thesis' }, { kind: 'text', text: ' and' },
+      { kind: 'text', text: ' ' }, { kind: 'tag', text: 'study/exam' }, { kind: 'text', text: ', cost $5 and ' }, { kind: 'math', text: 'x^2' },
+      { kind: 'text', text: ' then #1 not a tag' },
+    ])
+    expect(displayMath('$$\\int_0^1 x\\,dx$$')).toBe('\\int_0^1 x\\,dx')
+    expect(displayMath('just text')).toBeNull()
+  })
+
+  it('finds links, backlinks, tags and what is being linked as you type', () => {
+    const thesis = n('t', 'Thesis', 'Main #school')
+    const ch11 = n('c', 'Chapter 11', 'Part of [[thesis]] #school #reading')
+    const other = n('o', '', 'Untitled points to [[Chapter 11]]')
+    expect(findByTitle([thesis, ch11], 'THESIS')?.id).toBe('t')
+    expect(linksOf(ch11)).toEqual(['thesis'])
+    expect(backlinks([thesis, ch11, other], thesis).map(x => x.id)).toEqual(['c'])
+    expect(allTags([thesis, ch11])).toEqual([['school', 2], ['reading', 1]])
+    expect(graphOf([thesis, ch11, other])).toEqual([['c', 't'], ['o', 'c']])
+    expect(linkQuery('go to [[Chap', 12)).toEqual({ start: 6, query: 'Chap' })
+    expect(linkQuery('done [[x]] now', 14)).toBeNull()
+  })
+
+  it('lays out the graph inside the box, linked notes closer than unlinked ones', () => {
+    const at = layoutGraph(['a', 'b', 'c'], [['a', 'b']], 400, 300)
+    for (const p of at.values()) expect(p.x >= 20 && p.x <= 380 && p.y >= 20 && p.y <= 280).toBe(true)
+    const d = (x: string, y: string) => Math.hypot(at.get(x)!.x - at.get(y)!.x, at.get(x)!.y - at.get(y)!.y)
+    expect(d('a', 'b')).toBeLessThan(d('a', 'c'))
   })
 })

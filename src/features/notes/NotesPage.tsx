@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Pin, PinOff, Quote, Search, Trash2, X } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Pin, PinOff, Quote, Search, Share2, Hash, Link2, Trash2, X } from 'lucide-react'
 import { notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
-import { between, bumpLabel, descendants, diff, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
+import { layoutGraph } from './graph'
+import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, refreshNotes } from './state'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
@@ -10,8 +13,18 @@ const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code],
 ]
 
-/** "All", "Pinned" or a folder name. */
-type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; name: string }
+/** "All", "Pinned", a folder or a tag. */
+type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; name: string } | { kind: 'tag'; name: string }
+
+/** What a block needs to follow links and tags. */
+type Nav = { notes: Note[]; openTitle: (title: string) => void; filterTag: (tag: string) => void }
+const NavContext = createContext<Nav>({ notes: [], openTitle: () => undefined, filterTag: () => undefined })
+
+function renderMath(tex: string, displayMode: boolean) {
+  // KaTeX builds its own markup from the formula and escapes text; trust stays off, so a note
+  // can't add links or scripts through it.
+  return katex.renderToString(tex, { throwOnError: false, displayMode, trust: false, maxExpand: 500 })
+}
 
 export default function NotesPage() {
   const notes = useStore(notesStore)
@@ -22,8 +35,10 @@ export default function NotesPage() {
   const [freshId, setFreshId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
-  const shown = useMemo(() => notes.filter(n => matches(n, query) && (filter.kind === 'all' || (filter.kind === 'pinned' ? n.pinned : n.folder === filter.name))), [notes, query, filter])
+  const shown = useMemo(() => notes.filter(n => matches(n, query) && (filter.kind === 'all' || (filter.kind === 'pinned' ? n.pinned : filter.kind === 'tag' ? tagsOf(n).includes(filter.name) : n.folder === filter.name))), [notes, query, filter])
   const folderNames = useMemo(() => folders(notes), [notes])
+  const tags = useMemo(() => allTags(notes).slice(0, 24), [notes])
+  const [showGraph, setShowGraph] = useState(false)
   const open = notes.find(n => n.id === openId) ?? null
 
   useEffect(() => { if (!openId && shown.length) setOpenId(shown[0].id) }, [openId, shown])
@@ -39,7 +54,21 @@ export default function NotesPage() {
     } catch (e) { setError(String(e)) }
   }
 
-  return <div className="notes-layout">
+  /** A [[link]]: opens the note, or makes it when it doesn't exist yet (as Obsidian does). */
+  async function openTitle(title: string) {
+    const found = findByTitle(notesStore.get(), title)
+    if (found) { setFilter({ kind: 'all' }); setQuery(''); setOpenId(found.id); return }
+    try {
+      const created = await notesCreate('note', '')
+      const named = await notesSave({ id: created.id, title: title.trim() })
+      notesStore.set(current => [named, ...current])
+      setFilter({ kind: 'all' })
+      setOpenId(named.id)
+    } catch (e) { setError(String(e)) }
+  }
+  const nav: Nav = { notes, openTitle: title => void openTitle(title), filterTag: tag => { setFilter({ kind: 'tag', name: tag.toLowerCase() }); setQuery('') } }
+
+  return <NavContext.Provider value={nav}><div className="notes-layout">
     <aside className="card notes-sidebar">
       <div className="notes-search"><Search size={14} /><input placeholder="Search notes" value={query} onChange={e => setQuery(e.target.value)} />{query && <button className="notes-icon" title="Clear" onClick={() => setQuery('')}><X size={13} /></button>}</div>
       <div className="actions notes-new">
@@ -50,7 +79,11 @@ export default function NotesPage() {
         <button className={filter.kind === 'all' ? 'active' : ''} onClick={() => setFilter({ kind: 'all' })}>All <small>{notes.length}</small></button>
         <button className={filter.kind === 'pinned' ? 'active' : ''} onClick={() => setFilter({ kind: 'pinned' })}><Pin size={12} />Pinned</button>
         {folderNames.map(name => <button key={name} className={filter.kind === 'folder' && filter.name === name ? 'active' : ''} onClick={() => setFilter({ kind: 'folder', name })}><Folder size={12} />{name}</button>)}
+        <button onClick={() => setShowGraph(true)} title="How your notes link together"><Share2 size={12} />Graph</button>
       </div>
+      {tags.length > 0 && <div className="notes-filters notes-tags">
+        {tags.map(([tag, count]) => <button key={tag} className={filter.kind === 'tag' && filter.name === tag ? 'active' : ''} onClick={() => setFilter({ kind: 'tag', name: tag })}><Hash size={11} />{tag} <small>{count}</small></button>)}
+      </div>}
       {error && <p className="notes-error">{error}</p>}
       <div className="notes-list">
         {shown.map(n => <button key={n.id} className={n.id === openId ? 'active' : ''} onClick={() => setOpenId(n.id)}>
@@ -62,6 +95,30 @@ export default function NotesPage() {
     </aside>
     {open ? <NoteEditor key={open.id} stored={open} fresh={open.id === freshId} folderNames={folderNames} onDeleted={() => setOpenId(null)} />
       : <section className="card notes-editor notes-blank"><p>{loaded ? 'Pick a note or make a new one.' : 'Loading notes…'}</p></section>}
+    {showGraph && <GraphView notes={notes} current={openId} onOpen={id => { setOpenId(id); setFilter({ kind: 'all' }); setShowGraph(false) }} onClose={() => setShowGraph(false)} />}
+  </div></NavContext.Provider>
+}
+
+/** Notes as dots, links as lines; click a dot to open the note. */
+function GraphView({ notes, current, onOpen, onClose }: { notes: Note[]; current: string | null; onOpen: (id: string) => void; onClose: () => void }) {
+  const [width, height] = [900, 560]
+  const edges = useMemo(() => graphOf(notes), [notes])
+  const linked = useMemo(() => new Set(edges.flat()), [edges])
+  const [onlyLinked, setOnlyLinked] = useState(true)
+  const shownNotes = notes.filter(n => !onlyLinked || linked.has(n.id) || n.id === current)
+  const places = useMemo(() => layoutGraph(shownNotes.map(n => n.id), edges, width, height), [shownNotes.map(n => n.id).join(), edges])
+  const degree = (id: string) => edges.filter(([a, b]) => a === id || b === id).length
+  return <div className="cal-modal-back" onClick={onClose}>
+    <div className="card notes-graph" onClick={e => e.stopPropagation()}>
+      <div className="cal-modal-head"><h3>Graph</h3>
+        <label className="cal-check"><input type="checkbox" checked={onlyLinked} onChange={e => setOnlyLinked(e.target.checked)} />Only linked notes</label>
+        <button className="cal-icon" onClick={onClose}><X size={15} /></button></div>
+      {shownNotes.length ? <svg viewBox={`0 0 ${width} ${height}`} className="notes-graph-svg">
+        {edges.filter(([a, b]) => places.has(a) && places.has(b)).map(([a, b], i) => <line key={i} x1={places.get(a)!.x} y1={places.get(a)!.y} x2={places.get(b)!.x} y2={places.get(b)!.y} />)}
+        {shownNotes.map(n => { const p = places.get(n.id)!; const r = 5 + Math.min(8, degree(n.id) * 1.5); return <g key={n.id} className={n.id === current ? 'current' : ''} onClick={() => onOpen(n.id)}>
+          <circle cx={p.x} cy={p.y} r={r} /><text x={p.x} y={p.y - r - 4}>{noteTitle(n).slice(0, 28)}</text></g> })}
+      </svg> : <p className="notes-empty">No links yet. Link notes by typing [[ and a note’s name.</p>}
+    </div>
   </div>
 }
 
@@ -322,8 +379,18 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
         else insertAfter(last?.id ?? null, { kind: draft.kind === 'list' ? 'todo' : 'p' })
       }} />
     </div>
-    <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code. Tab makes a sub-task, Shift+Tab moves it back. ⌘/Ctrl+Enter ticks an item.'}</p>
+    <Backlinks note={draft} />
+    <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code, [[link]], #tag, $math$. Tab makes a sub-task, Shift+Tab moves it back. ⌘/Ctrl+Enter ticks an item.'}</p>
   </section>
+}
+
+function Backlinks({ note }: { note: Note }) {
+  const { notes, openTitle } = useContext(NavContext)
+  const from = useMemo(() => backlinks(notes, note), [notes, note])
+  if (!from.length) return null
+  return <div className="notes-backlinks"><span><Link2 size={12} />Linked from</span>
+    {from.map(n => <button key={n.id} onClick={() => openTitle(noteTitle(n))}>{noteTitle(n)}</button>)}
+  </div>
 }
 
 function toLocalInput(ms: number) {
@@ -349,8 +416,48 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
   onCheck: () => void; onDue: (due: number | null) => void; onEdit: () => void
 }) {
   const area = useRef<HTMLTextAreaElement>(null)
+  const nav = useContext(NavContext)
   const [pickingDue, setPickingDue] = useState(false)
   const showArea = editing || focus !== null || !block.text
+  // Typing [[ suggests notes to link to.
+  const [suggest, setSuggest] = useState<{ start: number; query: string; index: number } | null>(null)
+  const caretAfter = useRef<number | null>(null)
+  const options = useMemo(() => {
+    if (!suggest) return []
+    const q = suggest.query.trim().toLowerCase()
+    const titles = nav.notes.map(n => noteTitle(n)).filter(t => t.toLowerCase().includes(q))
+    const list = [...new Set(titles)].slice(0, 6)
+    return q && !list.some(t => t.toLowerCase() === q) ? [...list, `${suggest.query.trim()}`] : list
+  }, [suggest, nav.notes])
+
+  function pick(title: string) {
+    const el = area.current
+    if (!el || !suggest) return
+    const caret = el.selectionStart
+    const text = `${block.text.slice(0, suggest.start)}[[${title}]]${block.text.slice(caret)}`
+    caretAfter.current = suggest.start + title.length + 4
+    setSuggest(null)
+    onText(text)
+  }
+
+  useLayoutEffect(() => {
+    if (caretAfter.current === null || !area.current) return
+    area.current.setSelectionRange(caretAfter.current, caretAfter.current)
+    caretAfter.current = null
+  })
+
+  function keyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (suggest && options.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSuggest({ ...suggest, index: (suggest.index + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length })
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(options[suggest.index] ?? options[0]); return }
+      if (e.key === 'Escape') { e.preventDefault(); setSuggest(null); return }
+    }
+    onKey(e)
+  }
 
   useLayoutEffect(() => {
     const el = area.current
@@ -380,8 +487,11 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     <div className="notes-block-body">
       {showArea
         ? <textarea ref={area} rows={1} spellCheck={block.kind !== 'code'} value={block.text} placeholder={placeholder}
-            onChange={e => onText(e.target.value)} onKeyDown={onKey} onFocus={onFocused} onBlur={onBlurred} />
-        : <div className="notes-rendered" onClick={e => { if (!(e.target instanceof HTMLAnchorElement)) onEdit() }}>
+            onChange={e => { onText(e.target.value); const q = linkQuery(e.target.value, e.target.selectionStart); setSuggest(q ? { ...q, index: 0 } : null) }}
+            onKeyDown={keyDown} onFocus={onFocused} onBlur={() => { window.setTimeout(() => setSuggest(null), 150); onBlurred() }} />
+        : block.kind === 'p' && displayMath(block.text) !== null
+          ? <div className="notes-rendered notes-math-block" onClick={onEdit} dangerouslySetInnerHTML={{ __html: renderMath(displayMath(block.text)!, true) }} />
+          : <div className="notes-rendered" onClick={e => { if (!(e.target instanceof HTMLAnchorElement)) onEdit() }}>
             {block.kind === 'code' ? block.text : inline(block.text).map((piece, i) => {
               switch (piece.kind) {
                 case 'bold': return <strong key={i}>{piece.text}</strong>
@@ -389,10 +499,18 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
                 case 'strike': return <s key={i}>{piece.text}</s>
                 case 'code': return <code key={i}>{piece.text}</code>
                 case 'link': return <a key={i} href={piece.href} onClick={e => { e.preventDefault(); void openExternal(piece.href!) }}>{piece.text}</a>
+                case 'wikilink': return <a key={i} href="#" className={`notes-wikilink${findByTitle(nav.notes, piece.target!) ? '' : ' missing'}`} title={findByTitle(nav.notes, piece.target!) ? `Open ${piece.target}` : `Create ${piece.target}`} onClick={e => { e.preventDefault(); e.stopPropagation(); nav.openTitle(piece.target!) }}>{piece.text}</a>
+                case 'tag': return <a key={i} href="#" className="notes-tag" onClick={e => { e.preventDefault(); e.stopPropagation(); nav.filterTag(piece.text) }}>#{piece.text}</a>
+                case 'math': return <span key={i} className="notes-math" dangerouslySetInnerHTML={{ __html: renderMath(piece.text, false) }} />
                 default: return <span key={i}>{piece.text}</span>
               }
             })}
           </div>}
+      {suggest && options.length > 0 && <div className="notes-suggest">
+        {options.map((title, i) => <button key={title} className={i === suggest.index ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(title) }}>
+          {findByTitle(nav.notes, title) ? <Link2 size={12} /> : <FilePlus size={12} />}{findByTitle(nav.notes, title) ? title : `New note “${title}”`}
+        </button>)}
+      </div>}
     </div>
     {sub && <span className={`notes-sub-count${sub.done === sub.total ? ' all' : ''}`} title="Sub-tasks done">{sub.done}/{sub.total}</span>}
     {block.kind === 'todo' && <button className="notes-add-sub" title="Add a sub-task" onClick={onAddSub}><ListPlus size={13} /></button>}

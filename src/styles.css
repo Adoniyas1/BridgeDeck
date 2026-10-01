@@ -533,3 +533,26 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .notes-add-sub{flex:none;border:0;background:transparent;color:var(--faint);border-radius:var(--radius-sm);padding:5px;opacity:0;display:grid;place-items:center}
 .notes-block:hover .notes-add-sub,.notes-block:focus-within .notes-add-sub{opacity:1}
 .notes-add-sub:hover{background:var(--surface-3);color:var(--text)}
+/* Vault-style notes: links, tags, math, backlinks, graph */
+.notes-wikilink{color:var(--accent);text-decoration:none;border-bottom:1px dashed color-mix(in srgb,var(--accent) 50%,transparent)}
+.notes-wikilink.missing{color:var(--muted);border-bottom-color:var(--faint)}
+.notes-tag{color:var(--ok);text-decoration:none;font-size:.95em}
+.notes-tags{margin-top:-4px}
+.notes-math .katex{font-size:1.05em}
+.notes-math-block{text-align:center;padding:6px 0;overflow-x:auto}
+.notes-block-body{position:relative}
+.notes-suggest{position:absolute;z-index:20;left:0;top:100%;min-width:240px;max-width:100%;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--radius-sm);box-shadow:0 10px 24px rgba(0,0,0,.35);padding:4px;display:flex;flex-direction:column}
+.notes-suggest button{display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);text-align:left;padding:6px 8px;border-radius:5px;font-size:12px}
+.notes-suggest button.active,.notes-suggest button:hover{background:var(--surface-3)}
+.notes-suggest svg{color:var(--muted);flex:none}
+.notes-backlinks{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
+.notes-backlinks span{display:inline-flex;align-items:center;gap:5px;color:var(--faint)}
+.notes-backlinks button{border:1px solid var(--line-strong);background:transparent;color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+.notes-graph{width:min(960px,100%);display:flex;flex-direction:column;gap:8px}
+.notes-graph-svg{width:100%;height:auto;background:var(--bg);border-radius:var(--radius-sm)}
+.notes-graph-svg line{stroke:var(--line-strong);stroke-width:1.2}
+.notes-graph-svg g{cursor:pointer}
+.notes-graph-svg circle{fill:var(--accent);opacity:.85}
+.notes-graph-svg g.current circle{fill:var(--ok)}
+.notes-graph-svg g:hover circle{opacity:1}
+.notes-graph-svg text{fill:var(--muted);font-size:11px;text-anchor:middle;pointer-events:none}

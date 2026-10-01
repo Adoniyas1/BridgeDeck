@@ -17,3 +17,6 @@ BridgeDeck v0.7 uses `tauri-plugin-dialog` / `@tauri-apps/plugin-dialog` for nat
 ## LocalSend core integration
 
 BridgeDeck v0.7 links directly to the pinned Apache-2.0 LocalSend Rust core as a Cargo path dependency. Keep the upstream LocalSend license and notices with redistributed source/binaries as required by its license.
+
+## KaTeX
+The Notes tab renders `$math$` and `$$math$$` with KaTeX (`katex` on npm), MIT licence, © Khan Academy and other contributors. It is a package dependency; its licence ships inside `node_modules/katex`.

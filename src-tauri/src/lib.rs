@@ -556,6 +556,7 @@ pub fn run() {
             bridgelink::notes::notes_create,
             bridgelink::notes::notes_save,
             bridgelink::notes::notes_delete,
+            bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,
             transfer::transfer_cancel,
