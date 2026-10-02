@@ -11,6 +11,9 @@ import path from "node:path";
  * visible folder in your own Documents — drag files in or out in Finder,
  * and Mimir can read/write there too via the tools in ./tools.ts.
  */
-export function defaultProjectsRoot(): string {
+export function defaultProjectsRoot(env: NodeJS.ProcessEnv = process.env): string {
+  // BridgeDeck points this at its synced Projects folder, so both apps share the same projects.
+  const shared = env.MIMIR_PROJECTS_ROOT?.trim();
+  if (shared && path.isAbsolute(shared)) return shared;
   return path.join(os.homedir(), "Documents", "Mimir Projects");
 }

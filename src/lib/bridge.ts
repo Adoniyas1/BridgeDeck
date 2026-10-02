@@ -430,4 +430,12 @@ export const studyRemoveBook = (course: string, file: string) => native<void>('s
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
 export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
 export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })
+/** Projects (src-tauri/src/projects.rs): one synced folder per project. */
+export type ProjectInfo = { name: string; files: number; bytes: number; modified: number }
+export type ProjectList = { root: string; projects: ProjectInfo[]; mimirOld: string[]; mimirOldPath: string }
+export type ProjectFile = { path: string; bytes: number; modified: number }
+export const projectsList = (shared: string) => native<ProjectList>('projects_list', { shared })
+export const projectsAdd = (name: string) => native<string>('projects_add', { name })
+export const projectsFiles = (project: string) => native<ProjectFile[]>('projects_files', { project })
+export const projectsImportMimir = () => native<number>('projects_import_mimir')
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })

@@ -60,7 +60,7 @@ pub struct Library {
     pub courses: Vec<Course>,
 }
 
-fn default_shared() -> PathBuf {
+pub(crate) fn default_shared() -> PathBuf {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
     PathBuf::from(home).join("BridgeDeck Shared")
 }
@@ -72,7 +72,7 @@ fn root_for(shared: &str) -> PathBuf {
 }
 
 /// A course or book name made safe as a single folder or file name.
-fn clean_name(name: &str) -> Result<String, String> {
+pub(crate) fn clean_name(name: &str) -> Result<String, String> {
     let cleaned: String = name.chars().map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c }).collect();
     let cleaned = cleaned.trim().trim_matches('.').trim().chars().take(100).collect::<String>();
     if cleaned.is_empty() { Err("Give it a name".into()) } else { Ok(cleaned) }

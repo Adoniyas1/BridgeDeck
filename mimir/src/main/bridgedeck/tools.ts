@@ -45,7 +45,7 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const s = (description: string) => ({ type: "string", description });
 
 /** Mimir's hands in BridgeDeck: notes and checklists, the calendar, Messages, the
- * other computer, files, the clipboard, AI rooms and the user's textbooks. Sending a message or files
+ * other computer, files, the clipboard, AI rooms, the user's textbooks and projects. Sending a message or files
  * makes BridgeDeck ask the person first; everything else is the person's own
  * data on their own computers. */
 export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
@@ -71,6 +71,9 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
     { name: "flashcards_add", description: "Add flashcards to a course's deck in BridgeDeck; the user reviews them with spaced repetition in the Study tab. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
+    { name: "projects_list", description: "The user's BridgeDeck projects: each one's folder (the same folder list_project_files and read_project_file work in), notes (ids for note_read), task board columns with their cards, and upcoming milestones.", inputSchema: object({}) },
+    { name: "project_task_add", description: "Add a task card to a project's board in BridgeDeck (made with To do / Doing / Done columns if it has none). Optional due time shows it in the calendar.", inputSchema: object({ project: s("Project name"), task: s("The task"), column: s("Optional column; default the first (To do)"), due: s("Optional due time: 2026-10-03T15:00 or 2026-10-03") }, ["project", "task"]) },
+    { name: "project_task_move", description: "Move a task card on a project's board to another column (e.g. Doing, Done); moving to Done ticks it.", inputSchema: object({ project: s("Project name"), task: s("The card's text (or a distinctive part)"), column: s("Column to move it to") }, ["project", "task", "column"]) },
     { name: "ai_rooms", description: "The AI workspace: rooms, tasks and agents on the user's computers.", inputSchema: object({}) },
     { name: "ai_post", description: "Post a message as Mimir in an AI room (other agents on the user's computers read it).", inputSchema: object({ room: s("Room id"), text: s("Message") }, ["text"]) }
   ];
@@ -222,6 +225,36 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
       try {
         const result = await call<{ added: number }>("study/flashcards/add", { course: str(input, "course"), cards });
         return ok(`Added ${result.added} card${result.added === 1 ? "" : "s"}; the user reviews them in the Study tab.`);
+      } catch (error) { return fail(error); }
+    },
+    projects_list: async () => {
+      try {
+        const { projects } = await call<{ projects: Array<{ name: string; folder: string; files: number; notes: Array<{ id: string; title: string; kind: string }>; board: Array<{ column: string; cards: string[] }> | null; milestones: Array<{ title: string; start: number }> }> }>("projects/list");
+        if (!projects.length) return ok("No projects yet; the user makes them in BridgeDeck's Projects tab.");
+        return ok(projects.map((p) => [
+          `## ${p.name} (${p.files} files in ${p.folder})`,
+          ...(p.board ? p.board.map((c) => `- ${c.column}: ${c.cards.length ? c.cards.join("; ") : "(empty)"}`) : ["- No task board yet"]),
+          ...p.notes.map((n) => `- ${n.kind === "list" ? "Checklist" : "Note"}: ${n.title} id=${n.id}`),
+          ...p.milestones.map((m) => `- Milestone: ${m.title} on ${when(m.start, true)}`)
+        ].join("\n")).join("\n\n"));
+      } catch (error) { return fail(error); }
+    },
+    project_task_add: async (input) => {
+      let due: number | undefined;
+      if (input.due !== undefined && input.due !== "") {
+        const parsed = parseTime(input.due);
+        if (!parsed) return fail("I couldn't read that due time; use 2026-10-03T15:00.");
+        due = parsed.dateOnly ? parsed.ms + 9 * 3_600_000 : parsed.ms;
+      }
+      try {
+        const result = await call<{ markdown: string }>("projects/task/add", { project: str(input, "project"), task: str(input, "task"), column: str(input, "column") || undefined, due });
+        return ok(`Added. The board now:\n${result.markdown}`);
+      } catch (error) { return fail(error); }
+    },
+    project_task_move: async (input) => {
+      try {
+        const result = await call<{ markdown: string }>("projects/task/move", { project: str(input, "project"), task: str(input, "task"), column: str(input, "column") });
+        return ok(`Moved. The board now:\n${result.markdown}`);
       } catch (error) { return fail(error); }
     },
     ai_rooms: async () => {
