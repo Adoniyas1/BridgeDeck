@@ -558,7 +558,9 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     match result {
         Ok((data, mime)) => Response::builder()
             .header(header::CONTENT_TYPE, mime)
-            .header(header::CACHE_CONTROL, "max-age=3600")
+            // Streamed pages may be downloaded between views. Never let the webview retain
+            // an older byte/type pairing for this virtual URL.
+            .header(header::CACHE_CONTROL, "no-store")
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(data)
             .unwrap(),

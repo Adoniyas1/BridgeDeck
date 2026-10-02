@@ -14,6 +14,7 @@ export default function ReaderTab({ tab, active }: { tab: DynamicTab; active: bo
   const seriesName = String(tab.params?.series ?? '')
   const chapterId = String(tab.params?.chapter ?? '')
   const askedPage = Number(tab.params?.page ?? 0)
+  const imageVersion = String(tab.params?.at ?? '')
   const { library } = useStore(mangaStore)
   const series = library?.series.find(s => s.name === seriesName)
   const chapters = series?.chapters ?? []
@@ -120,7 +121,7 @@ export default function ReaderTab({ tab, active }: { tab: DynamicTab; active: bo
     {error && <p className="cal-error">{error}</p>}
     <div className="progress-line"><i style={{ width: pages ? `${((page + 1) / pages) * 100}%` : 0 }} /></div>
     {mode === 'strip' ? <div className="manga-strip" ref={strip} onScroll={() => window.requestAnimationFrame(onStripScroll)}>
-      {list.map(i => <img key={i} data-page={i} src={pageUrl(seriesName, chapterId, i)} alt={`Page ${i + 1}`} loading="lazy" />)}
+      {list.map(i => <img key={i} data-page={i} src={pageUrl(seriesName, chapterId, i, imageVersion)} alt={`Page ${i + 1}`} loading="lazy" />)}
       {pages > 0 && <div className="manga-end">
         <p>End of {chapterTitle}</p>
         {index >= 0 && index < chapters.length - 1 ? <button onClick={() => openNeighbour(1)}>Next: {chapters[index + 1].title}</button> : <p className="hint">That's the latest chapter.</p>}
@@ -130,8 +131,8 @@ export default function ReaderTab({ tab, active }: { tab: DynamicTab; active: bo
       const left = e.clientX - r.left < r.width / 2
       go(page + ((left ? mode === 'rtl' : mode !== 'rtl') ? 1 : -1))
     }}>
-      {pages > 0 && <img key={page} src={pageUrl(seriesName, chapterId, page)} alt={`Page ${page + 1}`} />}
-      {page + 1 < pages && <img className="manga-preload" src={pageUrl(seriesName, chapterId, page + 1)} alt="" />}
+      {pages > 0 && <img key={page} src={pageUrl(seriesName, chapterId, page, imageVersion)} alt={`Page ${page + 1}`} />}
+      {page + 1 < pages && <img className="manga-preload" src={pageUrl(seriesName, chapterId, page + 1, imageVersion)} alt="" />}
       <p className="manga-hint">{mode === 'rtl' ? 'Click the left side for the next page · ← →' : 'Click the right side for the next page · ← →'}</p>
     </div>}
   </div>

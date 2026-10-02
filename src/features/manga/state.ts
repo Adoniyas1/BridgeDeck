@@ -16,7 +16,12 @@ export async function refreshManga() {
 }
 
 /** A page or a cover, served from the library by the `bdmanga` scheme (manga.rs). */
-export const pageUrl = (series: string, chapter: string, page: number) => convertFileSrc(`${series}/${chapter}/${page}`, 'bdmanga')
+export const pageUrl = (series: string, chapter: string, page: number, version?: string) => {
+  const url = convertFileSrc(`${series}/${chapter}/${page}`, 'bdmanga')
+  // A version is supplied per reader opening. This prevents Chromium from retaining a
+  // stale response when a streamed page is first cached under a different MIME type.
+  return version ? `${url}?v=${encodeURIComponent(version)}` : url
+}
 export const coverUrl = (series: string, version = 0) => `${convertFileSrc(`${series}/.cover`, 'bdmanga')}?v=${version}`
 
 /** Opens a chapter in its own tab. */
