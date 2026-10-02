@@ -665,3 +665,4 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .activity-row{display:flex;gap:10px;align-items:baseline;padding:5px 2px;border-bottom:1px solid var(--line);font-size:12px}
 .activity-row small{color:var(--muted);flex:none;width:110px}.activity-row strong{font-weight:600}.activity-row em{display:block;font-style:normal;color:var(--muted);margin-top:2px;word-break:break-word}
 .activity-row.failed strong{color:#f07178}
+.update-log{margin-top:8px}.update-log summary{cursor:pointer;font-size:12px;color:var(--muted)}.update-log pre{max-height:240px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;font-size:11px;white-space:pre-wrap;word-break:break-word}
