@@ -259,6 +259,53 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             Ok(json!({ "id": note.id, "added": count }))
         }
 
+        // ---- Projects: folders, task boards and milestones ----
+        "/mimir/projects/list" => {
+            let root = crate::projects::root_or_default();
+            let listed = crate::projects::list(&root, &root)?;
+            let (all_notes, events) = { let r = manager.lock()?; (r.notes.list(), r.calendar.list()) };
+            let now = now_ms();
+            let projects: Vec<Value> = listed
+                .projects
+                .iter()
+                .map(|p| {
+                    let folder = project_folder(&p.name).to_lowercase();
+                    let mine: Vec<&Note> = all_notes.iter().filter(|n| !n.deleted && n.folder.to_lowercase() == folder).collect();
+                    let board = mine.iter().find(|n| n.title == board_title(&p.name)).map(|n| {
+                        notes::board_columns(n).iter().map(|(h, cards)| json!({ "column": h.as_ref().map(|h| h.text.clone()).unwrap_or_else(|| "To do".into()), "cards": cards.iter().filter(|b| b.indent == 0).map(|b| b.text.clone()).collect::<Vec<_>>() })).collect::<Vec<_>>()
+                    });
+                    let name = p.name.to_lowercase();
+                    let milestones: Vec<Value> = events.iter().filter(|e| !e.deleted && e.end >= now as i64 && e.title.to_lowercase().contains(&name)).map(|e| json!({ "title": e.title, "start": e.start, "id": e.id })).collect();
+                    json!({ "name": p.name, "folder": root.join(&p.name).to_string_lossy(), "files": p.files, "notes": mine.iter().map(|n| json!({ "id": n.id, "title": notes::display_title(n), "kind": n.kind })).collect::<Vec<_>>(), "board": board, "milestones": milestones })
+                })
+                .collect();
+            Ok(json!({ "root": listed.root, "projects": projects }))
+        }
+        "/mimir/projects/task/add" | "/mimir/projects/task/move" => {
+            let root = crate::projects::root_or_default();
+            let wanted = need(body, "project")?.to_lowercase();
+            let names: Vec<String> = crate::projects::list(&root, &root)?.projects.into_iter().map(|p| p.name).collect();
+            let project = names.iter().find(|n| n.to_lowercase() == wanted).or_else(|| names.iter().find(|n| n.to_lowercase().contains(&wanted))).ok_or("No such project")?.clone();
+            let (title, folder) = (board_title(&project), project_folder(&project));
+            let task = need(body, "task")?.to_string();
+            let column = text(body, "column").map(str::to_string);
+            let due = body.get("due").and_then(|v| v.as_u64());
+            let moving = path.ends_with("move");
+            let note = notes_change(manager, move |store, device, now| {
+                let id = match store.list().into_iter().find(|n| !n.deleted && n.title == title && n.folder.eq_ignore_ascii_case(&folder)) {
+                    Some(note) => note.id,
+                    None if moving => return Err("That project has no board yet".into()),
+                    None => store.create_from_markdown(None, "list", &title, &folder, &notes::BOARD_COLUMNS.map(|c| format!("## {c}")).join("\n\n"), device, now)?.id,
+                };
+                if moving {
+                    store.board_move(&id, &task, column.as_deref().ok_or("`column` is required")?, device, now)
+                } else {
+                    store.board_add(&id, column.as_deref(), &task, due, device, now)
+                }
+            })?;
+            Ok(json!({ "id": note.id, "markdown": notes::to_markdown(&note) }))
+        }
+
         // ---- AI rooms ----
         "/mimir/ai/rooms" => {
             let runtime = manager.lock()?;
@@ -271,6 +318,15 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
         }
         _ => Err("Not found".into()),
     }
+}
+
+fn project_folder(project: &str) -> String {
+    format!("Projects/{project}")
+}
+
+/// A project's task board note (see `notes::board_columns`).
+fn board_title(project: &str) -> String {
+    format!("{project} — board")
 }
 
 fn study_folder(course: &str) -> String {
@@ -395,6 +451,24 @@ mod tests {
         assert_eq!(courses["courses"][0]["flashcardsDue"], 2);
         assert_eq!(courses["courses"][0]["books"][0]["searchable"], true);
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn mimir_keeps_a_projects_task_board() {
+        let manager = BridgeLinkManager::default();
+        manager.lock().unwrap().instance_id = "mac".into();
+        let root = crate::projects::root_or_default();
+        let name = format!("BD test {}", Uuid::new_v4().simple());
+        std::fs::create_dir_all(root.join(&name)).unwrap();
+        let added = call(&manager, "/mimir/projects/task/add", json!({ "project": name.to_lowercase(), "task": "Order motors" }));
+        call(&manager, "/mimir/projects/task/add", json!({ "project": name, "task": "Wire it", "column": "doing" }));
+        let moved = call(&manager, "/mimir/projects/task/move", json!({ "project": name, "task": "order", "column": "done" }));
+        assert_eq!(moved["id"], added["id"]);
+        assert_eq!(moved["markdown"], "## To do\n\n## Doing\n\n- [ ] Wire it\n\n## Done\n\n- [x] Order motors");
+        let listed = call(&manager, "/mimir/projects/list", json!({}));
+        let mine = listed["projects"].as_array().unwrap().iter().find(|p| p["name"] == name.as_str()).unwrap().clone();
+        assert_eq!(mine["board"][2], json!({ "column": "Done", "cards": ["Order motors"] }));
+        let _ = std::fs::remove_dir_all(root.join(&name));
     }
 
     #[test]

@@ -372,7 +372,7 @@ Everything left, combined into one order. One PR each.
    full-text and embedding search), summaries, practice quizzes, step-by-step explanations;
    flashcards from highlights or Mimir with FSRS scheduling (ts-fsrs); study sessions and exams on
    the calendar, a focus timer, progress per course and chapter.
-4. **Projects tab**: a synced folder, notes, a task board and milestones per project; Mimir works
+4. **Projects tab (built)**: a synced folder, notes, a task board and milestones per project; Mimir works
    with the project's files and notes; merges with Mimir Projects.
 5. **Skill library**: Mimir loads skills in the SKILL.md format (instructions, references,
    stdlib-only scripts run in its sandbox), with skill packs chosen in Settings, starting with

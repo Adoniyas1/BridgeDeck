@@ -267,6 +267,9 @@ fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
         (host.token.clone(), host.api_token.clone(), host.generation)
     };
     set_phase(Phase::Starting, "Starting Mimir");
+    // Mimir's Projects folder is BridgeDeck's synced one, so both see the same project files.
+    let projects = crate::projects::root_for(&crate::shared_folder(app));
+    let _ = std::fs::create_dir_all(&projects);
     let mut cmd = Command::new(node);
     cmd.arg("server-entry.mjs")
         .current_dir(dir)
@@ -275,6 +278,7 @@ fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
         // Mimir's BridgeDeck tools (notes, calendar, Messages, files…) call back here.
         .env("BRIDGEDECK_API", format!("http://127.0.0.1:{}", api_port(app)))
         .env("BRIDGEDECK_TOKEN", &api_token)
+        .env("MIMIR_PROJECTS_ROOT", &projects)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

@@ -727,9 +727,119 @@ impl NoteStore {
     }
 }
 
+/// A project's task board is a checklist note: each `##` heading is a column with its cards
+/// (`- [ ]` items, sub-tasks indented) under it, the layout Obsidian's Kanban plugin uses.
+pub const BOARD_COLUMNS: [&str; 3] = ["To do", "Doing", "Done"];
+
+/// Cards in a column whose name says it's finished are ticked.
+pub fn is_done_column(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["done", "complete", "finished", "shipped"].iter().any(|w| name.contains(w))
+}
+
+/// The board's columns in order: (heading block, its cards and their sub-tasks).
+pub fn board_columns(note: &Note) -> Vec<(Option<Block>, Vec<Block>)> {
+    let mut columns: Vec<(Option<Block>, Vec<Block>)> = Vec::new();
+    for block in shown(note) {
+        if matches!(block.kind.as_str(), "h1" | "h2" | "h3") {
+            columns.push((Some(block.clone()), Vec::new()));
+        } else if block.kind == "todo" {
+            if columns.is_empty() {
+                columns.push((None, Vec::new()));
+            }
+            columns.last_mut().unwrap().1.push(block.clone());
+        }
+    }
+    columns
+}
+
+fn column_name(heading: &Option<Block>) -> String {
+    heading.as_ref().map(|h| h.text.trim().to_string()).unwrap_or_else(|| BOARD_COLUMNS[0].into())
+}
+
+fn find_column(columns: &[(Option<Block>, Vec<Block>)], wanted: &str) -> Option<usize> {
+    let wanted = wanted.trim().to_lowercase();
+    columns
+        .iter()
+        .position(|(h, _)| column_name(h).to_lowercase() == wanted)
+        .or_else(|| columns.iter().position(|(h, _)| column_name(h).to_lowercase().contains(&wanted)))
+}
+
+impl NoteStore {
+    /// The last position in a column (its heading, or its last card or sub-task), leaving out `skip`.
+    fn column_end(note: &Note, column: usize, skip: &[String]) -> String {
+        let columns = board_columns(note);
+        let (heading, cards) = &columns[column];
+        cards.iter().filter(|b| !skip.contains(&b.id)).map(|b| b.pos.clone()).chain(heading.iter().map(|h| h.pos.clone())).max().unwrap_or_default()
+    }
+
+    /// Adds a card to a column of a board (the first column when none is named).
+    pub fn board_add(&mut self, id: &str, column: Option<&str>, text: &str, due: Option<u64>, device: &str, now: u64) -> Result<Note, String> {
+        let note = self.notes.get(id).filter(|n| !n.deleted).ok_or("No such board")?.clone();
+        let columns = board_columns(&note);
+        if columns.is_empty() {
+            return Err("That note has no columns".into());
+        }
+        let index = match column {
+            Some(name) if !name.trim().is_empty() => find_column(&columns, name).ok_or_else(|| format!("No column called “{name}”; the columns are {}", columns.iter().map(|(h, _)| column_name(h)).collect::<Vec<_>>().join(", ")))?,
+            _ => 0,
+        };
+        let text = clean_text(text, MAX_TEXT).replace('\n', " ");
+        if text.trim().is_empty() {
+            return Err("The card needs text".into());
+        }
+        let after = Self::column_end(&note, index, &[]);
+        let card = Block { id: Uuid::new_v4().to_string(), kind: "todo".into(), text, checked: is_done_column(&column_name(&columns[index].0)), due, pos: format!("{after}00001V"), updated: now, by: device.into(), ..Default::default() };
+        self.apply(NotePatch { id: id.into(), blocks: vec![card], ..Default::default() }, device, now)
+    }
+
+    /// Moves the card best matching `item` (with its sub-tasks) to the end of a column.
+    pub fn board_move(&mut self, id: &str, item: &str, column: &str, device: &str, now: u64) -> Result<Note, String> {
+        let note = self.notes.get(id).filter(|n| !n.deleted).ok_or("No such board")?.clone();
+        let columns = board_columns(&note);
+        let target = find_column(&columns, column).ok_or_else(|| format!("No column called “{column}”"))?;
+        let wanted = item.trim().to_lowercase();
+        let cards: Vec<&Block> = columns.iter().flat_map(|(_, c)| c.iter()).filter(|b| b.indent == 0).collect();
+        let card = cards
+            .iter()
+            .find(|b| b.text.trim().to_lowercase() == wanted)
+            .or_else(|| cards.iter().find(|b| b.text.to_lowercase().contains(&wanted)))
+            .ok_or_else(|| format!("No card like “{item}” on the board"))?;
+        let all: Vec<&Block> = shown(&note);
+        let start = all.iter().position(|b| b.id == card.id).unwrap_or(0);
+        let moving: Vec<Block> = std::iter::once(all[start].clone()).chain(all[start + 1..].iter().take_while(|b| b.kind == "todo" && b.indent > 0).map(|b| (*b).clone())).collect();
+        let skip: Vec<String> = moving.iter().map(|b| b.id.clone()).collect();
+        let after = Self::column_end(&note, target, &skip);
+        let done = is_done_column(&column_name(&columns[target].0));
+        let moved: Vec<Block> = moving
+            .into_iter()
+            .enumerate()
+            .map(|(i, b)| Block { pos: format!("{after}{:05}V", i + 1), checked: if i == 0 || done { done } else { b.checked }, ..b })
+            .collect();
+        self.apply(NotePatch { id: id.into(), blocks: moved, ..Default::default() }, device, now)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_board_note_keeps_cards_in_columns_and_moves_them_with_their_sub_tasks() {
+        let mut store = NoteStore::default();
+        let board = store.create_from_markdown(None, "list", "Robot — board", "Projects/Robot", "## To do\n\n- [ ] Order motors\n  - [ ] Check torque\n- [ ] CAD the chassis\n\n## Doing\n\n## Done", "mac", 1).unwrap();
+        store.board_add(&board.id, Some("doing"), "Wire the ESC", None, "mac", 2).unwrap();
+        store.board_add(&board.id, None, "Write the report", Some(5_000), "mac", 3).unwrap();
+        assert!(store.board_add(&board.id, Some("Later"), "x", None, "mac", 3).unwrap_err().contains("To do, Doing, Done"));
+        let note = store.board_move(&board.id, "order", "Done", "pc", 4).unwrap();
+        assert_eq!(to_markdown(&note), "## To do\n\n- [ ] CAD the chassis\n- [ ] Write the report (due 1970-01-01T00:00Z)\n\n## Doing\n\n- [ ] Wire the ESC\n\n## Done\n\n- [x] Order motors\n  - [x] Check torque");
+        // Back to Doing: unticked, the sub-task keeps its tick; then to the end of its own column.
+        let note = store.board_move(&board.id, "Order motors", "doing", "pc", 5).unwrap();
+        let columns = board_columns(&note);
+        assert_eq!(columns[1].1.iter().map(|b| (b.text.as_str(), b.checked)).collect::<Vec<_>>(), vec![("Wire the ESC", false), ("Order motors", false), ("Check torque", true)]);
+        let note = store.board_move(&board.id, "wire", "Doing", "pc", 6).unwrap();
+        assert_eq!(board_columns(&note)[1].1.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), vec!["Order motors", "Check torque", "Wire the ESC"]);
+    }
 
     fn block(id: &str, text: &str, updated: u64, by: &str) -> Block {
         Block { id: id.into(), kind: "p".into(), text: text.into(), pos: "i".into(), updated, by: by.into(), ..Default::default() }

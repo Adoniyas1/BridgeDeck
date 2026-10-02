@@ -13,6 +13,7 @@ mod link;
 mod mimir_host;
 mod remote;
 mod send_to;
+mod projects;
 mod study;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -194,6 +195,16 @@ fn read_saved_config(app: &AppHandle) -> Result<Option<String>, String> {
         }
     }
     Ok(None)
+}
+
+/// The synced folder from the saved settings ("" means the default).
+pub(crate) fn shared_folder(app: &AppHandle) -> String {
+    read_saved_config(app)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|config| config.pointer("/syncthing/sharedFolderPath").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_default()
 }
 
 fn write_saved_config(app: &AppHandle, contents: &str) -> Result<(), String> {
@@ -567,6 +578,10 @@ pub fn run() {
             study::study_remove_book,
             study::study_save_index,
             study::study_search,
+            projects::projects_list,
+            projects::projects_add,
+            projects::projects_files,
+            projects::projects_import_mimir,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,
