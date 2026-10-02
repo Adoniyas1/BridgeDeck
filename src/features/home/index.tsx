@@ -19,7 +19,7 @@ import DiagnosticsButton from '../../shell/DiagnosticsButton'
 import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 import TodayAgenda from '../calendar/Agenda'
-import { AwayCard, BriefBackground, BriefCard, BriefSettings } from './Brief'
+import { AwayCard, BriefBackground, BriefCard, BriefSettings } from './brief-ui'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
 
