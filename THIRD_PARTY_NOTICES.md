@@ -20,3 +20,6 @@ BridgeDeck v0.7 links directly to the pinned Apache-2.0 LocalSend Rust core as a
 
 ## KaTeX
 The Notes tab renders `$math$` and `$$math$$` with KaTeX (`katex` on npm), MIT licence, © Khan Academy and other contributors. It is a package dependency; its licence ships inside `node_modules/katex`.
+
+## PDF.js
+The Study tab reads textbooks with PDF.js (`pdfjs-dist` on npm), Apache-2.0, © Mozilla and contributors. It is a package dependency; its licence ships inside `node_modules/pdfjs-dist`.

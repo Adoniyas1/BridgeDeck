@@ -365,7 +365,7 @@ Everything left, combined into one order. One PR each.
    each computer (frontmatter keeps its id); edits made in Obsidian, Logseq or Zettlr come back
    into BridgeDeck and sync as usual. `[[links]]` with suggestions, backlinks, `#tags`, a graph
    view, and math (KaTeX).
-2. **Study tab**: courses with their textbooks (PDF via pdf.js, EPUB via epub.js), notes,
+2. **Study tab (built; EPUB opens in the system reader for now)**: courses with their textbooks (PDF via pdf.js, EPUB via epub.js), notes,
    checklists and exam dates; highlights become notes linked to the page; a book's table of
    contents becomes a chapter checklist with sub-tasks.
 3. **Mimir study help**: answers from the user's books with book-and-page citations (local

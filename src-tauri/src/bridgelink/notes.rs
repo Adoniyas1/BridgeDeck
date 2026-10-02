@@ -469,6 +469,12 @@ pub fn notes_save(patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Re
     local(&manager, |notes, device, now| notes.apply(patch, device, now))
 }
 
+/// A note made from Markdown (a book's chapter checklist, highlights).
+#[tauri::command]
+pub fn notes_create_markdown(title: String, folder: String, kind: String, markdown: String, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    local(&manager, |notes, device, now| notes.create_from_markdown(None, &kind, &title, &folder, &markdown, device, now))
+}
+
 #[tauri::command]
 pub fn notes_delete(id: String, manager: State<'_, BridgeLinkManager>) -> Result<bool, String> {
     local(&manager, |notes, _, now| Ok(notes.delete(&id, now)))

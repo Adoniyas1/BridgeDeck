@@ -8,6 +8,8 @@ import { dueItems, noteTitle, remindersDue, sortNotes } from './model'
 
 export const notesStore = createStore<Note[]>([])
 export const notesLoadedStore = createStore(false)
+/** Another tab asks Notes to show this note. */
+export const openNoteRequest = createStore<string | null>(null)
 /** Checklist items past their due time, shown on the tab. */
 export const overdueStore = createStore(0)
 
