@@ -11,6 +11,7 @@
 pub mod chatdb;
 pub mod contacts;
 pub mod typedstream;
+pub mod watch;
 
 use base64::Engine;
 use serde::Deserialize;
@@ -432,6 +433,25 @@ mod tests {
         let second = handle(Op::Attachment { guid: "A1".into(), offset: CHUNK as u64 }).unwrap();
         assert_eq!(base64::engine::general_purpose::STANDARD.decode(second["data"].as_str().unwrap()).unwrap().len(), 10);
         assert!(handle(Op::Messages { chat: "bad\"id".into(), limit: 1 }).is_err());
+
+        // A paired computer follows new messages over the link: one arrives on the "Mac", and it's pushed.
+        let (pc, _mac, mac_id) = crate::bridgelink::peer::tests::paired_pair();
+        let (tx, rx) = std::sync::mpsc::channel::<Value>();
+        let follower = std::thread::spawn(move || {
+            let send = move |event: Value| { let _ = tx.send(event); };
+            let _ = tauri::async_runtime::block_on(watch::follow(&pc, &mac_id, &send));
+        });
+        let ready = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(ready["type"], "ready");
+        std::thread::sleep(Duration::from_millis(500));
+        rusqlite::Connection::open(&path).unwrap().execute_batch(
+            "INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me) SELECT 5, 'M5', 'are you coming?', handle_id, date + 1000, 0 FROM message WHERE ROWID = 4;
+             INSERT INTO chat_message_join (chat_id, message_id) SELECT chat_id, 5 FROM chat_message_join WHERE message_id = 4;").unwrap();
+        let pushed = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(pushed["type"], "new");
+        assert_eq!(pushed["messages"][0]["text"], "are you coming?");
+        assert_eq!(pushed["messages"].as_array().unwrap().len(), 1, "only the new message");
+        drop(follower);
         std::env::remove_var("BRIDGEDECK_CHAT_DB");
         let _ = std::fs::remove_dir_all(dir);
     }

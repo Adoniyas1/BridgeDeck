@@ -542,6 +542,9 @@ pub fn run() {
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
+            // New messages as they arrive: watched on the Mac, followed from the other computers.
+            imessage::watch::start_local(app.handle().clone());
+            imessage::watch::start_following(app.handle().clone(), app.state::<BridgeLinkManager>().inner().clone());
             // Start BridgeLink with the process, not when the window's UI loads: a hidden or
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
@@ -636,6 +639,7 @@ pub fn run() {
             imessage::imessage,
             imessage::imessage_attachment,
             imessage::imessage_send_file,
+            imessage::watch::imessage_push_status,
             remote::host::remote_host_status,
             remote::host::remote_host_settings,
             clipboard::clipboard_status,
