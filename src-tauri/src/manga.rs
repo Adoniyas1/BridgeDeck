@@ -719,6 +719,23 @@ pub fn manga_create_series(title: String, source_url: String, cover_url: Option<
 pub async fn manga_source_catalog(source_url: String, page: Option<u32>, query: Option<String>) -> Result<Vec<SourceManga>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let source = import_url(&source_url)?; let page = page.unwrap_or(1).clamp(1, 999); let query = query.unwrap_or_default();
+        if source.host_str() == Some("asurascans.com") && (page > 1 || !query.trim().is_empty()) {
+            let sitemap = http()?.get("https://asurascans.com/sitemap-series.xml").send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't load Asura's public series index: {e}"))?.text().map_err(|e| e.to_string())?;
+            let needle = query.to_ascii_lowercase();
+            let mut all = Vec::new();
+            for part in sitemap.split("<loc>").skip(1) {
+                let Some(raw) = part.split("</loc>").next() else { continue };
+                let Ok(url) = import_url(raw.trim()) else { continue };
+                if url.host_str() != Some("asurascans.com") || !url.path().starts_with("/comics/") || url.path()[8..].contains('/') { continue }
+                let title = title_from_url(&url);
+                if needle.is_empty() || title.to_ascii_lowercase().contains(&needle) { all.push(SourceManga { title, url: url.to_string(), cover_url: None }); }
+            }
+            all.sort_by(|a, b| natural_cmp(&a.title, &b.title)); all.dedup_by(|a, b| a.url == b.url);
+            let start = (page.saturating_sub(1) as usize) * 120;
+            let items = all.into_iter().skip(start).take(120).collect::<Vec<_>>();
+            if items.is_empty() { return Err("No more matching Asura titles were found".into()); }
+            return Ok(items);
+        }
         // Public, documented-style catalog pages for the bundled sources. A custom source keeps
         // its supplied catalog URL; it can still be searched locally after loading.
         let request = match source.host_str().unwrap_or_default() {
