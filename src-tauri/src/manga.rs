@@ -948,6 +948,10 @@ pub async fn manga_apply_details(series: String, details: Value) -> Result<Value
                 fs::write(series_dir(&root, &series)?.join("cover.jpg"), &bytes).map_err(|e| e.to_string())?;
             }
         }
+        // `meta.url` is the public reader/source URL. AniList's result also has a URL, but
+        // replacing the source with it prevents future chapter refreshes.
+        let mut details = details;
+        if let Some(map) = details.as_object_mut() { map.remove("url"); }
         save_meta(&root, &series, &details)
     })
     .await
