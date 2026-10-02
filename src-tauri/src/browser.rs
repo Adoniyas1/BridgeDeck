@@ -46,10 +46,20 @@ fn allowed(url: &Url) -> bool {
 pub(crate) fn main_offset(app: &AppHandle) -> (f64, f64) {
     let (Some(window), Some(main)) = (app.get_window(MAIN), app.get_webview(MAIN)) else { return (0.0, 0.0) };
     let scale = window.scale_factor().unwrap_or(1.0);
-    match main.position() {
+    let (x, y) = match main.position() {
         Ok(p) => offset_from(p.x as f64 / scale, p.y as f64 / scale),
         Err(_) => (0.0, 0.0),
+    };
+    // On macOS child pages are placed from the top of the whole window, title bar included, while
+    // BridgeDeck's page starts below it: move down by the title bar (none in full screen).
+    #[cfg(target_os = "macos")]
+    if y < 1.0 {
+        if let (Ok(outer), Ok(inner)) = (window.outer_size(), window.inner_size()) {
+            let bar = outer.height.saturating_sub(inner.height) as f64 / scale;
+            return offset_from(x, bar);
+        }
     }
+    (x, y)
 }
 
 /// Only small, positive offsets are believed (a title bar or a border), never a whole page.
