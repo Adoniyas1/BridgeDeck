@@ -13,6 +13,7 @@ mod link;
 mod mimir_host;
 mod remote;
 mod send_to;
+mod chatgpt;
 mod projects;
 mod skill_packs;
 mod study;
@@ -585,6 +586,7 @@ pub fn run() {
             projects::projects_import_mimir,
             skill_packs::skill_packs_status,
             skill_packs::skill_packs_install,
+            chatgpt::chatgpt_open,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,

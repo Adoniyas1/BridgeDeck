@@ -20,6 +20,7 @@ import { bridgeDeckFromEnv } from "../bridgedeck/client.js";
 import { BRIDGEDECK_CORE_TOOLS, buildBridgeDeckToolset } from "../bridgedeck/tools.js";
 import { skillPacksRoot } from "../skillpacks/packs.js";
 import { buildSkillPacksToolset } from "../skillpacks/tools.js";
+import { buildWebToolset } from "../web/tools.js";
 import { syncMemory } from "../bridgedeck/memory.js";
 import { readPersonaFile } from "../persona/compose.js";
 import { personaRelativePath } from "../persona/paths.js";
@@ -184,7 +185,9 @@ export class AgentSession {
     // Skill packs chosen in BridgeDeck's Settings (claude-skills and others in the SKILL.md format).
     const packsRoot = skillPacksRoot();
     const skillPacks = packsRoot ? buildSkillPacksToolset({ root: packsRoot, runPython }) : { defs: [], handlers: {} };
-    const fullDefs = [...(selfEdit?.defs ?? []), ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...dynamicSkills.defs];
+    // Searching and reading public web pages, for research with any brain.
+    const web = buildWebToolset();
+    const fullDefs = [...(selfEdit?.defs ?? []), ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
     const fullHandlers = {
       ...(selfEdit?.handlers ?? {}),
       ...persona.handlers,
@@ -196,6 +199,7 @@ export class AgentSession {
       ...workflow.handlers,
       ...bridgedeck.handlers,
       ...skillPacks.handlers,
+      ...web.handlers,
       ...dynamicSkills.handlers
     };
     // Every dynamic skill_<name> tool is core-tier eligible regardless of
