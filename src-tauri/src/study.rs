@@ -5,19 +5,32 @@
 //!
 //! Books are read through the `bdbook` URI scheme, which serves files from the library and nothing
 //! else (paths are checked after resolving links and `..`).
+//!
+//! For search (and Mimir's answers with page references) each computer keeps the text of every page
+//! of its books in an index in its app data folder. The text is taken out by pdf.js in the window
+//! (`study/indexer.ts`) and stored here; pages are found with BM25 ranking.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
+    time::SystemTime,
 };
+use tauri::Manager;
 
 pub const SCHEME: &str = "bdbook";
 const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub"];
 
 /// The library folder, remembered for the `bdbook` scheme.
 static ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// Where the page text of the books is kept (`<app data>/study-index`).
+static INDEX_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// Page text already read from disk, by index file (dropped when the file changes).
+static INDEX_CACHE: Mutex<Option<HashMap<PathBuf, (SystemTime, Arc<BookText>)>>> = Mutex::new(None);
+/// The most text kept for one book (about 25 large textbooks' worth in all is fine).
+const MAX_INDEX_BYTES: usize = 40 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +41,9 @@ pub struct Book {
     /// "pdf" or "epub".
     pub kind: String,
     pub bytes: u64,
+    /// Its page text is in the search index ("pdf" only).
+    #[serde(default)]
+    pub indexed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -71,6 +87,12 @@ fn book_kind(path: &Path) -> Option<String> {
     BOOK_EXTENSIONS.contains(&ext.as_str()).then_some(ext)
 }
 
+pub fn init(app: &tauri::AppHandle) {
+    if let (Ok(dir), Ok(mut stored)) = (app.path().app_data_dir(), INDEX_DIR.lock()) {
+        *stored = Some(dir.join("study-index"));
+    }
+}
+
 pub fn read_library(root: &Path) -> Result<Library, String> {
     fs::create_dir_all(root).map_err(|e| format!("Can't use the Study folder {}: {e}", root.display()))?;
     let mut courses = Vec::new();
@@ -87,7 +109,8 @@ pub fn read_library(root: &Path) -> Result<Library, String> {
             .filter_map(|f| {
                 let kind = book_kind(&f.path())?;
                 let file = f.file_name().to_string_lossy().to_string();
-                Some(Book { title: title_of(&file), file, kind, bytes: f.metadata().map(|m| m.len()).unwrap_or(0) })
+                let bytes = f.metadata().map(|m| m.len()).unwrap_or(0);
+                Some(Book { indexed: index_dir().is_some_and(|dir| load_text(&dir, &name, &file).is_some_and(|t| t.bytes == bytes)), title: title_of(&file), file, kind, bytes })
             })
             .collect();
         books.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
@@ -105,6 +128,11 @@ fn remember(root: &Path) {
 
 fn current_root() -> Result<PathBuf, String> {
     ROOT.lock().ok().and_then(|r| r.clone()).ok_or_else(|| "Open the Study tab first".into())
+}
+
+/// The library folder: the one the Study tab last used, else the default.
+pub fn root_or_default() -> PathBuf {
+    current_root().unwrap_or_else(|_| root_for(""))
 }
 
 /// A free file name in `dir`: "Book.pdf", else "Book (2).pdf".
@@ -127,7 +155,7 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
         let original = path.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("No file name")?;
         let file = free_name(&dir, &clean_name(&original)?);
         let bytes = fs::copy(path, dir.join(&file)).map_err(|e| format!("Couldn't copy {original}: {e}"))?;
-        added.push(Book { title: title_of(&file), file, kind, bytes });
+        added.push(Book { title: title_of(&file), file, kind, bytes, indexed: false });
     }
     Ok(added)
 }
@@ -187,6 +215,180 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     }
 }
 
+// ---- Page text and search ----
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BookText {
+    /// The book's size when its text was taken; a different size means a new edition to read again.
+    pub bytes: u64,
+    /// The text of each page; page 1 first.
+    pub pages: Vec<String>,
+}
+
+#[cfg(test)]
+pub fn set_index_dir(dir: PathBuf) {
+    *INDEX_DIR.lock().unwrap() = Some(dir);
+}
+
+fn index_dir() -> Option<PathBuf> {
+    INDEX_DIR.lock().ok().and_then(|d| d.clone())
+}
+
+fn index_path(dir: &Path, course: &str, file: &str) -> PathBuf {
+    dir.join(course).join(format!("{file}.json"))
+}
+
+pub fn save_text(dir: &Path, course: &str, file: &str, text: &BookText) -> Result<(), String> {
+    let size: usize = text.pages.iter().map(String::len).sum();
+    if size > MAX_INDEX_BYTES {
+        return Err("That book has more text than BridgeDeck keeps for search".into());
+    }
+    let path = index_path(dir, course, file);
+    fs::create_dir_all(path.parent().unwrap_or(dir)).map_err(|e| e.to_string())?;
+    let raw = serde_json::to_vec(text).map_err(|e| e.to_string())?;
+    let partial = path.with_extension("part");
+    fs::write(&partial, raw).map_err(|e| e.to_string())?;
+    fs::rename(&partial, &path).map_err(|e| e.to_string())
+}
+
+pub fn load_text(dir: &Path, course: &str, file: &str) -> Option<Arc<BookText>> {
+    let path = index_path(dir, course, file);
+    let modified = fs::metadata(&path).and_then(|m| m.modified()).ok()?;
+    let mut cache = INDEX_CACHE.lock().ok()?;
+    let cache = cache.get_or_insert_with(HashMap::new);
+    if let Some((when, text)) = cache.get(&path) {
+        if *when == modified {
+            return Some(text.clone());
+        }
+    }
+    let text: Arc<BookText> = Arc::new(serde_json::from_slice(&fs::read(&path).ok()?).ok()?);
+    cache.insert(path, (modified, text.clone()));
+    Some(text)
+}
+
+const STOP_WORDS: &[&str] = &["the", "and", "for", "are", "was", "were", "with", "that", "this", "from", "into", "what", "which", "how", "why", "does", "is", "of", "to", "in", "on", "an", "a", "be", "by", "it", "as", "or", "at", "its", "can", "do"];
+
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= 2).map(str::to_lowercase).filter(|w| !STOP_WORDS.contains(&w.as_str())).collect()
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Hit {
+    pub course: String,
+    pub book: String,
+    pub file: String,
+    pub page: usize,
+    pub snippet: String,
+    pub score: f64,
+}
+
+/// The passage of `text` around the first of `terms` it contains.
+fn snippet(text: &str, terms: &HashSet<String>, width: usize) -> String {
+    let lower = text.to_lowercase();
+    // Lower-casing can change byte lengths; only use the position when it lines up.
+    let at = terms.iter().filter_map(|t| lower.find(t.as_str())).min().filter(|_| lower.len() == text.len()).unwrap_or(0);
+    let mut start = at.saturating_sub(width / 3);
+    while !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = (start + width).min(text.len());
+    while !text.is_char_boundary(end) {
+        end += 1;
+    }
+    let body = text[start..end].split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{}{body}{}", if start > 0 { "…" } else { "" }, if end < text.len() { "…" } else { "" })
+}
+
+/// The pages that best answer `query`, best first (BM25 over every page of the books in scope).
+pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, limit: usize) -> Vec<Hit> {
+    let terms: HashSet<String> = words(query).into_iter().collect();
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let wanted = course.map(str::to_lowercase).filter(|c| !c.trim().is_empty());
+    let mut pages: Vec<(&Course, &Book, usize, Arc<BookText>)> = Vec::new();
+    for c in &library.courses {
+        if wanted.as_ref().is_some_and(|w| !c.name.to_lowercase().contains(w.as_str())) {
+            continue;
+        }
+        for b in &c.books {
+            if let Some(text) = load_text(dir, &c.name, &b.file) {
+                for i in 0..text.pages.len() {
+                    pages.push((c, b, i, text.clone()));
+                }
+            }
+        }
+    }
+    let counted: Vec<HashMap<String, usize>> = pages
+        .iter()
+        .map(|(_, _, i, text)| {
+            let mut counts = HashMap::new();
+            let all = words(&text.pages[*i]);
+            counts.insert(String::new(), all.len());
+            for w in all.into_iter().filter(|w| terms.contains(w)) {
+                *counts.entry(w).or_insert(0) += 1;
+            }
+            counts
+        })
+        .collect();
+    let n = pages.len() as f64;
+    let average = (counted.iter().map(|c| c[""] as f64).sum::<f64>() / n.max(1.0)).max(1.0);
+    let (k1, b) = (1.2, 0.75);
+    let mut scored: Vec<(f64, usize)> = counted
+        .iter()
+        .enumerate()
+        .map(|(index, counts)| {
+            let length = counts[""] as f64;
+            let score = terms
+                .iter()
+                .map(|t| {
+                    let tf = *counts.get(t).unwrap_or(&0) as f64;
+                    if tf == 0.0 {
+                        return 0.0;
+                    }
+                    let df = counted.iter().filter(|c| c.contains_key(t)).count() as f64;
+                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                    idf * tf * (k1 + 1.0) / (tf + k1 * (1.0 - b + b * length / average))
+                })
+                .sum::<f64>();
+            (score, index)
+        })
+        .filter(|(score, _)| *score > 0.0)
+        .collect();
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(score, index)| {
+            let (c, b, i, text) = &pages[index];
+            Hit { course: c.name.clone(), book: b.title.clone(), file: b.file.clone(), page: i + 1, snippet: snippet(&text.pages[*i], &terms, 360), score: (score * 100.0).round() / 100.0 }
+        })
+        .collect()
+}
+
+/// A course by its name or part of it.
+pub fn find_course<'a>(library: &'a Library, name: &str) -> Option<&'a Course> {
+    let wanted = name.trim().to_lowercase();
+    library.courses.iter().find(|c| c.name.to_lowercase() == wanted).or_else(|| library.courses.iter().find(|c| c.name.to_lowercase().contains(&wanted)))
+}
+
+/// A book of a course by its file name or (part of) its title.
+pub fn find_book<'a>(course: &'a Course, name: &str) -> Option<&'a Book> {
+    let wanted = name.trim().to_lowercase();
+    course
+        .books
+        .iter()
+        .find(|b| b.file.to_lowercase() == wanted || b.title.to_lowercase() == wanted)
+        .or_else(|| course.books.iter().find(|b| b.title.to_lowercase().contains(&wanted) || b.file.to_lowercase().contains(&wanted)))
+}
+
+/// The library and its index folder, for Mimir.
+pub fn library_for_search() -> Result<(Library, PathBuf), String> {
+    let dir = index_dir().ok_or("The study index isn't ready")?;
+    Ok((read_library(&root_or_default())?, dir))
+}
+
 // ---- Commands ----
 
 /// The library in `shared` (the synced folder; empty means the default).
@@ -214,7 +416,26 @@ pub fn study_add_books(course: String, paths: Vec<String>) -> Result<Vec<Book>, 
 pub fn study_remove_book(course: String, file: String) -> Result<(), String> {
     let root = current_root()?;
     let path = resolve(&root, &format!("{}/{}", course, file)).ok_or("No such book")?;
-    fs::remove_file(path).map_err(|e| e.to_string())
+    fs::remove_file(path).map_err(|e| e.to_string())?;
+    if let Some(dir) = index_dir() {
+        let _ = fs::remove_file(index_path(&dir, &course, &file));
+    }
+    Ok(())
+}
+
+/// Keeps the page text pdf.js took out of a book, for search.
+#[tauri::command]
+pub fn study_save_index(course: String, file: String, bytes: u64, pages: Vec<String>) -> Result<(), String> {
+    let root = current_root()?;
+    resolve(&root, &format!("{}/{}", course, file)).ok_or("No such book")?;
+    save_text(&index_dir().ok_or("The study index isn't ready")?, &course, &file, &BookText { bytes, pages })
+}
+
+/// Pages of the library's books that match `query`, best first.
+#[tauri::command]
+pub fn study_search(query: String, course: Option<String>) -> Result<Vec<Hit>, String> {
+    let (library, dir) = library_for_search()?;
+    Ok(search(&library, &dir, &query, course.as_deref(), 30))
 }
 
 #[cfg(test)]
@@ -247,5 +468,41 @@ mod tests {
         assert!(resolve(&root, "/../outside/secret.pdf").is_none());
         assert!(resolve(&root, "/Math%20221-%20Calc/missing.pdf").is_none());
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn pages_are_found_by_relevance_with_a_passage_around_the_words() {
+        let dir = std::env::temp_dir().join(format!("bd-study-index-{}", uuid::Uuid::new_v4()));
+        let book = |file: &str, title: &str| Book { file: file.into(), title: title.into(), kind: "pdf".into(), bytes: 10, indexed: true };
+        let library = Library {
+            root: String::new(),
+            courses: vec![
+                Course { name: "Math 221".into(), books: vec![book("calc.pdf", "Calculus")] },
+                Course { name: "Biology".into(), books: vec![book("bio.pdf", "Campbell Biology")] },
+            ],
+        };
+        let filler = "Some words about other things. ".repeat(20);
+        save_text(&dir, "Math 221", "calc.pdf", &BookText { bytes: 10, pages: vec![
+            format!("Limits. {filler}"),
+            format!("{filler} The chain rule: the derivative of f(g(x)) is f'(g(x)) g'(x). Using the chain rule twice…"),
+            format!("Integrals and the derivative are inverse. {filler}"),
+        ] }).unwrap();
+        save_text(&dir, "Biology", "bio.pdf", &BookText { bytes: 10, pages: vec![format!("Mitochondria make ATP. {filler}")] }).unwrap();
+
+        let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5);
+        assert_eq!((hits[0].book.as_str(), hits[0].page), ("Calculus", 2));
+        assert!(hits[0].snippet.starts_with('…') && hits[0].snippet.contains("chain rule"), "{}", hits[0].snippet);
+        assert_eq!(hits.len(), 2, "page 3 mentions the derivative too");
+        assert!(search(&library, &dir, "mitochondria", Some("math"), 5).is_empty());
+        assert_eq!(search(&library, &dir, "Mitochondria", Some("bio"), 5)[0].course, "Biology");
+        assert!(search(&library, &dir, "the of and", None, 5).is_empty());
+        // A new edition (different size) shows as not indexed; a reload after a change is seen.
+        assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 10);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        save_text(&dir, "Math 221", "calc.pdf", &BookText { bytes: 11, pages: vec!["new".into()] }).unwrap();
+        assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 11);
+        let course = find_course(&library, "math").unwrap();
+        assert_eq!(find_book(course, "calcul").unwrap().file, "calc.pdf");
+        let _ = fs::remove_dir_all(dir);
     }
 }

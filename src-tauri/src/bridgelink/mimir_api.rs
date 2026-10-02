@@ -185,6 +185,80 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             Ok(json!(true))
         }
 
+        // ---- Study: the user's textbooks, searched by page ----
+        "/mimir/study/courses" => {
+            let (library, dir) = crate::study::library_for_search()?;
+            let all_notes = manager.lock()?.notes.list();
+            let courses: Vec<Value> = library
+                .courses
+                .iter()
+                .map(|c| {
+                    let folder = study_folder(&c.name).to_lowercase();
+                    let mine: Vec<&Note> = all_notes.iter().filter(|n| !n.deleted && n.folder.to_lowercase() == folder).collect();
+                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && card_parts(&b.text).is_some())).collect::<Vec<_>>();
+                    let due = cards.iter().filter(|b| card_due(&b.text).is_none_or(|d| d <= now_ms())).count();
+                    json!({
+                        "name": c.name,
+                        "books": c.books.iter().map(|b| json!({ "title": b.title, "file": b.file, "kind": b.kind, "searchable": b.indexed, "pages": crate::study::load_text(&dir, &c.name, &b.file).map(|t| t.pages.len()) })).collect::<Vec<_>>(),
+                        "notes": mine.iter().map(|n| json!({ "id": n.id, "title": notes::display_title(n), "kind": n.kind })).collect::<Vec<_>>(),
+                        "flashcards": cards.len(),
+                        "flashcardsDue": due,
+                    })
+                })
+                .collect();
+            Ok(json!({ "root": library.root, "courses": courses }))
+        }
+        "/mimir/study/search" => {
+            let (library, dir) = crate::study::library_for_search()?;
+            let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
+            let hits = crate::study::search(&library, &dir, need(body, "query")?, text(body, "course"), limit);
+            Ok(json!(hits.into_iter().map(|h| { let link = book_link(&h.course, &h.file, h.page); json!({ "course": h.course, "book": h.book, "file": h.file, "page": h.page, "text": h.snippet, "link": link }) }).collect::<Vec<_>>()))
+        }
+        "/mimir/study/read" => {
+            let (library, dir) = crate::study::library_for_search()?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?;
+            let book = crate::study::find_book(course, need(body, "book")?).ok_or("No such book in that course")?;
+            let book_text = crate::study::load_text(&dir, &course.name, &book.file).ok_or("That book isn't searchable yet; open the Study tab so BridgeDeck can read it")?;
+            let total = book_text.pages.len();
+            let from = body.get("from").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+            let to = body.get("to").and_then(|v| v.as_u64()).map(|t| t as usize).unwrap_or(from).max(from).min(from + 7).min(total);
+            if from > total {
+                return Err(format!("The book has {total} pages"));
+            }
+            let pages: Vec<Value> = (from..=to).map(|p| json!({ "page": p, "text": book_text.pages[p - 1], "link": book_link(&course.name, &book.file, p) })).collect();
+            Ok(json!({ "course": course.name, "book": book.title, "pages": total, "read": pages }))
+        }
+        "/mimir/study/flashcards/add" => {
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?.clone();
+            let cards = body.get("cards").and_then(|v| v.as_array()).ok_or("`cards` is required")?;
+            let one_line = |v: Option<&str>| v.unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ").replace(" :: ", " : ");
+            let mut lines = Vec::new();
+            for card in cards.iter().take(100) {
+                let (front, back) = (one_line(card.get("front").and_then(|v| v.as_str())), one_line(card.get("back").and_then(|v| v.as_str())));
+                if front.is_empty() || back.is_empty() {
+                    continue;
+                }
+                let source = match (card.get("book").and_then(|v| v.as_str()).and_then(|b| crate::study::find_book(&course, b)), card.get("page").and_then(|v| v.as_u64())) {
+                    (Some(book), Some(page)) => format!(" ([{}, p. {page}]({}))", book.title, book_link(&course.name, &book.file, page as usize)),
+                    _ => String::new(),
+                };
+                lines.push(format!("- {front} :: {back}{source}"));
+            }
+            if lines.is_empty() {
+                return Err("Each card needs a front and a back".into());
+            }
+            let (title, folder, markdown, count) = (format!("{} — flashcards", course.name), study_folder(&course.name), lines.join("\n"), lines.len());
+            let note = notes_change(manager, move |store, device, now| {
+                let existing = store.list().into_iter().find(|n| !n.deleted && n.title == title && n.folder.eq_ignore_ascii_case(&folder)).map(|n| n.id);
+                match existing {
+                    Some(id) => store.append_markdown(&id, &markdown, device, now),
+                    None => store.create_from_markdown(None, "note", &title, &folder, &markdown, device, now),
+                }
+            })?;
+            Ok(json!({ "id": note.id, "added": count }))
+        }
+
         // ---- AI rooms ----
         "/mimir/ai/rooms" => {
             let runtime = manager.lock()?;
@@ -197,6 +271,32 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
         }
         _ => Err("Not found".into()),
     }
+}
+
+fn study_folder(course: &str) -> String {
+    format!("Study/{course}")
+}
+
+/// `book:<course>/<file>#<page>`, as the Notes tab opens it (see study/model.ts).
+fn book_link(course: &str, file: &str, page: usize) -> String {
+    let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+    format!("book:{}/{}#{page}", encode(course), encode(file))
+}
+
+/// Flashcards live in notes whose title says so; each card is a line `front :: back`.
+fn is_card_note(note: &Note) -> bool {
+    note.title.to_lowercase().contains("flashcards")
+}
+
+fn card_parts(text: &str) -> Option<(&str, &str)> {
+    let body = text.split("<!--").next().unwrap_or(text);
+    body.split_once(" :: ").filter(|(f, b)| !f.trim().is_empty() && !b.trim().is_empty())
+}
+
+/// When a card is next due, from its review state `<!--fsrs due=… -->`; never reviewed has none.
+fn card_due(text: &str) -> Option<u64> {
+    let state = text.split("<!--fsrs ").nth(1)?;
+    state.split_whitespace().find_map(|kv| kv.strip_prefix("due=")).and_then(|v| v.trim_end_matches("-->").parse().ok())
 }
 
 fn find_note(manager: &BridgeLinkManager, id: &str) -> Result<Note, String> {
@@ -259,5 +359,50 @@ mod tests {
         let (status, text) = route(&manager, "/mimir/messages/send", &json!({ "chat": "x", "text": "hi" }).to_string());
         assert_eq!(status, 409, "{text}");
         assert_eq!(route(&manager, "/mimir/nope", "{}").0, 404);
+    }
+
+    #[test]
+    fn mimir_searches_reads_and_makes_flashcards_from_the_users_books() {
+        let base = std::env::temp_dir().join(format!("bd-mimir-study-{}", Uuid::new_v4()));
+        let course_dir = base.join("Study").join("Math 221");
+        std::fs::create_dir_all(&course_dir).unwrap();
+        std::fs::write(course_dir.join("Calculus (8th ed).pdf"), b"%PDF").unwrap();
+        crate::study::set_index_dir(base.join("index"));
+        crate::study::study_library(base.to_string_lossy().to_string()).unwrap();
+        let pages = vec!["Limits and continuity.".to_string(), "The chain rule differentiates compositions.".to_string(), "Integrals.".to_string()];
+        crate::study::save_text(&base.join("index"), "Math 221", "Calculus (8th ed).pdf", &crate::study::BookText { bytes: 4, pages }).unwrap();
+
+        let manager = BridgeLinkManager::default();
+        manager.lock().unwrap().instance_id = "mac".into();
+        let hits = call(&manager, "/mimir/study/search", json!({ "query": "chain rule", "course": "math" }));
+        assert_eq!(hits[0]["page"], 2);
+        assert_eq!(hits[0]["link"], "book:Math%20221/Calculus%20%288th%20ed%29.pdf#2");
+        let read = call(&manager, "/mimir/study/read", json!({ "course": "math 221", "book": "calculus", "from": 2, "to": 40 }));
+        assert_eq!(read["read"].as_array().unwrap().len(), 2, "stops at the last page");
+        assert_eq!(read["pages"], 3);
+        let added = call(&manager, "/mimir/study/flashcards/add", json!({ "course": "Math 221", "cards": [
+            { "front": "Chain rule?", "back": "f'(g(x)) g'(x)", "book": "Calculus", "page": 2 },
+            { "front": "Empty back", "back": " " },
+        ] }));
+        assert_eq!(added["added"], 1);
+        call(&manager, "/mimir/study/flashcards/add", json!({ "course": "math", "cards": [{ "front": "Limit?", "back": "What f approaches" }] }));
+        let deck = call(&manager, "/mimir/notes/read", json!({ "id": added["id"] }));
+        assert_eq!(deck["title"], "Math 221 — flashcards");
+        assert_eq!(deck["folder"], "Study/Math 221");
+        assert_eq!(deck["markdown"], "- Chain rule? :: f'(g(x)) g'(x) ([Calculus (8th ed), p. 2](book:Math%20221/Calculus%20%288th%20ed%29.pdf#2))\n- Limit? :: What f approaches");
+        let courses = call(&manager, "/mimir/study/courses", json!({}));
+        assert_eq!(courses["courses"][0]["flashcards"], 2);
+        assert_eq!(courses["courses"][0]["flashcardsDue"], 2);
+        assert_eq!(courses["courses"][0]["books"][0]["searchable"], true);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn flashcards_and_book_links_match_the_study_tab() {
+        assert_eq!(book_link("Math 221", "Calculus (8th ed).pdf", 4), "book:Math%20221/Calculus%20%288th%20ed%29.pdf#4");
+        assert_eq!(card_parts("What is ATP? :: The cell's energy currency <!--fsrs due=5 s=1-->"), Some(("What is ATP?", "The cell's energy currency ")));
+        assert_eq!(card_parts("No card here"), None);
+        assert_eq!(card_due("Q :: A <!--fsrs due=1700000000000 s=2.1 d=5-->"), Some(1_700_000_000_000));
+        assert_eq!(card_due("Q :: A"), None);
     }
 }

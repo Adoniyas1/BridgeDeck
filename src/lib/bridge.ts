@@ -420,11 +420,14 @@ export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this wa
 export type VaultStatus = { enabled: boolean; path: string; files: number; error: string | null }
 export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
-export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub'; bytes: number }
+export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub'; bytes: number; indexed: boolean }
 export type StudyCourse = { name: string; books: StudyBook[] }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
+export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
+export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
+export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })

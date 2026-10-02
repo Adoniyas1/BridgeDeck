@@ -26,6 +26,9 @@ function fakeBridgeDeck() {
         case "notes/append": return {} as T;
         case "calendar/add": events.push({ ...body, id: `e${events.length + 1}` }); return { id: `e${events.length}` } as T;
         case "calendar/events": return events as T;
+        case "study/search": return [{ course: "Math 221", book: "Calculus", page: 2, text: "The chain rule…", link: "book:Math%20221/calc.pdf#2" }] as T;
+        case "study/read": return { course: "Math 221", book: "Calculus", pages: 3, read: [{ page: 3, text: "", link: "book:Math%20221/calc.pdf#3" }] } as T;
+        case "study/flashcards/add": return { added: (body.cards as unknown[]).length } as T;
         default: return null as T;
       }
     }
@@ -61,6 +64,21 @@ describe("BridgeDeck tools", () => {
     const listed = await tools.handlers.calendar_list!({ from: "2026-10-01", to: "2026-10-20" });
     expect(listed.content.match(/Gym/g)).toHaveLength(3); // Oct 5, 12 and 19
     expect((await tools.handlers.calendar_add!({ title: "Bad", start: "2026-10-05T09:00", end: "2026-10-05T08:00" })).isError).toBe(true);
+  });
+});
+
+describe("study tools", () => {
+  it("search with page links, read pages and add flashcards", async () => {
+    const { client, calls } = fakeBridgeDeck();
+    const tools = buildBridgeDeckToolset(client);
+    const found = await tools.handlers.study_search!({ query: "chain rule", course: "math" });
+    expect(found.content).toContain("### Calculus, p. 2 (Math 221) link=book:Math%20221/calc.pdf#2");
+    expect(calls.at(-1)).toEqual(["study/search", { query: "chain rule", course: "math", limit: undefined }]);
+    const read = await tools.handlers.study_read!({ course: "Math 221", book: "Calculus", from: 3 });
+    expect(read.content).toContain("--- p. 3 link=book:Math%20221/calc.pdf#3 ---\n(no text on this page");
+    expect((await tools.handlers.flashcards_add!({ course: "Math 221", cards: [] })).isError).toBe(true);
+    const added = await tools.handlers.flashcards_add!({ course: "Math 221", cards: [{ front: "Chain rule?", back: "f'(g(x))g'(x)", book: "Calculus", page: 2 }] });
+    expect(added.content).toBe("Added 1 card; the user reviews them in the Study tab.");
   });
 });
 
