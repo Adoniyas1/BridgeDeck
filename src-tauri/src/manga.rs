@@ -140,6 +140,20 @@ fn html_attribute(tag: &str, name: &str) -> Option<String> {
     else { value.split_whitespace().next().map(|v| v.trim_end_matches('>').to_string()) }
 }
 
+/// Sources can serve a friendly slug but place their real chapter links under a canonical URL
+/// with an ID suffix. Use the document's canonical link before matching chapter paths.
+fn canonical_source_url(html: &str, fallback: &reqwest::Url) -> reqwest::Url {
+    let lower = html.to_ascii_lowercase();
+    for marker in ["rel=\"canonical\"", "rel='canonical'", "property=\"og:url\"", "property='og:url'"] {
+        if let Some(at) = lower.find(marker) {
+            let before = &html[..at]; let start = before.rfind('<').unwrap_or(0); let end = html[at..].find('>').map(|n| at + n).unwrap_or(html.len());
+            let tag = &html[start..end];
+            if let Some(raw) = html_attribute(tag, "href").or_else(|| html_attribute(tag, "content")) { if let Ok(url) = fallback.join(raw.trim()) { return url; } }
+        }
+    }
+    fallback.clone()
+}
+
 /// A modest HTML fallback for public reader pages. It handles page-image attributes only.
 fn image_links_from_html(html: &str, base: &reqwest::Url) -> Vec<reqwest::Url> {
     let mut found = Vec::new();
@@ -758,11 +772,12 @@ pub async fn manga_source_chapters(source_url: String) -> Result<Vec<SourceChapt
     tauri::async_runtime::spawn_blocking(move || {
         let source = import_url(&source_url)?;
         let response = http()?.get(source).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't load source page: {e}"))?;
-        let source = response.url().clone();
+        let response_url = response.url().clone();
         let kind = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
         if !kind.contains("html") && !kind.starts_with("text/") { return Err("That source link did not return a public HTML series page".into()); }
         let html = response.text().map_err(|e| e.to_string())?;
         if html.contains("cf-chl-") || html.to_ascii_lowercase().contains("attention required") { return Err("This source is blocking ordinary catalog requests".into()); }
+        let source = canonical_source_url(&html, &response_url);
         let chapters = chapter_links_from_html(&html, &source);
         if chapters.is_empty() { return Err("No public chapter links were found. Paste a chapter link directly instead.".into()); }
         Ok(chapters)
@@ -1042,6 +1057,8 @@ mod tests {
 
         let asura_series = reqwest::Url::parse("https://asurascans.com/comics/a-title").unwrap();
         assert_eq!(chapter_links_from_html(r#"<a href="/comics/other/chapter/1">Other Chapter 1</a><a href="/comics/a-title/chapter/2">Chapter 2</a>"#, &asura_series).len(), 1);
+        let canonical = canonical_source_url(r#"<link rel="canonical" href="/comics/a-title-123">"#, &asura_series);
+        assert_eq!(canonical.as_str(), "https://asurascans.com/comics/a-title-123");
 
         let katana = reqwest::Url::parse("https://mangakatana.com/manga/title.1").unwrap();
         let chapters = chapter_links_from_html(r#"<a href="/manga/title.1/c12">Chapter 12</a>"#, &katana);
