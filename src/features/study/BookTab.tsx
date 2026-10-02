@@ -39,6 +39,9 @@ async function resolveOutline(doc: PDFDocumentProxy, items: Outline | null): Pro
 function Page({ doc, number, scale, size, onVisible }: { doc: PDFDocumentProxy; number: number; scale: number; size: { width: number; height: number }; onVisible: (n: number) => void }) {
   const box = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
+  // Pages can differ in size (a cover, a fold-out); until this one is read, assume the first page's.
+  const [own, setOwn] = useState<{ width: number; height: number } | null>(null)
+  const shown = own ?? size
   useEffect(() => {
     const el = box.current
     if (!el) return
@@ -60,6 +63,8 @@ function Page({ doc, number, scale, size, onVisible }: { doc: PDFDocumentProxy; 
     void (async () => {
       page = await doc.getPage(number)
       if (cancelled) return
+      const natural = page.getViewport({ scale: 1 })
+      setOwn(o => o && o.width === natural.width && o.height === natural.height ? o : { width: natural.width, height: natural.height })
       const viewport = page.getViewport({ scale })
       const ratio = window.devicePixelRatio || 1
       const canvas = document.createElement('canvas')
@@ -78,7 +83,7 @@ function Page({ doc, number, scale, size, onVisible }: { doc: PDFDocumentProxy; 
     return () => { cancelled = true; page?.cleanup(); el.replaceChildren() }
   }, [near, doc, number, scale])
 
-  return <div ref={box} className="book-page" data-page={number} style={{ width: size.width * scale, height: size.height * scale }} />
+  return <div ref={box} className="book-page" data-page={number} style={{ width: shown.width * scale, height: shown.height * scale }} />
 }
 
 export default function BookTab({ tab, active }: { tab: DynamicTab; active: boolean }) {
