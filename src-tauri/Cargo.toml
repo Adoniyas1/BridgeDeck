@@ -54,6 +54,7 @@ png = "0.17"
 mac_address = "1"
 tar = { version = "0.4", default-features = false }
 flate2 = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
 # Remote control host: screen capture and input (macOS and Windows only).

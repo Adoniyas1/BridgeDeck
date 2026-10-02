@@ -15,6 +15,7 @@ mod remote;
 mod send_to;
 mod browser;
 mod chatgpt;
+mod manga;
 mod projects;
 mod skill_packs;
 mod study;
@@ -558,6 +559,8 @@ pub fn run() {
         .on_window_event(tray::on_window_event)
         // Textbooks for the Study reader, from the library folder only (see study.rs).
         .register_uri_scheme_protocol(study::SCHEME, |_ctx, request| study::serve(&request))
+        // Manga pages and covers, from the Manga library only (see manga.rs).
+        .register_uri_scheme_protocol(manga::SCHEME, |_ctx, request| manga::serve(&request))
         .invoke_handler(tauri::generate_handler![
             probe_tcp,
             open_external,
@@ -595,6 +598,16 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,
+            manga::manga_library,
+            manga::manga_pages,
+            manga::manga_add,
+            manga::manga_progress,
+            manga::manga_bookmark,
+            manga::manga_save_meta,
+            manga::manga_remove,
+            manga::manga_search_details,
+            manga::manga_apply_details,
+            manga::manga_add_peppercarrot,
             bridgelink::mimir_api::mimir_activity,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
