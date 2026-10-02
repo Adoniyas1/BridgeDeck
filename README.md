@@ -77,6 +77,7 @@ BridgeLink uses mutually authenticated TLS 1.3 over QUIC after pairing. The loca
 - Rust via rustup with the MSVC toolchain
 - Microsoft C++ Build Tools
 - WebView2
+- Go (to build BridgeDeck's bundled Syncthing sidecar from source)
 
 ## Install and run from source
 
@@ -87,11 +88,12 @@ git clone https://github.com/Adoniyas1/BridgeDeck.git
 cd BridgeDeck
 npm install
 npm run vendor:fetch
+npm run runtime:build
 npm run verify:project
 npm run tauri dev
 ~~~
 
-npm run vendor:fetch downloads the pinned source needed by the embedded LocalSend core. If you already have a compatible vendor folder, the repository also provides node scripts/reuse-vendor.mjs <path>.
+npm run vendor:fetch downloads the pinned LocalSend and Syncthing source. npm run runtime:build builds the hidden Syncthing sidecar for the current platform and requires Go. If you already have a compatible vendor folder, the repository also provides node scripts/reuse-vendor.mjs <path>.
 
 To build an installable app instead:
 

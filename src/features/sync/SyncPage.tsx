@@ -13,6 +13,9 @@ import {
 } from './state'
 
 const stateLabel: Record<string, string> = { idle: 'Up to date', scanning: 'Scanning', syncing: 'Syncing', 'sync-preparing': 'Preparing', 'sync-waiting': 'Waiting', error: 'Error', unknown: '—' }
+const sidecarUnavailable = import.meta.env.DEV
+  ? 'Syncthing has not been built for this source checkout. In PowerShell, run npm run runtime:build (requires Go), then restart BridgeDeck.'
+  : 'This installation is missing its bundled Syncthing helper. Reinstall BridgeDeck from a Release build.'
 
 export default function SyncPage({ active }: { active: boolean }) {
   const config = useConfig()
@@ -35,7 +38,8 @@ export default function SyncPage({ active }: { active: boolean }) {
 
   return <>
     <Card><SectionTitle title={builtin ? 'Syncthing (built in)' : 'Syncthing (separate app)'} subtitle={syncthing.ok ? `Device ${syncthing.myID || ''}` : builtin ? sidecar.detail || 'Starting…' : syncthing.error || 'Not connected'} action={<StatusPill online={syncthing.ok}/>} />
-      <div className="sync-panel"><Wifi size={28}/><div><h3>{syncthing.ok ? 'Syncing with your paired devices' : builtin ? (sidecar.available ? 'Starting Syncthing…' : 'This build has no bundled Syncthing') : 'Waiting for Syncthing'}</h3><p>Uptime {fmtUptime(syncthing.uptime)} · {folders.length} folder{folders.length === 1 ? '' : 's'}{sidecar.adoptedFrom ? ' · moved in from the separate Syncthing app' : ''}</p></div></div>
+      <div className="sync-panel"><Wifi size={28}/><div><h3>{syncthing.ok ? 'Syncing with your paired devices' : builtin ? (sidecar.available ? 'Starting Syncthing…' : sidecarUnavailable) : 'Waiting for Syncthing'}</h3><p>Uptime {fmtUptime(syncthing.uptime)} · {folders.length} folder{folders.length === 1 ? '' : 's'}{sidecar.adoptedFrom ? ' · moved in from the separate Syncthing app' : ''}</p></div></div>
+      {builtin && !sidecar.available && <p className="error-text">{sidecarUnavailable}</p>}
       <div className="actions">
         {builtin && !sidecar.running && sidecar.available && <button onClick={() => void startBuiltIn()}><Play size={16}/>Start</button>}
         <button className="secondary" onClick={() => void refreshSyncthing()}><RefreshCw size={16}/>Refresh</button>

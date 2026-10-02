@@ -19,6 +19,7 @@
     "vendor:reuse": "node scripts/reuse-vendor.mjs",
     "runtime:init": "node scripts/runtime.mjs init",
     "runtime:status": "node scripts/runtime.mjs status",
+    "runtime:build": "node scripts/build-syncthing.mjs",
     "package:bootstrap": "node scripts/package-bootstrap.mjs",
     "runtime:import": "node scripts/import-runtime.mjs",
     "verify:project": "node scripts/verify-project.mjs",
