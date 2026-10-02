@@ -45,7 +45,7 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const s = (description: string) => ({ type: "string", description });
 
 /** Mimir's hands in BridgeDeck: notes and checklists, the calendar, Messages, the
- * other computer, files, the clipboard and AI rooms. Sending a message or files
+ * other computer, files, the clipboard, AI rooms and the user's textbooks. Sending a message or files
  * makes BridgeDeck ask the person first; everything else is the person's own
  * data on their own computers. */
 export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
@@ -67,6 +67,10 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "files_send", description: "Send files or folders from this computer to a paired computer. BridgeDeck asks the user first.", inputSchema: object({ computer: s("Its name"), paths: { type: "array", items: { type: "string" }, description: "Absolute paths" } }, ["computer", "paths"]) },
     { name: "clipboard_read", description: "Read the text on this computer's clipboard.", inputSchema: object({}) },
     { name: "clipboard_write", description: "Put text on the clipboard (it also reaches the paired computer when clipboard sharing is on).", inputSchema: object({ text: s("Text") }, ["text"]) },
+    { name: "study_courses", description: "The user's Study courses in BridgeDeck: their textbooks (and whether each is searchable), course notes and checklists (ids for note_read), and flashcard counts.", inputSchema: object({}) },
+    { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
+    { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
+    { name: "flashcards_add", description: "Add flashcards to a course's deck in BridgeDeck; the user reviews them with spaced repetition in the Study tab. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
     { name: "ai_rooms", description: "The AI workspace: rooms, tasks and agents on the user's computers.", inputSchema: object({}) },
     { name: "ai_post", description: "Post a message as Mimir in an AI room (other agents on the user's computers read it).", inputSchema: object({ room: s("Room id"), text: s("Message") }, ["text"]) }
   ];
@@ -187,6 +191,39 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     clipboard_write: async (input) => {
       try { await call("clipboard/set", { text: str(input, "text") }); return ok("Copied."); } catch (error) { return fail(error); }
     },
+    study_courses: async () => {
+      try {
+        const { courses } = await call<{ courses: Array<{ name: string; books: Array<{ title: string; kind: string; searchable: boolean; pages: number | null }>; notes: Array<{ id: string; title: string; kind: string }>; flashcards: number; flashcardsDue: number }> }>("study/courses");
+        if (!courses.length) return ok("No courses yet; the user adds them in BridgeDeck's Study tab.");
+        return ok(courses.map((c) => [
+          `## ${c.name}`,
+          ...c.books.map((b) => `- Book: ${b.title} (${b.kind.toUpperCase()}${b.pages ? `, ${b.pages} pages` : ""}${b.searchable ? "" : ", not searchable yet"})`),
+          ...c.notes.map((n) => `- ${n.kind === "list" ? "Checklist" : "Note"}: ${n.title} id=${n.id}`),
+          `- Flashcards: ${c.flashcards} (${c.flashcardsDue} to review)`
+        ].join("\n")).join("\n\n"));
+      } catch (error) { return fail(error); }
+    },
+    study_search: async (input) => {
+      try {
+        const hits = await call<Array<{ course: string; book: string; page: number; text: string; link: string }>>("study/search", { query: str(input, "query"), course: str(input, "course") || undefined, limit: typeof input.limit === "number" ? input.limit : undefined });
+        if (!hits.length) return ok("No pages match. Try other key terms, or check study_courses for books that aren't searchable yet.");
+        return ok(hits.map((h) => `### ${h.book}, p. ${h.page} (${h.course}) link=${h.link}\n${h.text}`).join("\n\n"));
+      } catch (error) { return fail(error); }
+    },
+    study_read: async (input) => {
+      try {
+        const result = await call<{ course: string; book: string; pages: number; read: Array<{ page: number; text: string; link: string }> }>("study/read", { course: str(input, "course"), book: str(input, "book"), from: input.from, to: input.to });
+        return ok(`# ${result.book} (${result.course}, ${result.pages} pages)\n\n${result.read.map((p) => `--- p. ${p.page} link=${p.link} ---\n${p.text || "(no text on this page; it may be a scanned image)"}`).join("\n\n")}`);
+      } catch (error) { return fail(error); }
+    },
+    flashcards_add: async (input) => {
+      const cards = Array.isArray(input.cards) ? input.cards.filter((c): c is Record<string, unknown> => !!c && typeof c === "object") : [];
+      if (!cards.length) return fail("Give at least one card.");
+      try {
+        const result = await call<{ added: number }>("study/flashcards/add", { course: str(input, "course"), cards });
+        return ok(`Added ${result.added} card${result.added === 1 ? "" : "s"}; the user reviews them in the Study tab.`);
+      } catch (error) { return fail(error); }
+    },
     ai_rooms: async () => {
       try { return ok(JSON.stringify(await call("ai/rooms"))); } catch (error) { return fail(error); }
     },
@@ -198,4 +235,4 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
 }
 
 /** Tools small local models also get: the everyday ones. */
-export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add"];
+export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add", "study_search"];

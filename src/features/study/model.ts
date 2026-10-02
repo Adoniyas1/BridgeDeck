@@ -25,8 +25,10 @@ export function outlineToMarkdown(items: OutlineItem[], depth = 0, maxDepth = 3)
 
 /** A link back to a page of a book, kept in notes: `book:<course>/<file>#<page>`. */
 export function bookLink(course: string, file: string, page: number) {
-  return `book:${encodeURIComponent(course)}/${encodeURIComponent(file)}#${page}`
+  return `book:${encode(course)}/${encode(file)}#${page}`
 }
+/** encodeURIComponent, plus the characters it leaves that would end a Markdown link: ( ) ! ' *. */
+const encode = (text: string) => encodeURIComponent(text).replace(/[()!'*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 
 export function parseBookLink(href: string): { course: string; file: string; page: number } | null {
   const m = href.match(/^book:([^/#\s]+)\/([^#\s]+)#(\d+)$/)
@@ -62,4 +64,22 @@ export function courseEvents(events: CalEvent[], course: string, now = Date.now(
 
 export function fmtBytes(bytes: number) {
   return bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1000))} KB`
+}
+
+/** Focus sessions are kept as calendar events titled like this, so they sync and show in the week. */
+export const studiedTitle = (course: string) => `Studied ${course}`
+
+/** Minutes studied for a course (focus sessions in the calendar) between two times. */
+export function studyMinutes(events: CalEvent[], course: string, from: number, to: number) {
+  const title = studiedTitle(course).toLowerCase()
+  return Math.round(events.filter(e => !e.deleted && e.title.toLowerCase() === title && e.end > from && e.start < to)
+    .reduce((sum, e) => sum + Math.min(e.end, to) - Math.max(e.start, from), 0) / 60_000)
+}
+
+/** Monday 00:00 of this week, local time. */
+export function weekStart(now = Date.now()) {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return d.getTime()
 }

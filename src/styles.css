@@ -605,3 +605,30 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .book-message{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 @media(max-width:900px){.study-layout{grid-template-columns:1fr}.study-courses{position:static}.book-outline{width:200px}}
 .hint{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.5}
+
+.study-tools{display:grid;grid-template-columns:minmax(260px,1fr) 2fr;gap:14px}
+@media(max-width:900px){.study-tools{grid-template-columns:1fr}}
+.study-focus{display:flex;align-items:center;gap:12px}
+.study-clock{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--accent)}
+.study-clock.break{color:var(--ok)}
+.study-card-new{display:flex;gap:6px;flex-wrap:wrap}
+.study-card-new input{flex:1 1 180px;min-width:0;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:7px 9px;outline:0;font:inherit;font-size:12px}
+.study-card-new input:focus{border-color:var(--accent)}
+.study-hits{display:flex;flex-direction:column;gap:4px;margin-top:10px;max-height:420px;overflow:auto}
+.study-hits button{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px}
+.study-hits button:hover{border-color:var(--line-strong)}
+.study-hits strong{font-size:12px}.study-hits span{font-size:12px;color:var(--muted);line-height:1.45}
+.study-review{position:fixed;inset:0;z-index:50;background:rgba(5,8,12,.72);display:grid;place-items:center;padding:16px}
+.study-review-card{width:min(640px,100%);background:var(--surface);border:1px solid var(--line-strong);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.study-review-head{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.study-review-front{font-size:19px;line-height:1.45;margin:8px 0 0;white-space:pre-wrap}
+.study-review-back{font-size:16px;line-height:1.5;margin:0;padding-top:14px;border-top:1px solid var(--line);color:var(--text);white-space:pre-wrap}
+.study-review-show{border:1px solid var(--line-strong);background:var(--surface-3);color:var(--text);border-radius:var(--radius-sm);padding:12px;font-size:14px}
+.study-review-show small,.study-review-grades small{color:var(--muted);font-size:11px;margin-left:6px}
+.study-review-grades{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.study-review-grades button{display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text);border-radius:var(--radius-sm);padding:10px 4px}
+.study-review-grades button:first-child{border-color:#5a2d33}.study-review-grades button:nth-child(3){border-color:#2d5a43}
+@media(max-width:560px){.study-review-grades{grid-template-columns:repeat(2,1fr)}}
+.book-card-form{display:flex;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.book-card-form input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;outline:0;font:inherit;font-size:12px}
+.book-card-form span{max-width:40%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

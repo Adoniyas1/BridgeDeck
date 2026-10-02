@@ -12,13 +12,21 @@ import { notesStore, openNoteRequest } from '../notes/state'
 import { courseEvents, courseFolder, courseNotes, fmtBytes } from './model'
 import { openBook } from './open'
 import { libraryStore, refreshLibrary } from './state'
+import { indexLibrary } from './indexer'
+import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 
 export default function StudyPage({ active }: { active: boolean }) {
   const { library, error } = useStore(libraryStore)
   const [selected, setSelected] = useState<string | null>(null)
   const [newCourse, setNewCourse] = useState('')
   const [status, setStatus] = useState('')
-  usePeriodicRefresh(async () => { if (active) await refreshLibrary() }, 10_000, [active])
+  usePeriodicRefresh(async () => {
+    if (!active) return
+    await refreshLibrary()
+    // Read the text of new books in the background, for search and Mimir.
+    const current = libraryStore.get().library
+    if (current) void indexLibrary(current, () => void refreshLibrary())
+  }, 10_000, [active])
   const courses = library?.courses ?? []
   const course = courses.find(c => c.name === selected) ?? courses[0] ?? null
   useEffect(() => { if (!selected && courses[0]) setSelected(courses[0].name) }, [selected, courses])
@@ -111,6 +119,11 @@ function CourseView({ name, books, root, status, onStatus }: { name: string; boo
         </div>
       </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks as PDFs; they appear on your other computer too.</p>}
     </Card>
+    <div className="study-tools">
+      <FocusCard course={name} />
+      <FlashcardsCard course={name} onStatus={onStatus} />
+    </div>
+    <BookSearchCard course={name} books={books} />
     <div className="two-col">
       <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button>} />
         {mine.length ? <div className="study-notes">{mine.map(({ note, done, total }) => <button key={note.id} onClick={() => { openNoteRequest.set(note.id); activateTab('notes') }}>

@@ -368,7 +368,7 @@ Everything left, combined into one order. One PR each.
 2. **Study tab (built; EPUB opens in the system reader for now)**: courses with their textbooks (PDF via pdf.js, EPUB via epub.js), notes,
    checklists and exam dates; highlights become notes linked to the page; a book's table of
    contents becomes a chapter checklist with sub-tasks.
-3. **Mimir study help**: answers from the user's books with book-and-page citations (local
+3. **Mimir study help (built; search is full-text BM25, embeddings later)**: answers from the user's books with book-and-page citations (local
    full-text and embedding search), summaries, practice quizzes, step-by-step explanations;
    flashcards from highlights or Mimir with FSRS scheduling (ts-fsrs); study sessions and exams on
    the calendar, a focus timer, progress per course and chapter.

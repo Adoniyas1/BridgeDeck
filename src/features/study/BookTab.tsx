@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { convertFileSrc } from '@tauri-apps/api/core'
-import { BookMarked, ChevronLeft, ChevronRight, Highlighter, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
-import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+import { BookMarked, ChevronLeft, ChevronRight, Highlighter, Layers, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -11,9 +8,9 @@ import { activateTab } from '../../core/tabs'
 import { between, newId, visible } from '../notes/model'
 import { notesStore, openNoteRequest, refreshNotes } from '../notes/state'
 import { bookLink, chaptersTitle, courseFolder, highlightsTitle, outlineToMarkdown, type OutlineItem } from './model'
-import { libraryStore } from './state'
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+import { addCards, libraryStore } from './state'
+import { cardLine } from './cards'
+import { loadBook, pdfjs } from './pdf'
 
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
 function savedPage(course: string, file: string) {
@@ -98,6 +95,8 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const [showOutline, setShowOutline] = useState(false)
   const [status, setStatus] = useState('')
   const [selection, setSelection] = useState('')
+  const [card, setCard] = useState<{ back: string; page: number } | null>(null)
+  const [question, setQuestion] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const isEpub = file.toLowerCase().endsWith('.epub')
 
@@ -107,9 +106,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     let loaded: PDFDocumentProxy | null = null
     void (async () => {
       try {
-        const response = await fetch(convertFileSrc(`${course}/${file}`, 'bdbook'))
-        if (!response.ok) throw new Error(`The book couldn't be opened (${response.status}). Has it finished syncing?`)
-        loaded = await pdfjs.getDocument({ data: new Uint8Array(await response.arrayBuffer()), isEvalSupported: false }).promise
+        loaded = await loadBook(course, file)
         if (cancelled) return void loaded.destroy()
         const first = await loaded.getPage(1)
         const viewport = first.getViewport({ scale: 1 })
@@ -168,6 +165,16 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     } catch (e) { setStatus(String(e)) }
   }
 
+  async function saveCard() {
+    if (!card || !question.trim()) return
+    try {
+      await addCards(course, [cardLine(question, card.back, `[${title}, p. ${card.page}](${bookLink(course, file, card.page)})`)])
+      setCard(null)
+      setQuestion('')
+      setStatus(`Card added to “${course} — flashcards”.`)
+    } catch (e) { setStatus(String(e)) }
+  }
+
   async function chapterChecklist() {
     if (!outline?.length) { setStatus('This book has no table of contents to turn into a checklist.'); return }
     const folder = courseFolder(course)
@@ -198,8 +205,15 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <button className="cal-icon" title="Larger" onClick={() => setScale(s => Math.min(3, +(s + 0.15).toFixed(2)))}><Plus size={15} /></button>
       <span className="grow book-title">{title}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onMouseDown={e => e.preventDefault()} onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
+      <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onMouseDown={e => e.preventDefault()} onClick={() => { setCard({ back: selection.replace(/\s+/g, ' '), page }); window.getSelection()?.removeAllRanges() }}><Layers size={14} /> Flashcard</button>
       <button className="ghost" onClick={() => void chapterChecklist()}><ListChecks size={14} /> Chapter checklist</button>
     </div>
+    {card && <form className="book-card-form" onSubmit={e => { e.preventDefault(); void saveCard() }}>
+      <input autoFocus placeholder="Question for this card" value={question} onChange={e => setQuestion(e.target.value)} />
+      <span title={card.back}>Answer: {card.back}</span>
+      <button className="ghost" disabled={!question.trim()}>Add card</button>
+      <button type="button" className="ghost" onClick={() => setCard(null)}>Cancel</button>
+    </form>}
     {status && <p className="book-status">{status}</p>}
     <div className="book-body">
       {showOutline && <nav className="book-outline">{outline?.length ? <OutlineList items={outline} onGo={goTo} /> : <p className="hint">No table of contents in this book.</p>}</nav>}

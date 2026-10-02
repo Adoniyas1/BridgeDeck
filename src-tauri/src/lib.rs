@@ -528,6 +528,7 @@ pub fn run() {
         .setup(|app| {
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
+            study::init(app.handle());
             // Start BridgeLink with the process, not when the window's UI loads: a hidden or
             // login-item launch must still be reachable for pairing status and the AI relay.
             let handle = app.handle().clone();
@@ -564,6 +565,8 @@ pub fn run() {
             study::study_add_course,
             study::study_add_books,
             study::study_remove_book,
+            study::study_save_index,
+            study::study_search,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,

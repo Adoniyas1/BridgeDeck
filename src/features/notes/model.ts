@@ -65,7 +65,9 @@ export type Inline = { kind: 'text' | 'bold' | 'italic' | 'code' | 'strike' | 'l
 
 /** **bold**, *italic*, `code`, ~~struck~~, links, [[note links]], #tags and $math$, for showing a
  *  block that isn't being edited. Returns plain pieces (never HTML), so nothing in a note can run. */
-export function inline(text: string): Inline[] {
+export function inline(raw: string): Inline[] {
+  // HTML comments (such as a flashcard's review state) are kept in the note but not shown.
+  const text = raw.replace(/\s*<!--[\s\S]*?-->/g, '')
   const pattern = /\[\[(?<wiki>[^\]|\n]+)(?:\|(?<alias>[^\]\n]+))?\]\]|\$(?<math>[^\s$][^$\n]*?[^\s$\\]|[^\s$])\$(?!\d)|(?<pre>^|\s)#(?<tag>[A-Za-z][\w/-]*)|\*\*(?<bold>[^*]+)\*\*|`(?<code>[^`]+)`|~~(?<strike>[^~]+)~~|\*(?<italic>[^*\s][^*]*)\*|_(?<italic2>[^_\s][^_]*)_|\[(?<label>[^\]]+)\]\((?<href>https?:\/\/[^\s)]+|book:[^\s)]+)\)|(?<url>https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g
   const out: Inline[] = []
   let last = 0
