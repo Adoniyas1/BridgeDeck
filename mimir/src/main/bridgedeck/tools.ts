@@ -67,6 +67,7 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "files_send", description: "Send files or folders from this computer to a paired computer. BridgeDeck asks the user first.", inputSchema: object({ computer: s("Its name"), paths: { type: "array", items: { type: "string" }, description: "Absolute paths" } }, ["computer", "paths"]) },
     { name: "clipboard_read", description: "Read the text on this computer's clipboard.", inputSchema: object({}) },
     { name: "clipboard_write", description: "Put text on the clipboard (it also reaches the paired computer when clipboard sharing is on).", inputSchema: object({ text: s("Text") }, ["text"]) },
+    { name: "daily_brief", description: "The user's day at a glance from BridgeDeck: today's events, checklist items due or overdue, exams and project milestones in the next week, and flashcards to review. Use it for 'what's my day', 'what's due', 'what should I study'.", inputSchema: object({}) },
     { name: "study_courses", description: "The user's Study courses in BridgeDeck: their textbooks (and whether each is searchable), course notes and checklists (ids for note_read), and flashcard counts.", inputSchema: object({}) },
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
@@ -194,6 +195,36 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     clipboard_write: async (input) => {
       try { await call("clipboard/set", { text: str(input, "text") }); return ok("Copied."); } catch (error) { return fail(error); }
     },
+    daily_brief: async () => {
+      const day = new Date();
+      day.setHours(0, 0, 0, 0);
+      const today = day.getTime();
+      const tomorrow = today + 86_400_000;
+      try {
+        const [events, due, study, projects] = await Promise.all([
+          call<CalEvent[]>("calendar/events"),
+          call<Array<{ note: string; text: string; due: number }>>("notes/due"),
+          call<{ courses: Array<{ name: string; flashcardsDue: number }> }>("study/courses").catch(() => ({ courses: [] })),
+          call<{ projects: Array<{ name: string }> }>("projects/list").catch(() => ({ projects: [] }))
+        ]);
+        const courses = study.courses.map((c) => c.name);
+        const isLog = (title: string) => courses.some((c) => title === `Studied ${c}`);
+        const todays = events.flatMap((e) => occurrences(e, today, tomorrow).map((o) => ({ e, ...o }))).filter(({ e }) => !isLog(e.title)).sort((a, b) => a.start - b.start);
+        const soon = events.flatMap((e) => occurrences(e, tomorrow, today + 8 * 86_400_000).map((o) => ({ e, ...o })))
+          .filter(({ e }) => !isLog(e.title) && [...courses, ...projects.projects.map((p) => p.name)].some((n) => e.title.toLowerCase().includes(n.toLowerCase())))
+          .sort((a, b) => a.start - b.start);
+        const dueNow = due.filter((d) => d.due < tomorrow && Date.now() - d.due < 14 * 86_400_000);
+        const cards = study.courses.filter((c) => c.flashcardsDue > 0);
+        const lines = [
+          `# ${when(today, true)}`,
+          todays.length ? `Today:\n${todays.map(({ e, start, end }) => `- ${e.allDay ? "All day" : `${new Date(start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}–${new Date(end).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}: ${e.title}`).join("\n")}` : "Today: nothing in the calendar.",
+          dueNow.length ? `Due:\n${dueNow.map((d) => `- ${d.text} (${d.note}) ${d.due < Date.now() ? "OVERDUE since" : "by"} ${when(d.due)}`).join("\n")}` : "Due: nothing today.",
+          soon.length ? `Coming up:\n${soon.map(({ e, start }) => `- ${when(start, e.allDay)}: ${e.title}`).join("\n")}` : "",
+          cards.length ? `Flashcards to review: ${cards.map((c) => `${c.name} ${c.flashcardsDue}`).join(", ")}` : ""
+        ];
+        return ok(lines.filter(Boolean).join("\n\n"));
+      } catch (error) { return fail(error); }
+    },
     study_courses: async () => {
       try {
         const { courses } = await call<{ courses: Array<{ name: string; books: Array<{ title: string; kind: string; searchable: boolean; pages: number | null }>; notes: Array<{ id: string; title: string; kind: string }>; flashcards: number; flashcardsDue: number }> }>("study/courses");
@@ -268,4 +299,4 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
 }
 
 /** Tools small local models also get: the everyday ones. */
-export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add", "study_search"];
+export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add", "study_search", "daily_brief"];

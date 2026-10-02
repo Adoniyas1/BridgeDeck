@@ -29,6 +29,9 @@ function fakeBridgeDeck() {
         case "calendar/events": return events as T;
         case "study/search": return [{ course: "Math 221", book: "Calculus", page: 2, text: "The chain rule…", link: "book:Math%20221/calc.pdf#2" }] as T;
         case "study/read": return { course: "Math 221", book: "Calculus", pages: 3, read: [{ page: 3, text: "", link: "book:Math%20221/calc.pdf#3" }] } as T;
+        case "notes/due": return [{ note: "Todo", text: "Pay rent", due: Date.now() - 3_600_000 }, { note: "Todo", text: "Next month", due: Date.now() + 40 * 86_400_000 }] as T;
+        case "study/courses": return { courses: [{ name: "Math 221", flashcardsDue: 4 }] } as T;
+        case "projects/list": return { projects: [] } as T;
         case "projects/task/add": return { markdown: `## To do\n\n- [ ] ${String(body.task)}` } as T;
         case "study/flashcards/add": return { added: (body.cards as unknown[]).length } as T;
         default: return null as T;
@@ -81,6 +84,22 @@ describe("study tools", () => {
     expect((await tools.handlers.flashcards_add!({ course: "Math 221", cards: [] })).isError).toBe(true);
     const added = await tools.handlers.flashcards_add!({ course: "Math 221", cards: [{ front: "Chain rule?", back: "f'(g(x))g'(x)", book: "Calculus", page: 2 }] });
     expect(added.content).toBe("Added 1 card; the user reviews them in the Study tab.");
+  });
+});
+
+describe("daily brief", () => {
+  it("puts today, what's due, exams coming up and cards to review together", async () => {
+    const { client } = fakeBridgeDeck();
+    const tools = buildBridgeDeckToolset(client);
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    await tools.handlers.calendar_add!({ title: "Math 221: Midterm", start: new Date(start.getTime() + 2 * 86_400_000 + 9 * 3_600_000).toISOString() });
+    await tools.handlers.calendar_add!({ title: "Studied Math 221", start: new Date(start.getTime() + 7 * 3_600_000).toISOString() });
+    const brief = (await tools.handlers.daily_brief!({})).content;
+    expect(brief).toContain("Today: nothing in the calendar.");
+    expect(brief).toMatch(/Due:\n- Pay rent \(Todo\) OVERDUE since/);
+    expect(brief).not.toContain("Next month");
+    expect(brief).toMatch(/Coming up:\n- .*: Math 221: Midterm/);
+    expect(brief).toContain("Flashcards to review: Math 221 4");
   });
 });
 

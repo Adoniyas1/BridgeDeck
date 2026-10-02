@@ -27,6 +27,76 @@ fn confirm(manager: &BridgeLinkManager, title: &str, message: &str, ok: &str) ->
     app.dialog().message(message).title(title).kind(MessageDialogKind::Info).buttons(MessageDialogButtons::OkCancelCustom(ok.into(), "Don't".into())).blocking_show()
 }
 
+// ---- Activity log: what Mimir changed or sent, shown in Settings → Mimir ----
+
+const ACTIVITY_FILE: &str = "mimir-activity.json";
+const ACTIVITY_KEEP: usize = 300;
+static ACTIVITY: std::sync::Mutex<Option<std::collections::VecDeque<Activity>>> = std::sync::Mutex::new(None);
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub at: u64,
+    pub action: String,
+    pub detail: String,
+    pub ok: bool,
+    /// Leaves this computer for someone or somewhere else (a message, files); always asked first.
+    pub outward: bool,
+}
+
+/// What a route does, for the log; reading routes aren't logged.
+fn describe(path: &str) -> Option<(&'static str, bool)> {
+    Some(match path {
+        "/mimir/notes/create" => ("Made a note", false),
+        "/mimir/notes/append" => ("Added to a note", false),
+        "/mimir/notes/replace" => ("Rewrote a note", false),
+        "/mimir/checklist/set" => ("Ticked a checklist item", false),
+        "/mimir/calendar/add" => ("Added a calendar event", false),
+        "/mimir/calendar/delete" => ("Deleted a calendar event", false),
+        "/mimir/messages/send" => ("Sent a message", true),
+        "/mimir/computers/wake" => ("Woke a computer", false),
+        "/mimir/files/send" => ("Sent files", true),
+        "/mimir/clipboard/set" => ("Set the clipboard", false),
+        "/mimir/ai/post" => ("Posted in an AI room", false),
+        "/mimir/study/flashcards/add" => ("Added flashcards", false),
+        "/mimir/projects/task/add" => ("Added a project task", false),
+        "/mimir/projects/task/move" => ("Moved a project task", false),
+        _ => return None,
+    })
+}
+
+fn activity_detail(path: &str, body: &Value) -> String {
+    let pick = |keys: &[&str]| keys.iter().find_map(|k| body.get(*k).and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()).map(str::to_string));
+    let text = match path {
+        "/mimir/messages/send" => format!("To {}: {}", pick(&["to", "chat"]).unwrap_or_default(), pick(&["text"]).unwrap_or_default()),
+        "/mimir/files/send" => format!("To {}: {}", pick(&["computer"]).unwrap_or_default(), body.get("paths").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|p| p.as_str()).map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p)).collect::<Vec<_>>().join(", ")).unwrap_or_default()),
+        "/mimir/projects/task/add" | "/mimir/projects/task/move" => format!("{}: {}{}", pick(&["project"]).unwrap_or_default(), pick(&["task"]).unwrap_or_default(), pick(&["column"]).map(|c| format!(" → {c}")).unwrap_or_default()),
+        "/mimir/study/flashcards/add" => format!("{}: {} card(s)", pick(&["course"]).unwrap_or_default(), body.get("cards").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)),
+        _ => pick(&["title", "item", "computer", "text", "markdown", "id"]).unwrap_or_default(),
+    };
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() > 120 { format!("{}…", text.chars().take(120).collect::<String>()) } else { text }
+}
+
+fn log_activity(manager: &BridgeLinkManager, entry: Activity) {
+    let dir = manager.lock().ok().and_then(|r| r.storage_dir.clone());
+    let Ok(mut stored) = ACTIVITY.lock() else { return };
+    let log = stored.get_or_insert_with(|| dir.as_ref().and_then(|d| load_json(&d.join(ACTIVITY_FILE))).unwrap_or_default());
+    log.push_front(entry);
+    log.truncate(ACTIVITY_KEEP);
+    if let (Some(dir), Ok(raw)) = (dir, serde_json::to_string(&*log)) {
+        let _ = secure_write(&dir.join(ACTIVITY_FILE), &raw);
+    }
+}
+
+/// Mimir's recent actions, newest first.
+#[tauri::command]
+pub fn mimir_activity(manager: tauri::State<'_, BridgeLinkManager>) -> Vec<Activity> {
+    let dir = manager.lock().ok().and_then(|r| r.storage_dir.clone());
+    let Ok(mut stored) = ACTIVITY.lock() else { return Vec::new() };
+    stored.get_or_insert_with(|| dir.as_ref().and_then(|d| load_json(&d.join(ACTIVITY_FILE))).unwrap_or_default()).iter().cloned().collect()
+}
+
 pub(super) fn route(manager: &BridgeLinkManager, path: &str, body: &str) -> (u16, String) {
     let body: Value = if body.trim().is_empty() { json!({}) } else {
         match serde_json::from_str(body) {
@@ -34,7 +104,15 @@ pub(super) fn route(manager: &BridgeLinkManager, path: &str, body: &str) -> (u16
             Err(_) => return (400, r#"{"ok":false,"error":"Expected a JSON body"}"#.into()),
         }
     };
-    match handle(manager, path, &body) {
+    let result = handle(manager, path, &body);
+    if let Some((action, outward)) = describe(path) {
+        let detail = match &result {
+            Ok(_) => activity_detail(path, &body),
+            Err(error) => format!("{} — not done: {error}", activity_detail(path, &body)),
+        };
+        log_activity(manager, Activity { at: now_ms(), action: action.into(), detail, ok: result.is_ok(), outward });
+    }
+    match result {
         Ok(result) => (200, json!({ "ok": true, "result": result }).to_string()),
         Err(error) if error == "Not found" => (404, r#"{"ok":false,"error":"Not found"}"#.into()),
         Err(error) => (409, json!({ "ok": false, "error": error }).to_string()),
@@ -89,6 +167,17 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             let done = body.get("done").and_then(|v| v.as_bool()).unwrap_or(true);
             let changed = notes_change(manager, move |store, device, now| store.set_item(&id, &item, done, device, now))?;
             Ok(json!({ "changed": changed }))
+        }
+
+        "/mimir/notes/due" => {
+            let notes = manager.lock()?.notes.list();
+            let mut due: Vec<Value> = notes
+                .iter()
+                .filter(|n| !n.deleted)
+                .flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && b.kind == "todo" && !b.checked && b.due.is_some()).map(move |b| json!({ "note": notes::display_title(n), "noteId": n.id, "text": b.text, "due": b.due })))
+                .collect();
+            due.sort_by_key(|d| d["due"].as_u64().unwrap_or(0));
+            Ok(json!(due))
         }
 
         // ---- Calendar ----
@@ -415,6 +504,16 @@ mod tests {
         let (status, text) = route(&manager, "/mimir/messages/send", &json!({ "chat": "x", "text": "hi" }).to_string());
         assert_eq!(status, 409, "{text}");
         assert_eq!(route(&manager, "/mimir/nope", "{}").0, 404);
+        // What Mimir changed is in the activity log, newest first; reading isn't logged.
+        let log = ACTIVITY.lock().unwrap().clone().unwrap();
+        let mine: Vec<&Activity> = log.iter().filter(|a| a.detail.contains("Thesis") || a.detail.contains("Defense") || a.detail.contains("To x")).collect();
+        assert!(mine.iter().any(|a| a.action == "Made a note" && a.detail == "Thesis" && a.ok));
+        assert!(mine.iter().any(|a| a.action == "Added a calendar event" && a.detail == "Defense"));
+        let sent = mine.iter().find(|a| a.action == "Sent a message").unwrap();
+        assert!(sent.outward && !sent.ok && sent.detail.starts_with("To x: hi — not done"), "{sent:?}");
+        assert!(!log.iter().any(|a| a.action.contains("search")));
+        let due = call(&manager, "/mimir/notes/due", json!({}));
+        assert!(due.as_array().unwrap().is_empty());
     }
 
     #[test]

@@ -587,6 +587,7 @@ pub fn run() {
             skill_packs::skill_packs_status,
             skill_packs::skill_packs_install,
             chatgpt::chatgpt_open,
+            bridgelink::mimir_api::mimir_activity,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,

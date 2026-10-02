@@ -443,6 +443,10 @@ export type SkillPack = { id: string; title: string; description: string; skills
 export type SkillPacksStatus = { source: string; commit: string; folder: string; packs: SkillPack[]; outdated: boolean }
 export const skillPacksStatus = () => native<SkillPacksStatus>('skill_packs_status')
 export const skillPacksInstall = (packs: string[]) => native<SkillPacksStatus>('skill_packs_install', { packs })
-/** ChatGPT in its own window (src-tauri/src/chatgpt.rs); `text` goes in its message box for the person to send. */
-export const chatgptOpen = (text?: string) => native<void>('chatgpt_open', { text: text ?? null })
+/** ChatGPT in its own window (src-tauri/src/chatgpt.rs); `text` goes in its message box for the person to send,
+ *  and chats saved from it go in `folder` (a course's or project's Notes folder; default "ChatGPT"). */
+export const chatgptOpen = (text?: string, folder?: string) => native<void>('chatgpt_open', { text: text ?? null, folder: folder ?? null })
+/** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
+export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
+export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })

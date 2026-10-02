@@ -12,7 +12,7 @@
 
 mod discovery;
 pub mod calendar;
-mod mimir_api;
+pub mod mimir_api;
 pub mod vault;
 pub mod notes;
 mod local;

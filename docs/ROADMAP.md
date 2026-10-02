@@ -382,8 +382,9 @@ Everything left, combined into one order. One PR each.
    window that the user uses themselves (signed in once), with "Send to ChatGPT" from Study and Projects
    (a passage, a note, a task) that fills the message box for the user to send; ChatGPT is a study and
    project helper, never the engine running the app. Mimir gets a browser for ordinary websites
-   (search, read pages) for research.
-6. **Mimir proactive + voice + safety**: morning brief, deadline and exam nudges, "while you were
+   (search, read pages) for research. ChatGPT chats are kept with a "Save to BridgeDeck" button in its window:
+   each becomes a note in the course or project it was started from (else "ChatGPT"); saving again updates it.
+6. **Mimir proactive + voice + safety (6a built: morning brief, evening study check-in, "while you were away", daily_brief for Mimir, activity log)**: morning brief, deadline and exam nudges, "while you were
    away"; wake word and hotkey on both computers; self-written skills can use the BridgeDeck tools;
    an activity log, and a confirm for every outward action; looking at or controlling the other
    computer with a banner and a confirm.
