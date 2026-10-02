@@ -91,6 +91,11 @@ fn is_image_content(content_type: &str, url: &reqwest::Url) -> bool {
     content_type.to_ascii_lowercase().starts_with("image/") || is_image(url.path())
 }
 
+fn likely_page_image(url: &reqwest::Url) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    is_image(&path) && !["/covers/", "/banners/", "/logo", "default-", "avatar", "thumbnail", "favicon", "sprite"].iter().any(|part| path.contains(part))
+}
+
 fn is_archive_content(content_type: &str, url: &reqwest::Url) -> bool {
     let kind = content_type.to_ascii_lowercase();
     ARCHIVE_EXTENSIONS.contains(&ext(Path::new(url.path())).as_str()) || kind.contains("zip") || kind.contains("comicbook")
@@ -146,7 +151,7 @@ fn image_links_from_html(html: &str, base: &reqwest::Url) -> Vec<reqwest::Url> {
         for name in ["data-src", "data-lazy-src", "data-original", "src"] {
             if let Some(value) = html_attribute(tag, name) {
                 if let Ok(url) = base.join(value.trim()) {
-                    if matches!(url.scheme(), "http" | "https") && !found.iter().any(|known: &reqwest::Url| known == &url) { found.push(url); }
+                    if matches!(url.scheme(), "http" | "https") && likely_page_image(&url) && !found.iter().any(|known: &reqwest::Url| known == &url) { found.push(url); }
                 }
                 break;
             }
@@ -162,7 +167,7 @@ fn image_links_from_html(html: &str, base: &reqwest::Url) -> Vec<reqwest::Url> {
         let end = script.find(|c: char| matches!(c, '\'' | '"' | '\\' | '<' | '>' | '(' | ')' | ' ' | '\n' | '\r' | '\t')).unwrap_or(script.len());
         let raw = &script[..end];
         if let Ok(url) = reqwest::Url::parse(raw) {
-            if is_image(url.path()) && !found.iter().any(|known: &reqwest::Url| known == &url) { found.push(url); }
+            if likely_page_image(&url) && !found.iter().any(|known: &reqwest::Url| known == &url) { found.push(url); }
         }
         script = &script[end.min(script.len())..];
         if script.is_empty() || found.len() >= MAX_LINK_IMAGES { break; }
@@ -213,6 +218,14 @@ fn html_text(raw: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn title_from_url(url: &reqwest::Url) -> String {
+    let raw = url.path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let raw = raw.split('.').next().unwrap_or(raw).replace(['-', '_'], " ");
+    raw.split_whitespace().map(|word| {
+        let mut chars = word.chars(); match chars.next() { Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()), None => String::new() }
+    }).collect::<Vec<_>>().join(" ")
+}
+
 /// Extract chapter-looking same-site anchors from ordinary server-rendered source pages.
 /// Dynamic or access-protected pages deliberately return no invented chapters.
 fn chapter_links_from_html(html: &str, base: &reqwest::Url) -> Vec<SourceChapter> {
@@ -229,8 +242,12 @@ fn chapter_links_from_html(html: &str, base: &reqwest::Url) -> Vec<SourceChapter
             if let Ok(url) = base.join(href.trim()) {
                 let same_host = url.host_str() == base.host_str();
                 let shape = format!("{} {}", label.to_ascii_lowercase(), url.path().to_ascii_lowercase());
-                let katana_chapter = base.host_str() == Some("mangakatana.com") && url.path().rsplit('/').next().is_some_and(|last| last.starts_with('c') && last[1..].chars().next().is_some_and(|c| c.is_ascii_digit()));
-                if same_host && (shape.contains("chapter") || shape.contains("/chap/") || shape.contains("/ch/") || shape.contains("/chapters/") || katana_chapter) {
+                let base_path = base.path().trim_end_matches('/');
+                let katana_chapter = base.host_str() == Some("mangakatana.com") && url.path().starts_with(&format!("{base_path}/")) && url.path().rsplit('/').next().is_some_and(|last| last.starts_with('c') && last[1..].chars().next().is_some_and(|c| c.is_ascii_digit()));
+                let asura_chapter = base.host_str() == Some("asurascans.com") && url.path().starts_with(&format!("{base_path}/chapter/"));
+                let weeb_chapter = base.host_str() == Some("weebcentral.com") && url.path().starts_with("/chapters/");
+                let generic_chapter = shape.contains("/chapter/") || shape.contains("/chap/") || shape.contains("/ch/") || shape.contains("/chapters/");
+                if same_host && (asura_chapter || weeb_chapter || katana_chapter || (base.host_str().is_none_or(|host| !matches!(host, "asurascans.com" | "weebcentral.com" | "mangakatana.com")) && generic_chapter)) {
                     let title = if label.is_empty() { url.path().rsplit('/').next().unwrap_or("Chapter").replace(['-', '_'], " ") } else { label };
                     if !chapters.iter().any(|chapter: &SourceChapter| chapter.url == url.as_str()) { chapters.push(SourceChapter { title, url: url.to_string() }); }
                 }
@@ -262,7 +279,8 @@ fn manga_links_from_html(html: &str, base: &reqwest::Url) -> Vec<SourceManga> {
                     let image = &inner[start + 4..]; let end = image.find('>')?;
                     ["data-src", "data-lazy-src", "src"].iter().find_map(|name| html_attribute(&image[..end], name)).and_then(|value| base.join(value.trim()).ok()).filter(|cover| matches!(cover.scheme(), "http" | "https")).map(|cover| cover.to_string())
                 });
-                mangas.push(SourceManga { title: label, url: url.to_string(), cover_url });
+                let title = if matches!(host, "asurascans.com" | "weebcentral.com" | "mangakatana.com") { title_from_url(&url) } else { label };
+                mangas.push(SourceManga { title, url: url.to_string(), cover_url });
             }
         }}
         rest = &tail[close + 4..]; if mangas.len() >= 120 { break; }
@@ -1003,6 +1021,10 @@ mod tests {
         let cards = manga_links_from_html(r#"<a href="/comics/a-title"><img data-src="/cover.webp">A title</a><a href="/comics/a-title/chapter/1">Chapter 1</a>"#, &asura);
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].cover_url.as_deref(), Some("https://asurascans.com/cover.webp"));
+        assert_eq!(cards[0].title, "A Title");
+
+        let asura_series = reqwest::Url::parse("https://asurascans.com/comics/a-title").unwrap();
+        assert_eq!(chapter_links_from_html(r#"<a href="/comics/other/chapter/1">Other Chapter 1</a><a href="/comics/a-title/chapter/2">Chapter 2</a>"#, &asura_series).len(), 1);
 
         let katana = reqwest::Url::parse("https://mangakatana.com/manga/title.1").unwrap();
         let chapters = chapter_links_from_html(r#"<a href="/manga/title.1/c12">Chapter 12</a>"#, &katana);
