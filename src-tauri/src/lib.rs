@@ -14,6 +14,7 @@ mod mimir_host;
 mod remote;
 mod send_to;
 mod projects;
+mod skill_packs;
 mod study;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -582,6 +583,8 @@ pub fn run() {
             projects::projects_add,
             projects::projects_files,
             projects::projects_import_mimir,
+            skill_packs::skill_packs_status,
+            skill_packs::skill_packs_install,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,

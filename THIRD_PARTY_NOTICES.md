@@ -21,6 +21,9 @@ BridgeDeck v0.7 links directly to the pinned Apache-2.0 LocalSend Rust core as a
 ## KaTeX
 The Notes tab renders `$math$` and `$$math$$` with KaTeX (`katex` on npm), MIT licence, © Khan Academy and other contributors. It is a package dependency; its licence ships inside `node_modules/katex`.
 
+## claude-skills (downloaded on request)
+Mimir's optional skill packs come from alirezarezvani/claude-skills, MIT, © 2025 Alireza Rezvani. BridgeDeck does not ship them: they are downloaded at a pinned commit only when the user installs packs in Settings, and each pack keeps the repository's licence terms.
+
 ## ts-fsrs
 Study flashcards are scheduled with ts-fsrs (`ts-fsrs` on npm), an implementation of the FSRS algorithm, MIT, © open-spaced-repetition and contributors. It is a package dependency; its licence ships inside `node_modules/ts-fsrs`.
 

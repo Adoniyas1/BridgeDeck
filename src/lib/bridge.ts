@@ -438,4 +438,9 @@ export const projectsList = (shared: string) => native<ProjectList>('projects_li
 export const projectsAdd = (name: string) => native<string>('projects_add', { name })
 export const projectsFiles = (project: string) => native<ProjectFile[]>('projects_files', { project })
 export const projectsImportMimir = () => native<number>('projects_import_mimir')
+/** Skill packs for Mimir (src-tauri/src/skill_packs.rs). */
+export type SkillPack = { id: string; title: string; description: string; skills: number; installed: boolean }
+export type SkillPacksStatus = { source: string; commit: string; folder: string; packs: SkillPack[]; outdated: boolean }
+export const skillPacksStatus = () => native<SkillPacksStatus>('skill_packs_status')
+export const skillPacksInstall = (packs: string[]) => native<SkillPacksStatus>('skill_packs_install', { packs })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })

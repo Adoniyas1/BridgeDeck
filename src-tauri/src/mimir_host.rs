@@ -279,6 +279,8 @@ fn spawn(app: &AppHandle, node: &Path, dir: &Path) -> Result<(), String> {
         .env("BRIDGEDECK_API", format!("http://127.0.0.1:{}", api_port(app)))
         .env("BRIDGEDECK_TOKEN", &api_token)
         .env("MIMIR_PROJECTS_ROOT", &projects)
+        // Skill packs chosen in Settings (skill_packs.rs).
+        .env("MIMIR_SKILL_PACKS", crate::skill_packs::packs_dir(app).unwrap_or_default())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
