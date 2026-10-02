@@ -753,3 +753,12 @@ main.fill .book-scroll{border-radius:0;padding:8px 0}
 .book-outline-head{display:flex;gap:6px;padding:0 0 6px;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .book-outline .book-outline-head button{width:auto;flex:1;justify-content:center;color:var(--muted);font-size:11px}
 .cal-icon.on{color:var(--accent);border-color:var(--accent)}
+/* ChatGPT side panel: the rest of the window narrows to make room. */
+.shell-body{flex:1;min-height:0;display:flex}
+.shell-body>main{flex:1;min-width:0;width:auto}
+.chat-panel{position:relative;flex:none;display:flex;flex-direction:column;min-width:320px;max-width:70vw;border-left:1px solid var(--line);background:var(--surface)}
+.chat-panel-edge{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:2}
+.chat-panel-edge:hover{background:linear-gradient(90deg,transparent 3px,var(--accent) 3px,var(--accent) 5px,transparent 5px)}
+.chat-panel-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px}
+.chat-panel>.cal-error{margin:6px 10px}
+.chat-panel-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px}

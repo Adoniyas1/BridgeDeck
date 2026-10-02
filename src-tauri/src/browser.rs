@@ -43,7 +43,7 @@ fn allowed(url: &Url) -> bool {
 /// Where BridgeDeck's own page starts inside the window, in logical pixels. `x, y` come from that
 /// page, but a child page is placed in the window's view: on macOS that view can start above the
 /// main page (the title bar), which put the browser page too high.
-fn main_offset(app: &AppHandle) -> (f64, f64) {
+pub(crate) fn main_offset(app: &AppHandle) -> (f64, f64) {
     let (Some(window), Some(main)) = (app.get_window(MAIN), app.get_webview(MAIN)) else { return (0.0, 0.0) };
     let scale = window.scale_factor().unwrap_or(1.0);
     match main.position() {

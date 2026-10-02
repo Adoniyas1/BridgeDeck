@@ -1,3 +1,4 @@
+import ChatPanel from './ChatPanel'
 import { useEffect } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
 import { BridgeLinkBackground, sourceUpdateStore } from '../core/bridgelink'
@@ -37,6 +38,7 @@ export default function App() {
   return (
     <div className="shell">
       <TabBar />
+      <div className="shell-body">
       <main className={fill ? 'fill' : undefined}>
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
         {sourceUpdate?.rebuildNeeded && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span></div>}
@@ -51,6 +53,8 @@ export default function App() {
         {active === 'settings' && <div className="tab-panel"><SettingsPage /></div>}
         {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} active={active === tab.id} />)}
       </main>
+      <ChatPanel />
+      </div>
     </div>
   )
 }
