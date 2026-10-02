@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BookOpen, Check, Download, FolderOpen, Gift, Globe, Library, Link, Play, Plus, Search, Trash2 } from 'lucide-react'
-import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaCreateSeries, mangaImportLinks, mangaRemove, mangaSearchDetails, mangaSourceCatalog, mangaSourceChapters, mangaStreamLink, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries, type MangaSourceChapter, type MangaSourceManga } from '../../lib/bridge'
+import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaCreateSeries, mangaImportLinks, mangaRemove, mangaSaveMeta, mangaSearchDetails, mangaSourceCatalog, mangaSourceChapters, mangaStreamLink, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries, type MangaSourceChapter, type MangaSourceManga } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { Card, SectionTitle } from '../../ui'
@@ -12,6 +12,8 @@ const PUBLIC_MANGA_SOURCES = [
   { name: 'Weeb Central', url: 'https://weebcentral.com/' },
   { name: 'MangaKatana', url: 'https://mangakatana.com/' },
 ]
+type CatalogSource = { name: string; url: string }
+const CUSTOM_SOURCES_KEY = 'bridgedeck-manga-sources'
 
 export default function MangaPage({ active }: { active: boolean }) {
   const { library, error } = useStore(mangaStore)
@@ -22,15 +24,25 @@ export default function MangaPage({ active }: { active: boolean }) {
   const [linkTitle, setLinkTitle] = useState('')
   const [catalog, setCatalog] = useState<MangaSourceManga[]>([])
   const [catalogSource, setCatalogSource] = useState(PUBLIC_MANGA_SOURCES[0])
+  const [catalogPage, setCatalogPage] = useState(1)
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [customSources, setCustomSources] = useState<CatalogSource[]>(() => { try { return JSON.parse(localStorage.getItem(CUSTOM_SOURCES_KEY) ?? '[]') } catch { return [] } })
+  const [customName, setCustomName] = useState('')
+  const [customUrl, setCustomUrl] = useState('')
   usePeriodicRefresh(async () => { if (active) await refreshManga() }, 15_000, [active])
   const list = useMemo(() => sortSeries(library?.series ?? []), [library])
   const current = list.find(s => s.name === open)
-  async function loadCatalog(source = catalogSource) {
+  async function loadCatalog(source = catalogSource, page = catalogPage) {
     setStatus(`Loading ${source.name}…`); setCatalog([])
-    try { const items = await mangaSourceCatalog(source.url); setCatalog(items); setStatus(`${items.length} manga available from ${source.name}.`) } catch (e) { setStatus(String(e)) }
+    try { const items = await mangaSourceCatalog(source.url, page, catalogQuery); setCatalog(items); setStatus(`${items.length} manga found on page ${page}.`) } catch (e) { setStatus(String(e)) }
+  }
+  function saveCustomSource() {
+    if (!customName.trim() || !customUrl.trim()) return
+    const next = [...customSources, { name: customName.trim(), url: customUrl.trim() }]
+    setCustomSources(next); localStorage.setItem(CUSTOM_SOURCES_KEY, JSON.stringify(next)); setCustomName(''); setCustomUrl('')
   }
   async function addCatalogManga(item: MangaSourceManga) {
-    try { const series = await mangaCreateSeries(item.title, item.url); await refreshManga(); setOpen(series) } catch (e) { setStatus(String(e)) }
+    try { const series = await mangaCreateSeries(item.title, item.url, item.coverUrl); await refreshManga(); setOpen(series) } catch (e) { setStatus(String(e)) }
   }
   useEffect(() => { void loadCatalog() }, [])
 
@@ -79,8 +91,10 @@ export default function MangaPage({ active }: { active: boolean }) {
         <button className="ghost" type="button" disabled={!name.trim() || !links.trim()} onClick={() => void addLinks()}><Link size={14} /> Download links</button>
       </div>
       <div className="manga-source-links" aria-label="Manga catalog sources">
-        <span>Catalog:</span>{PUBLIC_MANGA_SOURCES.map(source => <button key={source.url} className="ghost" type="button" onClick={() => { setCatalogSource(source); void loadCatalog(source) }}><Globe size={13} />{source.name}</button>)}
+        <span>Catalog:</span>{[...PUBLIC_MANGA_SOURCES, ...customSources].map(source => <button key={source.url} className="ghost" type="button" onClick={() => { setCatalogSource(source); setCatalogPage(1); void loadCatalog(source, 1) }}><Globe size={13} />{source.name}</button>)}
       </div>
+      <div className="study-new manga-source-search"><input value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} placeholder="Search loaded source page" /><button className="secondary" type="button" onClick={() => void loadCatalog(catalogSource, 1)}><Search size={14} />Search</button><button className="ghost" type="button" onClick={() => { const next = catalogPage + 1; setCatalogPage(next); void loadCatalog(catalogSource, next) }}>Next page</button></div>
+      <div className="study-new manga-source-search"><input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Your website name" /><input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="Its public catalog page" /><button className="ghost" type="button" onClick={saveCustomSource} disabled={!customName.trim() || !customUrl.trim()}><Plus size={14} />Add source</button></div>
       {(status || error) && <p className={error ? 'cal-error' : 'book-status'}>{error || status}</p>}
     </Card>
     {catalog.length > 0 && <><SectionTitle title={catalogSource.name} subtitle="Pick a title — its chapters stay and open inside BridgeDeck" /><div className="manga-grid">{catalog.map(item => <div className="manga-card" key={item.url}><button className="manga-cover" onClick={() => void addCatalogManga(item)}>{item.coverUrl ? <img src={item.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <Library size={30} />}</button><strong>{item.title}</strong><button className="ghost manga-continue" onClick={() => void addCatalogManga(item)}><Plus size={13} />Open</button></div>)}</div></>}
@@ -132,7 +146,7 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
   async function loadSourceChapters() {
     if (!sourceUrl.trim()) return
     setStatus('Loading public chapter list…'); setSourceChapters(null)
-    try { const chapters = await mangaSourceChapters(sourceUrl); setSourceChapters(chapters); setStatus(`${chapters.length} chapters found.`) } catch (e) { setStatus(String(e)) }
+    try { const chapters = await mangaSourceChapters(sourceUrl); setSourceChapters(chapters); await mangaSaveMeta(series.name, { sourceChapterCount: chapters.length }); await refreshManga(); setStatus(`${chapters.length} chapters found and cached.`) } catch (e) { setStatus(String(e)) }
   }
   async function downloadSourceChapter(chapter: MangaSourceChapter) {
     setStatus(`Downloading ${chapter.title}…`)
@@ -170,7 +184,7 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
         <div className="grow">
           <button className="ghost" onClick={onBack}>← Library</button>
           <h2>{title}</h2>
-          <p className="manga-sub">{[meta.author, meta.year, meta.status, meta.format].filter(Boolean).join(' · ')}</p>
+          <p className="manga-sub">{[meta.author, meta.year, meta.status, meta.format, meta.sourceChapterCount && `${meta.sourceChapterCount} source chapters`].filter(Boolean).join(' · ')}</p>
           {!!meta.genres?.length && <div className="manga-genres">{meta.genres.map(g => <span key={g}>{g}</span>)}</div>}
           {meta.description && <p className="manga-desc">{meta.description}</p>}
           {meta.attribution && <p className="hint">By <a href={meta.attribution.url} onClick={e => { e.preventDefault(); void openExternal(meta.attribution!.url) }}>{meta.attribution.author}</a>, {meta.attribution.license}.</p>}

@@ -254,7 +254,7 @@ fn manga_links_from_html(html: &str, base: &reqwest::Url) -> Vec<SourceManga> {
                 "asurascans.com" => path.starts_with("/comics/") && !path[8..].contains('/'),
                 "weebcentral.com" => path.starts_with("/series/") && path[8..].matches('/').count() == 1,
                 "mangakatana.com" => path.starts_with("/manga/") && !path.starts_with("/manga/page") && !path[7..].contains('/'),
-                _ => false,
+                _ => path != "/" && !path.is_empty(),
             };
             if url.host_str() == Some(host) && title_path && !label.is_empty() && !label.to_ascii_lowercase().contains("chapter") && !mangas.iter().any(|item: &SourceManga| item.url == url.as_str()) {
                 let inner = &tail[..close];
@@ -610,7 +610,7 @@ pub fn save_meta(root: &Path, series: &str, meta: &Value) -> Result<Value, Strin
     let file = dir.join(META_FILE);
     let mut current = read_json(&file);
     let map = current.as_object_mut().ok_or("Damaged series.json")?;
-    for key in ["title", "description", "genres", "status", "author", "anilistId", "year", "attribution", "url", "format"] {
+    for key in ["title", "description", "genres", "status", "author", "anilistId", "year", "attribution", "url", "format", "sourceChapterCount"] {
         if let Some(value) = meta.get(key) {
             map.insert(key.into(), value.clone());
         }
@@ -677,19 +677,42 @@ pub fn manga_add(series: String, paths: Vec<String>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn manga_create_series(title: String, source_url: String) -> Result<String, String> {
+pub fn manga_create_series(title: String, source_url: String, cover_url: Option<String>) -> Result<String, String> {
     let root = current_root()?; let name = crate::study::clean_name(&title)?; let dir = root.join(&name);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     save_meta(&root, &name, &json!({ "title": title, "url": import_url(&source_url)?.to_string() }))?;
+    // Source-card art is cached locally, so the library remains a complete offline catalog.
+    if !dir.join("cover.jpg").exists() {
+        if let Some(raw) = cover_url {
+            if let Ok(url) = import_url(&raw) {
+                if let Ok(response) = http().and_then(|client| client.get(url).send().and_then(|r| r.error_for_status()).map_err(|e| e.to_string())) {
+                    let kind = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                    if response.content_length().is_none_or(|size| size < 10 * 1024 * 1024) {
+                        if let Ok(bytes) = response.bytes() { if bytes.len() < 10 * 1024 * 1024 && kind.to_ascii_lowercase().starts_with("image/") { let _ = fs::write(dir.join("cover.jpg"), bytes); } }
+                    }
+                }
+            }
+        }
+    }
     Ok(name)
 }
 
 #[tauri::command]
-pub async fn manga_source_catalog(source_url: String) -> Result<Vec<SourceManga>, String> {
+pub async fn manga_source_catalog(source_url: String, page: Option<u32>, query: Option<String>) -> Result<Vec<SourceManga>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let source = import_url(&source_url)?; let response = http()?.get(source.clone()).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't load source catalog: {e}"))?;
+        let source = import_url(&source_url)?; let page = page.unwrap_or(1).clamp(1, 999); let query = query.unwrap_or_default();
+        // Public, documented-style catalog pages for the bundled sources. A custom source keeps
+        // its supplied catalog URL; it can still be searched locally after loading.
+        let request = match source.host_str().unwrap_or_default() {
+            "weebcentral.com" => format!("https://weebcentral.com/search/data?sort=Latest%20Updates&order=Descending&page={page}"),
+            "mangakatana.com" => format!("https://mangakatana.com/manga/page/{page}"),
+            _ => source.to_string(),
+        };
+        let source = import_url(&request)?; let response = http()?.get(source.clone()).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't load source catalog: {e}"))?;
         let html = response.text().map_err(|e| e.to_string())?; if html.to_ascii_lowercase().contains("attention required") { return Err("This source is blocking ordinary catalog requests".into()) }
-        let items = manga_links_from_html(&html, &source); if items.is_empty() { return Err("No public manga cards were found on this source page".into()) } Ok(items)
+        let mut items = manga_links_from_html(&html, &source);
+        if !query.trim().is_empty() { let needle = query.to_ascii_lowercase(); items.retain(|item| item.title.to_ascii_lowercase().contains(&needle)); }
+        if items.is_empty() { return Err("No public manga cards were found on this source page".into()) } Ok(items)
     }).await.map_err(|e| e.to_string())?
 }
 
