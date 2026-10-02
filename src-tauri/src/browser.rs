@@ -40,12 +40,31 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "about")
 }
 
+/// Where BridgeDeck's own page starts inside the window, in logical pixels. `x, y` come from that
+/// page, but a child page is placed in the window's view: on macOS that view can start above the
+/// main page (the title bar), which put the browser page too high.
+fn main_offset(app: &AppHandle) -> (f64, f64) {
+    let (Some(window), Some(main)) = (app.get_window(MAIN), app.get_webview(MAIN)) else { return (0.0, 0.0) };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    match main.position() {
+        Ok(p) => offset_from(p.x as f64 / scale, p.y as f64 / scale),
+        Err(_) => (0.0, 0.0),
+    }
+}
+
+/// Only small, positive offsets are believed (a title bar or a border), never a whole page.
+fn offset_from(x: f64, y: f64) -> (f64, f64) {
+    let ok = |v: f64| if v.is_finite() && (0.0..=200.0).contains(&v) { v } else { 0.0 };
+    (ok(x), ok(y))
+}
+
 /// Shows the browser tab's page at `x, y` (`w × h`, logical pixels in the window), creating it on
 /// first use; with `url`, goes there.
 #[tauri::command]
 pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let id = label(&tab)?;
-    let (pos, size) = (LogicalPosition::new(x.max(0.0), y.max(0.0)), LogicalSize::new(w.max(1.0), h.max(1.0)));
+    let (dx, dy) = main_offset(&app);
+    let (pos, size) = (LogicalPosition::new(x.max(0.0) + dx, y.max(0.0) + dy), LogicalSize::new(w.max(1.0), h.max(1.0)));
     let target = url.as_deref().map(address);
     if let Some(view) = app.get_webview(&id) {
         view.set_position(pos).map_err(|e| e.to_string())?;
@@ -127,6 +146,13 @@ pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_small_offsets_move_the_page() {
+        assert_eq!(offset_from(0.0, 28.0), (0.0, 28.0));
+        assert_eq!(offset_from(-5.0, 900.0), (0.0, 0.0));
+        assert_eq!(offset_from(f64::NAN, 10.0), (0.0, 10.0));
+    }
 
     #[test]
     fn the_address_bar_takes_urls_domains_and_searches() {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CalEvent, Note } from '../../lib/bridge'
-import { bookLink, courseEvents, courseNotes, highlightMarkdown, outlineToMarkdown, parseBookLink } from './model'
+import { bookLink, courseEvents, courseNotes, currentPath, highlightMarkdown, outlineParents, outlineToMarkdown, parseBookLink } from './model'
 
 describe('study', () => {
   it('turns a table of contents into a chapter checklist with sections as sub-tasks', () => {
@@ -26,5 +26,22 @@ describe('study', () => {
     expect(found.map(f => [f.note.id, f.done, f.total])).toEqual([['a', 1, 2]])
     const ev = (title: string, end: number) => ({ id: title, title, start: end - 1, end, deleted: false, repeat: null } as unknown as CalEvent)
     expect(courseEvents([ev('Math 221 midterm', 200), ev('Math 221 old quiz', 50), ev('Physics exam', 300)], 'math 221', 100).map(e => e.title)).toEqual(['Math 221 midterm'])
+  })
+})
+
+describe('book contents', () => {
+  const book = [
+    { title: 'Cover', page: 1, items: [] },
+    { title: 'Ch 1', page: 29, items: [{ title: '1.1', page: 29, items: [] }, { title: '1.2', page: 39, items: [{ title: '1.2 Exercises', page: 49, items: [] }] }] },
+    { title: 'Ch 2', page: 101, items: [{ title: '2.1', page: 101, items: [] }] },
+  ]
+  it('finds the section being read, at every level', () => {
+    expect(currentPath(book, 50)).toEqual(['1/', '1/1/', '1/1/0/'])
+    expect(currentPath(book, 40)).toEqual(['1/', '1/1/'])
+    expect(currentPath(book, 5)).toEqual(['0/'])
+    expect(currentPath(book, 0)).toEqual([])
+  })
+  it('lists the entries that can be folded', () => {
+    expect(outlineParents(book)).toEqual(['1/', '1/1/', '2/'])
   })
 })

@@ -31,9 +31,13 @@ export default function BrowserPage({ active }: { active: boolean }) {
     if (!isTauri() || !started) return
     const el = area.current
     if (!active || !el) { void browserHide(TAB).catch(() => undefined); return }
+    let last = ''
     const place = () => {
       const r = el.getBoundingClientRect()
       const go = pending.current
+      const at = [r.left, r.top, r.width, r.height].map(Math.round).join(',')
+      if (at === last && !go) return
+      last = at
       pending.current = null
       void browserShow(TAB, go, r.left, r.top, r.width, r.height).then(() => setError('')).catch(e => setError(String(e)))
     }
@@ -41,7 +45,9 @@ export default function BrowserPage({ active }: { active: boolean }) {
     const observer = new ResizeObserver(place)
     observer.observe(el)
     window.addEventListener('resize', place)
-    return () => { observer.disconnect(); window.removeEventListener('resize', place); void browserHide(TAB).catch(() => undefined) }
+    // The area can also move without resizing (a notice above it appears or goes): check now and then.
+    const timer = window.setInterval(place, 400)
+    return () => { observer.disconnect(); window.removeEventListener('resize', place); window.clearInterval(timer); void browserHide(TAB).catch(() => undefined) }
   }, [active, started])
 
   useEffect(() => {
