@@ -178,7 +178,10 @@ fn image_links_from_html(html: &str, base: &reqwest::Url) -> Vec<reqwest::Url> {
     let mut script = html;
     while let Some(start) = script.find("http") {
         script = &script[start..];
-        let end = script.find(|c: char| matches!(c, '\'' | '"' | '\\' | '<' | '>' | '(' | ')' | ' ' | '\n' | '\r' | '\t')).unwrap_or(script.len());
+        // Server-rendered React data often embeds an URL as `...webp&quot;]`.
+        // `&quot;` is not part of the URL; retaining it creates a duplicate, broken
+        // final "page" that CDNs can still answer with an unexpected image.
+        let end = script.find(|c: char| matches!(c, '\'' | '"' | '&' | '\\' | '<' | '>' | '(' | ')' | ' ' | '\n' | '\r' | '\t')).unwrap_or(script.len());
         let raw = &script[..end];
         if let Ok(url) = reqwest::Url::parse(raw) {
             if likely_page_image(&url) && !found.iter().any(|known: &reqwest::Url| known == &url) { found.push(url); }
@@ -221,6 +224,18 @@ fn response_mime(content_type: Option<&reqwest::header::HeaderValue>, fallback: 
         "image/png" => "image/png", "image/webp" => "image/webp", "image/gif" => "image/gif", "image/avif" => "image/avif", "image/bmp" => "image/bmp",
         "image/jpeg" | "image/jpg" => "image/jpeg", _ => mime(fallback),
     }
+}
+
+/// Streamed files use stable virtual `.jpg` names, but source sites commonly return WebP.
+/// Detect the actual bytes when reopening the cache so Chromium's decoder receives the
+/// correct type even after the first request.
+fn image_mime(data: &[u8], fallback: &str) -> &'static str {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
+    else if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP") { "image/webp" }
+    else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") { "image/gif" }
+    else if data.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" }
+    else if data.get(4..8) == Some(b"ftyp") && data.windows(4).any(|part| part == b"avif" || part == b"avis") { "image/avif" }
+    else { mime(fallback) }
 }
 
 fn html_text(raw: &str) -> String {
@@ -498,7 +513,7 @@ pub fn page(root: &Path, series: &str, chapter: &str, index: usize) -> Result<(V
         }
         entry.read_to_end(&mut data).map_err(|e| e.to_string())?;
     }
-    Ok((data, mime(name)))
+    Ok((data.clone(), image_mime(&data, name)))
 }
 
 fn cover(root: &Path, series: &str) -> Result<(Vec<u8>, &'static str), String> {
