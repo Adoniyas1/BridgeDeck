@@ -293,7 +293,7 @@ pub(super) struct PeerHandler {
 
 impl Handler for PeerHandler {
     fn stream_paths(&self) -> &'static [&'static str] {
-        &["/pair", crate::remote::SESSION_PATH, crate::clipboard::PATH, crate::transfer::PATH]
+        &["/pair", crate::remote::SESSION_PATH, crate::clipboard::PATH, crate::transfer::PATH, crate::imessage::watch::PATH]
     }
 
     fn stream(&self, caller: Caller, request: Request, mut send: quinn::SendStream, recv: quinn::RecvStream) -> BoxFuture {
@@ -333,6 +333,17 @@ impl Handler for PeerHandler {
                         let _ = write_frame(&mut send, &json!({ "type": "refuse", "reason": "This device is not paired with this computer" })).await;
                         let _ = send.finish();
                     }
+                }
+                return;
+            }
+            if request.path == crate::imessage::watch::PATH {
+                // Only paired devices may follow this Mac's messages.
+                let paired = manager.lock().ok().is_some_and(|r| r.paired.values().any(|p| p.fingerprint == caller.fingerprint));
+                if paired {
+                    crate::imessage::watch::serve(send, recv).await;
+                } else {
+                    let _ = write_frame(&mut send, &json!({ "type": "refuse" })).await;
+                    let _ = send.finish();
                 }
                 return;
             }

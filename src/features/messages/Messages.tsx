@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { ArrowUp, Check, Copy, Info, Link2, MessageSquare, Minus, Paperclip, Pencil, Pin, PinOff, Plus, Search, Tag, UserPlus, X, RefreshCw } from 'lucide-react'
-import { contactsSave, imessage, imessageAttachment, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
+import { contactsSave, imessage, imessageAttachment, imessagePushStatus, imessageSendFile, openExternal, pickTransferPaths } from '../../lib/bridge'
 import { notify } from '../../core/notify'
 import type { ImAttachment, ImChat, ImContact, ImMessage } from '../../types'
 import { setConfig, useConfig } from '../../core/config'
@@ -304,8 +305,9 @@ export default function Messages({ source, visible, onUnreadChange, onCheckAgain
     }
   }
 
-  // Load 14 days of activity plus the chat list, then check for newer messages: every 3 s while the
-  // Messages tab is on screen, every 15 s otherwise (for notifications). A failed load retries on its
+  // Load 14 days of activity plus the chat list. New messages are pushed as they arrive; the feed is
+  // also checked every 30 s (60 s hidden) in case a push was missed, or every 3 s (15 s hidden) when
+  // the Mac can't push (an older BridgeDeck). A failed load retries on its
   // own with growing pauses (5 s up to 1 min), and the Refresh button retries at once.
   const [reloadTick, setReloadTick] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -353,10 +355,20 @@ export default function Messages({ source, visible, onUnreadChange, onCheckAgain
           if (list && !cancelled) setChats(list)
         }
       } catch { /* the next check retries */ }
-      if (!cancelled) schedule(poll, visibleRef.current ? 3_000 : 15_000)
+      // With new messages pushed from the Mac, this is only a safety net.
+      if (!cancelled) schedule(poll, pushed ? (visibleRef.current ? 30_000 : 60_000) : (visibleRef.current ? 3_000 : 15_000))
     }
+    // New messages pushed as they arrive (src-tauri/src/imessage/watch.rs), from this Mac or the paired one.
+    let pushed = false
+    const ours = (from: string | null) => (from ?? null) === (peer ?? null)
+    const unlisten = [
+      listen<{ peer: string | null; messages: ImMessage[] }>('imessage-new', event => { if (!cancelled && ours(event.payload.peer)) mergeFeed(event.payload.messages) }),
+      listen<{ peer: string | null }>('imessage-push', event => { pushed = !!event.payload.peer && ours(event.payload.peer) }),
+    ]
+    if (peer) void imessagePushStatus().then(from => { pushed = !!from && ours(from) }).catch(() => undefined)
+    else pushed = true
     void initial()
-    return () => { cancelled = true; window.clearTimeout(timer) }
+    return () => { cancelled = true; window.clearTimeout(timer); unlisten.forEach(p => void p.then(stop => stop()).catch(() => undefined)) }
   }, [sourceKey, configured, reloadTick])
 
   // Every chat we know: chat/query results merged with the feed (newest message from either source).

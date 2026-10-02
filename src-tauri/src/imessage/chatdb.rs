@@ -250,14 +250,23 @@ pub fn messages(db: &Connection, chat_guid: &str, limit: u32) -> Result<Vec<Mess
 
 /// Messages in any chat created after `after_ms` (oldest first), each with its chat.
 pub fn recent(db: &Connection, after_ms: i64, limit: u32) -> Result<Vec<Message>, String> {
+    feed(db, "m.date > ?1 ORDER BY m.date DESC", ms_to_apple(after_ms), limit)
+}
+
+/// Messages added after row `rowid` (oldest first), each with its chat: what's new since a check.
+pub fn since_rowid(db: &Connection, rowid: i64, limit: u32) -> Result<Vec<Message>, String> {
+    feed(db, "m.ROWID > ?1 ORDER BY m.ROWID DESC", rowid, limit)
+}
+
+fn feed(db: &Connection, condition: &str, value: i64, limit: u32) -> Result<Vec<Message>, String> {
     let run = || -> rusqlite::Result<Vec<Message>> {
         let sql = format!(
             "SELECT {MESSAGE_COLUMNS}, j.chat_id FROM message m JOIN chat_message_join j ON j.message_id = m.ROWID
-             LEFT JOIN handle h ON h.ROWID = m.handle_id WHERE m.date > ?1 ORDER BY m.date DESC LIMIT ?2"
+             LEFT JOIN handle h ON h.ROWID = m.handle_id WHERE {condition} LIMIT ?2"
         );
         let mut statement = db.prepare(&sql)?;
         let rows: Vec<((i64, Message, bool), i64)> = statement
-            .query_map(params![ms_to_apple(after_ms), limit.min(2000)], |row| Ok((message_from_row(row)?, row.get(15)?)))?
+            .query_map(params![value, limit.min(2000)], |row| Ok((message_from_row(row)?, row.get(15)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let mut chats = std::collections::HashMap::new();
         let mut out = Vec::with_capacity(rows.len());
@@ -382,6 +391,8 @@ pub(crate) mod tests {
         assert_eq!(list[1].chats[0].guid, "iMessage;+;chat123");
         assert_eq!(list[1].attachments[0].transfer_name, "photo.heic");
         assert_eq!(latest_rowid(&db).unwrap(), 4);
+        assert_eq!(since_rowid(&db, 2, 100).unwrap().iter().map(|m| m.guid.as_str()).collect::<Vec<_>>(), vec!["M3", "M4"]);
+        assert!(since_rowid(&db, 4, 100).unwrap().is_empty());
         assert_eq!(attachment_file(&db, "A1").unwrap().0, "~/Library/Messages/Attachments/ab/01/photo.heic");
         assert!(attachment_file(&db, "nope").is_err());
     }

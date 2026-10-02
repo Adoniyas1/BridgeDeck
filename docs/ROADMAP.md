@@ -388,7 +388,7 @@ Everything left, combined into one order. One PR each.
    away"; wake word and hotkey on both computers; self-written skills can use the BridgeDeck tools;
    an activity log, and a confirm for every outward action; looking at or controlling the other
    computer with a banner and a confirm.
-7. **Instant Messages**: the Mac watches `chat.db` and pushes new messages.
+7. **Instant Messages (built)**: the Mac watches `chat.db` and pushes new messages.
 8. **Remote video and audio**: hardware H.264 (VideoToolbox / Media Foundation) decoded with
    WebCodecs, tiles as the fallback; audio via ScreenCaptureKit / WASAPI loopback.
 9. **Extras**: lecture recording to notes (whisper.cpp, on device), OCR for scanned pages

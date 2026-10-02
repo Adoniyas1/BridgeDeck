@@ -141,6 +141,8 @@ export const remoteDisconnect = (session: string) => native<void>('remote_discon
 /** Messages, read by BridgeDeck on the Mac. `peer`: the paired Mac's instance id, or null on the Mac itself. */
 export const imessage = <T>(peer: string | null, op: Record<string, unknown>) => native<T>('imessage', { peer, op })
 /** An attachment as a `data:` URL (HEIC photos arrive as JPEG). */
+/** The paired Mac pushing new messages to this computer, if any (src-tauri/src/imessage/watch.rs). */
+export const imessagePushStatus = () => native<string | null>('imessage_push_status')
 export const imessageAttachment = (peer: string | null, guid: string) => native<string>('imessage_attachment', { peer, guid })
 export const imessageSendFile = (peer: string | null, chat: string, path: string) => native<void>('imessage_send_file', { peer, chat, path })
 
