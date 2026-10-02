@@ -110,7 +110,7 @@ pub fn read_library(root: &Path) -> Result<Library, String> {
                 let kind = book_kind(&f.path())?;
                 let file = f.file_name().to_string_lossy().to_string();
                 let bytes = f.metadata().map(|m| m.len()).unwrap_or(0);
-                Some(Book { indexed: index_dir().is_some_and(|dir| load_text(&dir, &name, &file).is_some_and(|t| t.bytes == bytes)), title: title_of(&file), file, kind, bytes })
+                Some(Book { indexed: index_dir().is_some_and(|dir| load_text(&dir, &name, &file).is_some_and(|t| t.bytes == bytes && t.version >= INDEX_VERSION)), title: title_of(&file), file, kind, bytes })
             })
             .collect();
         books.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
@@ -223,7 +223,13 @@ pub struct BookText {
     pub bytes: u64,
     /// The text of each page; page 1 first.
     pub pages: Vec<String>,
+    /// How the text was read; older indexes are read again (2 added text recognition for scanned pages).
+    #[serde(default)]
+    pub version: u32,
 }
+
+/// The current way of reading books for search.
+pub const INDEX_VERSION: u32 = 2;
 
 #[cfg(test)]
 pub fn set_index_dir(dir: PathBuf) {
@@ -428,7 +434,7 @@ pub fn study_remove_book(course: String, file: String) -> Result<(), String> {
 pub fn study_save_index(course: String, file: String, bytes: u64, pages: Vec<String>) -> Result<(), String> {
     let root = current_root()?;
     resolve(&root, &format!("{}/{}", course, file)).ok_or("No such book")?;
-    save_text(&index_dir().ok_or("The study index isn't ready")?, &course, &file, &BookText { bytes, pages })
+    save_text(&index_dir().ok_or("The study index isn't ready")?, &course, &file, &BookText { bytes, pages, version: INDEX_VERSION })
 }
 
 /// Pages of the library's books that match `query`, best first.
@@ -486,8 +492,8 @@ mod tests {
             format!("Limits. {filler}"),
             format!("{filler} The chain rule: the derivative of f(g(x)) is f'(g(x)) g'(x). Using the chain rule twice…"),
             format!("Integrals and the derivative are inverse. {filler}"),
-        ] }).unwrap();
-        save_text(&dir, "Biology", "bio.pdf", &BookText { bytes: 10, pages: vec![format!("Mitochondria make ATP. {filler}")] }).unwrap();
+        ], version: INDEX_VERSION }).unwrap();
+        save_text(&dir, "Biology", "bio.pdf", &BookText { bytes: 10, pages: vec![format!("Mitochondria make ATP. {filler}")], version: INDEX_VERSION }).unwrap();
 
         let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5);
         assert_eq!((hits[0].book.as_str(), hits[0].page), ("Calculus", 2));
@@ -499,10 +505,16 @@ mod tests {
         // A new edition (different size) shows as not indexed; a reload after a change is seen.
         assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 10);
         std::thread::sleep(std::time::Duration::from_millis(20));
-        save_text(&dir, "Math 221", "calc.pdf", &BookText { bytes: 11, pages: vec!["new".into()] }).unwrap();
+        save_text(&dir, "Math 221", "calc.pdf", &BookText { bytes: 11, pages: vec!["new".into()], version: INDEX_VERSION }).unwrap();
         assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 11);
         let course = find_course(&library, "math").unwrap();
         assert_eq!(find_book(course, "calcul").unwrap().file, "calc.pdf");
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn indexes_from_before_text_recognition_are_read_again() {
+        let old: BookText = serde_json::from_str(r#"{"bytes":10,"pages":[""]}"#).unwrap();
+        assert!(old.version < INDEX_VERSION);
     }
 }

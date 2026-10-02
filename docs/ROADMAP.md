@@ -395,8 +395,9 @@ Everything left, combined into one order. One PR each.
 7. **Instant Messages (built)**: the Mac watches `chat.db` and pushes new messages.
 8. **Remote video and audio**: hardware H.264 (VideoToolbox / Media Foundation) decoded with
    WebCodecs, tiles as the fallback; audio via ScreenCaptureKit / WASAPI loopback.
-9. **Extras**: lecture recording to notes (whisper.cpp, on device), OCR for scanned pages
-   (Tesseract.js), drawings in notes (Excalidraw).
+9. **Extras (OCR built)**: lecture recording to notes (whisper.cpp, on device), OCR for scanned pages
+   (Tesseract.js, bundled; pages pdf.js finds no text on are read by recognition while indexing),
+   drawings in notes (Excalidraw).
 
 Open-source parts (all permissive licences, so they can be built in): pdf.js, epub.js, KaTeX,
 ts-fsrs, Excalidraw, Mermaid, Tesseract.js, whisper.cpp, SQLite FTS. Obsidian itself is not open

@@ -27,5 +27,8 @@ Mimir's optional skill packs come from alirezarezvani/claude-skills, MIT, © 202
 ## ts-fsrs
 Study flashcards are scheduled with ts-fsrs (`ts-fsrs` on npm), an implementation of the FSRS algorithm, MIT, © open-spaced-repetition and contributors. It is a package dependency; its licence ships inside `node_modules/ts-fsrs`.
 
+## Tesseract.js
+Text recognition for scanned book pages uses Tesseract.js (`tesseract.js` on npm, Apache-2.0, © Jerome Wu and contributors), its WebAssembly build of Tesseract OCR (`tesseract.js-core`, Apache-2.0, © Google and contributors) and the English model (`@tesseract.js-data/eng`, from tesseract-ocr/tessdata, Apache-2.0). The worker, engine and model are bundled into the app at `/ocr/` and run on the computer; nothing is downloaded. Their licences ship inside `node_modules/tesseract.js` and `node_modules/tesseract.js-core`.
+
 ## PDF.js
 The Study tab reads textbooks with PDF.js (`pdfjs-dist` on npm), Apache-2.0, © Mozilla and contributors. It is a package dependency; its licence ships inside `node_modules/pdfjs-dist`.

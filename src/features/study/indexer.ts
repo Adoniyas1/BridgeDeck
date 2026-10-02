@@ -1,11 +1,12 @@
 import { studySaveIndex, type StudyLibrary } from '../../lib/bridge'
 import { createStore } from '../../core/store'
 import { loadBook } from './pdf'
+import { looksScanned, recognisePage, stopRecognition } from './ocr'
 
 /** The most text kept from one page (a dense page is ~5,000 characters). */
 const PAGE_LIMIT = 20_000
 
-export const indexStore = createStore<{ book: string; done: number; total: number; failed: string[] }>({ book: '', done: 0, total: 0, failed: [] })
+export const indexStore = createStore<{ book: string; done: number; total: number; scanned: number; failed: string[] }>({ book: '', done: 0, total: 0, scanned: 0, failed: [] })
 let running = false
 
 /** Page text from pdf.js text items: spaces between items, a newline where a line ends. */
@@ -19,7 +20,8 @@ export function pageText(items: Array<{ str?: string; hasEOL?: boolean }>) {
   return out.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim().slice(0, PAGE_LIMIT)
 }
 
-/** Reads the text of every PDF not yet in the search index, one book at a time. */
+/** Reads the text of every PDF not yet in the search index, one book at a time. Pages that are scans
+ *  (images of text, with almost no text pdf.js can take out) are read by text recognition instead. */
 export async function indexLibrary(library: StudyLibrary, onBookDone?: () => void) {
   if (running) return
   const todo = library.courses.flatMap(c => c.books.filter(b => b.kind === 'pdf' && !b.indexed).map(b => ({ course: c.name, book: b })))
@@ -28,14 +30,20 @@ export async function indexLibrary(library: StudyLibrary, onBookDone?: () => voi
   running = true
   try {
     for (const { course, book } of todo) {
-      indexStore.set(s => ({ ...s, book: book.title, done: 0, total: 0 }))
+      indexStore.set(s => ({ ...s, book: book.title, done: 0, total: 0, scanned: 0 }))
       try {
         const doc = await loadBook(course, book.file)
         const pages: string[] = []
         indexStore.set(s => ({ ...s, total: doc.numPages }))
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n)
-          pages.push(pageText((await page.getTextContent()).items as Array<{ str?: string; hasEOL?: boolean }>))
+          let text = pageText((await page.getTextContent()).items as Array<{ str?: string; hasEOL?: boolean }>)
+          if (looksScanned(text)) {
+            const recognised = (await recognisePage(page)).slice(0, PAGE_LIMIT)
+            if (recognised.length > text.length) text = recognised
+            indexStore.set(s => ({ ...s, done: n, scanned: s.scanned + 1 }))
+          }
+          pages.push(text)
           page.cleanup()
           if (n % 10 === 0) indexStore.set(s => ({ ...s, done: n }))
         }
@@ -48,6 +56,7 @@ export async function indexLibrary(library: StudyLibrary, onBookDone?: () => voi
     }
   } finally {
     running = false
-    indexStore.set(s => ({ ...s, book: '', done: 0, total: 0 }))
+    await stopRecognition()
+    indexStore.set(s => ({ ...s, book: '', done: 0, total: 0, scanned: 0 }))
   }
 }
