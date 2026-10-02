@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { AppWindow, RefreshCw, Settings, X } from 'lucide-react'
+import { AppWindow, MessageCircleQuestion, RefreshCw, Settings, X } from 'lucide-react'
+import { askChatGPT } from '../core/chatgpt'
 import { hydratedStore } from '../core/config'
 import { refreshAll } from '../core/refresh'
 import { useStore, type Store } from '../core/store'
@@ -53,6 +54,7 @@ export default function TabBar() {
       </nav>
       <div className="tab-actions">
         {!hydrated && <span className="save-state">Loading…</span>}
+        <button className="icon-button" onClick={() => void askChatGPT().catch(() => undefined)} title="ChatGPT (opens in its own window)" aria-label="ChatGPT"><MessageCircleQuestion size={15} /></button>
         <button className="icon-button" onClick={() => void refreshAll()} title="Refresh"><RefreshCw size={15} /></button>
         <button className={active === 'settings' ? 'icon-button active' : 'icon-button'} onClick={() => activateTab('settings')} title="Settings" aria-label="Settings"><Settings size={15} /></button>
       </div>

@@ -666,3 +666,13 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .activity-row small{color:var(--muted);flex:none;width:110px}.activity-row strong{font-weight:600}.activity-row em{display:block;font-style:normal;color:var(--muted);margin-top:2px;word-break:break-word}
 .activity-row.failed strong{color:#f07178}
 .update-log{margin-top:8px}.update-log summary{cursor:pointer;font-size:12px;color:var(--muted)}.update-log pre{max-height:240px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;font-size:11px;white-space:pre-wrap;word-break:break-word}
+.browser{display:flex;flex-direction:column;height:calc(100vh - 110px);min-height:420px;gap:8px}
+.browser-bar{display:flex;gap:6px;align-items:center}
+.browser-bar input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-strong);border-radius:999px;color:var(--text);padding:8px 14px;outline:0;font:inherit;font-size:13px}
+.browser-bar input:focus{border-color:var(--accent)}
+.browser-area{flex:1;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);overflow:hidden;position:relative}
+.browser-start{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;height:100%;color:var(--muted);padding:24px}
+.browser-start h3{color:var(--text);margin:6px 0 0}
+.browser-links{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0}
+.browser-links button{border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text);border-radius:999px;padding:8px 14px;font-size:13px}
+.browser-links button:hover{border-color:var(--accent)}

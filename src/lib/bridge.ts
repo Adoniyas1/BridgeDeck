@@ -451,4 +451,8 @@ export const chatgptOpen = (text?: string, folder?: string) => native<void>('cha
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
+/** The Browser tab's page (src-tauri/src/browser.rs): placed over the tab's area in logical pixels. */
+export const browserShow = (tab: string, url: string | null, x: number, y: number, w: number, h: number) => native<void>('browser_show', { tab, url, x, y, w, h })
+export const browserHide = (tab: string) => native<void>('browser_hide', { tab })
+export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })
