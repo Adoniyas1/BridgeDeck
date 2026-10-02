@@ -3,10 +3,11 @@ import { chatgptOpen } from '../lib/bridge'
 /**
  * Starting points for ChatGPT, which the person uses in its own window as a study and
  * project helper (src-tauri/src/chatgpt.rs). The text lands in ChatGPT's message box for
- * them to edit and send; nothing is sent for them.
+ * them to edit and send; nothing is sent for them. Chats they save with the window's
+ * "Save to BridgeDeck" button become notes in `folder` (the course or project), else "ChatGPT".
  */
-export function askChatGPT(text?: string) {
-  return chatgptOpen(text)
+export function askChatGPT(text?: string, folder?: string) {
+  return chatgptOpen(text, folder)
 }
 
 export function passagePrompt(book: string, page: number, passage: string) {

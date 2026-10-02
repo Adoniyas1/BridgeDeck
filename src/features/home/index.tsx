@@ -19,6 +19,7 @@ import DiagnosticsButton from '../../shell/DiagnosticsButton'
 import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 import TodayAgenda from '../calendar/Agenda'
+import { AwayCard, BriefBackground, BriefCard, BriefSettings } from './Brief'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
 
@@ -149,7 +150,9 @@ function HomePage() {
     {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
     {config.setup.dismissed ? <NeedsAttention /> : <SetupChecklist />}
     <Leftovers />
+    <AwayCard />
     <TodayAgenda />
+    <BriefCard />
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>
       <Card><div className="metric-icon"><FolderSync /></div><div className="metric"><span>Built-in features ready</span><strong>{builtIn.filter(f => f.on).length}<small>/ {builtIn.length}</small></strong></div></Card>
@@ -169,4 +172,8 @@ function HomePage() {
   </>
 }
 
-export const home: FeatureManifest = { id: 'home', title: 'Home', icon: Home, Page: HomePage, Background: LeftoverBackground }
+function HomeBackground() {
+  return <><LeftoverBackground /><BriefBackground /></>
+}
+
+export const home: FeatureManifest = { id: 'home', title: 'Home', icon: Home, Page: HomePage, Background: HomeBackground, Settings: BriefSettings, settingsOrder: 36 }

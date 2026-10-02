@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { Brain, Download, Play, Square } from 'lucide-react'
-import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksInstall, skillPacksStatus, type MimirStatus, type SkillPacksStatus } from '../../lib/bridge'
+import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksInstall, skillPacksStatus, mimirActivity, type MimirActivity, type MimirStatus, type SkillPacksStatus } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
@@ -83,7 +83,30 @@ function MimirSettings() {
     {status.phase === 'running' && <div className="actions"><button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button></div>}
     <p className="hint">Mimir’s brain, voice and persona settings are in the Mimir tab (⚙). Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs.</p>
     <SkillPacks />
+    <ActivityLog />
   </Card>
+}
+
+/** Everything Mimir changed in BridgeDeck or sent, newest first. */
+function ActivityLog() {
+  const [items, setItems] = useState<MimirActivity[]>([])
+  const [all, setAll] = useState(false)
+  useEffect(() => {
+    if (!isTauri()) return
+    const load = () => void mimirActivity().then(setItems).catch(() => undefined)
+    load()
+    const timer = window.setInterval(load, 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const shown = all ? items : items.slice(0, 12)
+  return <div className="settings-block">
+    <h3>What Mimir did</h3>
+    {items.length ? <div className="activity-list">{shown.map((a, i) => <div key={`${a.at}-${i}`} className={`activity-row${a.ok ? '' : ' failed'}`}>
+      <small>{new Date(a.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small>
+      <span className="grow"><strong>{a.action}{a.outward ? ' (you were asked)' : ''}</strong>{a.detail && <em>{a.detail}</em>}</span>
+    </div>)}</div> : <p className="hint">Nothing yet. Notes, events, tasks and flashcards Mimir makes, and anything it sends, appear here.</p>}
+    {items.length > 12 && <div className="actions"><button className="secondary" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${items.length}`}</button></div>}
+  </div>
 }
 
 /** Expert skill packs (SKILL.md format) Mimir can follow; downloaded at a pinned version. */

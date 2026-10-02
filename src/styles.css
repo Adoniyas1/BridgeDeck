@@ -660,3 +660,8 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .skill-pack strong{display:block;font-size:12px;color:var(--text)}.skill-pack small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
 .skill-pack>small{flex:none;white-space:nowrap}
 .skill-packs a{color:var(--accent)}
+.brief-row{display:flex;align-items:center;gap:12px}.brief-row>:first-child{flex:1}.brief-row input[type=time]{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:5px 8px;font:inherit;font-size:12px;color-scheme:dark}
+.activity-list{display:flex;flex-direction:column;gap:2px;max-height:360px;overflow:auto}
+.activity-row{display:flex;gap:10px;align-items:baseline;padding:5px 2px;border-bottom:1px solid var(--line);font-size:12px}
+.activity-row small{color:var(--muted);flex:none;width:110px}.activity-row strong{font-weight:600}.activity-row em{display:block;font-style:normal;color:var(--muted);margin-top:2px;word-break:break-word}
+.activity-row.failed strong{color:#f07178}

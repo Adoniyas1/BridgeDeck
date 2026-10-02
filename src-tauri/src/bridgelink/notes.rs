@@ -441,6 +441,24 @@ fn changed(manager: &BridgeLinkManager) {
     });
 }
 
+/// Saves a conversation from the ChatGPT window as a note: the same chat (its address on the first
+/// line) is updated where it is; a new one goes in `folder`.
+pub fn save_chat(manager: &BridgeLinkManager, source: &str, title: &str, folder: &str, markdown: &str) -> Result<Note, String> {
+    let first_line = format!("Saved from ChatGPT: {source}");
+    let markdown = format!("{first_line}\n\n{markdown}");
+    let (title, folder) = (title.to_string(), folder.to_string());
+    local(manager, move |store, device, now| {
+        let existing = store.list().into_iter().find(|n| !n.deleted && shown(n).first().is_some_and(|b| b.text == first_line));
+        match existing {
+            Some(note) => {
+                let saved = store.replace_markdown(&note.id, &markdown, device, now)?;
+                store.apply(NotePatch { id: saved.id.clone(), title: Some(title), ..Default::default() }, device, now)
+            }
+            None => store.create_from_markdown(None, "note", &title, &folder, &markdown, device, now),
+        }
+    })
+}
+
 pub(super) fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut NoteStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
     let value = {
         let mut runtime = manager.lock()?;
@@ -823,6 +841,20 @@ impl NoteStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_chat_is_updated_in_place_when_saved_again() {
+        let manager = BridgeLinkManager::default();
+        manager.lock().unwrap().instance_id = "mac".into();
+        let first = save_chat(&manager, "https://chatgpt.com/c/abc", "Chain rule (ChatGPT)", "Study/Math 221", "## You\n\nWhat is it?").unwrap();
+        local(&manager, |store, device, now| store.apply(NotePatch { id: first.id.clone(), folder: Some("Study/Calc".into()), ..Default::default() }, device, now)).unwrap();
+        let again = save_chat(&manager, "https://chatgpt.com/c/abc", "Chain rule, longer (ChatGPT)", "ChatGPT", "## You\n\nWhat is it?\n\n## ChatGPT\n\nf'(g(x))g'(x)").unwrap();
+        assert_eq!(again.id, first.id);
+        assert_eq!((again.title.as_str(), again.folder.as_str()), ("Chain rule, longer (ChatGPT)", "Study/Calc"), "kept where the user moved it");
+        assert_eq!(to_markdown(&again), "Saved from ChatGPT: https://chatgpt.com/c/abc\n\n## You\n\nWhat is it?\n\n## ChatGPT\n\nf'(g(x))g'(x)");
+        let other = save_chat(&manager, "https://chatgpt.com/c/xyz", "Other", "ChatGPT", "hi").unwrap();
+        assert_ne!(other.id, first.id);
+    }
 
     #[test]
     fn a_board_note_keeps_cards_in_columns_and_moves_them_with_their_sub_tasks() {
