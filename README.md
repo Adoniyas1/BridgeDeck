@@ -104,7 +104,7 @@ On macOS, the app is produced under src-tauri/target/release/bundle/macos/Bridge
 On Windows, the installer is produced under src-tauri/target/release/bundle/nsis/ or msi/. If rustc crashes while optimizing LocalSend code, retry with:
 
 ~~~
-$env:CARGO_BUILD_JOBS=\"1\"; $env:CARGO_PROFILE_RELEASE_OPT_LEVEL=\"2\"; $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS=\"16\"; npm run tauri build
+$env:CARGO_BUILD_JOBS="1"; $env:CARGO_PROFILE_RELEASE_OPT_LEVEL="2"; $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS="16"; npm run tauri build
 ~~~
 
 Prebuilt macOS DMG and Windows installer artifacts are available from the repository's GitHub Actions **Release build** workflow.
