@@ -90,6 +90,13 @@ pub(crate) fn bundled_runtime_path(app: &AppHandle, service_id: &str) -> Option<
         }
     }
 
+    // During `tauri dev`, Cargo runs from `src-tauri/`, while built helper
+    // binaries live at the repository root under `runtime/`.
+    let source_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(&rel);
+    if source_runtime.exists() {
+        return Some(source_runtime);
+    }
+
     if let Ok(cwd) = std::env::current_dir() {
         let candidate = cwd.join(&rel);
         if candidate.exists() {
