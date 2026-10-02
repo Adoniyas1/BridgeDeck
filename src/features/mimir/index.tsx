@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { Brain, Play, Square } from 'lucide-react'
-import { isTauri, mimirStart, mimirStatus, mimirStop, type MimirStatus } from '../../lib/bridge'
+import { Brain, Download, Play, Square } from 'lucide-react'
+import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksInstall, skillPacksStatus, type MimirStatus, type SkillPacksStatus } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
@@ -81,8 +81,46 @@ function MimirSettings() {
   return <Card><SectionTitle title="Mimir" subtitle={status.phase === 'running' ? 'Running inside BridgeDeck' : phaseText(status, config.mimir.enabled)} />
     <Toggle checked={config.mimir.enabled} onChange={enabled => { setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled } })); if (!enabled) void mimirStop().then(mimirStore.set).catch(() => undefined) }} label="Run Mimir with BridgeDeck" />
     {status.phase === 'running' && <div className="actions"><button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button></div>}
-    <p className="vendor-note">Mimir’s brain, voice and persona settings are in the Mimir tab (⚙). Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs.</p>
+    <p className="hint">Mimir’s brain, voice and persona settings are in the Mimir tab (⚙). Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs.</p>
+    <SkillPacks />
   </Card>
+}
+
+/** Expert skill packs (SKILL.md format) Mimir can follow; downloaded at a pinned version. */
+function SkillPacks() {
+  const [status, setStatus] = useState<SkillPacksStatus | null>(null)
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!isTauri()) return
+    void skillPacksStatus().then(s => { setStatus(s); setChosen(new Set(s.packs.filter(p => p.installed).map(p => p.id))) }).catch(e => setError(String(e)))
+  }, [])
+  if (!status) return error ? <p className="notes-error">{error}</p> : null
+  const installed = new Set(status.packs.filter(p => p.installed).map(p => p.id))
+  const changed = status.outdated || chosen.size !== installed.size || [...chosen].some(id => !installed.has(id))
+  async function apply() {
+    setBusy(true); setError('')
+    try {
+      const next = await skillPacksInstall([...chosen])
+      setStatus(next)
+      setChosen(new Set(next.packs.filter(p => p.installed).map(p => p.id)))
+    } catch (e) { setError(String(e)) } finally { setBusy(false) }
+  }
+  const skills = status.packs.filter(p => chosen.has(p.id)).reduce((n, p) => n + p.skills, 0)
+  return <div className="settings-block skill-packs">
+    <h3>Skill packs</h3>
+    <p className="hint">Step-by-step methods Mimir follows when a task matches one, from <a href={`https://github.com/${status.source}`} onClick={e => { e.preventDefault(); void openExternal(`https://github.com/${status.source}`) }}>{status.source}</a> (MIT), version {status.commit.slice(0, 7)}. Their scripts run in Mimir’s sandbox, with no access to your files.</p>
+    <div className="skill-pack-list">{status.packs.map(p => <label key={p.id} className="skill-pack">
+      <input type="checkbox" checked={chosen.has(p.id)} onChange={e => setChosen(s => { const n = new Set(s); if (e.target.checked) n.add(p.id); else n.delete(p.id); return n })} />
+      <span className="grow"><strong>{p.title}</strong><small>{p.description}</small></span><small>{p.skills} skills{p.installed ? ' · installed' : ''}</small>
+    </label>)}</div>
+    <div className="actions">
+      <button disabled={busy || !changed} onClick={() => void apply()}><Download size={15} />{busy ? 'Downloading…' : chosen.size ? `Install ${chosen.size} pack${chosen.size === 1 ? '' : 's'} (${skills} skills)` : 'Remove all packs'}</button>
+    </div>
+    {status.outdated && <p className="hint">These packs are from an older version; installing again updates them.</p>}
+    {error && <p className="notes-error">{error}</p>}
+  </div>
 }
 
 export const mimir: FeatureManifest = { id: 'mimir', title: 'Mimir', icon: Brain, Page: MimirPage, keepAlive: true, Background: MimirBackground, Settings: MimirSettings, settingsOrder: 45 }

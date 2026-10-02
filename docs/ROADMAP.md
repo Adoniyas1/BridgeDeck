@@ -374,10 +374,15 @@ Everything left, combined into one order. One PR each.
    the calendar, a focus timer, progress per course and chapter.
 4. **Projects tab (built)**: a synced folder, notes, a task board and milestones per project; Mimir works
    with the project's files and notes; merges with Mimir Projects.
-5. **Skill library**: Mimir loads skills in the SKILL.md format (instructions, references,
+5. **Skill library (built)**: Mimir loads skills in the SKILL.md format (instructions, references,
    stdlib-only scripts run in its sandbox), with skill packs chosen in Settings, starting with
    alirezarezvani/claude-skills (MIT; research, productivity, engineering, project management),
    downloaded at a pinned version.
+5b. **ChatGPT tab and a web browser for Mimir (asked for 2026-10-02)**: chatgpt.com in its own BridgeDeck
+   window that the user uses themselves (signed in once), with "Send to ChatGPT" from Study and Projects
+   (a passage, a note, a task) that fills the message box for the user to send; ChatGPT is a study and
+   project helper, never the engine running the app. Mimir gets a browser for ordinary websites
+   (search, read pages) for research.
 6. **Mimir proactive + voice + safety**: morning brief, deadline and exam nudges, "while you were
    away"; wake word and hotkey on both computers; self-written skills can use the BridgeDeck tools;
    an activity log, and a confirm for every outward action; looking at or controlling the other

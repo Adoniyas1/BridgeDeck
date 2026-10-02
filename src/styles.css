@@ -653,3 +653,10 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .board-meta small{font-size:11px;color:var(--muted)}.board-meta small.overdue{color:#f07178}
 .board-add input{width:100%;background:transparent;border:1px dashed var(--line-strong);border-radius:8px;color:var(--text);padding:7px 9px;outline:0;font:inherit;font-size:12px}
 .board-add input:focus{border-style:solid;border-color:var(--accent)}
+
+.skill-pack-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px;margin:10px 0}
+.skill-pack{display:flex!important;align-items:flex-start;gap:9px;padding:8px 10px;margin:0!important;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer}
+.skill-pack input{width:auto!important;margin:3px 0 0!important}
+.skill-pack strong{display:block;font-size:12px;color:var(--text)}.skill-pack small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.skill-pack>small{flex:none;white-space:nowrap}
+.skill-packs a{color:var(--accent)}

@@ -52,6 +52,8 @@ arboard = "3"
 png = "0.17"
 # Wake-on-LAN: paired computers report their hardware addresses.
 mac_address = "1"
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
 
 # Settings secrets (API keys, passwords, tokens) live in the OS credential store, not the settings file.
 # Remote control host: screen capture and input (macOS and Windows only).
