@@ -28,6 +28,11 @@ export interface ToolResult {
    * the model's own text entirely, see the "image" ChatStreamEvent. Only
    * run_python sets this today (matplotlib figures). */
   images?: string[];
+  /** Images for the model itself to look at (e.g. a screenshot of the other
+   * computer). The agent loop hands them to the model as an image attachment
+   * right after the tool results; only the latest set is kept in the
+   * conversation, so screenshots don't pile up. */
+  modelImages?: Array<{ mimeType: string; data: string }>;
 }
 
 /** The one shape every build*Toolset() function returns. Was declared

@@ -56,6 +56,7 @@ fn describe(path: &str) -> Option<(&'static str, bool)> {
         "/mimir/messages/send" => ("Sent a message", true),
         "/mimir/computers/wake" => ("Woke a computer", false),
         "/mimir/files/send" => ("Sent files", true),
+        "/mimir/computers/look" => ("Looked at a computer's screen", false),
         "/mimir/clipboard/set" => ("Set the clipboard", false),
         "/mimir/ai/post" => ("Posted in an AI room", false),
         "/mimir/study/flashcards/add" => ("Added flashcards", false),
@@ -242,6 +243,14 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             };
             crate::wake::send(&macs, &addresses)?;
             Ok(json!(format!("Wake-up sent to {name}; it can take half a minute.")))
+        }
+
+        "/mimir/computers/look" => {
+            let id = peer_by_name(manager, need(body, "computer")?)?;
+            let name = peer::paired_peers(manager).into_iter().find(|(pid, _)| pid == &id).map(|(_, n)| n).unwrap_or_default();
+            let monitor = body.get("monitor").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let app = manager.lock()?.app.clone();
+            crate::remote::mimir::look(manager, app.as_ref(), &id, &name, monitor)
         }
 
         // ---- Files ----

@@ -149,7 +149,7 @@ pub async fn remote_connect(
     manager: tauri::State<'_, BridgeLinkManager>,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
-    connect(&manager, &peer, ViewerMsg::Hello { monitor, max_width, quality }, move |body| {
+    connect(&manager, &peer, ViewerMsg::Hello { monitor, max_width, quality, by: None }, move |body| {
         let _ = on_event.send(body);
     })
     .await
@@ -184,7 +184,7 @@ pub fn remote_disconnect(session: String) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::remote::{codec::TileHeader, platform::tests::{FakeScreen, FAKE}};
 
@@ -201,7 +201,7 @@ mod tests {
 
     /// Two paired BridgeLink nodes over loopback QUIC; the host shares a fake screen.
     /// Host settings and the fake screen are process-wide.
-    static SERIAL: Mutex<()> = Mutex::new(());
+    pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
     #[test]
     fn a_paired_device_views_and_controls_the_screen() {
@@ -211,7 +211,7 @@ mod tests {
         let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
 
         let (events_tx, events_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        let session = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70 }, move |body| {
+        let session = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None }, move |body| {
             if let InvokeResponseBody::Raw(bytes) = body {
                 let _ = events_tx.send(bytes);
             }
@@ -276,7 +276,7 @@ mod tests {
         let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
         // Settings are process-wide; this test only reads the refusal, then restores them.
         crate::remote::host::remote_host_settings(false, false, None);
-        let error = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70 }, |_| {})).unwrap_err();
+        let error = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None }, |_| {})).unwrap_err();
         crate::remote::host::remote_host_settings(true, false, None);
         assert!(error.contains("turned off") || error.contains("can't be controlled"), "{error}");
     }

@@ -23,6 +23,9 @@ export type AgentStreamEvent =
   | { type: "turn-done" }
   | { type: "error"; message: string };
 
+/** The note sent with images a tool returned for the model to see (ToolResult.modelImages). */
+export const TOOL_IMAGES_NOTE = "[Image from the tool call above]";
+
 /**
  * Drives one user turn to completion: sends the conversation to the active
  * BrainProvider, executes any tool calls it requests via the provided
@@ -75,6 +78,7 @@ export async function* runAgentTurn(
       return messages;
     }
 
+    const seen: Array<{ mimeType: string; data: string }> = [];
     for (const call of toolCalls) {
       yield { type: "tool-start", name: call.name };
       const handler = opts.handlers[call.name];
@@ -97,6 +101,21 @@ export async function* runAgentTurn(
         content: result.content,
         toolCallId: call.id,
         isError: result.isError
+      });
+      seen.push(...(result.modelImages ?? []));
+    }
+    if (seen.length) {
+      // Only the newest screenshots stay in the conversation.
+      for (const m of messages) {
+        if (m.role === "user" && m.content.startsWith(TOOL_IMAGES_NOTE) && m.attachments?.length) {
+          m.attachments = undefined;
+          m.content = `${TOOL_IMAGES_NOTE} (an older image, no longer attached)`;
+        }
+      }
+      messages.push({
+        role: "user",
+        content: TOOL_IMAGES_NOTE,
+        attachments: seen.slice(0, 4).map((img, i) => ({ kind: "image" as const, mimeType: img.mimeType, data: img.data, name: `tool-image-${i + 1}` }))
       });
     }
   }

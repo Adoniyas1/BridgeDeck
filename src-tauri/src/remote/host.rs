@@ -220,7 +220,7 @@ pub async fn serve(app: Option<AppHandle>, peer_id: String, peer_name: String, h
         }
     }
     let hello = tokio::time::timeout(Duration::from_secs(10), read_frame::<ViewerMsg>(&mut recv)).await;
-    let Ok(Ok(ViewerMsg::Hello { monitor, max_width, quality })) = hello else {
+    let Ok(Ok(ViewerMsg::Hello { monitor, max_width, quality, by })) = hello else {
         return end(&mut send, "Expected a hello").await;
     };
 
@@ -238,6 +238,11 @@ pub async fn serve(app: Option<AppHandle>, peer_id: String, peer_name: String, h
         _ => return end(&mut send, "No display to share").await,
     };
 
+    // Mimir viewing from the other computer says so in the banner and notification.
+    let peer_name = match by.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        Some(by) => format!("{} on {peer_name}", by.chars().take(24).collect::<String>()),
+        None => peer_name,
+    };
     let stop = Arc::new(AtomicBool::new(false));
     let id = uuid::Uuid::new_v4().to_string();
     if let Ok(mut sessions) = SESSIONS.lock() {

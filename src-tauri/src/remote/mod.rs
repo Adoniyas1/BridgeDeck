@@ -12,6 +12,7 @@
 pub mod codec;
 pub mod host;
 pub mod input;
+pub mod mimir;
 pub mod platform;
 pub mod viewer;
 
@@ -21,7 +22,14 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ViewerMsg {
     #[serde(rename_all = "camelCase")]
-    Hello { monitor: usize, max_width: u32, quality: u8 },
+    Hello {
+        monitor: usize,
+        max_width: u32,
+        quality: u8,
+        /// Who is viewing, when it isn't a person ("Mimir"); shown in the host's banner.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
+    },
     /// The last frame is drawn; send the next one when something changes.
     Next,
     #[serde(rename_all = "camelCase")]
