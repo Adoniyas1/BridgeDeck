@@ -36,7 +36,9 @@ set_status running deps "Installing dependencies"
 npm ci >> "$LOG" 2>&1 || run deps "Installing dependencies" npm install
 [ -d vendor/localsend/packages/core ] || run vendor "Fetching LocalSend source" node scripts/vendor.mjs fetch --only localsend
 run verify "Checking the project" npm run verify:project
-run build "Building BridgeDeck (several minutes)" npm run tauri build
+# Only the .app: a disk image isn't needed here, and making one drives Finder, which can hang
+# when no one is there to allow it.
+run build "Building BridgeDeck (several minutes)" npm run tauri build -- --bundles app
 
 NEW_APP="$SRC/src-tauri/target/release/bundle/macos/BridgeDeck.app"
 [ -d "$NEW_APP" ] || fail install "The build produced no app bundle"

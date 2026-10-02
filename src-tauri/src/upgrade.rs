@@ -47,6 +47,8 @@ pub struct UpgradeInfo {
     /// That folder is a git clone and `git` runs (needed for GitHub mode).
     pub git_ready: bool,
     pub status: UpgradeStatus,
+    /// The end of the update's log, while it runs or after it failed.
+    pub log_tail: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -78,12 +80,81 @@ fn status_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(upgrade_dir(app)?.join("status.json"))
 }
 
-pub fn read_status(app: &AppHandle) -> UpgradeStatus {
+fn read_status_file(app: &AppHandle) -> UpgradeStatus {
     status_path(app)
         .ok()
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|raw| serde_json::from_str::<UpgradeStatus>(raw.trim_start_matches('\u{feff}')).ok())
         .unwrap_or_else(|| UpgradeStatus { state: "idle".into(), ..Default::default() })
+}
+
+/// The update's status. A run whose script is no longer alive, or that stopped reporting for 45
+/// minutes, is reported (and recorded) as failed, so the UI never waits on a dead update.
+pub fn read_status(app: &AppHandle) -> UpgradeStatus {
+    let mut status = read_status_file(app);
+    if status.state != "running" {
+        return status;
+    }
+    let pid = upgrade_dir(app).ok().and_then(|d| fs::read_to_string(d.join(PID_FILE)).ok()).and_then(|p| p.trim().parse::<u32>().ok());
+    if let Some(reason) = stopped_reason(&status, pid, now_ms(), process_alive) {
+        status.state = "failed".into();
+        status.message = reason;
+        status.updated_at = now_ms();
+        let _ = write_status(app, &status);
+    }
+    status
+}
+
+const PID_FILE: &str = "script.pid";
+const STALL_MS: u64 = 45 * 60_000;
+
+/// Why a "running" update is really over, if it is: its script exited without saying how it went,
+/// or nothing was reported for 45 minutes.
+pub fn stopped_reason(status: &UpgradeStatus, pid: Option<u32>, now: u64, alive: impl Fn(u32) -> bool) -> Option<String> {
+    if let Some(pid) = pid {
+        // Give a just-started script a moment to write its first status.
+        if now.saturating_sub(status.updated_at) > 10_000 && !alive(pid) {
+            return Some(format!("The update stopped unexpectedly while {} (see the log below)", stage_words(&status.stage)));
+        }
+    }
+    (now.saturating_sub(status.updated_at) > STALL_MS).then(|| format!("The update made no progress for 45 minutes while {}; it was given up", stage_words(&status.stage)))
+}
+
+fn stage_words(stage: &str) -> &'static str {
+    match stage {
+        "pull" => "getting the latest version",
+        "unpack" => "unpacking the source",
+        "deps" => "installing dependencies",
+        "vendor" => "fetching LocalSend",
+        "verify" => "checking the project",
+        "build" => "building",
+        "install" => "installing",
+        _ => "starting",
+    }
+}
+
+/// Whether a process is still running.
+fn process_alive(pid: u32) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("tasklist");
+        cmd.args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]);
+        hide_console(&mut cmd);
+        cmd.output().map(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\""))).unwrap_or(true)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(true)
+    }
+}
+
+/// The last lines of the update's log.
+fn log_tail(app: &AppHandle, lines: usize) -> Vec<String> {
+    let Ok(path) = status_path(app) else { return Vec::new() };
+    let raw = fs::read(PathBuf::from(format!("{}.log", path.display()))).unwrap_or_default();
+    let text = String::from_utf8_lossy(&raw).replace('\u{feff}', "").replace('\0', "");
+    let all: Vec<&str> = text.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect();
+    all[all.len().saturating_sub(lines)..].iter().map(|l| l.chars().take(400).collect()).collect()
 }
 
 fn write_status(app: &AppHandle, status: &UpgradeStatus) -> Result<(), String> {
@@ -127,14 +198,24 @@ pub fn info(app: &AppHandle) -> UpgradeInfo {
         source_available: dir.join("package.json").exists() && dir.join("src-tauri").exists(),
         git_ready: git_ready(&dir),
         source_dir: dir.to_string_lossy().to_string(),
+        log_tail: Vec::new(),
         status: read_status(app),
+    }
+    .with_log(app)
+}
+
+impl UpgradeInfo {
+    fn with_log(mut self, app: &AppHandle) -> Self {
+        if matches!(self.status.state.as_str(), "running" | "failed") {
+            self.log_tail = log_tail(app, 25);
+        }
+        self
     }
 }
 
 pub fn is_running(app: &AppHandle) -> bool {
-    let status = read_status(app);
-    // A run that stopped reporting for 45 minutes is treated as dead, so one crash can't block upgrades forever.
-    status.state == "running" && now_ms().saturating_sub(status.updated_at) < 45 * 60_000
+    // read_status turns a dead or stalled run into "failed", so one crash can't block updates forever.
+    read_status(app).state == "running"
 }
 
 /// Checks a request can run here before asking the user to approve it.
@@ -156,6 +237,9 @@ pub fn start(app: &AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, reques
         return Err("An upgrade is already running on this computer".into());
     }
     let dir = source_dir();
+    if let Ok(work) = upgrade_dir(app) {
+        let _ = fs::remove_file(work.join(PID_FILE));
+    }
     write_status(app, &UpgradeStatus {
         state: "running".into(),
         stage: "starting".into(),
@@ -210,6 +294,9 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
         let script = work.join("self-update.ps1");
         fs::copy(dir.join("scripts").join("self-update.ps1"), &script).map_err(|e| format!("self-update script missing: {e}"))?;
         Command::new("powershell.exe")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
             .args(["-Mode", mode_arg, "-Bundle", &bundle_arg, "-Status"]).arg(&status_file)
@@ -223,14 +310,24 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
     let child = {
         let script = work.join("self-update.sh");
         fs::copy(dir.join("scripts").join("self-update.sh"), &script).map_err(|e| format!("self-update script missing: {e}"))?;
+        use std::os::unix::process::CommandExt;
         Command::new("/bin/bash")
             .arg(&script)
             .args([mode_arg, &bundle_arg])
             .arg(&status_file)
             .arg(&dir)
             .arg(&app_path)
+            // Its own process group, with nothing tied to this app: macOS ends a quitting app's
+            // process group, which would stop the update just as it installs the new version.
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
     };
+    if let Ok(child) = &child {
+        let _ = fs::write(work.join(PID_FILE), child.id().to_string());
+    }
     child.map(|_| ()).map_err(|e| {
         let _ = write_status(app, &UpgradeStatus { state: "failed".into(), stage: "starting".into(), message: e.to_string(), updated_at: now_ms(), ..Default::default() });
         format!("Could not start the upgrade: {e}")
@@ -454,6 +551,30 @@ pub fn locate_received_bundle(app: &AppHandle, file_name: &str, sha256: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dead_or_stalled_update_is_reported_as_failed() {
+        let status = |stage: &str, at: u64| UpgradeStatus { state: "running".into(), stage: stage.into(), updated_at: at, ..Default::default() };
+        let now = 10_000_000;
+        // Script alive and reporting: still running.
+        assert_eq!(stopped_reason(&status("build", now - 60_000), Some(42), now, |_| true), None);
+        // Script gone without saying how it went.
+        assert_eq!(stopped_reason(&status("install", now - 60_000), Some(42), now, |_| false).unwrap(), "The update stopped unexpectedly while installing (see the log below)");
+        // Just started: give it a moment.
+        assert_eq!(stopped_reason(&status("starting", now - 2_000), Some(42), now, |_| false), None);
+        // No script yet (getting the latest version first), but silent for 45 minutes.
+        assert_eq!(stopped_reason(&status("pull", now - 60_000), None, now, |_| false), None);
+        assert!(stopped_reason(&status("pull", now - STALL_MS - 1), None, now, |_| true).unwrap().contains("no progress for 45 minutes while getting the latest version"));
+    }
+
+    #[test]
+    fn this_process_is_alive_and_a_finished_one_is_not() {
+        assert!(process_alive(std::process::id()));
+        let mut child = Command::new(if cfg!(windows) { "cmd" } else { "true" }).args(if cfg!(windows) { vec!["/C", "exit"] } else { vec![] }).spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!process_alive(pid));
+    }
 
     fn git(dir: &Path, args: &[&str]) -> String {
         let output = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=T", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"]).args(args).output().unwrap();
