@@ -13,6 +13,7 @@ mod link;
 mod mimir_host;
 mod remote;
 mod send_to;
+mod study;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -537,6 +538,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(tray::on_window_event)
+        // Textbooks for the Study reader, from the library folder only (see study.rs).
+        .register_uri_scheme_protocol(study::SCHEME, |_ctx, request| study::serve(&request))
         .invoke_handler(tauri::generate_handler![
             probe_tcp,
             open_external,
@@ -556,6 +559,11 @@ pub fn run() {
             bridgelink::notes::notes_create,
             bridgelink::notes::notes_save,
             bridgelink::notes::notes_delete,
+            bridgelink::notes::notes_create_markdown,
+            study::study_library,
+            study::study_add_course,
+            study::study_add_books,
+            study::study_remove_book,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,

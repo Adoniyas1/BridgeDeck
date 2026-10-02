@@ -30,7 +30,7 @@ function CalendarSettings() {
         <option value="">None</option><option value={0}>At the start</option><option value={5}>5 minutes before</option><option value={10}>10 minutes before</option><option value={15}>15 minutes before</option><option value={30}>30 minutes before</option><option value={60}>1 hour before</option>
       </select>
     </label>
-    <p className="vendor-note">{isMac ? 'The first time, macOS asks to let BridgeDeck see your calendars and reminders.' : 'Apple Calendar is read on your Mac and shown here; it needs BridgeDeck running there.'} Reminders use the “Checklist items and events” notification setting.</p>
+    <p className="hint">{isMac ? 'The first time, macOS asks to let BridgeDeck see your calendars and reminders.' : 'Apple Calendar is read on your Mac and shown here; it needs BridgeDeck running there.'} Reminders use the “Checklist items and events” notification setting.</p>
   </Card>
 }
 

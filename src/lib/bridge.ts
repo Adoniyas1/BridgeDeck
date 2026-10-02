@@ -419,3 +419,12 @@ export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this wa
 /** Notes kept as Markdown files too (src-tauri/src/bridgelink/vault.rs). */
 export type VaultStatus = { enabled: boolean; path: string; files: number; error: string | null }
 export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })
+/** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
+export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub'; bytes: number }
+export type StudyCourse = { name: string; books: StudyBook[] }
+export type StudyLibrary = { root: string; courses: StudyCourse[] }
+export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
+export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
+export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
+export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
+export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })

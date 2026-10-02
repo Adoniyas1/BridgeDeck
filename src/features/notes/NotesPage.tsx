@@ -6,7 +6,8 @@ import { notesCreate, notesDelete, notesSave, openExternal, type Note, type Note
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
 import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
-import { notesLoadedStore, notesStore, refreshNotes } from './state'
+import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
+import { openBookLink } from '../study/open'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
@@ -42,6 +43,11 @@ export default function NotesPage() {
   const open = notes.find(n => n.id === openId) ?? null
 
   useEffect(() => { if (!openId && shown.length) setOpenId(shown[0].id) }, [openId, shown])
+  const requested = useStore(openNoteRequest)
+  useEffect(() => {
+    if (!requested) return
+    setFilter({ kind: 'all' }); setQuery(''); setOpenId(requested); openNoteRequest.set(null)
+  }, [requested])
 
   async function create(kind: 'note' | 'list') {
     setError('')
@@ -498,7 +504,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
                 case 'italic': return <em key={i}>{piece.text}</em>
                 case 'strike': return <s key={i}>{piece.text}</s>
                 case 'code': return <code key={i}>{piece.text}</code>
-                case 'link': return <a key={i} href={piece.href} onClick={e => { e.preventDefault(); void openExternal(piece.href!) }}>{piece.text}</a>
+                case 'link': return <a key={i} href={piece.href} onClick={e => { e.preventDefault(); e.stopPropagation(); if (piece.href!.startsWith('book:')) openBookLink(piece.href!); else void openExternal(piece.href!) }}>{piece.text}</a>
                 case 'wikilink': return <a key={i} href="#" className={`notes-wikilink${findByTitle(nav.notes, piece.target!) ? '' : ' missing'}`} title={findByTitle(nav.notes, piece.target!) ? `Open ${piece.target}` : `Create ${piece.target}`} onClick={e => { e.preventDefault(); e.stopPropagation(); nav.openTitle(piece.target!) }}>{piece.text}</a>
                 case 'tag': return <a key={i} href="#" className="notes-tag" onClick={e => { e.preventDefault(); e.stopPropagation(); nav.filterTag(piece.text) }}>#{piece.text}</a>
                 case 'math': return <span key={i} className="notes-math" dangerouslySetInnerHTML={{ __html: renderMath(piece.text, false) }} />
