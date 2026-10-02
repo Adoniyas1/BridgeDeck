@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, Check, FolderOpen, Gift, Library, Link, Plus, Search, Trash2 } from 'lucide-react'
-import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaImportLinks, mangaRemove, mangaSearchDetails, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries } from '../../lib/bridge'
+import { BookOpen, Check, Download, FolderOpen, Gift, Globe, Library, Link, Play, Plus, Search, Trash2 } from 'lucide-react'
+import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaCreateSeries, mangaImportLinks, mangaRemove, mangaSearchDetails, mangaSourceCatalog, mangaSourceChapters, mangaStreamLink, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries, type MangaSourceChapter, type MangaSourceManga } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { Card, SectionTitle } from '../../ui'
 import { continueAt, readCount, seriesTitle, sortSeries } from './model'
 import { coverUrl, mangaStore, openChapter, refreshManga } from './state'
+
+const PUBLIC_MANGA_SOURCES = [
+  { name: 'Asura Scans', url: 'https://asurascans.com/series-ranking' },
+  { name: 'Weeb Central', url: 'https://weebcentral.com/' },
+  { name: 'MangaKatana', url: 'https://mangakatana.com/' },
+]
 
 export default function MangaPage({ active }: { active: boolean }) {
   const { library, error } = useStore(mangaStore)
@@ -14,9 +20,19 @@ export default function MangaPage({ active }: { active: boolean }) {
   const [name, setName] = useState('')
   const [links, setLinks] = useState('')
   const [linkTitle, setLinkTitle] = useState('')
+  const [catalog, setCatalog] = useState<MangaSourceManga[]>([])
+  const [catalogSource, setCatalogSource] = useState(PUBLIC_MANGA_SOURCES[0])
   usePeriodicRefresh(async () => { if (active) await refreshManga() }, 15_000, [active])
   const list = useMemo(() => sortSeries(library?.series ?? []), [library])
   const current = list.find(s => s.name === open)
+  async function loadCatalog(source = catalogSource) {
+    setStatus(`Loading ${source.name}…`); setCatalog([])
+    try { const items = await mangaSourceCatalog(source.url); setCatalog(items); setStatus(`${items.length} manga available from ${source.name}.`) } catch (e) { setStatus(String(e)) }
+  }
+  async function addCatalogManga(item: MangaSourceManga) {
+    try { const series = await mangaCreateSeries(item.title, item.url); await refreshManga(); setOpen(series) } catch (e) { setStatus(String(e)) }
+  }
+  useEffect(() => { void loadCatalog() }, [])
 
   async function addSeries() {
     if (!name.trim()) return
@@ -62,8 +78,12 @@ export default function MangaPage({ active }: { active: boolean }) {
         <textarea aria-label="Manga chapter links" placeholder="Paste a CBZ/ZIP, reader-page link, or direct image links (one per line)" value={links} onChange={e => setLinks(e.target.value)} />
         <button className="ghost" type="button" disabled={!name.trim() || !links.trim()} onClick={() => void addLinks()}><Link size={14} /> Download links</button>
       </div>
+      <div className="manga-source-links" aria-label="Manga catalog sources">
+        <span>Catalog:</span>{PUBLIC_MANGA_SOURCES.map(source => <button key={source.url} className="ghost" type="button" onClick={() => { setCatalogSource(source); void loadCatalog(source) }}><Globe size={13} />{source.name}</button>)}
+      </div>
       {(status || error) && <p className={error ? 'cal-error' : 'book-status'}>{error || status}</p>}
     </Card>
+    {catalog.length > 0 && <><SectionTitle title={catalogSource.name} subtitle="Pick a title — its chapters stay and open inside BridgeDeck" /><div className="manga-grid">{catalog.map(item => <div className="manga-card" key={item.url}><button className="manga-cover" onClick={() => void addCatalogManga(item)}>{item.coverUrl ? <img src={item.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <Library size={30} />}</button><strong>{item.title}</strong><button className="ghost manga-continue" onClick={() => void addCatalogManga(item)}><Plus size={13} />Open</button></div>)}</div></>}
     {list.length ? <div className="manga-grid">{list.map(s => {
       const next = continueAt(s)
       const read = readCount(s)
@@ -89,6 +109,8 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
   const [status, setStatus] = useState('')
   const [links, setLinks] = useState('')
   const [linkTitle, setLinkTitle] = useState('')
+  const [sourceUrl, setSourceUrl] = useState(series.meta.url ?? '')
+  const [sourceChapters, setSourceChapters] = useState<MangaSourceChapter[] | null>(null)
   const next = continueAt(series)
   useEffect(() => { setQuery(title) }, [title])
 
@@ -107,6 +129,28 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
       setLinks(''); setLinkTitle(''); await refreshManga()
     } catch (e) { setStatus(String(e)) }
   }
+  async function loadSourceChapters() {
+    if (!sourceUrl.trim()) return
+    setStatus('Loading public chapter list…'); setSourceChapters(null)
+    try { const chapters = await mangaSourceChapters(sourceUrl); setSourceChapters(chapters); setStatus(`${chapters.length} chapters found.`) } catch (e) { setStatus(String(e)) }
+  }
+  async function downloadSourceChapter(chapter: MangaSourceChapter) {
+    setStatus(`Downloading ${chapter.title}…`)
+    try { await mangaImportLinks(series.name, [chapter.url], chapter.title); setStatus(`${chapter.title} downloaded.`); await refreshManga() } catch (e) { setStatus(String(e)) }
+  }
+  async function streamSourceChapter(chapter: MangaSourceChapter) {
+    setStatus(`Opening ${chapter.title}…`)
+    try {
+      const opened = await mangaStreamLink(series.name, chapter.url, chapter.title)
+      await refreshManga()
+      openChapter(series.name, title, opened.id, 0)
+    } catch (e) { setStatus(String(e)) }
+  }
+  useEffect(() => {
+    if (sourceUrl.trim()) void loadSourceChapters()
+    // A catalog title should feel complete on open: fetch its chapters in the Manga tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series.name])
   async function search() {
     try { setResults(await mangaSearchDetails(query)); setStatus('') } catch (e) { setStatus(String(e)) }
   }
@@ -140,12 +184,17 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
       </div>
     </Card>
     <Card className="manga-link-import-card">
-      <SectionTitle title="Download from links" subtitle="Paste one public CBZ/ZIP or reader-page link, or direct image links one per line." />
+      <SectionTitle title="Read from a source" subtitle="Choose a chapter to stream inside BridgeDeck, or download it fully for offline use." />
       <div className="study-new manga-link-import">
         <input placeholder="Chapter title (optional)" value={linkTitle} onChange={e => setLinkTitle(e.target.value)} />
         <textarea aria-label="Manga chapter links" placeholder="https://example.com/chapter or direct image links" value={links} onChange={e => setLinks(e.target.value)} />
         <button type="button" onClick={() => void addLinks()} disabled={!links.trim()}><Link size={14} /> Download chapter</button>
       </div>
+      <div className="study-new manga-link-import">
+        <input aria-label="Source series page" placeholder="Paste an Asura, Weeb Central, or MangaKatana series page" value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} />
+        <button className="secondary" type="button" onClick={() => void loadSourceChapters()} disabled={!sourceUrl.trim()}><Search size={14} /> Find chapters</button>
+      </div>
+      {sourceChapters && <div className="manga-source-chapters">{sourceChapters.slice(0, 200).map(chapter => <div key={chapter.url}><span>{chapter.title}</span><button type="button" className="ghost" onClick={() => void streamSourceChapter(chapter)}><Play size={14} />Stream</button><button type="button" className="ghost" onClick={() => void downloadSourceChapter(chapter)}><Download size={14} />Download</button></div>)}</div>}
     </Card>
     <div className="two-col">
       <Card><SectionTitle title="Chapters" subtitle={`${readCount(series)} of ${series.chapters.length} read`} />

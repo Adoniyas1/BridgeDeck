@@ -462,11 +462,18 @@ export type MangaMeta = { title?: string; description?: string; genres?: string[
 export type MangaSeries = { name: string; chapters: MangaChapter[]; meta: MangaMeta; progress: MangaProgress; hasCover: boolean; modified: number }
 export type MangaLibrary = { root: string; series: MangaSeries[] }
 export type MangaDetails = MangaMeta & { nativeTitle?: string; cover?: string }
+export type MangaSourceChapter = { title: string; url: string }
+export type MangaSourceManga = { title: string; url: string; coverUrl?: string }
 export const mangaLibrary = (shared: string) => native<MangaLibrary>('manga_library', { shared })
 export const mangaPages = (series: string, chapter: string) => native<number>('manga_pages', { series, chapter })
 export const mangaAdd = (series: string, paths: string[]) => native<number>('manga_add', { series, paths })
+export const mangaCreateSeries = (title: string, sourceUrl: string) => native<string>('manga_create_series', { title, sourceUrl })
 /** Downloads one public CBZ/ZIP or reader-page link, or direct image links (one per line). */
 export const mangaImportLinks = (series: string, links: string[], title?: string) => native<number>('manga_import_links', { series, links, title: title?.trim() || null })
+export const mangaSourceChapters = (sourceUrl: string) => native<MangaSourceChapter[]>('manga_source_chapters', { sourceUrl })
+export const mangaSourceCatalog = (sourceUrl: string) => native<MangaSourceManga[]>('manga_source_catalog', { sourceUrl })
+/** Starts a chapter in the native reader after caching page one; remaining pages cache as read. */
+export const mangaStreamLink = (series: string, link: string, title: string) => native<MangaChapter>('manga_stream_link', { series, link, title })
 export const mangaProgress = (series: string, chapter: string, page: number, pages: number) => native<MangaProgress>('manga_progress', { series, chapter, page, pages })
 export const mangaBookmark = (series: string, chapter: string, page: number) => native<MangaProgress>('manga_bookmark', { series, chapter, page })
 export const mangaRemove = (series: string, chapter?: string) => native<void>('manga_remove', { series, chapter: chapter ?? null })
