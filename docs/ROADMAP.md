@@ -378,7 +378,7 @@ Everything left, combined into one order. One PR each.
    stdlib-only scripts run in its sandbox), with skill packs chosen in Settings, starting with
    alirezarezvani/claude-skills (MIT; research, productivity, engineering, project management),
    downloaded at a pinned version.
-5b. **ChatGPT tab and a web browser for Mimir (asked for 2026-10-02)**: chatgpt.com in its own BridgeDeck
+5b. **ChatGPT window and a web reader for Mimir (built; asked for 2026-10-02)**: chatgpt.com in its own BridgeDeck
    window that the user uses themselves (signed in once), with "Send to ChatGPT" from Study and Projects
    (a passage, a note, a task) that fills the message box for the user to send; ChatGPT is a study and
    project helper, never the engine running the app. Mimir gets a browser for ordinary websites

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookMarked, ChevronLeft, ChevronRight, Highlighter, Layers, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, ChevronLeft, ChevronRight, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -10,6 +10,7 @@ import { notesStore, openNoteRequest, refreshNotes } from '../notes/state'
 import { bookLink, chaptersTitle, courseFolder, highlightsTitle, outlineToMarkdown, type OutlineItem } from './model'
 import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
+import { askChatGPT, passagePrompt } from '../../core/chatgpt'
 import { loadBook, pdfjs } from './pdf'
 
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
@@ -206,6 +207,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <span className="grow book-title">{title}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onMouseDown={e => e.preventDefault()} onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
       <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onMouseDown={e => e.preventDefault()} onClick={() => { setCard({ back: selection.replace(/\s+/g, ' '), page }); window.getSelection()?.removeAllRanges() }}><Layers size={14} /> Flashcard</button>
+      <button className="ghost" disabled={!selection} title="Open ChatGPT with this passage, ready for you to send" onMouseDown={e => e.preventDefault()} onClick={() => void askChatGPT(passagePrompt(title, page, selection)).catch(e => setStatus(String(e)))}><MessageCircleQuestion size={14} /> Ask ChatGPT</button>
       <button className="ghost" onClick={() => void chapterChecklist()}><ListChecks size={14} /> Chapter checklist</button>
     </div>
     {card && <form className="book-card-form" onSubmit={e => { e.preventDefault(); void saveCard() }}>

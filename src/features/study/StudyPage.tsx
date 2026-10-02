@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyRemoveBook, type CalEvent } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
@@ -108,7 +109,7 @@ function CourseView({ name, books, root, status, onStatus }: { name: string; boo
 
   return <div className="study-course">
     <Card><SectionTitle title={name} subtitle={`${books.length} book${books.length === 1 ? '' : 's'} · ${mine.length} note${mine.length === 1 ? '' : 's'}`}
-      action={<div className="actions"><button onClick={() => void addBooks()}><Plus size={15} />Add books</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button></div>} />
+      action={<div className="actions"><button onClick={() => void addBooks()}><Plus size={15} />Add books</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title))).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button></div>} />
       {status && <p className="book-status">{status}</p>}
       {books.length ? <div className="study-books">{books.map(book => <div key={book.file} className="study-book">
         <button className="study-book-cover" onClick={() => openBook(name, book.file, book.title)}><BookOpen size={26} /><span>{book.kind.toUpperCase()}</span></button>

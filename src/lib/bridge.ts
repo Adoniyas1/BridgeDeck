@@ -443,4 +443,6 @@ export type SkillPack = { id: string; title: string; description: string; skills
 export type SkillPacksStatus = { source: string; commit: string; folder: string; packs: SkillPack[]; outdated: boolean }
 export const skillPacksStatus = () => native<SkillPacksStatus>('skill_packs_status')
 export const skillPacksInstall = (packs: string[]) => native<SkillPacksStatus>('skill_packs_install', { packs })
+/** ChatGPT in its own window (src-tauri/src/chatgpt.rs); `text` goes in its message box for the person to send. */
+export const chatgptOpen = (text?: string) => native<void>('chatgpt_open', { text: text ?? null })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })
