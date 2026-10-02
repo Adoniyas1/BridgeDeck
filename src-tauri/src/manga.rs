@@ -213,10 +213,15 @@ fn stream_manifest(dir: &Path) -> Option<StreamManifest> {
     serde_json::from_slice(&fs::read(dir.join(STREAM_FILE)).ok()?).ok()
 }
 
-fn stream_page_name(index: usize) -> String {
-    // The extension is only a stable reader-facing name. `page` uses the actual response's
-    // content type when it first caches a page.
-    format!("{:04}.jpg", index + 1)
+fn stream_page_name(index: usize, remote: &str) -> String {
+    // Keep the source's image suffix in the cache. Besides being clearer on disk, WebKit
+    // uses the URL's suffix during image decoding on macOS, even when the protocol response
+    // has the correct Content-Type header.
+    let extension = reqwest::Url::parse(remote).ok()
+        .map(|url| ext(Path::new(url.path())))
+        .filter(|extension| IMAGE_EXTENSIONS.contains(&extension.as_str()))
+        .unwrap_or_else(|| "jpg".into());
+    format!("{:04}.{extension}", index + 1)
 }
 
 fn response_mime(content_type: Option<&reqwest::header::HeaderValue>, fallback: &str) -> &'static str {
@@ -451,7 +456,7 @@ pub fn pages(root: &Path, series: &str, chapter: &str) -> Result<Vec<String>, St
     }
     let mut names: Vec<String> = if real.is_dir() {
         if let Some(manifest) = stream_manifest(&real) {
-            (0..manifest.pages.len()).map(stream_page_name).collect()
+            manifest.pages.iter().enumerate().map(|(index, remote)| stream_page_name(index, remote)).collect()
         } else {
             fs::read_dir(&real).map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)).map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| is_image(n) && !n.starts_with('.')).collect()
         }
@@ -485,23 +490,25 @@ pub fn page(root: &Path, series: &str, chapter: &str, index: usize) -> Result<(V
     let path = dir.join(chapter);
     let mut data = Vec::new();
     if path.is_dir() {
+        // Streaming deliberately leaves no chapter-page cache behind.  The series metadata
+        // and cover stay local, while choosing Download uses the separate import path to
+        // make an intentional offline copy.
+        if let Some(manifest) = stream_manifest(&path) {
+            let remote = manifest.pages.get(index).ok_or("No such streamed page")?;
+            let url = import_url(remote)?;
+            let response = http()?.get(url).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't stream page: {e}"))?;
+            if response.content_length().is_some_and(|size| size > MAX_PAGE) { return Err("Page too large".into()); }
+            let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).cloned();
+            data = response.bytes().map_err(|e| format!("Couldn't read streamed page: {e}"))?.to_vec();
+            if data.len() as u64 > MAX_PAGE { return Err("Page too large".into()); }
+            return Ok((data, response_mime(content_type.as_ref(), name)));
+        }
         let file = path.join(name);
         if file.is_file() {
             if fs::metadata(&file).map(|m| m.len()).unwrap_or(0) > MAX_PAGE {
                 return Err("Page too large".into());
             }
             data = fs::read(file).map_err(|e| e.to_string())?;
-        } else if let Some(manifest) = stream_manifest(&path) {
-            let remote = manifest.pages.get(index).ok_or("No such streamed page")?;
-            let url = import_url(remote)?;
-            let response = http()?.get(url.clone()).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't stream page: {e}"))?;
-            if response.content_length().is_some_and(|size| size > MAX_PAGE) { return Err("Page too large".into()); }
-            let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).cloned();
-            data = response.bytes().map_err(|e| format!("Couldn't read streamed page: {e}"))?.to_vec();
-            if data.len() as u64 > MAX_PAGE { return Err("Page too large".into()); }
-            // A cache failure must not prevent reading; it can be retried on the next page view.
-            let _ = fs::write(&file, &data);
-            return Ok((data, response_mime(content_type.as_ref(), name)));
         } else {
             return Err("No such page".into());
         }
