@@ -1,4 +1,5 @@
-//! ChatGPT in its own BridgeDeck window: chatgpt.com, signed in once and used by the person
+//! ChatGPT in a panel at the side of BridgeDeck's window (like a browser's assistant side panel):
+//! chatgpt.com, signed in once and used by the person
 //! themselves as a study and project helper. "Ask ChatGPT" in Study and Projects puts the text in
 //! the message box (and on the clipboard) for the person to read, change and send; BridgeDeck never
 //! sends messages.
@@ -7,13 +8,13 @@
 //! adds to the page: the conversation becomes a note (in the course or project it was started
 //! from, else "ChatGPT"), on both computers and in search, and saving again updates it. The page
 //! hands the conversation over by opening `https://bridgedeck.invalid/chatgpt-save?…` addresses,
-//! which BridgeDeck catches and cancels. The window has no access to BridgeDeck's commands
-//! (capabilities cover the main window only), and what can arrive this way is limited to saving
+//! which BridgeDeck catches and cancels. The panel has no access to BridgeDeck's commands
+//! (remote pages get no commands), and what can arrive this way is limited to saving
 //! chat notes, capped in size and rate.
 
 use base64::Engine;
 use std::{collections::HashMap, sync::Mutex, time::Instant};
-use tauri::{webview::PageLoadEvent, AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{webview::PageLoadEvent, AppHandle, LogicalPosition, LogicalSize, Manager, Url, WebviewBuilder, WebviewUrl};
 
 const LABEL: &str = "chatgpt";
 const URL: &str = "https://chatgpt.com/";
@@ -168,17 +169,20 @@ fn save(app: &AppHandle, chat: Chat) -> Result<(), String> {
     crate::bridgelink::notes::save_chat(manager.inner(), source.as_str(), &title, &folder, &chat_markdown(&chat)).map(|_| ())
 }
 
-fn fill(window: &tauri::WebviewWindow, text: &str) {
-    let _ = window.eval(fill_script(text));
+fn fill(view: &tauri::Webview, text: &str) {
+    let _ = view.eval(fill_script(text));
 }
 
-/// Opens (or brings forward) the ChatGPT window; with `text`, puts it in the message box. `folder`
-/// is where chats started from here are saved (a course's or project's Notes folder).
+/// Shows ChatGPT as the panel at the side of BridgeDeck's window, at `x, y` (`w × h`, logical
+/// pixels in the window), creating it on first use. With `text`, puts it in the message box.
+/// `folder` is where chats started from here are saved (a course's or project's Notes folder).
 #[tauri::command]
-pub fn chatgpt_open(app: AppHandle, text: Option<String>, folder: Option<String>) -> Result<(), String> {
+pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let text = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-    if let Ok(mut stored) = FOLDER.lock() {
-        *stored = folder.map(|f| f.trim().to_string()).filter(|f| !f.is_empty() && f.len() <= 80);
+    if folder.is_some() {
+        if let Ok(mut stored) = FOLDER.lock() {
+            *stored = folder.map(|f| f.trim().to_string()).filter(|f| !f.is_empty() && f.len() <= 80);
+        }
     }
     if let Some(text) = &text {
         // Also on the clipboard, in case ChatGPT's page has changed and the box can't be found.
@@ -186,44 +190,62 @@ pub fn chatgpt_open(app: AppHandle, text: Option<String>, folder: Option<String>
             let _ = board.set_text(text.clone());
         }
     }
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+    let (dx, dy) = crate::browser::main_offset(&app);
+    let (pos, size) = (LogicalPosition::new(x.max(0.0) + dx, y.max(0.0) + dy), LogicalSize::new(w.max(1.0), h.max(1.0)));
+    if let Some(view) = app.get_webview(LABEL) {
+        view.set_position(pos).map_err(|e| e.to_string())?;
+        view.set_size(size).map_err(|e| e.to_string())?;
+        view.show().map_err(|e| e.to_string())?;
         if let Some(text) = &text {
-            fill(&window, text);
+            let _ = view.set_focus();
+            fill(&view, text);
         }
         return Ok(());
     }
     if let Ok(mut pending) = PENDING.lock() {
         *pending = text;
     }
+    let window = app.get_window("main").ok_or("BridgeDeck's window isn't open")?;
     let handle = app.clone();
-    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(URL.parse().map_err(|e| format!("{e}"))?))
-        .title("ChatGPT")
-        .inner_size(1000.0, 820.0)
-        .min_inner_size(420.0, 500.0)
+    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(URL.parse().map_err(|e| format!("{e}"))?))
         .on_navigation(move |url| {
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
             let message = match result.and_then(|chat| save(&handle, chat)) {
                 Ok(()) => "Saved in BridgeDeck ✓".to_string(),
                 Err(error) => error,
             };
-            if let Some(window) = handle.get_webview_window(LABEL) {
-                let _ = window.eval(format!("window.__bridgedeckSaved && window.__bridgedeckSaved({})", serde_json::to_string(&message).unwrap_or_default()));
+            if let Some(view) = handle.get_webview(LABEL) {
+                let _ = view.eval(format!("window.__bridgedeckSaved && window.__bridgedeckSaved({})", serde_json::to_string(&message).unwrap_or_default()));
             }
             false
         })
-        .on_page_load(|window, payload| {
+        .on_page_load(|view, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) && payload.url().host_str().is_some_and(|h| h.ends_with("chatgpt.com")) {
-                let _ = window.eval(SAVE_BUTTON_SCRIPT);
+                let _ = view.eval(SAVE_BUTTON_SCRIPT);
                 if let Some(text) = PENDING.lock().ok().and_then(|mut p| p.take()) {
-                    fill(&window, &text);
+                    fill(&view, &text);
                 }
             }
-        })
-        .build()
-        .map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
+        });
+    window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
+    Ok(())
+}
+
+/// Hides the ChatGPT panel; the chat stays as it was for next time.
+#[tauri::command]
+pub fn chatgpt_hide(app: AppHandle) -> Result<(), String> {
+    if let Some(view) = app.get_webview(LABEL) {
+        view.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Starts a new chat in the panel.
+#[tauri::command]
+pub fn chatgpt_new(app: AppHandle) -> Result<(), String> {
+    if let Some(view) = app.get_webview(LABEL) {
+        view.navigate(URL.parse().map_err(|e| format!("{e}"))?).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

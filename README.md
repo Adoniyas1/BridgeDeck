@@ -51,7 +51,7 @@ BridgeDeck window
 ├── Messages ── Mac Messages database + Messages.app integration
 ├── Remote ──── native screen capture and input over BridgeLink
 ├── Notes / Calendar / Vault / Study / Projects
-└── Mimir / AI workspace / ChatGPT window
+└── Mimir / AI workspace / ChatGPT side panel
 
 Rust core
 ├── BridgeLink v2: pairing, discovery, authenticated QUIC sessions

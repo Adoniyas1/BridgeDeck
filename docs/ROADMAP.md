@@ -378,11 +378,12 @@ Everything left, combined into one order. One PR each.
    stdlib-only scripts run in its sandbox), with skill packs chosen in Settings, starting with
    alirezarezvani/claude-skills (MIT; research, productivity, engineering, project management),
    downloaded at a pinned version.
-5b. **ChatGPT window and a web reader for Mimir (built; asked for 2026-10-02)**: chatgpt.com in its own BridgeDeck
-   window that the user uses themselves (signed in once), with "Send to ChatGPT" from Study and Projects
+5b. **ChatGPT side panel and a web reader for Mimir (built; asked for 2026-10-02; a side panel like a
+   browser's assistant since 2026-10-02)**: chatgpt.com in a resizable panel at the side of BridgeDeck's
+   window, opened from the tab bar, that the user uses themselves (signed in once), with "Send to ChatGPT" from Study and Projects
    (a passage, a note, a task) that fills the message box for the user to send; ChatGPT is a study and
    project helper, never the engine running the app. Mimir gets a browser for ordinary websites
-   (search, read pages) for research. ChatGPT chats are kept with a "Save to BridgeDeck" button in its window:
+   (search, read pages) for research. ChatGPT chats are kept with a "Save to BridgeDeck" button in the panel:
    each becomes a note in the course or project it was started from (else "ChatGPT"); saving again updates it.
 5c. **Manga tab (built; from the user's manga-reader app, 2026-10-02)**: your own comics, manga and webtoons
    (.cbz/.zip or image folders) in the synced folder, with series details and covers from AniList, a

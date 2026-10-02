@@ -445,9 +445,11 @@ export type SkillPack = { id: string; title: string; description: string; skills
 export type SkillPacksStatus = { source: string; commit: string; folder: string; packs: SkillPack[]; outdated: boolean }
 export const skillPacksStatus = () => native<SkillPacksStatus>('skill_packs_status')
 export const skillPacksInstall = (packs: string[]) => native<SkillPacksStatus>('skill_packs_install', { packs })
-/** ChatGPT in its own window (src-tauri/src/chatgpt.rs); `text` goes in its message box for the person to send,
- *  and chats saved from it go in `folder` (a course's or project's Notes folder; default "ChatGPT"). */
-export const chatgptOpen = (text?: string, folder?: string) => native<void>('chatgpt_open', { text: text ?? null, folder: folder ?? null })
+/** ChatGPT as a panel at the side of the window (src-tauri/src/chatgpt.rs), placed at `x, y, w, h`; `text` goes in
+ *  its message box for the person to send, and chats saved from it go in `folder` (default "ChatGPT"). */
+export const chatgptShow = (text: string | null, folder: string | null, x: number, y: number, w: number, h: number) => native<void>('chatgpt_show', { text, folder, x, y, w, h })
+export const chatgptHide = () => native<void>('chatgpt_hide')
+export const chatgptNew = () => native<void>('chatgpt_new')
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
