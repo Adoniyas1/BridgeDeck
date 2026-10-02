@@ -465,6 +465,8 @@ export type MangaDetails = MangaMeta & { nativeTitle?: string; cover?: string }
 export const mangaLibrary = (shared: string) => native<MangaLibrary>('manga_library', { shared })
 export const mangaPages = (series: string, chapter: string) => native<number>('manga_pages', { series, chapter })
 export const mangaAdd = (series: string, paths: string[]) => native<number>('manga_add', { series, paths })
+/** Downloads one public CBZ/ZIP or reader-page link, or direct image links (one per line). */
+export const mangaImportLinks = (series: string, links: string[], title?: string) => native<number>('manga_import_links', { series, links, title: title?.trim() || null })
 export const mangaProgress = (series: string, chapter: string, page: number, pages: number) => native<MangaProgress>('manga_progress', { series, chapter, page, pages })
 export const mangaBookmark = (series: string, chapter: string, page: number) => native<MangaProgress>('manga_bookmark', { series, chapter, page })
 export const mangaRemove = (series: string, chapter?: string) => native<void>('manga_remove', { series, chapter: chapter ?? null })

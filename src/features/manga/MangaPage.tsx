@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, Check, FolderOpen, Gift, Library, Plus, Search, Trash2 } from 'lucide-react'
-import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaRemove, mangaSearchDetails, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries } from '../../lib/bridge'
+import { BookOpen, Check, FolderOpen, Gift, Library, Link, Plus, Search, Trash2 } from 'lucide-react'
+import { mangaAdd, mangaAddPeppercarrot, mangaApplyDetails, mangaImportLinks, mangaRemove, mangaSearchDetails, openExternal, openPath, pickTransferPaths, type MangaDetails, type MangaSeries } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { Card, SectionTitle } from '../../ui'
@@ -12,6 +12,8 @@ export default function MangaPage({ active }: { active: boolean }) {
   const [open, setOpen] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [name, setName] = useState('')
+  const [links, setLinks] = useState('')
+  const [linkTitle, setLinkTitle] = useState('')
   usePeriodicRefresh(async () => { if (active) await refreshManga() }, 15_000, [active])
   const list = useMemo(() => sortSeries(library?.series ?? []), [library])
   const current = list.find(s => s.name === open)
@@ -36,6 +38,16 @@ export default function MangaPage({ active }: { active: boolean }) {
       await refreshManga()
     } catch (e) { setStatus(String(e)) }
   }
+  async function addLinks() {
+    const items = links.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+    if (!name.trim() || !items.length) return
+    setStatus('Downloading chapter…')
+    try {
+      const added = await mangaImportLinks(name.trim(), items, linkTitle)
+      setStatus(`Downloaded ${added} chapter${added === 1 ? '' : 's'} to ${name.trim()}.`)
+      setLinks(''); setLinkTitle(''); await refreshManga()
+    } catch (e) { setStatus(String(e)) }
+  }
 
   if (current) return <SeriesView series={current} onBack={() => setOpen(null)} />
   return <div className="manga">
@@ -45,6 +57,11 @@ export default function MangaPage({ active }: { active: boolean }) {
         <input placeholder="New series name, then choose its .cbz / .zip chapters or page images" value={name} onChange={e => setName(e.target.value)} />
         <button className="ghost" disabled={!name.trim()}><Plus size={14} /> Add</button>
       </form>
+      <div className="study-new manga-link-import">
+        <input placeholder="Chapter title (optional)" value={linkTitle} onChange={e => setLinkTitle(e.target.value)} />
+        <textarea aria-label="Manga chapter links" placeholder="Paste a CBZ/ZIP, reader-page link, or direct image links (one per line)" value={links} onChange={e => setLinks(e.target.value)} />
+        <button className="ghost" type="button" disabled={!name.trim() || !links.trim()} onClick={() => void addLinks()}><Link size={14} /> Download links</button>
+      </div>
       {(status || error) && <p className={error ? 'cal-error' : 'book-status'}>{error || status}</p>}
     </Card>
     {list.length ? <div className="manga-grid">{list.map(s => {
@@ -70,6 +87,8 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
   const [query, setQuery] = useState(title)
   const [results, setResults] = useState<MangaDetails[] | null>(null)
   const [status, setStatus] = useState('')
+  const [links, setLinks] = useState('')
+  const [linkTitle, setLinkTitle] = useState('')
   const next = continueAt(series)
   useEffect(() => { setQuery(title) }, [title])
 
@@ -77,6 +96,16 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
     const paths = await pickTransferPaths(false)
     if (!paths.length) return
     try { const added = await mangaAdd(series.name, paths); setStatus(`Added ${added} chapter${added === 1 ? '' : 's'}.`); await refreshManga() } catch (e) { setStatus(String(e)) }
+  }
+  async function addLinks() {
+    const items = links.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+    if (!items.length) return
+    setStatus('Downloading chapter…')
+    try {
+      const added = await mangaImportLinks(series.name, items, linkTitle)
+      setStatus(`Downloaded ${added} chapter${added === 1 ? '' : 's'}.`)
+      setLinks(''); setLinkTitle(''); await refreshManga()
+    } catch (e) { setStatus(String(e)) }
   }
   async function search() {
     try { setResults(await mangaSearchDetails(query)); setStatus('') } catch (e) { setStatus(String(e)) }
@@ -108,6 +137,14 @@ function SeriesView({ series, onBack }: { series: MangaSeries; onBack: () => voi
           </div>
           {status && <p className="book-status">{status}</p>}
         </div>
+      </div>
+    </Card>
+    <Card className="manga-link-import-card">
+      <SectionTitle title="Download from links" subtitle="Paste one public CBZ/ZIP or reader-page link, or direct image links one per line." />
+      <div className="study-new manga-link-import">
+        <input placeholder="Chapter title (optional)" value={linkTitle} onChange={e => setLinkTitle(e.target.value)} />
+        <textarea aria-label="Manga chapter links" placeholder="https://example.com/chapter or direct image links" value={links} onChange={e => setLinks(e.target.value)} />
+        <button type="button" onClick={() => void addLinks()} disabled={!links.trim()}><Link size={14} /> Download chapter</button>
       </div>
     </Card>
     <div className="two-col">

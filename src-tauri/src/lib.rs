@@ -608,6 +608,7 @@ pub fn run() {
             manga::manga_library,
             manga::manga_pages,
             manga::manga_add,
+            manga::manga_import_links,
             manga::manga_progress,
             manga::manga_bookmark,
             manga::manga_save_meta,
