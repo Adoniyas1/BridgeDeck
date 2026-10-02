@@ -127,7 +127,7 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
     try { setHits(await studySearch(query, course)); setError('') } catch (e) { setError(String(e)) }
   }
 
-  return <Card><SectionTitle title="Search your books" subtitle={pdfs.length ? `${ready} of ${pdfs.length} book${pdfs.length === 1 ? '' : 's'} searchable${indexing.book ? ` · reading “${indexing.book}”${indexing.total ? ` ${Math.round(indexing.done / indexing.total * 100)}%` : ''}` : ''}` : 'Add PDF books to search them'} />
+  return <Card><SectionTitle title="Search your books" subtitle={pdfs.length ? `${ready} of ${pdfs.length} book${pdfs.length === 1 ? '' : 's'} searchable${indexing.book ? ` · reading “${indexing.book}”${indexing.total ? ` ${Math.round(indexing.done / indexing.total * 100)}%` : ''}${indexing.scanned ? `, recognising text on ${indexing.scanned} scanned page${indexing.scanned === 1 ? '' : 's'}` : ''}` : ''}` : 'Add PDF books to search them'} />
     <form className="study-new" onSubmit={e => { e.preventDefault(); void run() }}>
       <input placeholder="e.g. chain rule, mitochondria, Nash equilibrium" value={query} onChange={e => setQuery(e.target.value)} />
       <button className="cal-icon" title="Search" disabled={!query.trim()}><Search size={15} /></button>
@@ -135,6 +135,6 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
     {error && <p className="cal-error">{error}</p>}
     {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.file}-${h.page}`} onClick={() => openBook(h.course, h.file, h.book, h.page)}>
       <strong>{h.book}, p. {h.page}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">No pages match.</p>)}
-    <p className="hint">Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
+    <p className="hint">Scanned books are searchable too: pages that are pictures of text are read by text recognition on this computer, which takes a few seconds a page the first time. Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
   </Card>
 }

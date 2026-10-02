@@ -17,6 +17,8 @@ function UnknownTab({ tab }: { tab: DynamicTab }) {
   return <Card><SectionTitle title={tab.title} subtitle={`This build has no view for "${tab.kind}" tabs.`} /><div className="bb-placeholder">Close this tab, or update BridgeDeck.</div></Card>
 }
 
+const FILL_KINDS = new Set(['study-book'])
+
 function DynamicTabView({ tab, active }: { tab: DynamicTab; active: boolean }) {
   const View = features.map(feature => feature.tabKinds?.[tab.kind]).find(Boolean)
   return <div className="tab-panel" hidden={!active}>{View ? <View tab={tab} active={active} /> : <UnknownTab tab={tab} />}</div>
@@ -29,11 +31,13 @@ export default function App() {
   const sourceUpdate = useStore(sourceUpdateStore)
 
   useEffect(() => { void hydrateConfig() }, [])
+  // The browser and books use the whole window under the tab bar, with no page margins.
+  const fill = active === 'browser' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
 
   return (
     <div className="shell">
       <TabBar />
-      <main>
+      <main className={fill ? 'fill' : undefined}>
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
         {sourceUpdate?.rebuildNeeded && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span></div>}
 

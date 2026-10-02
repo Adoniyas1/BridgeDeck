@@ -83,3 +83,17 @@ export function weekStart(now = Date.now()) {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
   return d.getTime()
 }
+
+/** The paths (`0/3/`) of every entry that has sections. */
+export function outlineParents(items: OutlineItem[], path = ''): string[] {
+  return items.flatMap((item, i) => item.items.length ? [`${path}${i}/`, ...outlineParents(item.items, `${path}${i}/`)] : [])
+}
+
+/** The path to the entry being read: at each level, the last entry starting at or before `page`. */
+export function currentPath(items: OutlineItem[], page: number, path = ''): string[] {
+  let found = -1
+  items.forEach((item, i) => { if (item.page !== null && item.page <= page) found = i })
+  if (found < 0) return []
+  const here = `${path}${found}/`
+  return [here, ...currentPath(items[found].items, page, here)]
+}

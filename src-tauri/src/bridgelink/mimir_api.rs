@@ -534,7 +534,7 @@ mod tests {
         crate::study::set_index_dir(base.join("index"));
         crate::study::study_library(base.to_string_lossy().to_string()).unwrap();
         let pages = vec!["Limits and continuity.".to_string(), "The chain rule differentiates compositions.".to_string(), "Integrals.".to_string()];
-        crate::study::save_text(&base.join("index"), "Math 221", "Calculus (8th ed).pdf", &crate::study::BookText { bytes: 4, pages }).unwrap();
+        crate::study::save_text(&base.join("index"), "Math 221", "Calculus (8th ed).pdf", &crate::study::BookText { bytes: 4, pages, version: crate::study::INDEX_VERSION }).unwrap();
 
         let manager = BridgeLinkManager::default();
         manager.lock().unwrap().instance_id = "mac".into();
