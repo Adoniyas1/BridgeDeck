@@ -169,6 +169,12 @@ fn save(app: &AppHandle, chat: Chat) -> Result<(), String> {
     crate::bridgelink::notes::save_chat(manager.inner(), source.as_str(), &title, &folder, &chat_markdown(&chat)).map(|_| ())
 }
 
+/// ChatGPT's own pages and the sign-in pages it uses stay in the panel.
+fn keeps_in_panel(url: &Url) -> bool {
+    const HOSTS: [&str; 6] = ["chatgpt.com", "openai.com", "accounts.google.com", "appleid.apple.com", "login.microsoftonline.com", "login.live.com"];
+    url.scheme() == "https" && url.host_str().is_some_and(|h| HOSTS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}"))))
+}
+
 fn fill(view: &tauri::Webview, text: &str) {
     let _ = view.eval(fill_script(text));
 }
@@ -207,6 +213,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
     }
     let window = app.get_window("main").ok_or("BridgeDeck's window isn't open")?;
     let handle = app.clone();
+    let new_handle = app.clone();
     let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(URL.parse().map_err(|e| format!("{e}"))?))
         .on_navigation(move |url| {
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
@@ -218,6 +225,18 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
                 let _ = view.eval(format!("window.__bridgedeckSaved && window.__bridgedeckSaved({})", serde_json::to_string(&message).unwrap_or_default()));
             }
             false
+        })
+        // Links ChatGPT opens as a new window (a chat, a task, signing in) open in the panel;
+        // links to other sites open in the person's own browser.
+        .on_new_window(move |url, _| {
+            if keeps_in_panel(&url) {
+                if let Some(view) = new_handle.get_webview(LABEL) {
+                    let _ = view.navigate(url);
+                }
+            } else if matches!(url.scheme(), "http" | "https") {
+                let _ = tauri_plugin_opener::OpenerExt::opener(&new_handle).open_url(url.as_str(), None::<&str>);
+            }
+            tauri::webview::NewWindowResponse::Deny
         })
         .on_page_load(|view, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) && payload.url().host_str().is_some_and(|h| h.ends_with("chatgpt.com")) {
@@ -252,6 +271,13 @@ pub fn chatgpt_new(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chatgpt_and_sign_in_links_stay_in_the_panel() {
+        let keep = |u: &str| keeps_in_panel(&Url::parse(u).unwrap());
+        assert!(keep("https://chatgpt.com/c/123") && keep("https://auth.openai.com/log-in") && keep("https://accounts.google.com/o/oauth2"));
+        assert!(!keep("https://example.com/") && !keep("http://chatgpt.com/") && !keep("https://chatgpt.com.evil.net/"));
+    }
 
     #[test]
     fn the_text_goes_into_the_script_as_a_string_and_is_never_sent() {
