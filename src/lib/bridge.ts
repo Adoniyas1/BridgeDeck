@@ -451,4 +451,24 @@ export const chatgptOpen = (text?: string, folder?: string) => native<void>('cha
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
+/** The Browser tab's page (src-tauri/src/browser.rs): placed over the tab's area in logical pixels. */
+export const browserShow = (tab: string, url: string | null, x: number, y: number, w: number, h: number) => native<void>('browser_show', { tab, url, x, y, w, h })
+export const browserHide = (tab: string) => native<void>('browser_hide', { tab })
+export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
+/** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
+export type MangaChapter = { id: string; title: string }
+export type MangaProgress = { chapters?: Record<string, { page: number; pages: number; done: boolean; at: number }>; last?: string; at?: number; bookmarks?: Record<string, number[]> }
+export type MangaMeta = { title?: string; description?: string; genres?: string[]; status?: string; author?: string; anilistId?: number; year?: number; url?: string; format?: string; attribution?: { author: string; url: string; license: string; licenseUrl: string; source: string } }
+export type MangaSeries = { name: string; chapters: MangaChapter[]; meta: MangaMeta; progress: MangaProgress; hasCover: boolean; modified: number }
+export type MangaLibrary = { root: string; series: MangaSeries[] }
+export type MangaDetails = MangaMeta & { nativeTitle?: string; cover?: string }
+export const mangaLibrary = (shared: string) => native<MangaLibrary>('manga_library', { shared })
+export const mangaPages = (series: string, chapter: string) => native<number>('manga_pages', { series, chapter })
+export const mangaAdd = (series: string, paths: string[]) => native<number>('manga_add', { series, paths })
+export const mangaProgress = (series: string, chapter: string, page: number, pages: number) => native<MangaProgress>('manga_progress', { series, chapter, page, pages })
+export const mangaBookmark = (series: string, chapter: string, page: number) => native<MangaProgress>('manga_bookmark', { series, chapter, page })
+export const mangaRemove = (series: string, chapter?: string) => native<void>('manga_remove', { series, chapter: chapter ?? null })
+export const mangaSearchDetails = (query: string) => native<MangaDetails[]>('manga_search_details', { query })
+export const mangaApplyDetails = (series: string, details: MangaDetails) => native<MangaMeta>('manga_apply_details', { series, details })
+export const mangaAddPeppercarrot = (episodes: number[]) => native<number>('manga_add_peppercarrot', { episodes })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })
