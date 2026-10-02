@@ -63,6 +63,7 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "messages_read", description: "Read the latest messages in one conversation.", inputSchema: object({ chat: s("Chat id from messages_chats"), limit: { type: "number" } }, ["chat"]) },
     { name: "message_send", description: "Send an iMessage/SMS from the user's Mac. BridgeDeck shows the user the exact text and recipient and sends only if they approve.", inputSchema: object({ chat: s("Chat id from messages_chats"), text: s("The message"), to: s("Who it's to, as shown to the user") }, ["chat", "text"]) },
     { name: "computers_status", description: "The user's paired computers: online or not, version, and whether they can be woken.", inputSchema: object({}) },
+    { name: "computer_look", description: "See the screen of one of the user's paired computers (a screenshot you can look at), e.g. to tell them what's on it or guide them step by step. Look only: you can't click or type there. BridgeDeck asks the user first, and the other computer shows that Mimir is viewing.", inputSchema: object({ computer: s("Its name"), monitor: { type: "number", description: "Screen number, 0 for the main one" } }, ["computer"]) },
     { name: "computer_wake", description: "Wake a sleeping paired computer (Wake-on-LAN, same network).", inputSchema: object({ computer: s("Its name") }, ["computer"]) },
     { name: "files_send", description: "Send files or folders from this computer to a paired computer. BridgeDeck asks the user first.", inputSchema: object({ computer: s("Its name"), paths: { type: "array", items: { type: "string" }, description: "Absolute paths" } }, ["computer", "paths"]) },
     { name: "clipboard_read", description: "Read the text on this computer's clipboard.", inputSchema: object({}) },
@@ -176,6 +177,12 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
         const list = await call<Array<{ name: string; platform: string; online: boolean; wakeable: boolean; version?: string }>>("computers");
         if (!list.length) return ok("No paired computers.");
         return ok(list.map((c) => `- ${c.name} (${c.platform}): ${c.online ? `online${c.version ? `, BridgeDeck ${c.version}` : ""}` : `offline${c.wakeable ? ", can be woken" : ""}`}`).join("\n"));
+      } catch (error) { return fail(error); }
+    },
+    computer_look: async (input) => {
+      try {
+        const shot = await call<{ width: number; height: number; jpeg: string }>("computers/look", { computer: str(input, "computer"), monitor: typeof input.monitor === "number" ? input.monitor : 0 });
+        return { content: `Screenshot of ${str(input, "computer")}: ${shot.width}×${shot.height} pixels (attached for you to look at).`, modelImages: [{ mimeType: "image/jpeg", data: shot.jpeg }] };
       } catch (error) { return fail(error); }
     },
     computer_wake: async (input) => {

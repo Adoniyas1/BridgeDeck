@@ -17,8 +17,8 @@ export function bridgeDeckFromEnv(env: NodeJS.ProcessEnv = process.env, fetchImp
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
-        // Sending asks the person first, so give them time to answer.
-        signal: AbortSignal.timeout(path.endsWith("send") ? 180_000 : 30_000)
+        // Sending and looking ask the person first, so give them time to answer.
+        signal: AbortSignal.timeout(path.endsWith("send") || path.endsWith("look") ? 180_000 : 30_000)
       });
       const value = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: T; error?: string };
       if (!response.ok || value.ok === false) throw new Error(value.error || `BridgeDeck answered ${response.status}`);
