@@ -50,13 +50,16 @@ pub(crate) fn main_offset(app: &AppHandle) -> (f64, f64) {
         Ok(p) => offset_from(p.x as f64 / scale, p.y as f64 / scale),
         Err(_) => (0.0, 0.0),
     };
-    // On macOS child pages are placed from the top of the whole window, title bar included, while
-    // BridgeDeck's page starts below it: move down by the title bar (none in full screen).
+    // On macOS child pages are placed in the window's view, which can cover the title bar too, while
+    // BridgeDeck's page starts below it. The view's height ("inner size") minus the height of the
+    // window's content area (the frame less the title bar, from where the content starts on screen)
+    // is how far down to move: the title bar when the view covers it, else 0 (and 0 in full screen).
     #[cfg(target_os = "macos")]
     if y < 1.0 {
-        if let (Ok(outer), Ok(inner)) = (window.outer_size(), window.inner_size()) {
-            let bar = outer.height.saturating_sub(inner.height) as f64 / scale;
-            return offset_from(x, bar);
+        if let (Ok(view), Ok(frame), Ok(frame_at), Ok(content_at)) = (window.inner_size(), window.outer_size(), window.outer_position(), window.inner_position()) {
+            let bar = (content_at.y - frame_at.y).max(0) as f64;
+            let content = frame.height as f64 - bar;
+            return offset_from(x, (view.height as f64 - content) / scale);
         }
     }
     (x, y)
