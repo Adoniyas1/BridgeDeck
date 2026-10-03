@@ -449,7 +449,6 @@ export const skillPacksInstall = (packs: string[]) => native<SkillPacksStatus>('
  *  its message box for the person to send, and chats saved from it go in `folder` (default "ChatGPT"). */
 export const chatgptShow = (text: string | null, folder: string | null, x: number, y: number, w: number, h: number) => native<void>('chatgpt_show', { text, folder, x, y, w, h })
 export const chatgptHide = () => native<void>('chatgpt_hide')
-export const chatgptNew = () => native<void>('chatgpt_new')
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
