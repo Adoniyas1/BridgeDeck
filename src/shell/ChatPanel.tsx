@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageCircleQuestion, SquarePen, X } from 'lucide-react'
 import { useStore } from '../core/store'
 import { chatPanelStore, PANEL_MIN, saveWidth } from '../core/chatgpt'
-import { chatgptHide, chatgptNew, chatgptShow, isTauri } from '../lib/bridge'
+import { chatgptHide, chatgptShow, isTauri } from '../lib/bridge'
 
 /** ChatGPT at the side of the window, like a browser's assistant panel. The page itself is a
  *  native web view laid over the panel's body (src-tauri/src/chatgpt.rs); the rest of BridgeDeck
- *  narrows to make room. Dragging the left edge resizes it. */
+ *  narrows to make room. It runs from the tab bar to the bottom of the window; the tab bar's ChatGPT
+ *  button opens and closes it, and dragging its left edge resizes it. */
 export default function ChatPanel() {
   const { open, width, ask } = useStore(chatPanelStore)
   const body = useRef<HTMLDivElement>(null)
@@ -59,13 +59,7 @@ export default function ChatPanel() {
   if (!open) return null
   return <aside className="chat-panel" style={{ width }}>
     <div className="chat-panel-edge" onPointerDown={startDrag} title="Drag to resize" />
-    <header className="chat-panel-head">
-      <MessageCircleQuestion size={15} /><strong>ChatGPT</strong>
-      <span className="grow" />
-      <button className="cal-icon" title="New chat" onClick={() => void chatgptNew().catch(() => undefined)}><SquarePen size={15} /></button>
-      <button className="cal-icon" title="Close (the chat stays for next time)" onClick={() => chatPanelStore.set(s => ({ ...s, open: false }))}><X size={15} /></button>
-    </header>
-    {error && <p className="cal-error">{error}</p>}
+    {error && <p className="cal-error chat-panel-error">{error}</p>}
     <div ref={body} className="chat-panel-body">
       {(!isTauri() || dragging) && <p className="hint">{dragging ? 'Resizing…' : 'ChatGPT opens here in the BridgeDeck app.'}</p>}
     </div>
