@@ -764,3 +764,24 @@ main.fill .book-scroll{border-radius:0;padding:8px 0}
 .chat-panel>.cal-error{margin:6px 10px}
 .chat-panel-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px}
 .chat-panel-error{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;margin:0}
+.update-signing{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:10px}
+/* TV tab */
+.tv{display:flex;flex-direction:column;gap:10px;padding:16px 20px;overflow:auto;flex:1;min-height:0}
+.tv-head{display:flex;align-items:center;gap:10px}.tv-head h2{margin:0;font-size:18px}
+.tv-group{margin:10px 0 0;font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.tv-tile-wrap{position:relative}
+.tv-tile{width:100%;aspect-ratio:16/9;border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;text-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .12s}
+.tv-tile:hover{transform:scale(1.03)}
+.tv-tile-add{background:var(--surface-2);color:var(--muted);flex-direction:column;font-weight:500;font-size:13px;text-shadow:none;border-style:dashed}
+.tv-remove{position:absolute;top:6px;right:6px;border:0;border-radius:6px;background:rgba(0,0,0,.5);color:#fff;padding:4px;display:none}
+.tv-tile-wrap:hover .tv-remove{display:block}
+.tv-add{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.tv-add input{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font:inherit;font-size:12px}
+.tv.tv-watching{padding:0;gap:0;overflow:hidden}
+.tv-bar{box-sizing:border-box;min-height:var(--page-bar-h);display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--line)}
+.tv-bar .ghost{display:inline-flex;align-items:center;gap:6px}
+.tv-title{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv-area{flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center}
+.tv-watching>.cal-error{margin:6px 12px}
+body.tv-full .tabbar{display:none}

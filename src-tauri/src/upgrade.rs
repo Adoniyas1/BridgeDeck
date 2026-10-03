@@ -49,6 +49,53 @@ pub struct UpgradeInfo {
     pub status: UpgradeStatus,
     /// The end of the update's log, while it runs or after it failed.
     pub log_tail: Vec<String>,
+    /// macOS only: whether builds are signed with the local certificate ("ready"), so permissions
+    /// stay after updates, or not yet ("missing"). Not set on other systems.
+    pub signing: Option<&'static str>,
+}
+
+/// The free local code-signing certificate (scripts/mac-signing.sh); the update scripts sign with it.
+pub const SIGNING_IDENTITY: &str = "BridgeDeck Local Signing";
+
+#[cfg(target_os = "macos")]
+fn signing_ready() -> bool {
+    Command::new("/usr/bin/security")
+        .args(["find-identity", "-v", "-p", "codesigning"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{SIGNING_IDENTITY}\"")))
+        .unwrap_or(false)
+}
+
+fn signing_state() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    return Some(if signing_ready() { "ready" } else { "missing" });
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+/// Creates the local signing certificate (macOS asks for the password once to trust it), so that
+/// from the next update on, Screen Recording, Accessibility and the other permissions stay granted.
+/// Runs the same script as `npm run mac:signing`, built into the app.
+pub fn setup_signing() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if signing_ready() {
+            return Ok("Already set up.".into());
+        }
+        let out = Command::new("/bin/bash")
+            .arg("-c")
+            .arg(include_str!("../../scripts/mac-signing.sh"))
+            .output()
+            .map_err(|e| e.to_string())?;
+        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        if out.status.success() && signing_ready() {
+            Ok(text.trim().to_string())
+        } else {
+            Err(format!("Couldn't set it up: {}", text.trim().lines().last().unwrap_or("the script failed")))
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("Only needed on a Mac".into())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -199,6 +246,7 @@ pub fn info(app: &AppHandle) -> UpgradeInfo {
         git_ready: git_ready(&dir),
         source_dir: dir.to_string_lossy().to_string(),
         log_tail: Vec::new(),
+        signing: signing_state(),
         status: read_status(app),
     }
     .with_log(app)

@@ -33,7 +33,7 @@ export default function App() {
 
   useEffect(() => { void hydrateConfig() }, [])
   // The browser and books use the whole window under the tab bar, with no page margins.
-  const fill = active === 'browser' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
+  const fill = active === 'browser' || active === 'tv' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
 
   return (
     <div className="shell">
