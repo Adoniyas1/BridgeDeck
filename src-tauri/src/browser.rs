@@ -90,6 +90,9 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     let (nav_app, new_app, title_app, load_app) = (app.clone(), app.clone(), app.clone(), app.clone());
     let (nav_tab, new_tab, title_tab, load_tab) = (tab.clone(), id.clone(), tab.clone(), tab.clone());
     let builder = WebviewBuilder::new(&id, WebviewUrl::External(start))
+        // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
+        // own drop handler, which queues files for sending to the other computer.
+        .disable_drag_drop_handler()
         .on_navigation(move |url| {
             let ok = allowed(url);
             if !ok {

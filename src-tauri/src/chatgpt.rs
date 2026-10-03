@@ -215,6 +215,9 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
     let handle = app.clone();
     let new_handle = app.clone();
     let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(URL.parse().map_err(|e| format!("{e}"))?))
+        // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
+        // own drop handler, which queues files for sending to the other computer.
+        .disable_drag_drop_handler()
         .on_navigation(move |url| {
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
             let message = match result.and_then(|chat| save(&handle, chat)) {
