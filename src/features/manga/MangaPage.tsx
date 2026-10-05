@@ -5,7 +5,7 @@ import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { Card, SectionTitle } from '../../ui'
 import { continueAt, readCount, seriesTitle, sortSeries } from './model'
-import { coverUrl, mangaStore, openChapter, refreshManga } from './state'
+import { catalogCoverUrl, coverUrl, mangaStore, openChapter, refreshManga } from './state'
 
 const PUBLIC_MANGA_SOURCES = [
   { name: 'Asura Scans', url: 'https://asurascans.com/series-ranking' },
@@ -97,7 +97,7 @@ export default function MangaPage({ active }: { active: boolean }) {
       <div className="study-new manga-source-search"><input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Your website name" /><input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="Its public catalog page" /><button className="ghost" type="button" onClick={saveCustomSource} disabled={!customName.trim() || !customUrl.trim()}><Plus size={14} />Add source</button></div>
       {(status || error) && <p className={error ? 'cal-error' : 'book-status'}>{error || status}</p>}
     </Card>
-    {catalog.length > 0 && <><SectionTitle title={catalogSource.name} subtitle="Pick a title — its chapters stay and open inside BridgeDeck" /><div className="manga-grid">{catalog.map(item => <div className="manga-card" key={item.url}><button className="manga-cover" onClick={() => void addCatalogManga(item)}>{item.coverUrl ? <img src={item.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <Library size={30} />}</button><strong>{item.title}</strong><button className="ghost manga-continue" onClick={() => void addCatalogManga(item)}><Plus size={13} />Open</button></div>)}</div></>}
+    {catalog.length > 0 && <><SectionTitle title={catalogSource.name} subtitle="Pick a title — its chapters stay and open inside BridgeDeck" /><div className="manga-grid">{catalog.map(item => <div className="manga-card" key={item.url}><button className="manga-cover" onClick={() => void addCatalogManga(item)}>{item.coverUrl ? <img src={catalogCoverUrl(item.coverUrl)} alt="" loading="lazy" /> : <Library size={30} />}</button><strong>{item.title}</strong><button className="ghost manga-continue" onClick={() => void addCatalogManga(item)}><Plus size={13} />Open</button></div>)}</div></>}
     {list.length ? <div className="manga-grid">{list.map(s => {
       const next = continueAt(s)
       const read = readCount(s)

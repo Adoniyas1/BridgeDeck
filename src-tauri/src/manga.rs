@@ -7,6 +7,7 @@
 //! checked after resolving links and `..`). Series details can be looked up on AniList, and the
 //! free Pepper&Carrot webcomic (CC BY 4.0) can be added from the Internet Archive.
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{
@@ -533,6 +534,33 @@ fn cover(root: &Path, series: &str) -> Result<(Vec<u8>, &'static str), String> {
     page(root, series, &first.id, 0)
 }
 
+/// Catalog sites commonly block WebView image requests. Fetch their public cover images through
+/// the native client and retain only these small title thumbnails in a hidden library cache.
+fn catalog_cover(root: &Path, encoded_url: &str) -> Result<(Vec<u8>, &'static str), String> {
+    let raw = URL_SAFE_NO_PAD.decode(encoded_url).map_err(|_| "Invalid catalog cover")?;
+    let raw = String::from_utf8(raw).map_err(|_| "Invalid catalog cover")?;
+    let url = import_url(&raw)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    url.as_str().hash(&mut hasher);
+    let cache_dir = root.join(".catalog-covers");
+    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let prefix = format!("{:016x}", hasher.finish());
+    if let Some(file) = fs::read_dir(&cache_dir).ok().and_then(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.file_stem().is_some_and(|stem| stem.to_string_lossy() == prefix))) {
+        let bytes = fs::read(&file).map_err(|e| e.to_string())?;
+        return Ok((bytes.clone(), image_mime(&bytes, &file.to_string_lossy())));
+    }
+    let response = http()?.get(url.clone()).send().and_then(|r| r.error_for_status()).map_err(|e| format!("Couldn't load catalog cover: {e}"))?;
+    if response.content_length().is_some_and(|size| size > 10 * 1024 * 1024) { return Err("Catalog cover is too large".into()); }
+    let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).cloned();
+    let bytes = response.bytes().map_err(|e| e.to_string())?.to_vec();
+    if bytes.len() > 10 * 1024 * 1024 { return Err("Catalog cover is too large".into()); }
+    let extension = safe_filename_extension(content_type.as_ref().and_then(|value| value.to_str().ok()).unwrap_or(""), &url);
+    let name = format!("{prefix}.{extension}");
+    let _ = fs::write(cache_dir.join(&name), &bytes);
+    Ok((bytes, response_mime(content_type.as_ref(), &name)))
+}
+
 fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -549,7 +577,7 @@ fn percent_decode(text: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// `bdmanga://localhost/<series>/<chapter>/<page>` or `/<series>/.cover`.
+/// `bdmanga://localhost/<series>/<chapter>/<page>`, `/<series>/.cover`, or a cached catalog cover.
 pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     use tauri::http::{header, Response, StatusCode};
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
@@ -558,6 +586,7 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     let Some(path) = percent_decode(request.uri().path().trim_start_matches('/')) else { return fail(StatusCode::NOT_FOUND) };
     let parts: Vec<String> = path.split('/').map(str::to_string).collect();
     let result = match parts.as_slice() {
+        [kind, encoded] if kind == "catalog" => catalog_cover(&root, encoded),
         [series, cover_name] if cover_name == ".cover" => cover(&root, series),
         [series, chapter, index] => index.parse::<usize>().map_err(|e| e.to_string()).and_then(|i| page(&root, series, chapter, i)),
         _ => Err("Not found".into()),

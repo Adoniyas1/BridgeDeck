@@ -51,6 +51,11 @@ export const pageUrl = (series: string, chapter: string, page: number, version?:
   return version ? `${url}?v=${encodeURIComponent(version)}` : url
 }
 export const coverUrl = (series: string, version = 0) => `${convertFileSrc(`${series}/.cover`, 'bdmanga')}?v=${version}`
+/** Catalog covers are loaded by the native client because some source CDNs reject webview hotlinks. */
+export const catalogCoverUrl = (source: string) => {
+  const encoded = btoa(source).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return convertFileSrc(`catalog/${encoded}`, 'bdmanga')
+}
 
 /** Opens a chapter in its own tab. */
 export function openChapter(series: string, title: string, chapter: string, page = 0) {
