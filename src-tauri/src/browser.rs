@@ -6,10 +6,15 @@
 use serde_json::json;
 use tauri::{
     webview::{NewWindowResponse, PageLoadEvent},
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewBuilder, WebviewUrl,
+    AppHandle, Emitter, Manager, Url, WebviewBuilder, WebviewUrl,
 };
 
 const MAIN: &str = "main";
+
+/// What browser pages say they are. macOS: Safari's own name (its engine is the same WebKit).
+/// Windows: WebView2 already names itself as Edge, so it keeps its own.
+#[cfg(target_os = "macos")]
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15";
 
 fn label(tab: &str) -> Result<String, String> {
     let ok = !tab.is_empty() && tab.len() <= 40 && tab.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
@@ -40,44 +45,12 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "about")
 }
 
-/// Where BridgeDeck's own page starts inside the window, in logical pixels. `x, y` come from that
-/// page, but a child page is placed in the window's view: on macOS that view can start above the
-/// main page (the title bar), which put the browser page too high.
-pub(crate) fn main_offset(app: &AppHandle) -> (f64, f64) {
-    let (Some(window), Some(main)) = (app.get_window(MAIN), app.get_webview(MAIN)) else { return (0.0, 0.0) };
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let (x, y) = match main.position() {
-        Ok(p) => offset_from(p.x as f64 / scale, p.y as f64 / scale),
-        Err(_) => (0.0, 0.0),
-    };
-    // On macOS child pages are placed in the window's view, which can cover the title bar too, while
-    // BridgeDeck's page starts below it. The view's height ("inner size") minus the height of the
-    // window's content area (the frame less the title bar, from where the content starts on screen)
-    // is how far down to move: the title bar when the view covers it, else 0 (and 0 in full screen).
-    #[cfg(target_os = "macos")]
-    if y < 1.0 {
-        if let (Ok(view), Ok(frame), Ok(frame_at), Ok(content_at)) = (window.inner_size(), window.outer_size(), window.outer_position(), window.inner_position()) {
-            let bar = (content_at.y - frame_at.y).max(0) as f64;
-            let content = frame.height as f64 - bar;
-            return offset_from(x, (view.height as f64 - content) / scale);
-        }
-    }
-    (x, y)
-}
-
-/// Only small, positive offsets are believed (a title bar or a border), never a whole page.
-fn offset_from(x: f64, y: f64) -> (f64, f64) {
-    let ok = |v: f64| if v.is_finite() && (0.0..=200.0).contains(&v) { v } else { 0.0 };
-    (ok(x), ok(y))
-}
-
 /// Shows the browser tab's page at `x, y` (`w × h`, logical pixels in the window), creating it on
 /// first use; with `url`, goes there.
 #[tauri::command]
 pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let id = label(&tab)?;
-    let (dx, dy) = main_offset(&app);
-    let (pos, size) = (LogicalPosition::new(x.max(0.0) + dx, y.max(0.0) + dy), LogicalSize::new(w.max(1.0), h.max(1.0)));
+    let (pos, size) = crate::placement::bounds(x, y, w, h);
     let target = url.as_deref().map(address);
     if let Some(view) = app.get_webview(&id) {
         view.set_position(pos).map_err(|e| e.to_string())?;
@@ -86,6 +59,7 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
         if let Some(target) = target {
             view.navigate(target).map_err(|e| e.to_string())?;
         }
+        crate::placement::verify(&app, &id, x, y);
         return Ok(());
     }
     let window = app.get_window(MAIN).ok_or("BridgeDeck's window isn't open")?;
@@ -123,7 +97,12 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
             let loading = matches!(payload.event(), PageLoadEvent::Started);
             let _ = load_app.emit_to(MAIN, "browser-page", json!({ "tab": load_tab, "url": payload.url().as_str(), "loading": loading, "label": view.label() }));
         });
+    // Present as Safari: macOS's built-in web view is Safari's engine but leaves "Safari" out of its
+    // name, and many sites (streaming services above all) then show a blank page or "unsupported".
+    #[cfg(target_os = "macos")]
+    let builder = builder.user_agent(USER_AGENT);
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open the page: {e}"))?;
+    crate::placement::verify(&app, &id, x, y);
     Ok(())
 }
 
@@ -162,13 +141,6 @@ pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_small_offsets_move_the_page() {
-        assert_eq!(offset_from(0.0, 28.0), (0.0, 28.0));
-        assert_eq!(offset_from(-5.0, 900.0), (0.0, 0.0));
-        assert_eq!(offset_from(f64::NAN, 10.0), (0.0, 10.0));
-    }
 
     #[test]
     fn the_address_bar_takes_urls_domains_and_searches() {

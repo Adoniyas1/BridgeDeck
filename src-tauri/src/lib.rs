@@ -14,6 +14,7 @@ mod mimir_host;
 mod remote;
 mod send_to;
 mod browser;
+mod placement;
 mod chatgpt;
 mod manga;
 mod projects;
