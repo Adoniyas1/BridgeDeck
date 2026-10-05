@@ -11,6 +11,11 @@ use tauri::{
 
 const MAIN: &str = "main";
 
+/// What browser pages say they are. macOS: Safari's own name (its engine is the same WebKit).
+/// Windows: WebView2 already names itself as Edge, so it keeps its own.
+#[cfg(target_os = "macos")]
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15";
+
 fn label(tab: &str) -> Result<String, String> {
     let ok = !tab.is_empty() && tab.len() <= 40 && tab.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     if ok { Ok(format!("browser-{tab}")) } else { Err("Invalid browser tab".into()) }
@@ -123,6 +128,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
             let loading = matches!(payload.event(), PageLoadEvent::Started);
             let _ = load_app.emit_to(MAIN, "browser-page", json!({ "tab": load_tab, "url": payload.url().as_str(), "loading": loading, "label": view.label() }));
         });
+    // Present as Safari: macOS's built-in web view is Safari's engine but leaves "Safari" out of its
+    // name, and many sites (streaming services above all) then show a blank page or "unsupported".
+    #[cfg(target_os = "macos")]
+    let builder = builder.user_agent(USER_AGENT);
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open the page: {e}"))?;
     Ok(())
 }
