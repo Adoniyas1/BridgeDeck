@@ -487,3 +487,22 @@ export const mangaSearchDetails = (query: string) => native<MangaDetails[]>('man
 export const mangaApplyDetails = (series: string, details: MangaDetails) => native<MangaMeta>('manga_apply_details', { series, details })
 export const mangaAddPeppercarrot = (episodes: number[]) => native<number>('manga_add_peppercarrot', { episodes })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })
+
+/** The built-in ad blocker for web pages (src-tauri/src/adblock.rs). */
+export type AdblockStatus = { enabled: boolean; updated: number; servers: number; hiding: number; error: string | null }
+export const adblockStatus = () => native<AdblockStatus>('adblock_status')
+export const adblockSet = (enabled: boolean) => native<AdblockStatus>('adblock_set', { enabled })
+export const adblockUpdate = () => native<AdblockStatus>('adblock_update')
+
+/** Chrome extensions for web pages, Windows only (src-tauri/src/extensions.rs). */
+export type BrowserExtension = { id: string; name: string; version: string; description: string }
+export const extensionsList = () => native<BrowserExtension[]>('extensions_list')
+export const extensionsAdd = (path: string) => native<BrowserExtension>('extensions_add', { path })
+export const extensionsRemove = (id: string) => native<void>('extensions_remove', { id })
+export const extensionsGetUblock = () => native<BrowserExtension>('extensions_get_ublock')
+/** Picks an extension: an unpacked folder, or a .crx / .zip file. */
+export async function pickExtension(folder: boolean): Promise<string | null> {
+  if (!isTauri()) return null
+  const picked = folder ? await open({ directory: true, multiple: false }) : await open({ multiple: false, filters: [{ name: 'Chrome extension', extensions: ['crx', 'zip'] }] })
+  return typeof picked === 'string' ? picked : null
+}

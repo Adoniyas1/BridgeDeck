@@ -394,6 +394,10 @@ Everything left, combined into one order. One PR each.
    Max, Apple TV+, Paramount+, Peacock, Crunchyroll) and the user's own shortcuts, played in a web view
    inside the window like the Browser tab, with "Full window" and "Open in my browser" for services
    whose copy protection the built-in web view can't play.
+5e. **Ad blocker and extensions (built; asked for 2026-10-05)**: EasyList + EasyPrivacy (downloaded, refreshed
+   every few days) for Browser, TV and ChatGPT pages: on macOS as a Safari content-blocker list (blocking and
+   hiding), on Windows by refusing requests to listed servers. Chrome extensions on Windows (WebView2 is
+   Chromium): from a .crx/.zip or unpacked folder, or "Get uBlock Origin Lite". macOS's WebKit can't run them.
 6. **Mimir proactive + voice + safety (6a built: morning brief, evening study check-in, "while you were away", daily_brief for Mimir, activity log; 6b built look-only: Mimir sees a paired computer's screen with the user's yes and a banner there, and never clicks or types — chosen 2026-10-02)**: morning brief, deadline and exam nudges, "while you were
    away"; wake word and hotkey on both computers; self-written skills can use the BridgeDeck tools;
    an activity log, and a confirm for every outward action; looking at or controlling the other

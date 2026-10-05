@@ -101,8 +101,20 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     // name, and many sites (streaming services above all) then show a blank page or "unsupported".
     #[cfg(target_os = "macos")]
     let builder = builder.user_agent(USER_AGENT);
+    // Windows: Chrome extensions (extensions.rs) load into these pages, which keep their own browser
+    // data folder (WebView2 shares a folder only between views made with the same settings).
+    #[cfg(windows)]
+    let builder = {
+        let mut builder = builder.browser_extensions_enabled(true);
+        if let Some(dir) = crate::extensions::dir(&app) {
+            let _ = std::fs::create_dir_all(&dir);
+            builder = builder.extensions_path(dir);
+        }
+        match crate::extensions::web_data_dir(&app) { Some(data) => builder.data_directory(data), None => builder }
+    };
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open the page: {e}"))?;
     crate::placement::verify(&app, &id, x, y);
+    crate::adblock::attach(&app, &id);
     Ok(())
 }
 
