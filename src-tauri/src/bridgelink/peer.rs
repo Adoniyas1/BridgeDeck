@@ -897,7 +897,7 @@ static UPGRADE_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
 fn handle_upgrade_request(app: &AppHandle, peer_name: &str, req: &UpgradeRequest) -> Result<(), String> {
     use crate::upgrade::UpgradeMode;
-    let mode = match req.mode.as_str() { "" | "git" => UpgradeMode::Git, "source" => UpgradeMode::Source, _ => return Err("Unknown upgrade mode".into()) };
+    let mode = match req.mode.as_str() { "" | "git" => UpgradeMode::Git, "source" => UpgradeMode::Source, "release" => UpgradeMode::Release, _ => return Err("Unknown upgrade mode".into()) };
     crate::upgrade::preflight(&mode)?;
     if crate::upgrade::is_running(app) {
         return Err("An upgrade is already running on this computer".into());
@@ -920,6 +920,7 @@ fn confirm_upgrade(app: &AppHandle, peer_name: &str, mode: &crate::upgrade::Upgr
     let from = if req.from_version.trim().is_empty() { String::new() } else { format!(" (it runs v{})", req.from_version.trim()) };
     let what = match mode {
         crate::upgrade::UpgradeMode::Git => "pull the latest version from GitHub".to_string(),
+        crate::upgrade::UpgradeMode::Release => "install the latest release from GitHub".to_string(),
         crate::upgrade::UpgradeMode::Source => format!("use {peer_name}'s own source code{from}, sent to this computer"),
     };
     let text = format!(

@@ -414,6 +414,38 @@ ts-fsrs, Excalidraw, Mermaid, Tesseract.js, whisper.cpp, SQLite FTS. Obsidian it
 source, and Logseq / Joplin / SiYuan are AGPL apps, so they are supported through the vault
 folder rather than built in.
 
+### Phase 10: Releases, polish, and the next features (planned 2026-10-06)
+
+Done first: **ready-built releases** (step 0). Then, in order; each step is its own pull request.
+
+0. **Releases (built)**: `.github/workflows/release.yml` (Actions → Release → Run workflow, or a `v*` tag)
+   builds the universal Mac app and the Windows installer and publishes a GitHub release with checksums.
+   The app (Settings → Updates) installs it: download with git's saved GitHub sign-in (private repo),
+   SHA-256 check, replace, restart; the Mac re-signs it with the local certificate so permissions stay.
+   Rebuild-from-source stays as the fallback. Releases are made on request (macOS runners use 10× the
+   free minutes on a private repository); automatic releases on merge are one line away if wanted.
+1. **Mac build check on pull requests**: a `cargo check` on a macOS runner when Rust files change (path
+   filter keeps the cost down), so Mac-only code is compiled before merging.
+2. **TV and Browser video**: full screen from players (WKWebView's element full screen preference,
+   or BridgeDeck filling the window), pause or picture-in-picture when leaving the TV tab.
+3. **Ad blocker polish**: "allow ads on this site" in the Browser/TV bars; hiding ad boxes on Windows
+   (an injected stylesheet with the generic selectors).
+4. **Faster start**: load each tab's code when it's first opened (React lazy + Vite chunks); the main
+   bundle is 1.2 MB today.
+5. **Lecture recording to notes**: record in the Study tab (MediaRecorder), transcribe on the computer
+   with Whisper (whisper.cpp model downloaded once in Settings, 75–150 MB; microphone permission), save
+   the transcript as a note in the course with timestamps.
+6. **Drawings in notes**: an Excalidraw block in notes, saved with the note and synced.
+7. **EPUB reading in the app**: epub.js in a book tab like PDFs (highlights, search index, flashcards).
+8. **PDF upgrades**: highlights drawn on the page, dark reading mode, more OCR languages.
+9. **Browser**: several tabs, bookmarks and history, downloads to a chosen folder (and to the other
+   computer), "send this page to my other computer".
+10. **TV**: "continue watching" (last service and page).
+11. **ChatGPT anywhere**: a shortcut to open the panel; "Ask about this" for selected text in any tab.
+12. **Search everything (Cmd+K)** and a keyboard-shortcut list.
+13. **Backups**: daily backup of notes, cards and settings to the shared folder, one-click restore.
+14. **Remote control video and audio** (Phase 9 step 8): hardware H.264 and audio; large, platform work.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

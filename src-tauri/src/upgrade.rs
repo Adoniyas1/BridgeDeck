@@ -22,6 +22,14 @@ pub enum UpgradeMode {
     Git,
     /// A `bridgedeck-source-*.tar.gz` bundle received from the paired computer.
     Source,
+    /// A ready-built release from GitHub (no rebuild): the Mac app or the Windows installer.
+    Release,
+}
+
+impl UpgradeMode {
+    fn arg(&self) -> &'static str {
+        match self { UpgradeMode::Git => "git", UpgradeMode::Source => "source", UpgradeMode::Release => "release" }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -55,6 +63,7 @@ pub struct UpgradeInfo {
 }
 
 /// The free local code-signing certificate (scripts/mac-signing.sh); the update scripts sign with it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const SIGNING_IDENTITY: &str = "BridgeDeck Local Signing";
 
 #[cfg(target_os = "macos")]
@@ -268,6 +277,12 @@ pub fn is_running(app: &AppHandle) -> bool {
 
 /// Checks a request can run here before asking the user to approve it.
 pub fn preflight(mode: &UpgradeMode) -> Result<(), String> {
+    if *mode == UpgradeMode::Release {
+        if running_from_source() {
+            return Err("This is a development build (npm run tauri dev); it updates from its source instead".into());
+        }
+        return Ok(());
+    }
     let dir = source_dir();
     if !dir.join("package.json").exists() {
         return Err(format!("This computer's BridgeDeck source folder is missing ({})", dir.display()));
@@ -292,11 +307,22 @@ pub fn start(app: &AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, reques
         state: "running".into(),
         stage: "starting".into(),
         message: "Starting".into(),
-        mode: if mode == UpgradeMode::Git { "git" } else { "source" }.into(),
+        mode: mode.arg().into(),
         requested_by: requested_by.into(),
         from_version: env!("CARGO_PKG_VERSION").into(),
         updated_at: now_ms(),
     })?;
+    if mode == UpgradeMode::Release {
+        // Download (network, so off the calling thread), check it, then install it.
+        let app = app.clone();
+        std::thread::spawn(move || {
+            match download_release(&app).and_then(|file| launch_script(&app, &mode, Some(file), &dir)) {
+                Ok(()) => {}
+                Err(error) => set_stage(&app, "failed", "download", error),
+            }
+        });
+        return Ok(());
+    }
     if running_from_source() {
         update_in_place(app.clone(), mode, bundle, dir);
         return Ok(());
@@ -326,12 +352,22 @@ fn set_stage(app: &AppHandle, state: &str, stage: &str, message: String) {
     let _ = write_status(app, &current);
 }
 
+/// The update script to run: the source's own (it may be newer, just pulled) when rebuilding from
+/// source, the one built into this app when installing a release (no source needed).
+fn copy_script(mode: &UpgradeMode, dir: &Path, name: &str, built_in: &str, to: &Path) -> Result<(), String> {
+    let from_source = dir.join("scripts").join(name);
+    if *mode != UpgradeMode::Release && from_source.exists() {
+        return fs::copy(&from_source, to).map(|_| ()).map_err(|e| format!("self-update script: {e}"));
+    }
+    fs::write(to, built_in).map_err(|e| format!("self-update script: {e}"))
+}
+
 /// The detached rebuild-and-reinstall script (`scripts/self-update.*`).
 fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, dir: &Path) -> Result<(), String> {
     let dir = dir.to_path_buf();
     let work = upgrade_dir(app)?;
     let status_file = status_path(app)?;
-    let mode_arg = if *mode == UpgradeMode::Git { "git" } else { "source" };
+    let mode_arg = mode.arg();
     let bundle_arg = bundle.map(|b| b.to_string_lossy().to_string()).unwrap_or_default();
     let app_path = current_app_path();
 
@@ -340,7 +376,7 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
     let child = {
         use std::os::windows::process::CommandExt;
         let script = work.join("self-update.ps1");
-        fs::copy(dir.join("scripts").join("self-update.ps1"), &script).map_err(|e| format!("self-update script missing: {e}"))?;
+        copy_script(mode, &dir, "self-update.ps1", include_str!("../../scripts/self-update.ps1"), &script)?;
         Command::new("powershell.exe")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -357,7 +393,7 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
     #[cfg(not(target_os = "windows"))]
     let child = {
         let script = work.join("self-update.sh");
-        fs::copy(dir.join("scripts").join("self-update.sh"), &script).map_err(|e| format!("self-update script missing: {e}"))?;
+        copy_script(mode, &dir, "self-update.sh", include_str!("../../scripts/self-update.sh"), &script)?;
         use std::os::unix::process::CommandExt;
         Command::new("/bin/bash")
             .arg(&script)
@@ -393,6 +429,150 @@ pub struct UpdateCheck {
     pub upstream: String,
     /// The newest of those commits' titles.
     pub latest: String,
+    /// A newer ready-built release on GitHub, if there is one.
+    pub release: Option<Release>,
+    /// This build's version.
+    pub version: String,
+}
+
+// ---- Ready-built releases (GitHub Releases, made by .github/workflows/release.yml) ----
+
+/// Where releases are published when the clone's own remote can't tell.
+const REPO: &str = "Adoniyas1/BridgeDeck";
+
+#[derive(Clone, Debug, Serialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Release {
+    pub version: String,
+    pub name: String,
+    pub notes: String,
+    pub published: String,
+    /// Whether it has a download for this computer.
+    pub installable: bool,
+}
+
+/// "owner/repo" from a GitHub remote address (https or ssh).
+pub fn repo_from_remote(url: &str) -> Option<String> {
+    let rest = url.trim().strip_prefix("https://github.com/").or_else(|| url.trim().strip_prefix("git@github.com:"))
+        .or_else(|| url.trim().strip_prefix("ssh://git@github.com/"))?;
+    let rest = rest.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = rest.splitn(3, '/');
+    let (owner, repo) = (parts.next()?, parts.next()?);
+    let ok = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    (ok(owner) && ok(repo)).then(|| format!("{owner}/{repo}"))
+}
+
+fn repo() -> String {
+    git_output(&source_dir(), &["remote", "get-url", "origin"]).ok().and_then(|u| repo_from_remote(&u)).unwrap_or_else(|| REPO.into())
+}
+
+/// The GitHub sign-in this computer already uses for `git pull` (the repository is private), from
+/// git's own credential store; none when git has no saved sign-in for GitHub.
+fn github_token() -> Option<String> {
+    use std::io::Write;
+    let mut cmd = Command::new(git_program());
+    cmd.args(["credential", "fill"]).env("GIT_TERMINAL_PROMPT", "0").env("GCM_INTERACTIVE", "never")
+        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().ok()?;
+    child.stdin.take()?.write_all(b"protocol=https\nhost=github.com\n\n").ok()?;
+    let out = child.wait_with_output().ok()?;
+    String::from_utf8_lossy(&out.stdout).lines().find_map(|l| l.strip_prefix("password=").map(str::to_string)).filter(|t| !t.is_empty())
+}
+
+/// Whether version `a` is newer than `b` ("0.10.2" > "0.9.7"; a leading "v" is ignored).
+pub fn newer(a: &str, b: &str) -> bool {
+    let parse = |v: &str| -> Vec<u64> { v.trim().trim_start_matches('v').split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect() };
+    parse(a) > parse(b)
+}
+
+/// This computer's download in a release: the Mac app or the Windows installer.
+fn is_download_for_here(name: &str) -> bool {
+    if cfg!(target_os = "macos") { name.ends_with(".app.tar.gz") } else if cfg!(windows) { name.ends_with("-setup.exe") } else { false }
+}
+
+fn github() -> Result<(reqwest::blocking::Client, Option<String>), String> {
+    let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(600)).user_agent("BridgeDeck updater").build().map_err(|e| e.to_string())?;
+    Ok((client, github_token()))
+}
+
+fn latest_release_json() -> Result<Option<serde_json::Value>, String> {
+    let (client, token) = github()?;
+    let mut request = client.get(format!("https://api.github.com/repos/{}/releases/latest", repo())).header("Accept", "application/vnd.github+json");
+    if let Some(token) = &token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().map_err(|e| format!("Could not reach GitHub: {e}"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        // No release yet (or, for a private repository, no saved GitHub sign-in to see it).
+        return Ok(None);
+    }
+    let response = response.error_for_status().map_err(|e| format!("GitHub releases: {e}"))?;
+    response.json().map(Some).map_err(|e| e.to_string())
+}
+
+pub fn release_from_json(json: &serde_json::Value) -> Release {
+    Release {
+        version: json["tag_name"].as_str().unwrap_or_default().trim_start_matches('v').to_string(),
+        name: json["name"].as_str().unwrap_or_default().to_string(),
+        notes: json["body"].as_str().unwrap_or_default().chars().take(2000).collect(),
+        published: json["published_at"].as_str().unwrap_or_default().to_string(),
+        installable: json["assets"].as_array().into_iter().flatten().any(|a| a["name"].as_str().is_some_and(is_download_for_here)),
+    }
+}
+
+/// A release newer than this build, if GitHub has one.
+pub fn check_release() -> Result<Option<Release>, String> {
+    Ok(latest_release_json()?.map(|j| release_from_json(&j)).filter(|r| newer(&r.version, env!("CARGO_PKG_VERSION"))))
+}
+
+/// The SHA-256 listed for `file` in a `SHA256SUMS.txt` ("<hash>  <name>" per line).
+pub fn checksum_for(sums: &str, file: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let (hash, name) = line.trim().split_once(char::is_whitespace)?;
+        (name.trim().trim_start_matches('*') == file && hash.len() == 64).then(|| hash.to_ascii_lowercase())
+    })
+}
+
+/// Downloads this computer's file from the latest release and checks it against the release's
+/// checksums. Returns where it was saved.
+fn download_release(app: &AppHandle) -> Result<PathBuf, String> {
+    set_stage(app, "running", "download", "Looking for the latest release".into());
+    let json = latest_release_json()?.ok_or("There's no release on GitHub yet (or this computer has no GitHub sign-in saved for git)")?;
+    let release = release_from_json(&json);
+    let assets: Vec<&serde_json::Value> = json["assets"].as_array().into_iter().flatten().collect();
+    let asset = assets.iter().find(|a| a["name"].as_str().is_some_and(is_download_for_here)).ok_or("The latest release has no download for this computer yet")?;
+    let sums = assets.iter().find(|a| a["name"] == "SHA256SUMS.txt").ok_or("The latest release has no checksums")?;
+    let (client, token) = github()?;
+    let fetch = |asset: &serde_json::Value| -> Result<Vec<u8>, String> {
+        let url = asset["url"].as_str().ok_or("A release file without an address")?;
+        if !url.starts_with("https://api.github.com/") {
+            return Err("Unexpected download address".into());
+        }
+        let mut request = client.get(url).header("Accept", "application/octet-stream");
+        if let Some(token) = &token {
+            request = request.bearer_auth(token);
+        }
+        request.send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map(|b| b.to_vec()).map_err(|e| format!("Download failed: {e}"))
+    };
+    let name = asset["name"].as_str().unwrap_or_default().to_string();
+    if name.contains(['/', '\\']) || name.starts_with('.') {
+        return Err("Unexpected file name in the release".into());
+    }
+    let expected = checksum_for(&String::from_utf8_lossy(&fetch(sums)?), &name).ok_or("The checksums don't list this computer's download")?;
+    set_stage(app, "running", "download", format!("Downloading v{}", release.version));
+    let bytes = fetch(asset)?;
+    let actual: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    if actual != expected {
+        return Err("The download didn't match its checksum, so it wasn't installed".into());
+    }
+    let folder = upgrade_dir(app)?.join("release");
+    let _ = fs::remove_dir_all(&folder);
+    fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let file = folder.join(&name);
+    fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    set_stage(app, "running", "install", format!("Installing v{}", release.version));
+    Ok(file)
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -460,14 +640,18 @@ pub fn prepare_git(dir: &Path) -> Result<bool, String> {
 /// Fetches from GitHub and counts the commits this clone is missing from `main` (what "Update" gets).
 pub fn check_for_update() -> Result<UpdateCheck, String> {
     let dir = source_dir();
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    // A release is looked for either way; a failure to reach GitHub only shows when git can't either.
+    let release = check_release();
     if !git_ready(&dir) {
-        return Ok(UpdateCheck::default());
+        return Ok(UpdateCheck { release: release?, version, ..UpdateCheck::default() });
     }
+    let release = release.unwrap_or(None);
     git_output(&dir, &["fetch", "--quiet", "origin", MAIN]).map_err(|e| format!("Could not reach GitHub: {e}"))?;
     let upstream = format!("origin/{MAIN}");
     let behind = git_output(&dir, &["rev-list", "--count", &format!("HEAD..{upstream}")])?.parse().unwrap_or(0);
     let latest = if behind > 0 { git_output(&dir, &["log", "-1", "--format=%s", &upstream]).unwrap_or_default() } else { String::new() };
-    Ok(UpdateCheck { git: true, behind, upstream, latest })
+    Ok(UpdateCheck { git: true, behind, upstream, latest, release, version })
 }
 
 /// Started by `npm run tauri dev` (a debug build): the dev server watches the source and rebuilds and
@@ -492,6 +676,7 @@ fn update_in_place(app: AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, d
                         note = " Your own edits were set aside with git stash (git stash pop brings them back).".into();
                     }
                 }
+                UpgradeMode::Release => return Err("A development build updates from its source".into()),
                 UpgradeMode::Source => {
                     status("running", "unpack", "Unpacking the source sent by the other computer".into());
                     let bundle = bundle.ok_or("The source bundle is missing")?;
@@ -599,6 +784,23 @@ pub fn locate_received_bundle(app: &AppHandle, file_name: &str, sha256: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn releases_reading_and_versions() {
+        assert_eq!(repo_from_remote("https://github.com/Adoniyas1/BridgeDeck.git").as_deref(), Some("Adoniyas1/BridgeDeck"));
+        assert_eq!(repo_from_remote("git@github.com:Adoniyas1/BridgeDeck.git").as_deref(), Some("Adoniyas1/BridgeDeck"));
+        assert_eq!(repo_from_remote("https://gitlab.com/a/b"), None);
+        assert!(newer("0.10.0", "0.9.9") && newer("v1.0.0", "0.99.0") && !newer("0.9.1", "0.9.1") && !newer("0.9.0", "0.9.1"));
+        let sums = format!("{}  BridgeDeck_0.9.2_universal.app.tar.gz\n{} *BridgeDeck_0.9.2_x64-setup.exe\n", "a".repeat(64), "B".repeat(64));
+        assert_eq!(checksum_for(&sums, "BridgeDeck_0.9.2_universal.app.tar.gz"), Some("a".repeat(64)));
+        assert_eq!(checksum_for(&sums, "BridgeDeck_0.9.2_x64-setup.exe"), Some("b".repeat(64)));
+        assert_eq!(checksum_for(&sums, "other.dmg"), None);
+        let json = serde_json::json!({ "tag_name": "v0.9.2", "name": "BridgeDeck 0.9.2", "body": "Notes", "published_at": "2026-10-06T10:00:00Z",
+            "assets": [{ "name": "BridgeDeck_0.9.2_universal.app.tar.gz" }, { "name": "BridgeDeck_0.9.2_x64-setup.exe" }, { "name": "SHA256SUMS.txt" }] });
+        let release = release_from_json(&json);
+        assert_eq!((release.version.as_str(), release.notes.as_str()), ("0.9.2", "Notes"));
+        assert_eq!(release.installable, cfg!(any(target_os = "macos", windows)));
+    }
 
     #[test]
     fn a_dead_or_stalled_update_is_reported_as_failed() {

@@ -109,7 +109,7 @@ On Windows, the installer is produced under src-tauri/target/release/bundle/nsis
 $env:CARGO_BUILD_JOBS="1"; $env:CARGO_PROFILE_RELEASE_OPT_LEVEL="2"; $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS="16"; npm run tauri build
 ~~~
 
-Prebuilt macOS DMG and Windows installer artifacts are available from the repository's GitHub Actions **Release build** workflow.
+Prebuilt Mac (DMG, and the app for in-app updates) and Windows installers are published as GitHub releases by the **Release** workflow (Actions → Release → Run workflow, or a `v*` tag). Installed BridgeDeck updates itself from the latest release in Settings → Updates.
 
 ## First launch and pairing
 

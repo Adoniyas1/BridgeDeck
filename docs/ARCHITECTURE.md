@@ -70,7 +70,7 @@ App config folder (`dev.bridgedeck.app`): `config-v7.json` (settings, no secrets
 
 - `npm run build`, `npm test` (vitest), `npm run verify:project` (static guards).
 - `cargo check`, `cargo test` in `src-tauri`; Windows is cross-checked with
-  `--target x86_64-pc-windows-gnu`. macOS code is compiled by `release.yml` (installers, run on
+  `--target x86_64-pc-windows-gnu`. macOS code is compiled by `release.yml` (releases the app installs itself, run on
   demand for big changes, D13).
 - `vendor/` holds pinned upstream source (`vendor-lock.json`: Syncthing, LocalSend);
   `scripts/build-syncthing.mjs` builds the sidecar.

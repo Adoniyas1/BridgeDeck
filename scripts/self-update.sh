@@ -1,7 +1,8 @@
 #!/bin/bash
 # Rebuilds and reinstalls BridgeDeck on macOS. Started detached by BridgeDeck itself (src-tauri/src/upgrade.rs)
 # after the user approved the upgrade; BridgeDeck runs a copy of this script, so it may rewrite the original.
-#   self-update.sh <git|source> <bundle-or-empty> <status.json> <source-dir> <installed .app>
+#   self-update.sh <git|source|release> <bundle-or-empty> <status.json> <source-dir> <installed .app>
+# release: <bundle> is a ready-built, already verified BridgeDeck.app (.app.tar.gz) from GitHub: no build.
 # Progress goes to the status JSON (read by /upgrade/status) and details to "<status>.log".
 set -uo pipefail
 MODE="$1"; BUNDLE="$2"; STATUS="$3"; SRC="$4"; APP_BUNDLE="$5"
@@ -24,6 +25,15 @@ run() { # stage label command...
   "$@" >> "$LOG" 2>&1 || fail "$stage" "$label failed"
 }
 
+if [ "$MODE" = release ]; then
+  [ -f "$BUNDLE" ] || fail unpack "The downloaded release is missing"
+  UNPACKED="$(dirname "$BUNDLE")/unpacked"
+  rm -rf "$UNPACKED"; mkdir -p "$UNPACKED"
+  run unpack "Unpacking the new version" tar -xzf "$BUNDLE" -C "$UNPACKED"
+  NEW_APP=$(find "$UNPACKED" -maxdepth 2 -name '*.app' -type d | head -1)
+  [ -n "$NEW_APP" ] || fail install "The release had no app in it"
+  VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$NEW_APP/Contents/Info.plist" 2>/dev/null || echo "?")
+else
 cd "$SRC" || fail setup "Source folder $SRC is missing"
 if [ "$MODE" = git ]; then
   run pull "Pulling the latest version from GitHub" git -C "$SRC" pull --ff-only
@@ -43,6 +53,7 @@ run build "Building BridgeDeck (several minutes)" npm run tauri build -- --bundl
 NEW_APP="$SRC/src-tauri/target/release/bundle/macos/BridgeDeck.app"
 [ -d "$NEW_APP" ] || fail install "The build produced no app bundle"
 VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "?")
+fi
 set_status running install "Installing v$VERSION"
 osascript -e 'tell application id "dev.bridgedeck.app" to quit' >/dev/null 2>&1
 sleep 3
