@@ -1,23 +1,68 @@
-# Builds the Mac and Windows installers (roadmap D13): run it by hand from the Actions tab for big
-# changes, or push a tag like v0.8.0 to also create a draft GitHub release with the installers.
-name: Release build
+# Builds BridgeDeck for Mac and Windows and publishes a GitHub release that the app installs by
+# itself (Settings → Updates: download, checksum, replace, restart; no rebuild on the computer).
+#
+# Start one from the Actions tab ("Release" → Run workflow; the version is the next one up unless
+# you type one), or push a tag like v0.9.2. macOS runners cost more of the free Actions minutes on a
+# private repository, so releases are made when asked rather than on every merge.
+name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.9.2). Leave empty for the next one.'
+        required: false
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [ -n "$REQUESTED" ]; then
+            version="${REQUESTED#v}"
+          else
+            # The next patch after the newer of package.json's version and the last release.
+            base=$(node -p "require('./package.json').version")
+            last=$(gh release list --limit 1 --exclude-drafts --json tagName -q '.[0].tagName' 2>/dev/null | sed 's/^v//')
+            top=$(printf '%s\n%s\n' "$base" "${last:-0.0.0}" | sort -V | tail -1)
+            IFS=. read -r major minor patch <<< "$top"
+            version="$major.$minor.$((patch + 1))"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a version: $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
   build:
+    needs: version
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - platform: macos-latest
-            args: --target universal-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
           - platform: windows-latest
-            args: ''
+            args: --bundles nsis
     runs-on: ${{ matrix.platform }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,6 +76,8 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - run: node scripts/set-version.mjs "$VERSION"
+        shell: bash
       - run: node scripts/vendor.mjs fetch --only localsend,syncthing
       - uses: actions/setup-go@v5
         with:
@@ -39,22 +86,52 @@ jobs:
       - name: Build the bundled Syncthing
         run: node scripts/build-syncthing.mjs ${{ matrix.platform == 'macos-latest' && '--universal' || '' }}
       - uses: tauri-apps/tauri-action@v0
-        id: tauri
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # The repo also carries a pnpm lockfile; without this the action picks pnpm, which isn't installed.
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
-          # Only tag builds publish a (draft) release; manual runs just upload the installers below.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: BridgeDeck ${{ github.ref_name }}
-          releaseDraft: true
+      - name: Collect the release files (Mac)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p out
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          # The app the updater installs, and the disk image for a first install.
+          tar -czf "out/BridgeDeck_${VERSION}_universal.app.tar.gz" -C "$bundle/macos" BridgeDeck.app
+          cp "$bundle"/dmg/*.dmg out/
+      - name: Collect the release files (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p out
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe out/
       - uses: actions/upload-artifact@v4
         with:
-          name: bridgedeck-${{ matrix.platform }}
-          path: |
-            src-tauri/target/*/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
+          name: release-${{ matrix.platform }}
+          path: out/*
           if-no-files-found: error
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums (the app checks downloads against these)
+        working-directory: out
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Publish the release
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/* --clobber
+            gh release edit "$tag" --draft=false --latest
+          else
+            gh release create "$tag" out/* --target "$GITHUB_SHA" --title "BridgeDeck $VERSION" --generate-notes --latest
+          fi

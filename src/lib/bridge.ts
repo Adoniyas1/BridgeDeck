@@ -359,7 +359,11 @@ export async function upgradeInfo(): Promise<UpgradeInfo | null> {
 }
 
 /** Pull the latest main from GitHub and rebuild this computer's BridgeDeck. */
-export type UpdateCheck = { git: boolean; behind: number; upstream: string; latest: string }
+/** A ready-built release on GitHub (src-tauri/src/upgrade.rs). */
+export type Release = { version: string; name: string; notes: string; published: string; installable: boolean }
+export type UpdateCheck = { git: boolean; behind: number; upstream: string; latest: string; release?: Release | null; version?: string }
+/** Installs the latest ready-built release from GitHub: download, checksum, replace, restart (no rebuild). */
+export const upgradeRelease = () => native<void>('upgrade_release')
 export const upgradeCheck = () => native<UpdateCheck>('upgrade_check')
 
 export async function upgradeSelf(): Promise<void> {

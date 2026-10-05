@@ -2,9 +2,10 @@
 # after the user approved the upgrade; BridgeDeck runs a copy of this script, so it may rewrite the original.
 #   -Mode git     git pull --ff-only in the source folder
 #   -Mode source  unpack a verified source bundle over the source folder
+#   -Mode release run a ready-built, already verified installer from GitHub (-Bundle): no build
 # Progress goes to the -Status JSON file (read by /upgrade/status) and details to "<status>.log".
 param(
-  [Parameter(Mandatory)][ValidateSet('git', 'source')][string]$Mode,
+  [Parameter(Mandatory)][ValidateSet('git', 'source', 'release')][string]$Mode,
   [string]$Bundle = '',
   [Parameter(Mandatory)][string]$Status,
   [Parameter(Mandatory)][string]$Src,
@@ -28,6 +29,20 @@ function Run([string]$stage, [string]$label, [string]$exe, [string[]]$arguments)
   Set-Status 'running' $stage $label
   & $exe @arguments 2>&1 | Out-File $Log -Append -Encoding utf8
   if ($LASTEXITCODE -ne 0) { Fail $stage "$label failed" }
+}
+
+if ($Mode -eq 'release') {
+  if (-not (Test-Path $Bundle)) { Fail 'install' 'The downloaded release is missing' }
+  $version = if ((Split-Path $Bundle -Leaf) -match '_(\d+\.\d+\.\d+)_') { $Matches[1] } else { 'the new version' }
+  Set-Status 'running' 'install' "Installing v$version"
+  Get-Process bridgedeck -ErrorAction SilentlyContinue | Stop-Process -Force
+  Start-Sleep -Seconds 2
+  $installer = Start-Process -FilePath $Bundle -ArgumentList '/S' -Wait -PassThru
+  if ($installer.ExitCode -ne 0) { Fail 'install' "Installer exited with code $($installer.ExitCode)" }
+  Set-Status 'succeeded' 'done' "Updated to v$version"
+  $exe = if ($AppPath -and (Test-Path $AppPath)) { $AppPath } else { Join-Path $env:LOCALAPPDATA 'BridgeDeck\bridgedeck.exe' }
+  Start-Process -FilePath $exe
+  exit 0
 }
 
 # Tools: prefer PATH, fall back to where this PC's toolchain lives.

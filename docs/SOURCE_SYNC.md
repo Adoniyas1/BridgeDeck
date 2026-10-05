@@ -30,9 +30,14 @@ itself syncs between the computers.
 
 ## Getting installers
 
-- **From CI**: GitHub → **Actions** → **Release build** → **Run workflow**. When it finishes, download the
-  `bridgedeck-macos-latest` (DMG) and `bridgedeck-windows-latest` (NSIS/MSI) artifacts. Pushing a tag like
-  `v0.8.0` also creates a draft release with them.
+- **Releases (recommended)**: GitHub → **Actions** → **Release** → **Run workflow** (leave the version
+  empty for the next one), or push a tag like `v0.9.2`. It builds the Mac app (universal) and the Windows
+  installer and publishes a GitHub release with `SHA256SUMS.txt`. Installed BridgeDeck finds it in
+  Settings → Updates and installs it by itself: download, checksum, replace, restart, no rebuild. The
+  repository is private, so the app reads releases with the GitHub sign-in git already saved on that
+  computer (`git credential fill`). On the Mac the downloaded app is re-signed with the local
+  "BridgeDeck Local Signing" certificate, so permissions stay. For a first install, use the release's
+  `.dmg` (Mac) or `-setup.exe` (Windows).
 - **Locally**: `npm run tauri build` on each computer.
 
 Every pull request runs the cheap checks in `.github/workflows/ci.yml` (frontend build and tests, the

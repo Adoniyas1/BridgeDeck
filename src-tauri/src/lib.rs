@@ -511,6 +511,12 @@ fn upgrade_self(app: AppHandle) -> Result<(), String> {
     upgrade::start(&app, upgrade::UpgradeMode::Git, None, "this computer")
 }
 
+/// Installs the latest ready-built release from GitHub (no rebuild).
+#[tauri::command]
+fn upgrade_release(app: AppHandle) -> Result<(), String> {
+    upgrade::start(&app, upgrade::UpgradeMode::Release, None, "this computer")
+}
+
 /// macOS: sets up the local signing certificate so permissions stay after updates.
 #[tauri::command]
 async fn upgrade_setup_signing() -> Result<String, String> {
@@ -658,6 +664,7 @@ pub fn run() {
             mimir_host::mimir_stop,
             contacts_save,
             upgrade_info,
+            upgrade_release,
             upgrade_setup_signing,
             upgrade_self,
             upgrade_check,
