@@ -1,0 +1,36 @@
+# Compiles BridgeDeck for macOS when Rust code changes, so Mac-only code (window placement, the ad
+# blocker's WebKit list, signing, Messages) is checked before merging rather than on the Mac.
+# Only when src-tauri/ changes: macOS runners use more of the free Actions minutes.
+name: Mac check
+
+on:
+  pull_request:
+    paths: ['src-tauri/**', '.github/workflows/mac-check.yml']
+  push:
+    branches: [main]
+    paths: ['src-tauri/**']
+
+concurrency:
+  group: mac-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch the pinned LocalSend core (the only vendored crate the build needs)
+        run: node scripts/vendor.mjs fetch --only localsend
+      - name: Check (macOS)
+        working-directory: src-tauri
+        run: cargo check --locked
