@@ -251,6 +251,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
         });
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
     crate::placement::verify(&app, LABEL, x, y);
+    crate::adblock::attach(&app, LABEL);
     Ok(())
 }
 

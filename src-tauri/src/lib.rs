@@ -15,6 +15,8 @@ mod remote;
 mod send_to;
 mod browser;
 mod placement;
+mod adblock;
+mod extensions;
 mod chatgpt;
 mod manga;
 mod projects;
@@ -558,6 +560,7 @@ pub fn run() {
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
+            adblock::init(app.handle(), true);
             // New messages as they arrive: watched on the Mac, followed from the other computers.
             imessage::watch::start_local(app.handle().clone());
             imessage::watch::start_following(app.handle().clone(), app.state::<BridgeLinkManager>().inner().clone());
@@ -611,6 +614,13 @@ pub fn run() {
             chatgpt::chatgpt_hide,
             chatgpt::chatgpt_new,
             browser::browser_show,
+            adblock::adblock_status,
+            adblock::adblock_set,
+            adblock::adblock_update,
+            extensions::extensions_list,
+            extensions::extensions_add,
+            extensions::extensions_remove,
+            extensions::extensions_get_ublock,
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,

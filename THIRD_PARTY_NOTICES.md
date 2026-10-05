@@ -27,6 +27,12 @@ Mimir's optional skill packs come from alirezarezvani/claude-skills, MIT, © 202
 ## ts-fsrs
 Study flashcards are scheduled with ts-fsrs (`ts-fsrs` on npm), an implementation of the FSRS algorithm, MIT, © open-spaced-repetition and contributors. It is a package dependency; its licence ships inside `node_modules/ts-fsrs`.
 
+## EasyList and EasyPrivacy (downloaded)
+The ad blocker for web pages uses the EasyList and EasyPrivacy filter lists (easylist.to), © The EasyList authors, dual-licensed GPLv3 and CC BY-SA 3.0. BridgeDeck does not ship them: it downloads them from easylist.to and refreshes them every few days.
+
+## uBlock Origin Lite (downloaded on request, Windows)
+"Get uBlock Origin Lite" downloads the extension's latest Chromium release from github.com/uBlockOrigin/uBOL-home (GPLv3, © Raymond Hill and contributors). BridgeDeck does not ship it.
+
 ## Tesseract.js
 Text recognition for scanned book pages uses Tesseract.js (`tesseract.js` on npm, Apache-2.0, © Jerome Wu and contributors), its WebAssembly build of Tesseract OCR (`tesseract.js-core`, Apache-2.0, © Google and contributors) and the English model (`@tesseract.js-data/eng`, from tesseract-ocr/tessdata, Apache-2.0). The worker, engine and model are bundled into the app at `/ocr/` and run on the computer; nothing is downloaded. Their licences ship inside `node_modules/tesseract.js` and `node_modules/tesseract.js-core`.
 

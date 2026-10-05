@@ -21,6 +21,7 @@ export const defaultConfig: AppConfig = {
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
+  browsing: { adblock: true },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -88,6 +89,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
+    browsing: { adblock: input.browsing?.adblock !== false },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
