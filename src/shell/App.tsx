@@ -1,3 +1,4 @@
+import WebFullscreen from './WebFullscreen'
 import ChatPanel from './ChatPanel'
 import { useEffect } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
@@ -38,6 +39,7 @@ export default function App() {
   return (
     <div className="shell">
       <TabBar />
+      <WebFullscreen />
       <div className="shell-body">
       <main className={fill ? 'fill' : undefined}>
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { ArrowLeft, ArrowRight, ExternalLink, LayoutGrid, Maximize2, Minimize2, Plus, RotateCw, Trash2, Tv, X } from 'lucide-react'
-import { browserGo, browserHide, browserShow, isTauri, openExternal } from '../../lib/bridge'
+import { browserGo, browserHide, browserPause, browserShow, isTauri, openExternal } from '../../lib/bridge'
 import { setConfig, useConfig } from '../../core/config'
 import { SERVICES, shortcutName, shortcutUrl } from './model'
 
@@ -52,6 +52,13 @@ export default function TvPage({ active }: { active: boolean }) {
     ]
     return () => stops.forEach(p => void p.then(stop => stop()).catch(() => undefined))
   }, [])
+
+  // Leaving the TV tab pauses the show (it would otherwise keep playing, unseen).
+  const wasActive = useRef(active)
+  useEffect(() => {
+    if (wasActive.current && !active && watching && isTauri()) void browserPause(TAB).catch(() => undefined)
+    wasActive.current = active
+  }, [active, watching])
 
   // Full window: BridgeDeck's tab bar is hidden while the TV tab is on screen.
   useEffect(() => {
