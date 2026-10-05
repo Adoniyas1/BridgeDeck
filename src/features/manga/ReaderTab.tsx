@@ -121,7 +121,10 @@ export default function ReaderTab({ tab, active }: { tab: DynamicTab; active: bo
     {error && <p className="cal-error">{error}</p>}
     <div className="progress-line"><i style={{ width: pages ? `${((page + 1) / pages) * 100}%` : 0 }} /></div>
     {mode === 'strip' ? <div className="manga-strip" ref={strip} onScroll={() => window.requestAnimationFrame(onStripScroll)}>
-      {list.map(i => <img key={i} data-page={i} src={pageUrl(seriesName, chapterId, i, imageVersion)} alt={`Page ${i + 1}`} loading="lazy" />)}
+      {list.map(i => <div className="manga-page" key={i} data-page={i}>
+        <img src={pageUrl(seriesName, chapterId, i, imageVersion)} alt={`Page ${i + 1}`} loading="lazy" />
+        {i < pages - 1 && <div className="manga-page-divider" aria-hidden="true" />}
+      </div>)}
       {pages > 0 && <div className="manga-end">
         <p>End of {chapterTitle}</p>
         {index >= 0 && index < chapters.length - 1 ? <button onClick={() => openNeighbour(1)}>Next: {chapters[index + 1].title}</button> : <p className="hint">That's the latest chapter.</p>}
