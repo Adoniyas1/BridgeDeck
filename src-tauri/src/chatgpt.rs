@@ -14,7 +14,7 @@
 
 use base64::Engine;
 use std::{collections::HashMap, sync::Mutex, time::Instant};
-use tauri::{webview::PageLoadEvent, AppHandle, LogicalPosition, LogicalSize, Manager, Url, WebviewBuilder, WebviewUrl};
+use tauri::{webview::PageLoadEvent, AppHandle, Manager, Url, WebviewBuilder, WebviewUrl};
 
 const LABEL: &str = "chatgpt";
 const URL: &str = "https://chatgpt.com/";
@@ -196,8 +196,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
             let _ = board.set_text(text.clone());
         }
     }
-    let (dx, dy) = crate::browser::main_offset(&app);
-    let (pos, size) = (LogicalPosition::new(x.max(0.0) + dx, y.max(0.0) + dy), LogicalSize::new(w.max(1.0), h.max(1.0)));
+    let (pos, size) = crate::placement::bounds(x, y, w, h);
     if let Some(view) = app.get_webview(LABEL) {
         view.set_position(pos).map_err(|e| e.to_string())?;
         view.set_size(size).map_err(|e| e.to_string())?;
@@ -206,6 +205,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
             let _ = view.set_focus();
             fill(&view, text);
         }
+        crate::placement::verify(&app, LABEL, x, y);
         return Ok(());
     }
     if let Ok(mut pending) = PENDING.lock() {
@@ -250,6 +250,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
             }
         });
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
+    crate::placement::verify(&app, LABEL, x, y);
     Ok(())
 }
 
