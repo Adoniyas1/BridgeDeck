@@ -347,9 +347,12 @@ export async function syncResolveConflict(folderPath: string, conflictPath: stri
 // ---- Upgrading this computer or a paired one (src-tauri/src/upgrade.rs) ----
 
 export type UpgradeStatus = { state: 'idle' | 'running' | 'succeeded' | 'failed' | string; stage: string; message: string; mode: string; requestedBy: string; fromVersion: string; updatedAt: number }
-export type UpgradeInfo = { version: string; sourceDir: string; sourceAvailable: boolean; gitReady: boolean; status: UpgradeStatus; logTail: string[] }
+export type UpgradeInfo = { version: string; sourceDir: string; sourceAvailable: boolean; gitReady: boolean; status: UpgradeStatus; logTail: string[]; signing: 'ready' | 'missing' | null }
 export type SourceBundle = { path: string; fileName: string; sha256: string; bytes: number }
 export type UpgradeRequest = { mode: 'git' | 'source'; fileName?: string; sha256?: string; fromVersion?: string }
+
+/** macOS: creates the local signing certificate so permissions stay after updates (asks for the password once). */
+export const upgradeSetupSigning = () => native<string>('upgrade_setup_signing')
 
 export async function upgradeInfo(): Promise<UpgradeInfo | null> {
   return invokeSafe<UpgradeInfo>('upgrade_info')

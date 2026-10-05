@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
-import { isTauri, upgradeCheck, upgradeInfo, upgradeSelf, type UpdateCheck, type UpgradeInfo } from '../../lib/bridge'
+import { useEffect, useState } from 'react'
+import { KeyRound, RefreshCw } from 'lucide-react'
+import { isTauri, upgradeCheck, upgradeInfo, upgradeSelf, upgradeSetupSigning, type UpdateCheck, type UpgradeInfo } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -29,6 +29,14 @@ export async function checkForUpdates() {
 
 /** Pulls the new version from GitHub, rebuilds and restarts (see `upgrade.rs`). */
 export async function installUpdate() {
+  // On a Mac, offer once to keep permissions across updates before the first update without it.
+  const info = await upgradeInfo().catch(() => null)
+  if (info?.signing === 'missing' && !signingOffered()) {
+    markSigningOffered()
+    if (window.confirm('Keep macOS permissions (Screen Recording, Accessibility, Full Disk Access…) after this and future updates?\n\nBridgeDeck makes a free signing certificate on this Mac (nothing is sent anywhere). macOS asks for your password once to trust it.')) {
+      await setupSigning()
+    }
+  }
   updatesStore.set(u => ({ ...u, installing: true, error: undefined }))
   try {
     await upgradeSelf()
@@ -37,6 +45,22 @@ export async function installUpdate() {
     updatesStore.set(u => ({ ...u, installing: false, error: errorText(error, 'Could not start the update') }))
   }
 }
+
+const OFFERED_KEY = 'bd-signing-offered'
+function signingOffered() { try { return localStorage.getItem(OFFERED_KEY) === '1' } catch { return false } }
+function markSigningOffered() { try { localStorage.setItem(OFFERED_KEY, '1') } catch { /* asked again next time */ } }
+
+/** Sets up the local signing certificate; the result shows on the Updates card. */
+export async function setupSigning() {
+  try {
+    await upgradeSetupSigning()
+    signingStore.set({ state: 'ready', message: 'Done. Allow the permissions once more after the next update; they stay from then on.' })
+  } catch (error) {
+    signingStore.set({ state: 'missing', message: errorText(error, 'Couldn’t set it up') })
+  }
+}
+
+export const signingStore = createStore<{ state: 'ready' | 'missing' | null; message: string }>({ state: null, message: '' })
 
 /** What the update is doing, read from its status file (written by upgrade.rs and the self-update
  *  script). A failure shows its reason and the end of its log; the card stops saying "Updating…". */
@@ -85,6 +109,9 @@ export function UpdatesBackground() {
 export function UpdatesCard() {
   const config = useConfig()
   const updates = useStore(updatesStore)
+  const signing = useStore(signingStore)
+  const [settingUp, setSettingUp] = useState(false)
+  useEffect(() => { void upgradeInfo().then(info => { if (info) signingStore.set(s => ({ ...s, state: s.state ?? info.signing })) }).catch(() => undefined) }, [])
   const when = updates.checkedAt ? new Date(updates.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
   const subtitle = !updates.git && updates.checkedAt ? 'This build wasn’t installed from a git clone, so it can’t update itself'
     : updates.behind ? `${updates.behind} new change${updates.behind === 1 ? '' : 's'} on ${updates.upstream}${updates.latest ? ` · ${updates.latest}` : ''}`
@@ -95,6 +122,11 @@ export function UpdatesCard() {
       <button className="secondary" disabled={updates.checking} onClick={() => void checkForUpdates()}><RefreshCw size={16}/>{updates.checking ? 'Checking…' : 'Check now'}</button>
       {(updates.behind > 0 || updates.progress?.status.state === 'failed') && <button disabled={updates.installing} onClick={() => void installUpdate()}>{updates.installing ? 'Updating…' : updates.progress?.status.state === 'failed' ? 'Try again' : 'Update now'}</button>}
     </div>
+    {signing.state === 'missing' && <div className="update-signing">
+      <p className="hint">macOS asks for Screen Recording, Accessibility and other permissions again after every update, because each build looks like a new app. Set this up once and they stay.</p>
+      <button className="secondary" disabled={settingUp} onClick={() => { setSettingUp(true); void setupSigning().finally(() => setSettingUp(false)) }}><KeyRound size={16} />{settingUp ? 'Setting up… (enter your password if macOS asks)' : 'Keep permissions after updates'}</button>
+    </div>}
+    {signing.message && <p className={signing.state === 'ready' ? 'hint' : 'error-text'}>{signing.message}</p>}
     {updates.installing && updates.progress?.status.state === 'running' && <p className="hint">Updating: {updates.progress.status.message || 'starting'}… BridgeDeck closes and opens again when it’s installed.</p>}
     {updates.error && <p className="error-text">{updates.error}</p>}
     {!!updates.progress?.logTail.length && updates.progress.status.state !== 'idle' && <details className="update-log">

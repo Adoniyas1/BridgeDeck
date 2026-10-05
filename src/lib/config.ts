@@ -20,6 +20,7 @@ export const defaultConfig: AppConfig = {
   mimir: { enabled: false },
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
+  tv: { shortcuts: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -86,6 +87,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
     calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
+    tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
@@ -117,4 +119,14 @@ export async function saveConfig(config: AppConfig) {
   }
   await saveNativeConfig(raw)
   try { BROWSER_KEYS.forEach(key => localStorage.removeItem(key)) } catch { /* storage unavailable */ }
+}
+
+/** Stored TV shortcuts: web addresses only, named, at most 40. */
+export function cleanShortcuts(list: unknown): Array<{ name: string; url: string }> {
+  if (!Array.isArray(list)) return []
+  return list.flatMap(item => {
+    const url = typeof item?.url === 'string' ? item.url.trim() : ''
+    const name = typeof item?.name === 'string' ? item.name.trim().slice(0, 40) : ''
+    return /^https?:\/\/[^\s]+$/i.test(url) && name ? [{ name, url }] : []
+  }).slice(0, 40)
 }

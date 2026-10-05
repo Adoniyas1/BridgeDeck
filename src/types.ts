@@ -51,6 +51,8 @@ export type AppConfig = {
   calendar: { showApple: boolean; weekStart: 0 | 1; defaultReminder: number | null }
   /** Morning brief and evening study nudges as notifications ("HH:MM", this computer's time); "while you were away" on Home. */
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
+  /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
+  tv: { shortcuts: Array<{ name: string; url: string }> }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
   setup: { dismissed: boolean; notificationsReviewed: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */

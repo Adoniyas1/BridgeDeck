@@ -508,6 +508,12 @@ fn upgrade_self(app: AppHandle) -> Result<(), String> {
     upgrade::start(&app, upgrade::UpgradeMode::Git, None, "this computer")
 }
 
+/// macOS: sets up the local signing certificate so permissions stay after updates.
+#[tauri::command]
+async fn upgrade_setup_signing() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(upgrade::setup_signing).await.map_err(|e| e.to_string())?
+}
+
 /// Whether GitHub has changes this computer doesn't (checked every few hours by the UI).
 #[tauri::command]
 async fn upgrade_check() -> Result<upgrade::UpdateCheck, String> {
@@ -641,6 +647,7 @@ pub fn run() {
             mimir_host::mimir_stop,
             contacts_save,
             upgrade_info,
+            upgrade_setup_signing,
             upgrade_self,
             upgrade_check,
             upgrade_create_bundle,
