@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageCircleQuestion, SquarePen, X } from 'lucide-react'
 import { useStore } from '../core/store'
 import { chatPanelStore, PANEL_MIN, saveWidth } from '../core/chatgpt'
+import { useOverlayOpen } from '../core/shortcuts'
 import { chatgptHide, chatgptNew, chatgptShow, isTauri } from '../lib/bridge'
 
 /** ChatGPT at the side of the window, like a browser's assistant panel. The page itself is a
@@ -14,11 +15,12 @@ export default function ChatPanel() {
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState('')
   const sent = useRef(0)
+  const overlay = useOverlayOpen()
 
   useEffect(() => {
     const el = body.current
     if (!isTauri()) return
-    if (!open || dragging || !el) { void chatgptHide().catch(() => undefined); return }
+    if (!open || dragging || overlay || !el) { void chatgptHide().catch(() => undefined); return }
     let last = ''
     const place = () => {
       const r = el.getBoundingClientRect()
@@ -35,7 +37,7 @@ export default function ChatPanel() {
     window.addEventListener('resize', place)
     const timer = window.setInterval(place, 400)
     return () => { observer.disconnect(); window.removeEventListener('resize', place); window.clearInterval(timer) }
-  }, [open, dragging, ask])
+  }, [open, dragging, overlay, ask])
 
   // Hidden while the window is closed to the tray or the panel is closed.
   useEffect(() => () => { void chatgptHide().catch(() => undefined) }, [])

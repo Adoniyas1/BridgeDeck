@@ -124,12 +124,17 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     let window = app.get_window(MAIN).ok_or("BridgeDeck's window isn't open")?;
     let start = target.unwrap_or_else(|| Url::parse("https://duckduckgo.com/").expect("valid"));
     let (nav_app, new_app, title_app, load_app, down_app) = (app.clone(), app.clone(), app.clone(), app.clone(), app.clone());
-    let (nav_tab, new_tab, title_tab, load_tab, down_tab) = (tab.clone(), id.clone(), tab.clone(), tab.clone(), tab.clone());
+    let (nav_tab, nav_label, new_tab, title_tab, load_tab, down_tab) = (tab.clone(), id.clone(), id.clone(), tab.clone(), tab.clone(), tab.clone());
     let builder = WebviewBuilder::new(&id, WebviewUrl::External(start))
         // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
         // own drop handler, which queues files for sending to the other computer.
         .disable_drag_drop_handler()
+        .initialization_script(crate::webkeys::SCRIPT)
         .on_navigation(move |url| {
+            let page = || nav_app.get_webview(&nav_label).and_then(|v| v.url().ok());
+            if crate::webkeys::handle(&nav_app, &nav_tab, page, url) {
+                return false;
+            }
             let ok = allowed(url);
             if !ok {
                 // Mail and other links open in the system's own app.
@@ -137,7 +142,6 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
                     let _ = tauri_plugin_opener::OpenerExt::opener(&nav_app).open_url(url.as_str(), None::<&str>);
                 }
             }
-            let _ = nav_tab;
             ok
         })
         // Links that open a new window open in this tab instead.

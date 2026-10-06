@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Clock, Download as DownloadIcon, ExternalLink, F
 import { browserClose, browserGo, browserHide, browserShow, isTauri, openExternal, openPath } from '../../lib/bridge'
 import { askChatGPT } from '../../core/chatgpt'
 import { setConfig, useConfig } from '../../core/config'
+import { browserCommandStore, useOverlayOpen } from '../../core/shortcuts'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { queueForSending } from '../files/state'
@@ -28,8 +29,12 @@ const blankTab = (): Tab => ({ id: String(nextTab++), url: '', title: '', loadin
 
 /** Websites inside BridgeDeck: each tab's page is a native web view laid over the area below the
  *  address bar, shown only while its tab is picked and the Browser is on screen. */
-export default function BrowserPage({ active }: { active: boolean }) {
+export default function BrowserPage({ active: onScreen }: { active: boolean }) {
   const config = useConfig()
+  // Search everything and the shortcuts list sit where the page would: it's hidden while they're open.
+  const overlay = useOverlayOpen()
+  const active = onScreen && !overlay
+  const address = useRef<HTMLInputElement>(null)
   const area = useRef<HTMLDivElement>(null)
   const [tabs, setTabs] = useState<Tab[]>(() => [blankTab()])
   const [current, setCurrent] = useState(tabs[0].id)
@@ -126,6 +131,21 @@ export default function BrowserPage({ active }: { active: boolean }) {
     if (id === current) setCurrent(left[Math.min(index, left.length - 1)].id)
   }
 
+  // Shortcuts (⌘T, ⌘W, ⌘L) and pages opened from elsewhere (Search everything).
+  const command = useStore(browserCommandStore)
+  const handled = useRef(0)
+  useEffect(() => {
+    if (!command || command.at === handled.current) return
+    handled.current = command.at
+    if (command.name === 'new-tab') { newTab(); window.setTimeout(() => address.current?.focus(), 0) }
+    else if (command.name === 'close-tab') closeTab(tab.id)
+    else if (command.name === 'address') address.current?.focus()
+    else if (command.name === 'open' && command.url) {
+      if (tab.started) newTab(command.url)
+      else { setTyped(command.url); open(command.url) }
+    }
+  }, [command])
+
   const bookmarks = config.browsing.bookmarks
   const isWeb = /^https?:/.test(tab.url)
   const marked = isWeb && bookmarks.some(b => b.url === tab.url)
@@ -154,7 +174,7 @@ export default function BrowserPage({ active }: { active: boolean }) {
       <button type="button" className="cal-icon" title="Forward" disabled={!tab.started} onClick={() => void browserGo(tab.id, 'forward')}><ArrowRight size={15} /></button>
       <button type="button" className="cal-icon" title={tab.loading ? 'Stop' : 'Reload'} disabled={!tab.started} onClick={() => void browserGo(tab.id, tab.loading ? 'stop' : 'reload')}>{tab.loading ? <X size={15} /> : <RotateCw size={15} />}</button>
       <AdShield url={tab.url} />
-      <input value={typed} onChange={e => setTyped(e.target.value)} onFocus={e => e.target.select()} placeholder="Search, or type a web address" spellCheck={false} />
+      <input ref={address} value={typed} onChange={e => setTyped(e.target.value)} onFocus={e => e.target.select()} placeholder="Search, or type a web address" spellCheck={false} />
       <button type="button" className={`cal-icon${marked ? ' starred' : ''}`} disabled={!isWeb} title={marked ? 'Remove the bookmark' : 'Bookmark this page'} onClick={toggleBookmark}><Star size={15} fill={marked ? 'currentColor' : 'none'} /></button>
       <button type="button" className="cal-icon" disabled={!isWeb || !isTauri()} title="Send this page to your other computer" onClick={() => void sendToOther()}><Send size={15} /></button>
       <button type="button" className="cal-icon" disabled={!isWeb} title="Open this page in your own browser (Safari, Chrome…)" onClick={() => void openExternal(tab.url).catch(e => setError(String(e)))}><ExternalLink size={15} /></button>

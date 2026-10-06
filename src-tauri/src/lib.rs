@@ -17,6 +17,7 @@ mod browser;
 mod placement;
 mod adblock;
 mod extensions;
+mod webkeys;
 mod webmedia;
 mod models;
 mod drawings;

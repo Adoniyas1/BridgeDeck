@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { ArrowLeft, ArrowRight, ExternalLink, History, LayoutGrid, Maximize2, Minimize2, Plus, RotateCw, Trash2, Tv, X } from 'lucide-react'
 import { browserGo, browserHide, browserPause, browserShow, isTauri, openExternal } from '../../lib/bridge'
 import { setConfig, useConfig } from '../../core/config'
+import { useOverlayOpen } from '../../core/shortcuts'
 import { addWatched, SERVICES, serviceFor, shortcutName, shortcutUrl, type Watched } from './model'
 import { AdShield } from '../browser/WebSettings'
 
@@ -20,8 +21,11 @@ function loadWatched(): Watched[] {
 
 /** Streaming sites inside BridgeDeck: pick a service (or one of your own shortcuts) and it plays
  *  in a web view laid over the area below the bar. "Full window" hides BridgeDeck's tab bar. */
-export default function TvPage({ active }: { active: boolean }) {
+export default function TvPage({ active: onScreen }: { active: boolean }) {
   const config = useConfig()
+  // Hidden under Search everything and the shortcuts list (it would cover them).
+  const overlay = useOverlayOpen()
+  const active = onScreen && !overlay
   const area = useRef<HTMLDivElement>(null)
   const [watching, setWatching] = useState(false)
   const [url, setUrl] = useState('')
@@ -78,17 +82,17 @@ export default function TvPage({ active }: { active: boolean }) {
   }, [watching, url, title])
 
   // Leaving the TV tab pauses the show (it would otherwise keep playing, unseen).
-  const wasActive = useRef(active)
+  const wasActive = useRef(onScreen)
   useEffect(() => {
-    if (wasActive.current && !active && watching && isTauri()) void browserPause(TAB).catch(() => undefined)
-    wasActive.current = active
-  }, [active, watching])
+    if (wasActive.current && !onScreen && watching && isTauri()) void browserPause(TAB).catch(() => undefined)
+    wasActive.current = onScreen
+  }, [onScreen, watching])
 
   // Full window: BridgeDeck's tab bar is hidden while the TV tab is on screen.
   useEffect(() => {
-    document.body.classList.toggle('tv-full', full && active)
+    document.body.classList.toggle('tv-full', full && onScreen)
     return () => document.body.classList.remove('tv-full')
-  }, [full, active])
+  }, [full, onScreen])
 
   function watch(where: string) {
     pending.current = where

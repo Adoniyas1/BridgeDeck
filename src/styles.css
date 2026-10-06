@@ -845,3 +845,23 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .browser-tabs, 
 .book-scroll.dark .book-page{background:#1a1b1e}
 .book-scroll.dark .book-page canvas{filter:invert(.9) hue-rotate(180deg)}
 .ocr-languages{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;font-size:13px;margin:4px 0 8px}
+
+/* Search everything (⌘K) and the shortcuts list (⌘/) */
+.palette-back{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;justify-content:center;align-items:flex-start;padding:80px 16px 16px}
+.palette{width:min(640px,100%);max-height:min(560px,calc(100vh - 120px));display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,.45);overflow:hidden}
+.palette-input{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);color:var(--muted)}
+.palette-input input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--text);font:inherit;font-size:15px}
+.palette kbd,.shortcuts-help kbd{font:inherit;font-size:11px;color:var(--muted);border:1px solid var(--line-strong);border-radius:5px;padding:1px 6px;background:var(--surface-2)}
+.palette-list{overflow-y:auto;padding:6px}
+.palette-group{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:8px 10px 4px}
+.palette-hit{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;border:0;background:none;color:var(--text);text-align:left;padding:7px 10px;border-radius:var(--radius-sm);font-size:13px}
+.palette-hit.on{background:var(--surface-2);outline:1px solid var(--line-strong)}
+.palette-hit span,.palette-hit small{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.palette-hit small{color:var(--muted);font-size:11px}
+.palette-empty{padding:12px}
+.shortcuts-help{padding:14px 16px;gap:10px}
+.shortcuts-help header{display:flex;align-items:center;gap:8px}
+.shortcuts-help table{border-collapse:collapse;font-size:13px}
+.shortcuts-help td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.shortcuts-help td:first-child{white-space:nowrap;width:1%}
+.shortcuts-help td kbd{margin-right:3px}
