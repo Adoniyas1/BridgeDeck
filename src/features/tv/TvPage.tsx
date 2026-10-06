@@ -6,6 +6,9 @@ import { setConfig, useConfig } from '../../core/config'
 import { useOverlayOpen } from '../../core/shortcuts'
 import { addWatched, SERVICES, serviceFor, shortcutName, shortcutUrl, type Watched } from './model'
 import { AdShield } from '../browser/WebSettings'
+import PopupBar from '../browser/PopupBar'
+import { blockerChangedStore } from '../browser/state'
+import { useStore } from '../../core/store'
 
 // The TV tab has its own web view, apart from the Browser tab's (src-tauri/src/browser.rs).
 const TAB = 'tv'
@@ -26,6 +29,7 @@ export default function TvPage({ active: onScreen }: { active: boolean }) {
   // Hidden under Search everything and the shortcuts list (it would cover them).
   const overlay = useOverlayOpen()
   const active = onScreen && !overlay
+  const blockerChanged = useStore(blockerChangedStore)
   const area = useRef<HTMLDivElement>(null)
   const [watching, setWatching] = useState(false)
   const [url, setUrl] = useState('')
@@ -66,7 +70,7 @@ export default function TvPage({ active: onScreen }: { active: boolean }) {
     window.addEventListener('resize', place)
     const timer = window.setInterval(place, 400)
     return () => { observer.disconnect(); window.removeEventListener('resize', place); window.clearInterval(timer); void browserHide(TAB).catch(() => undefined) }
-  }, [active, watching, full])
+  }, [active, watching, full, blockerChanged])
 
   useEffect(() => {
     const stops = [
@@ -151,6 +155,7 @@ export default function TvPage({ active: onScreen }: { active: boolean }) {
       <button className="ghost" title={full ? 'Show BridgeDeck’s tabs again' : 'Hide BridgeDeck’s tabs so the show fills the window'} onClick={() => setFull(f => !f)}>{full ? <Minimize2 size={14} /> : <Maximize2 size={14} />} {full ? 'Exit full window' : 'Full window'}</button>
     </div>
     {error && <p className="cal-error">{error}</p>}
+    <PopupBar tab={TAB} />
     <div ref={area} className="tv-area">{!isTauri() && <p className="hint">Shows play here in the BridgeDeck app.</p>}</div>
   </div>
 }

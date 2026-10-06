@@ -36,8 +36,13 @@ Drawings in notes use Excalidraw (`@excalidraw/excalidraw` on npm), MIT, © Exca
 ## Transformers.js, ONNX Runtime and Whisper (lecture transcription)
 Lecture recordings are transcribed on the computer with Transformers.js (`@huggingface/transformers`, Apache-2.0, © Hugging Face) and ONNX Runtime Web (`onnxruntime-web`, MIT, © Microsoft). Its small loader is bundled; its WebAssembly and the Whisper models (OpenAI Whisper tiny.en / base.en, MIT, in the ONNX versions published by onnx-community on Hugging Face) are downloaded once when the user asks, not shipped.
 
-## EasyList and EasyPrivacy (downloaded)
-The ad blocker for web pages uses the EasyList and EasyPrivacy filter lists (easylist.to), © The EasyList authors, dual-licensed GPLv3 and CC BY-SA 3.0. BridgeDeck does not ship them: it downloads them from easylist.to and refreshes them every few days.
+## Block lists (downloaded)
+The ad and pop-up blocker for web pages uses filter lists BridgeDeck does not ship: it downloads them and refreshes them every few days.
+- EasyList, EasyPrivacy and Fanboy's Annoyance list (easylist.to, mirrored on github.com/easylist), © The EasyList authors, dual-licensed GPLv3 and CC BY-SA 3.0.
+- uBlock Origin's lists (uBlock filters, badware, privacy, quick fixes, unbreak, cookie notices and annoyances; github.com/uBlockOrigin/uAssets), © Raymond Hill and contributors, GPLv3.
+- Peter Lowe's ad server list (pgl.yoyo.org, via uBlock Origin's mirror), © Peter Lowe.
+
+BridgeDeck's scriptlets (src-tauri/src/adblock/scriptlets.js) are its own code; they take the same names and arguments as uBlock Origin's so that its lists work.
 
 ## uBlock Origin Lite (downloaded on request, Windows)
 "Get uBlock Origin Lite" downloads the extension's latest Chromium release from github.com/uBlockOrigin/uBOL-home (GPLv3, © Raymond Hill and contributors). BridgeDeck does not ship it.

@@ -21,7 +21,7 @@ export const defaultConfig: AppConfig = {
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
-  browsing: { adblock: true, allowAds: [], bookmarks: [] },
+  browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [] },
   study: { ocrLanguages: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
@@ -91,7 +91,14 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
     study: { ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [] },
-    browsing: { adblock: input.browsing?.adblock !== false, allowAds: Array.isArray(input.browsing?.allowAds) ? input.browsing.allowAds.filter((s): s is string => typeof s === 'string').slice(0, 200) : [], bookmarks: cleanShortcuts(input.browsing?.bookmarks, 200) },
+    browsing: {
+      adblock: input.browsing?.adblock !== false,
+      allowAds: cleanSites(input.browsing?.allowAds),
+      annoyances: input.browsing?.annoyances !== false,
+      popups: input.browsing?.popups !== false,
+      popupSites: cleanSites(input.browsing?.popupSites),
+      bookmarks: cleanShortcuts(input.browsing?.bookmarks, 200),
+    },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
@@ -126,6 +133,11 @@ export async function saveConfig(config: AppConfig) {
 }
 
 /** Stored TV shortcuts: web addresses only, named, at most 40. */
+/** Stored site lists (ads or pop-ups allowed): host names only, at most 200. */
+function cleanSites(list: unknown): string[] {
+  return Array.isArray(list) ? list.filter((s): s is string => typeof s === 'string').slice(0, 200) : []
+}
+
 export function cleanShortcuts(list: unknown, max = 40): Array<{ name: string; url: string }> {
   if (!Array.isArray(list)) return []
   return list.flatMap(item => {
