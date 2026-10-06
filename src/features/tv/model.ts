@@ -37,3 +37,28 @@ export function shortcutName(url: string) {
   const name = host.split('.').slice(-2, -1)[0] ?? host
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
+
+/** Where the person was on a service: the page (an episode, a film) and when. */
+export type Watched = { url: string; title: string; at: number }
+export const WATCHED_MAX = 6
+
+/** The registrable part of a host ("netflix.com" for "www.netflix.com"), so a service's pages count as one. */
+function siteKey(url: string) {
+  try { return new URL(url).hostname.toLowerCase().split('.').slice(-2).join('.') } catch { return '' }
+}
+
+/** "Continue watching" with `page` at the front: one entry per service (its latest page), newest first. */
+export function addWatched(list: Watched[], page: Watched): Watched[] {
+  const key = siteKey(page.url)
+  if (!key || !/^https?:/.test(page.url)) return list
+  return [page, ...list.filter(w => siteKey(w.url) !== key)].slice(0, WATCHED_MAX)
+}
+
+/** The service (or shortcut) a page belongs to, for its tile's name and colour. */
+export function serviceFor(url: string, shortcuts: Array<{ name: string; url: string }> = []): { name: string; color: string } {
+  const key = siteKey(url)
+  const service = SERVICES.find(s => siteKey(s.url) === key)
+  if (service) return service
+  const own = shortcuts.find(s => siteKey(s.url) === key)
+  return { name: own?.name ?? (key ? shortcutName(url) : 'TV'), color: '#2a3545' }
+}

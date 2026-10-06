@@ -4,6 +4,7 @@ import { adblockAllowSites, adblockSet, adblockStatus, adblockUpdate, extensions
 import { setConfig, useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle, Toggle } from '../../ui'
+import { siteOf } from './model'
 
 const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 
@@ -16,10 +17,6 @@ export function AdblockBackground() {
   return null
 }
 
-/** The site of a page, as kept in the allowed list ("www." dropped). */
-export function siteOf(url: string) {
-  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, '') } catch { return '' }
-}
 
 /** The shield in the Browser and TV bars: whether ads are blocked on this page's site, and a
  *  click to allow them there (or block them again). The page reloads with the change. */

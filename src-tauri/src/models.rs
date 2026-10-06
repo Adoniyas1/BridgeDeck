@@ -82,7 +82,7 @@ pub fn status() -> ModelsStatus {
 }
 
 /// `%xx` escapes decoded (the page's addresses escape slashes too).
-fn percent_decode(text: &str) -> Option<String> {
+pub(crate) fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

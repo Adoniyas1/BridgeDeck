@@ -465,6 +465,7 @@ export const browserShow = (tab: string, url: string | null, x: number, y: numbe
 export const browserHide = (tab: string) => native<void>('browser_hide', { tab })
 /** Pauses the videos and sounds in a browser or TV page. */
 export const browserPause = (tab: string) => native<void>('browser_pause', { tab })
+export const browserClose = (tab: string) => native<void>('browser_close', { tab })
 export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
 /** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
 export type MangaChapter = { id: string; title: string }

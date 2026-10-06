@@ -3,9 +3,15 @@
 //! tab isn't on screen). Web pages have no access to BridgeDeck's commands: capabilities cover
 //! BridgeDeck's own pages only, and Tauri refuses remote pages anything not granted to them.
 
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
+
 use serde_json::json;
 use tauri::{
-    webview::{NewWindowResponse, PageLoadEvent},
+    webview::{DownloadEvent, NewWindowResponse, PageLoadEvent},
     AppHandle, Emitter, Manager, Url, WebviewBuilder, WebviewUrl,
 };
 
@@ -40,6 +46,59 @@ pub fn address(input: &str) -> Url {
     search
 }
 
+/// Where each download in progress is being saved, by its address (macOS doesn't say when it ends).
+static DOWNLOADS: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
+
+/// A file name that is safe to save: no folders, no characters Windows refuses.
+fn safe_name(name: &str) -> String {
+    let cleaned: String = name.chars().map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+    let cleaned = cleaned.trim().trim_matches('.').to_string();
+    if cleaned.is_empty() { "download".into() } else { cleaned.chars().take(160).collect() }
+}
+
+/// `folder/name`, or `folder/name (2).ext` and so on when that file already exists.
+fn unique_path(folder: &Path, name: &str) -> PathBuf {
+    let first = folder.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
+        _ => (name.to_string(), String::new()),
+    };
+    (2..1000).map(|n| folder.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
+}
+
+/// The file name a download suggests: from the web view, else the address's last part.
+fn download_name(url: &Url, suggested: &Path) -> String {
+    let from_view = suggested.file_name().and_then(|n| n.to_str()).filter(|n| !n.is_empty());
+    let from_url = url.path_segments().and_then(|mut s| s.next_back()).filter(|n| !n.is_empty()).and_then(crate::models::percent_decode);
+    safe_name(&from_view.map(str::to_string).or(from_url).unwrap_or_else(|| "download".into()))
+}
+
+/// Downloads from web pages go to the Downloads folder; BridgeDeck says when each one is done.
+fn on_download(app: &AppHandle, tab: &str, event: DownloadEvent<'_>) -> bool {
+    match event {
+        DownloadEvent::Requested { url, destination } => {
+            let Ok(folder) = app.path().download_dir() else { return true };
+            let path = unique_path(&folder, &download_name(&url, destination));
+            *destination = path.clone();
+            if let Ok(mut map) = DOWNLOADS.lock() {
+                map.get_or_insert_with(HashMap::new).insert(url.to_string(), path.clone());
+            }
+            let _ = app.emit_to(MAIN, "browser-download", json!({ "tab": tab, "url": url.as_str(), "path": path, "state": "started" }));
+        }
+        DownloadEvent::Finished { url, path, success } => {
+            let saved = DOWNLOADS.lock().ok().and_then(|mut map| map.as_mut().and_then(|m| m.remove(url.as_str())));
+            let path = path.filter(|p| !p.as_os_str().is_empty()).or(saved);
+            let state = if success { "done" } else { "failed" };
+            let _ = app.emit_to(MAIN, "browser-download", json!({ "tab": tab, "url": url.as_str(), "path": path, "state": state }));
+        }
+        _ => {}
+    }
+    true
+}
+
 /// Only web pages are opened in the Browser tab.
 fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "about")
@@ -64,8 +123,8 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     }
     let window = app.get_window(MAIN).ok_or("BridgeDeck's window isn't open")?;
     let start = target.unwrap_or_else(|| Url::parse("https://duckduckgo.com/").expect("valid"));
-    let (nav_app, new_app, title_app, load_app) = (app.clone(), app.clone(), app.clone(), app.clone());
-    let (nav_tab, new_tab, title_tab, load_tab) = (tab.clone(), id.clone(), tab.clone(), tab.clone());
+    let (nav_app, new_app, title_app, load_app, down_app) = (app.clone(), app.clone(), app.clone(), app.clone(), app.clone());
+    let (nav_tab, new_tab, title_tab, load_tab, down_tab) = (tab.clone(), id.clone(), tab.clone(), tab.clone(), tab.clone());
     let builder = WebviewBuilder::new(&id, WebviewUrl::External(start))
         // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
         // own drop handler, which queues files for sending to the other computer.
@@ -93,6 +152,7 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
         .on_document_title_changed(move |_, title| {
             let _ = title_app.emit_to(MAIN, "browser-title", json!({ "tab": title_tab, "title": title }));
         })
+        .on_download(move |_, event| on_download(&down_app, &down_tab, event))
         .on_page_load(move |view, payload| {
             let loading = matches!(payload.event(), PageLoadEvent::Started);
             let _ = load_app.emit_to(MAIN, "browser-page", json!({ "tab": load_tab, "url": payload.url().as_str(), "loading": loading, "label": view.label() }));
@@ -173,5 +233,22 @@ mod tests {
         assert_eq!(address("javascript:alert(1)").host_str(), Some("duckduckgo.com"));
         assert!(label("1").is_ok() && label("../x").is_err() && label("").is_err());
         assert!(allowed(&Url::parse("https://x.org").unwrap()) && !allowed(&Url::parse("file:///x").unwrap()));
+    }
+
+    #[test]
+    fn downloads_get_safe_unique_names() {
+        let url = Url::parse("https://x.org/files/Lecture%201.pdf?x=1").unwrap();
+        assert_eq!(download_name(&url, Path::new("")), "Lecture 1.pdf");
+        assert_eq!(download_name(&url, Path::new("/tmp/notes.zip")), "notes.zip");
+        assert_eq!(safe_name("../a:b?.txt"), "_a_b_.txt");
+        assert_eq!(safe_name("..."), "download");
+        let dir = std::env::temp_dir().join(format!("bd-dl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(unique_path(&dir, "a.pdf"), dir.join("a.pdf"));
+        std::fs::write(dir.join("a.pdf"), b"").unwrap();
+        assert_eq!(unique_path(&dir, "a.pdf"), dir.join("a (2).pdf"));
+        std::fs::write(dir.join("README"), b"").unwrap();
+        assert_eq!(unique_path(&dir, "README"), dir.join("README (2)"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

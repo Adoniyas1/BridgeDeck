@@ -55,8 +55,8 @@ export type AppConfig = {
   tv: { shortcuts: Array<{ name: string; url: string }> }
   /** Study: languages text recognition reads in scanned books (English is always included). */
   study: { ocrLanguages: string[] }
-  /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker. */
-  browsing: { adblock: boolean; allowAds: string[] }
+  /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker, and the Browser's bookmarks. */
+  browsing: { adblock: boolean; allowAds: string[]; bookmarks: Array<{ name: string; url: string }> }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
   setup: { dismissed: boolean; notificationsReviewed: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */

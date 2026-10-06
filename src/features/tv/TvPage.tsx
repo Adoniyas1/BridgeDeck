@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { ArrowLeft, ArrowRight, ExternalLink, LayoutGrid, Maximize2, Minimize2, Plus, RotateCw, Trash2, Tv, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, History, LayoutGrid, Maximize2, Minimize2, Plus, RotateCw, Trash2, Tv, X } from 'lucide-react'
 import { browserGo, browserHide, browserPause, browserShow, isTauri, openExternal } from '../../lib/bridge'
 import { setConfig, useConfig } from '../../core/config'
-import { SERVICES, shortcutName, shortcutUrl } from './model'
+import { addWatched, SERVICES, serviceFor, shortcutName, shortcutUrl, type Watched } from './model'
 import { AdShield } from '../browser/WebSettings'
 
 // The TV tab has its own web view, apart from the Browser tab's (src-tauri/src/browser.rs).
 const TAB = 'tv'
+const WATCHED_KEY = 'bridgedeck.tv.watched'
+
+/** "Continue watching", kept on this computer (each computer has its own sign-ins). */
+function loadWatched(): Watched[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(WATCHED_KEY) || '[]')
+    return Array.isArray(list) ? list.filter((w): w is Watched => typeof w?.url === 'string' && typeof w?.title === 'string' && typeof w?.at === 'number') : []
+  } catch { return [] }
+}
 
 /** Streaming sites inside BridgeDeck: pick a service (or one of your own shortcuts) and it plays
  *  in a web view laid over the area below the bar. "Full window" hides BridgeDeck's tab bar. */
@@ -22,6 +31,15 @@ export default function TvPage({ active }: { active: boolean }) {
   const [error, setError] = useState('')
   const [adding, setAdding] = useState<{ name: string; url: string } | null>(null)
   const pending = useRef<string | null>(null)
+  const [watched, setWatched] = useState(loadWatched)
+
+  function rememberPage(page: Watched) {
+    setWatched(list => {
+      const next = addWatched(list, page)
+      try { localStorage.setItem(WATCHED_KEY, JSON.stringify(next)) } catch { /* a convenience only */ }
+      return next
+    })
+  }
 
   // Keep the page over the area while watching; hide it on the service grid or another tab.
   useEffect(() => {
@@ -53,6 +71,11 @@ export default function TvPage({ active }: { active: boolean }) {
     ]
     return () => stops.forEach(p => void p.then(stop => stop()).catch(() => undefined))
   }, [])
+
+  // Streaming sites change address without reloading (an episode starting): keep the latest page and title.
+  useEffect(() => {
+    if (watching && /^https?:/.test(url)) rememberPage({ url, title, at: Date.now() })
+  }, [watching, url, title])
 
   // Leaving the TV tab pauses the show (it would otherwise keep playing, unseen).
   const wasActive = useRef(active)
@@ -89,6 +112,13 @@ export default function TvPage({ active }: { active: boolean }) {
   if (!watching) return <div className="tv">
     <div className="tv-head"><Tv size={18} /><h2>TV</h2><span className="hint">Pick a service. Sign in with your own account; the free ones need none.</span></div>
     {error && <p className="cal-error">{error}</p>}
+    {watched.length > 0 && <>
+      <h3 className="tv-group"><History size={12} /> Continue watching</h3>
+      <div className="tv-grid">{watched.map(w => {
+        const service = serviceFor(w.url, config.tv.shortcuts)
+        return <Tile key={w.url} name={service.name} detail={w.title && w.title !== service.name ? w.title : undefined} color={service.color} onClick={() => watch(w.url)} onRemove={() => setWatched(list => { const next = list.filter(x => x.url !== w.url); try { localStorage.setItem(WATCHED_KEY, JSON.stringify(next)) } catch { /* a convenience only */ } return next })} />
+      })}</div>
+    </>}
     <h3 className="tv-group">Free</h3>
     <div className="tv-grid">{SERVICES.filter(s => s.free).map(s => <Tile key={s.url} name={s.name} color={s.color} onClick={() => watch(s.url)} />)}</div>
     <h3 className="tv-group">With a subscription</h3>
@@ -121,9 +151,9 @@ export default function TvPage({ active }: { active: boolean }) {
   </div>
 }
 
-function Tile({ name, color, onClick, onRemove }: { name: string; color: string; onClick: () => void; onRemove?: () => void }) {
+function Tile({ name, detail, color, onClick, onRemove }: { name: string; detail?: string; color: string; onClick: () => void; onRemove?: () => void }) {
   return <div className="tv-tile-wrap">
-    <button className="tv-tile" style={{ background: color }} onClick={onClick}><span>{name}</span></button>
+    <button className="tv-tile" style={{ background: color }} onClick={onClick} title={detail}><span>{name}</span>{detail && <small className="tv-tile-detail">{detail}</small>}</button>
     {onRemove && <button className="tv-remove" title={`Remove ${name}`} onClick={onRemove}><Trash2 size={13} /></button>}
   </div>
 }

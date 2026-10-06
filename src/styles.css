@@ -679,6 +679,33 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .browser-links{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0}
 .browser-links button{border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text);border-radius:999px;padding:8px 14px;font-size:13px}
 .browser-links button:hover{border-color:var(--accent)}
+.browser-tabs{display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;min-height:32px}
+.browser-tab{display:flex;align-items:center;max-width:200px;min-width:90px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted)}
+.browser-tab.on{background:var(--surface-2);color:var(--text);border-color:var(--line-strong)}
+.browser-tab-name{flex:1;min-width:0;border:0;background:none;color:inherit;font-size:12px;padding:5px 4px 5px 10px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.browser-tab-close,.browser-tab-new{border:0;background:none;color:var(--muted);padding:4px 6px;border-radius:6px;display:inline-flex}
+.browser-tab-close:hover,.browser-tab-new:hover{color:var(--text);background:var(--surface-2)}
+.browser-bar .cal-icon.starred{color:#f5b301}
+.browser-notice{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--muted)}
+.browser-downloads{display:flex;flex-direction:column;gap:4px}
+.browser-download{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.browser-download .grow{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.browser-download small{color:var(--muted)}
+.browser-download.failed small{color:var(--danger,#e5484d)}
+.browser-download .ghost{display:inline-flex;align-items:center;gap:4px;padding:2px 6px}
+.browser-start{overflow-y:auto;justify-content:flex-start;padding-top:40px}
+.browser-section{width:min(720px,100%);margin-top:10px}
+.browser-section h4{display:flex;align-items:center;justify-content:center;gap:6px;margin:0;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.browser-section h4 .ghost{display:inline-flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0;font-weight:500;padding:2px 6px}
+.browser-section.sent .browser-links button{border-color:var(--accent)}
+.browser-link{position:relative;display:inline-flex}
+.browser-link-remove{position:absolute;top:-6px;right:-6px;padding:2px!important;border-radius:999px!important;display:none!important}
+.browser-link:hover .browser-link-remove{display:inline-flex!important}
+.browser-history{display:flex;flex-direction:column;gap:2px;margin:8px 0;text-align:left}
+.browser-history button{display:flex;align-items:baseline;gap:10px;border:0;background:none;color:var(--text);padding:6px 10px;border-radius:var(--radius-sm);font-size:13px;text-align:left}
+.browser-history button:hover{background:var(--surface-2)}
+.browser-history span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.browser-history small{color:var(--muted)}
 .manga{display:flex;flex-direction:column;gap:14px}
 .manga-link-import{align-items:stretch;flex-wrap:wrap;margin-top:10px}
 .manga-link-import input{flex:1 1 180px}
@@ -739,7 +766,8 @@ main.fill>.notice{max-width:none;margin:8px 12px}
 main.fill>.tab-panel:not([hidden]){flex:1;min-height:0;max-width:none;margin:0;display:flex;flex-direction:column}
 main.fill .browser,main.fill .book-tab{flex:1;height:auto;min-height:0;gap:0}
 main.fill .browser-bar{box-sizing:border-box;min-height:var(--page-bar-h);padding:6px 12px;border-bottom:1px solid var(--line)}
-main.fill .browser>.cal-error{margin:6px 12px}
+main.fill .browser>.cal-error,main.fill .browser-notice,main.fill .browser-downloads{margin:6px 12px}
+main.fill .browser-tabs{padding:4px 12px 0}
 main.fill .browser-area{border:0;border-radius:0}
 main.fill .book-toolbar{box-sizing:border-box;min-height:var(--page-bar-h);padding:6px 12px;border-bottom:1px solid var(--line)}
 main.fill .book-status{padding:4px 12px}
@@ -775,6 +803,9 @@ main.fill .book-scroll{border-radius:0;padding:8px 0}
 .tv-tile-wrap{position:relative}
 .tv-tile{width:100%;aspect-ratio:16/9;border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;text-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .12s}
 .tv-tile:hover{transform:scale(1.03)}
+.tv-tile:has(.tv-tile-detail){flex-direction:column;gap:4px;padding:0 12px}
+.tv-tile-detail{font-size:11px;font-weight:500;opacity:.85;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv-group svg{vertical-align:-1px;margin-right:4px}
 .tv-tile-add{background:var(--surface-2);color:var(--muted);flex-direction:column;font-weight:500;font-size:13px;text-shadow:none;border-style:dashed}
 .tv-remove{position:absolute;top:6px;right:6px;border:0;border-radius:6px;background:rgba(0,0,0,.5);color:#fff;padding:4px;display:none}
 .tv-tile-wrap:hover .tv-remove{display:block}
@@ -788,7 +819,7 @@ main.fill .book-scroll{border-radius:0;padding:8px 0}
 .tv-watching>.cal-error{margin:6px 12px}
 body.tv-full .tabbar{display:none}
 /* A web page's video in full screen (Windows): only the page shows. */
-body.web-full .tabbar, body.web-full .browser-bar, body.web-full .tv-bar, body.web-full .chat-panel, body.web-full main>.notice{display:none}
+body.web-full .tabbar, body.web-full .browser-bar, body.web-full .browser-tabs, body.web-full .browser-downloads, body.web-full .browser-notice, body.web-full .tv-bar, body.web-full .chat-panel, body.web-full main>.notice{display:none}
 .ad-shield{color:var(--ok)}.ad-shield.off{color:var(--muted)}
 .ad-allowed{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
 .tab-loading{padding:24px}
