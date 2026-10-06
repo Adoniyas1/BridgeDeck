@@ -37,7 +37,7 @@ export function wheelPixels(e: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode
   return { dx: e.deltaX * unit, dy: e.deltaY * unit }
 }
 
-/** Parses a packet from the viewer channel: `0` + JSON event, or `1` + header length + header + tiles. */
+/** Parses a packet from the viewer channel: `0` + JSON event, or `1` + header length + header + payload. */
 export function parsePacket(data: ArrayBuffer | Uint8Array | number[]) {
   const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data)
   if (bytes[0] === 0) return { kind: 'event' as const, event: JSON.parse(new TextDecoder().decode(bytes.subarray(1))) }
@@ -46,4 +46,9 @@ export function parsePacket(data: ArrayBuffer | Uint8Array | number[]) {
   return { kind: 'frame' as const, header, payload: bytes.subarray(5 + length) }
 }
 
-export type FrameHeader = { type: 'frame'; seq: number; width: number; height: number; tiles: Array<{ x: number; y: number; w: number; h: number; len: number }>; bytes: number }
+export type FrameHeader =
+  | { type: 'frame'; seq: number; width: number; height: number; tiles: Array<{ x: number; y: number; w: number; h: number; len: number }>; bytes: number }
+  /** H.264 (Annex B); `key` frames decode on their own. */
+  | { type: 'video'; seq: number; width: number; height: number; key: boolean; bytes: number }
+  /** 16-bit little-endian samples, interleaved; `rate` 0 means the host can't capture sound. */
+  | { type: 'audio'; rate: number; channels: number; bytes: number }

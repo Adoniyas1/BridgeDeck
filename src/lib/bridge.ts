@@ -130,12 +130,12 @@ export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
 export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
 /** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
-export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>
-  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent })
+export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown, media: { codecs?: string[]; audio?: boolean } = {}) =>
+  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent, codecs: media.codecs ?? [], audio: media.audio ?? false })
 export const remoteFrameDrawn = (session: string) => native<void>('remote_frame_drawn', { session })
 export const remoteInput = (session: string, events: unknown[]) => native<void>('remote_input', { session, events })
-export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number }) =>
-  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null })
+export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number; audio?: boolean; codec?: 'h264' | 'tiles' }) =>
+  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null, audio: changes.audio ?? null, codec: changes.codec ?? null })
 export const remoteDisconnect = (session: string) => native<void>('remote_disconnect', { session })
 
 /** Messages, read by BridgeDeck on the Mac. `peer`: the paired Mac's instance id, or null on the Mac itself. */

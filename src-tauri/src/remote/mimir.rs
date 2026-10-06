@@ -88,7 +88,7 @@ fn open(manager: &BridgeLinkManager, peer: &str, slot: &mut Option<Session>) -> 
         close(old);
     }
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let hello = ViewerMsg::Hello { monitor: 0, max_width: LOOK_WIDTH, quality: 70, by: Some("Mimir".into()) };
+    let hello = ViewerMsg::Hello { monitor: 0, max_width: LOOK_WIDTH, quality: 70, by: Some("Mimir".into()), codecs: vec![], audio: false };
     let id = tauri::async_runtime::block_on(viewer::connect(manager, peer, hello, move |body| {
         if let InvokeResponseBody::Raw(bytes) = body {
             let _ = tx.send(bytes);
@@ -133,7 +133,7 @@ pub fn look(manager: &BridgeLinkManager, app: Option<&tauri::AppHandle>, peer: &
     let session = slot.as_mut().ok_or("The session ended")?;
     while session.packets.try_recv().is_ok() {}
     // Starting over makes the next frame the whole screen in one JPEG.
-    viewer::remote_settings(session.id.clone(), Some(monitor), Some(LOOK_WIDTH), Some(70))?;
+    viewer::remote_settings(session.id.clone(), Some(monitor), Some(LOOK_WIDTH), Some(70), None, None)?;
     let _ = viewer::remote_frame_drawn(session.id.clone());
     let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {

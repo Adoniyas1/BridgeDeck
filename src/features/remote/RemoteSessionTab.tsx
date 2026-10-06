@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { Channel } from '@tauri-apps/api/core'
-import { Expand, Monitor, Power, RefreshCw } from 'lucide-react'
+import { Expand, Monitor, Power, RefreshCw, Volume2, VolumeX } from 'lucide-react'
 import { remoteConnect, remoteDisconnect, remoteFrameDrawn, remoteInput, remoteSettings } from '../../lib/bridge'
 import type { DynamicTab } from '../../core/tabs'
 import { errorText } from '../../core/util'
-import { buttonName, keyName, parsePacket, wheelPixels, type InputEvent } from './keys'
+import { buttonName, keyName, parsePacket, wheelPixels, type FrameHeader, type InputEvent } from './keys'
+import { codecString, H264_PROBE, h264Supported, SoundPlayer } from './media'
 
-type Ready = { monitors: Array<{ index: number; name: string; width: number; height: number; primary: boolean }>; monitor: number; hostName: string; platform: string }
+type Ready = { monitors: Array<{ index: number; name: string; width: number; height: number; primary: boolean }>; monitor: number; hostName: string; platform: string; video?: string; audio?: boolean }
+const SOUND_KEY = 'bridgedeck.remote.sound'
+const savedSound = () => { try { return localStorage.getItem(SOUND_KEY) === '1' } catch { return false } }
 const QUALITY = { high: 85, auto: 70, low: 45 } as const
 const viewerIsMac = /Mac/i.test(navigator.platform || navigator.userAgent)
 
-/** Another device's screen in a tab: frames drawn on a canvas, mouse and keyboard sent back. */
+/** Another device's screen in a tab: frames drawn on a canvas (H.264 decoded with WebCodecs when
+ *  both computers can, else JPEG tiles), its sound if turned on, mouse and keyboard sent back. */
 export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; active: boolean }) {
   const peer = String(tab.params?.peer ?? '')
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -28,6 +32,12 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
   const [swapCommand, setSwapCommand] = useState(true)
   const [rate, setRate] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [sound, setSound] = useState(savedSound)
+  const [soundNote, setSoundNote] = useState('')
+  const [codec, setCodec] = useState<'h264' | 'tiles'>('tiles')
+  const decoder = useRef<VideoDecoder | null>(null)
+  const waiting = useRef<number[]>([])
+  const player = useRef(new SoundPlayer())
 
   // A hidden tab doesn't draw, so it stops asking for frames; showing it again resumes.
   useEffect(() => {
@@ -47,7 +57,9 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
     const maxWidth = Math.min(3840, Math.max(960, Math.round(window.screen.width * (window.devicePixelRatio || 1))))
     setState('connecting')
     setDetail('')
-    remoteConnect(peer, 0, maxWidth, QUALITY.auto, channel)
+    setCodec('tiles')
+    h264Supported()
+      .then(h264 => remoteConnect(peer, 0, maxWidth, QUALITY.auto, channel, { codecs: h264 ? ['h264'] : [], audio: savedSound() }))
       .then(id => { if (closed) void remoteDisconnect(id); else { session.current = id; setState('live') } })
       .catch(error => { if (!closed) { setState('ended'); setDetail(errorText(error, 'Could not connect')) } })
     const timer = window.setInterval(() => {
@@ -61,8 +73,84 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
       window.clearInterval(timer)
       if (session.current) void remoteDisconnect(session.current).catch(() => undefined)
       session.current = ''
+      closeDecoder()
+      player.current.close()
     }
   }, [peer, attempt])
+
+  /** Tells the host this frame is shown (or skipped), so it sends the next. */
+  function drawn() {
+    if (!session.current) return
+    if (activeRef.current) void remoteFrameDrawn(session.current).catch(() => undefined)
+    else owedDraw.current = true
+  }
+
+  function closeDecoder() {
+    try { if (decoder.current && decoder.current.state !== 'closed') decoder.current.close() } catch { /* already closed */ }
+    decoder.current = null
+    waiting.current = []
+  }
+
+  /** The video decoder failed: back to tiles for this session. */
+  function fallBackToTiles() {
+    closeDecoder()
+    setCodec('tiles')
+    if (session.current) void remoteSettings(session.current, { codec: 'tiles' }).catch(() => undefined)
+    drawn()
+  }
+
+  function decoderFor(config: string) {
+    const canvas = canvasRef.current
+    const next = new VideoDecoder({
+      output: frame => {
+        const context = canvas?.getContext('2d')
+        if (canvas && context) {
+          if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+            canvas.width = frame.displayWidth
+            canvas.height = frame.displayHeight
+          }
+          context.drawImage(frame, 0, 0)
+          stats.current.frames += 1
+        }
+        frame.close()
+        if (waiting.current.length) { waiting.current.shift(); drawn() }
+      },
+      error: () => fallBackToTiles(),
+    })
+    next.configure({ codec: config, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' })
+    return next
+  }
+
+  function onVideo(header: Extract<FrameHeader, { type: 'video' }>, payload: Uint8Array) {
+    stats.current.bytes += header.bytes
+    if (header.key) {
+      // A key frame carries the stream's settings: (re)start the decoder with them.
+      closeDecoder()
+      try { decoder.current = decoderFor(codecString(payload) ?? H264_PROBE) } catch { return fallBackToTiles() }
+      setCodec('h264')
+    }
+    const d = decoder.current
+    if (!d || d.state !== 'configured') return drawn()
+    try {
+      d.decode(new EncodedVideoChunk({ type: header.key ? 'key' : 'delta', timestamp: header.seq * 33_333, data: payload }))
+    } catch { return fallBackToTiles() }
+    // Asked for again once drawn; if the decoder holds on to it, ask anyway soon after.
+    const seq = header.seq
+    waiting.current.push(seq)
+    window.setTimeout(() => {
+      const i = waiting.current.indexOf(seq)
+      if (i >= 0) { waiting.current.splice(i, 1); drawn() }
+    }, 500)
+  }
+
+  function toggleSound() {
+    const on = !sound
+    setSound(on)
+    setSoundNote('')
+    try { localStorage.setItem(SOUND_KEY, on ? '1' : '0') } catch { /* remembered for this session only */ }
+    if (!on) player.current.close()
+    if (session.current) void remoteSettings(session.current, { audio: on }).catch(() => undefined)
+  }
 
   async function onPacket(data: ArrayBuffer) {
     const packet = parsePacket(data)
@@ -71,31 +159,36 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
       if (packet.event.type === 'ended') { setState('ended'); setDetail(packet.event.reason); session.current = '' }
       return
     }
+    const header = packet.header
+    if (header.type === 'audio') {
+      if (!header.rate) { setSound(false); setSoundNote('That computer can’t send its sound.') }
+      else player.current.play(packet.payload, header.rate, header.channels)
+      return
+    }
+    if (header.type === 'video') return onVideo(header, packet.payload)
     const canvas = canvasRef.current
     const context = canvas?.getContext('2d')
-    if (canvas && context && packet.header.tiles.length) {
-      if (canvas.width !== packet.header.width || canvas.height !== packet.header.height) {
-        canvas.width = packet.header.width
-        canvas.height = packet.header.height
+    if (canvas && context && header.tiles.length) {
+      if (canvas.width !== header.width || canvas.height !== header.height) {
+        canvas.width = header.width
+        canvas.height = header.height
       }
       let offset = 0
-      const bitmaps = await Promise.all(packet.header.tiles.map(tile => {
+      const bitmaps = await Promise.all(header.tiles.map(tile => {
         const bytes = packet.payload.slice(offset, offset + tile.len)
         offset += tile.len
         return createImageBitmap(new Blob([bytes], { type: 'image/jpeg' })).catch(() => null)
       }))
       bitmaps.forEach((bitmap, i) => {
         if (!bitmap) return
-        const tile = packet.header.tiles[i]
+        const tile = header.tiles[i]
         context.drawImage(bitmap, tile.x, tile.y)
         bitmap.close()
       })
       stats.current.frames += 1
     }
-    stats.current.bytes += packet.header.bytes
-    if (!session.current) return
-    if (activeRef.current) void remoteFrameDrawn(session.current).catch(() => undefined)
-    else owedDraw.current = true
+    stats.current.bytes += header.bytes
+    drawn()
   }
 
   // Input: batched per animation frame, mouse moves coalesced to the latest position.
@@ -146,10 +239,11 @@ export default function RemoteSessionTab({ tab, active }: { tab: DynamicTab; act
   return <div className="remote-session">
     <div className="remote-toolbar">
       <strong>{ready?.hostName || String(tab.params?.name ?? 'Remote')}</strong>
-      <span className={`remote-state ${state}`}>{state === 'live' ? rate || 'Connected' : state === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
+      <span className={`remote-state ${state}`}>{state === 'live' ? `${rate || 'Connected'}${codec === 'h264' ? ' · H.264' : ''}` : state === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
       {ready && ready.monitors.length > 1 && <label><Monitor size={14}/><select value={monitor} onChange={e => { const m = Number(e.target.value); setMonitor(m); change({ monitor: m }) }}>{ready.monitors.map(m => <option key={m.index} value={m.index}>{m.name}{m.primary ? ' (main)' : ''}</option>)}</select></label>}
       <label>Quality<select value={quality} onChange={e => { const q = e.target.value as keyof typeof QUALITY; setQuality(q); change({ quality: QUALITY[q] }) }}><option value="high">High</option><option value="auto">Normal</option><option value="low">Low (slow networks)</option></select></label>
       {ready && (ready.platform === 'macos') !== viewerIsMac && <label title="Ctrl here acts as Command on a Mac (and the reverse)"><input type="checkbox" checked={swapCommand} onChange={e => setSwapCommand(e.target.checked)}/>{viewerIsMac ? 'Cmd → Ctrl' : 'Ctrl → Cmd'}</label>}
+      {(ready?.audio || soundNote) && <button className={`ghost${sound ? ' active' : ''}`} title={soundNote || (sound ? 'Mute that computer’s sound here' : 'Play that computer’s sound here')} onClick={toggleSound}>{sound ? <Volume2 size={15}/> : <VolumeX size={15}/>}</button>}
       <span className="grow"/>
       <button className="ghost" title="Full screen" onClick={() => void canvasRef.current?.parentElement?.requestFullscreen().catch(() => undefined)}><Expand size={15}/></button>
       {state === 'ended'

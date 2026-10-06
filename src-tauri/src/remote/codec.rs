@@ -4,8 +4,7 @@
 //! frame goes as one JPEG. The viewer asks for the next frame after drawing the last one, so the
 //! frame rate follows what the link and the viewer can take.
 //!
-//! (The roadmap names H.264 + WebCodecs. Tiles need no video encoder, which keeps the host free of
-//! platform encoder code and patent-encumbered codecs; H.264 can replace this behind the same wire.)
+//! Tiles are what every viewer can show; when both ends can, frames go as H.264 instead (video.rs).
 
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +52,11 @@ fn tile_hash(rgba: &[u8], stride: usize, x: u32, y: u32, w: u32, h: u32) -> u64 
         }
     }
     hash
+}
+
+/// A whole frame's hash (whether anything changed).
+pub fn frame_hash(rgba: &[u8]) -> u64 {
+    tile_hash(rgba, rgba.len(), 0, 0, (rgba.len() / 4) as u32, if rgba.is_empty() { 0 } else { 1 })
 }
 
 fn crop(rgba: &[u8], stride: usize, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {

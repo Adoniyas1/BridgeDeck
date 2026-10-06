@@ -32,7 +32,7 @@ describe('remote input', () => {
     const packet = new Uint8Array([1, 0, 0, 0, header.length, ...header, 9, 9])
     const parsed = parsePacket(packet.buffer)
     expect(parsed.kind).toBe('frame')
-    if (parsed.kind === 'frame') {
+    if (parsed.kind === 'frame' && parsed.header.type === 'frame') {
       expect(parsed.header.tiles[0].len).toBe(2)
       expect([...parsed.payload]).toEqual([9, 9])
     }
