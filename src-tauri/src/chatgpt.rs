@@ -218,7 +218,12 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
         // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
         // own drop handler, which queues files for sending to the other computer.
         .disable_drag_drop_handler()
+        .initialization_script(crate::webkeys::SCRIPT)
         .on_navigation(move |url| {
+            let page = || handle.get_webview(LABEL).and_then(|v| v.url().ok());
+            if crate::webkeys::handle(&handle, LABEL, page, url) {
+                return false;
+            }
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
             let message = match result.and_then(|chat| save(&handle, chat)) {
                 Ok(()) => "Saved in BridgeDeck ✓".to_string(),

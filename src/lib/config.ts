@@ -21,7 +21,8 @@ export const defaultConfig: AppConfig = {
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
-  browsing: { adblock: true, allowAds: [] },
+  browsing: { adblock: true, allowAds: [], bookmarks: [] },
+  study: { ocrLanguages: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -89,7 +90,8 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
-    browsing: { adblock: input.browsing?.adblock !== false, allowAds: Array.isArray(input.browsing?.allowAds) ? input.browsing.allowAds.filter((s): s is string => typeof s === 'string').slice(0, 200) : [] },
+    study: { ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [] },
+    browsing: { adblock: input.browsing?.adblock !== false, allowAds: Array.isArray(input.browsing?.allowAds) ? input.browsing.allowAds.filter((s): s is string => typeof s === 'string').slice(0, 200) : [], bookmarks: cleanShortcuts(input.browsing?.bookmarks, 200) },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
     localsend: { ...defaultConfig.localsend, ...(input.localsend || {}) },
@@ -124,11 +126,11 @@ export async function saveConfig(config: AppConfig) {
 }
 
 /** Stored TV shortcuts: web addresses only, named, at most 40. */
-export function cleanShortcuts(list: unknown): Array<{ name: string; url: string }> {
+export function cleanShortcuts(list: unknown, max = 40): Array<{ name: string; url: string }> {
   if (!Array.isArray(list)) return []
   return list.flatMap(item => {
     const url = typeof item?.url === 'string' ? item.url.trim() : ''
-    const name = typeof item?.name === 'string' ? item.name.trim().slice(0, 40) : ''
+    const name = typeof item?.name === 'string' ? item.name.trim().slice(0, 80) : ''
     return /^https?:\/\/[^\s]+$/i.test(url) && name ? [{ name, url }] : []
-  }).slice(0, 40)
+  }).slice(0, max)
 }

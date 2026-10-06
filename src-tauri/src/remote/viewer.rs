@@ -77,7 +77,7 @@ pub async fn connect(
     let ready = match first {
         ready @ HostMsg::Ready { .. } => ready,
         HostMsg::Ended { reason } => return Err(reason),
-        HostMsg::Frame { .. } => return Err("Unexpected answer".into()),
+        _ => return Err("Unexpected answer".into()),
     };
     sink(event(json!({ "type": "ready", "ready": ready })));
 
@@ -108,8 +108,21 @@ pub async fn connect(
     tauri::async_runtime::spawn(async move {
         let reason = loop {
             match read_frame::<HostMsg>(&mut recv).await {
-                Ok(header @ HostMsg::Frame { .. }) => {
-                    let HostMsg::Frame { bytes, .. } = header else { unreachable!() };
+                // Sound: straight to the tab, no request back (it isn't paced by drawing).
+                Ok(header @ HostMsg::Audio { .. }) => {
+                    let HostMsg::Audio { bytes, .. } = header else { unreachable!() };
+                    let payload = if bytes > 0 {
+                        match read_raw(&mut recv).await {
+                            Ok(payload) => payload,
+                            Err(error) => break error,
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    sink(InvokeResponseBody::Raw(frame_packet(&header, &payload)));
+                }
+                Ok(header @ (HostMsg::Frame { .. } | HostMsg::Video { .. })) => {
+                    let (HostMsg::Frame { bytes, .. } | HostMsg::Video { bytes, .. }) = header else { unreachable!() };
                     let payload = if bytes > 0 {
                         match read_raw(&mut recv).await {
                             Ok(payload) => payload,
@@ -139,17 +152,22 @@ pub async fn connect(
     Ok(id)
 }
 
+/// `codecs`: what the tab can decode ("h264", checked with WebCodecs); `audio`: sound on.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn remote_connect(
     peer: String,
     monitor: usize,
     max_width: u32,
     quality: u8,
+    codecs: Option<Vec<String>>,
+    audio: Option<bool>,
     on_event: Channel<InvokeResponseBody>,
     manager: tauri::State<'_, BridgeLinkManager>,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
-    connect(&manager, &peer, ViewerMsg::Hello { monitor, max_width, quality, by: None }, move |body| {
+    let codecs = codecs.unwrap_or_default().into_iter().filter(|c| c == crate::remote::video::H264).collect();
+    connect(&manager, &peer, ViewerMsg::Hello { monitor, max_width, quality, by: None, codecs, audio: audio.unwrap_or(false) }, move |body| {
         let _ = on_event.send(body);
     })
     .await
@@ -166,10 +184,10 @@ pub fn remote_input(session: String, events: Vec<InputEvent>) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn remote_settings(session: String, monitor: Option<usize>, max_width: Option<u32>, quality: Option<u8>) -> Result<(), String> {
+pub fn remote_settings(session: String, monitor: Option<usize>, max_width: Option<u32>, quality: Option<u8>, audio: Option<bool>, codec: Option<String>) -> Result<(), String> {
     with_session(&session, |s| {
         // The host starts over with a whole frame on the next request.
-        let _ = s.tx.send(ViewerMsg::Settings { monitor, max_width, quality });
+        let _ = s.tx.send(ViewerMsg::Settings { monitor, max_width, quality, audio, codec });
     })
 }
 
@@ -211,7 +229,7 @@ pub(crate) mod tests {
         let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
 
         let (events_tx, events_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        let session = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None }, move |body| {
+        let session = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None, codecs: vec![], audio: false }, move |body| {
             if let InvokeResponseBody::Raw(bytes) = body {
                 let _ = events_tx.send(bytes);
             }
@@ -271,12 +289,84 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn video_and_sound_go_when_the_viewer_can_take_them() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let fake = FakeScreen::default();
+        *FAKE.lock().unwrap() = Some(fake.clone());
+        let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
+        let (events_tx, events_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let hello = ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None, codecs: vec!["h264".into()], audio: true };
+        let session = tauri::async_runtime::block_on(connect(&viewer, &host_id, hello, move |body| {
+            if let InvokeResponseBody::Raw(bytes) = body {
+                let _ = events_tx.send(bytes);
+            }
+        }))
+        .unwrap();
+        let next = || events_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let parse = |packet: &[u8]| {
+            let len = u32::from_be_bytes(packet[1..5].try_into().unwrap()) as usize;
+            (serde_json::from_slice::<HostMsg>(&packet[5..5 + len]).unwrap(), packet[5 + len..].to_vec())
+        };
+        let ready = next();
+        assert!(String::from_utf8_lossy(&ready[1..]).contains("\"video\":\"h264\""), "{}", String::from_utf8_lossy(&ready));
+
+        // Frames come as H.264, the first a key frame; sound arrives alongside, unasked.
+        let (mut videos, mut sound) = (Vec::new(), 0);
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < until {
+            let packet = next();
+            if packet[0] != 1 {
+                continue;
+            }
+            match parse(&packet) {
+                (HostMsg::Video { key, bytes, width, .. }, payload) => {
+                    assert_eq!((payload.len(), width % 2), (bytes as usize, 0));
+                    assert_eq!(crate::remote::video::is_key(&payload), key);
+                    videos.push(key);
+                    remote_frame_drawn(session.clone()).unwrap();
+                }
+                (HostMsg::Audio { rate, channels, bytes }, payload) => {
+                    assert_eq!((rate, channels, payload.len()), (48_000, 2, bytes as usize));
+                    sound += 1;
+                }
+                (HostMsg::Frame { tiles, .. }, _) => {
+                    assert!(tiles.is_empty(), "no tiles while H.264 works");
+                    remote_frame_drawn(session.clone()).unwrap();
+                }
+                other => panic!("{other:?}"),
+            }
+            if videos.len() >= 2 && sound >= 2 {
+                break;
+            }
+        }
+        assert!(videos.len() >= 2 && videos[0] && !videos[1], "{videos:?}");
+        assert!(sound >= 2);
+
+        // The viewer's decoder gave up: back to tiles, starting with the whole screen.
+        remote_settings(session.clone(), None, None, None, Some(false), Some("tiles".into())).unwrap();
+        let tiles = loop {
+            let packet = next();
+            if packet[0] != 1 {
+                continue;
+            }
+            match parse(&packet) {
+                (HostMsg::Frame { tiles, .. }, _) if !tiles.is_empty() => break tiles,
+                (HostMsg::Audio { .. }, _) => {}
+                _ => remote_frame_drawn(session.clone()).unwrap(),
+            }
+        };
+        assert!(!tiles.is_empty());
+        remote_disconnect(session).unwrap();
+        *FAKE.lock().unwrap() = None;
+    }
+
+    #[test]
     fn refused_when_control_is_off() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let (viewer, _host, host_id) = crate::bridgelink::peer::tests::paired_pair();
         // Settings are process-wide; this test only reads the refusal, then restores them.
         crate::remote::host::remote_host_settings(false, false, None);
-        let error = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None }, |_| {})).unwrap_err();
+        let error = tauri::async_runtime::block_on(connect(&viewer, &host_id, ViewerMsg::Hello { monitor: 0, max_width: 1920, quality: 70, by: None, codecs: vec![], audio: false }, |_| {})).unwrap_err();
         crate::remote::host::remote_host_settings(true, false, None);
         assert!(error.contains("turned off") || error.contains("can't be controlled"), "{error}");
     }

@@ -416,7 +416,7 @@ folder rather than built in.
 
 ### Phase 10: Releases, polish, and the next features (planned 2026-10-06)
 
-Done first: **ready-built releases** (step 0). Then, in order; each step is its own pull request.
+All built (steps 1–14 in one pull request after the releases). What each became:
 
 0. **Releases (built)**: `.github/workflows/release.yml` (Actions → Release → Run workflow, or a `v*` tag)
    builds the universal Mac app and the Windows installer and publishes a GitHub release with checksums.
@@ -424,27 +424,34 @@ Done first: **ready-built releases** (step 0). Then, in order; each step is its 
    SHA-256 check, replace, restart; the Mac re-signs it with the local certificate so permissions stay.
    Rebuild-from-source stays as the fallback. Releases are made on request (macOS runners use 10× the
    free minutes on a private repository); automatic releases on merge are one line away if wanted.
-1. **Mac build check on pull requests**: a `cargo check` on a macOS runner when Rust files change (path
-   filter keeps the cost down), so Mac-only code is compiled before merging.
-2. **TV and Browser video**: full screen from players (WKWebView's element full screen preference,
-   or BridgeDeck filling the window), pause or picture-in-picture when leaving the TV tab.
-3. **Ad blocker polish**: "allow ads on this site" in the Browser/TV bars; hiding ad boxes on Windows
-   (an injected stylesheet with the generic selectors).
-4. **Faster start**: load each tab's code when it's first opened (React lazy + Vite chunks); the main
-   bundle is 1.2 MB today.
-5. **Lecture recording to notes**: record in the Study tab (MediaRecorder), transcribe on the computer
-   with Whisper (whisper.cpp model downloaded once in Settings, 75–150 MB; microphone permission), save
-   the transcript as a note in the course with timestamps.
-6. **Drawings in notes**: an Excalidraw block in notes, saved with the note and synced.
-7. **EPUB reading in the app**: epub.js in a book tab like PDFs (highlights, search index, flashcards).
-8. **PDF upgrades**: highlights drawn on the page, dark reading mode, more OCR languages.
-9. **Browser**: several tabs, bookmarks and history, downloads to a chosen folder (and to the other
-   computer), "send this page to my other computer".
-10. **TV**: "continue watching" (last service and page).
-11. **ChatGPT anywhere**: a shortcut to open the panel; "Ask about this" for selected text in any tab.
-12. **Search everything (Cmd+K)** and a keyboard-shortcut list.
-13. **Backups**: daily backup of notes, cards and settings to the shared folder, one-click restore.
-14. **Remote control video and audio** (Phase 9 step 8): hardware H.264 and audio; large, platform work.
+1. **Mac build check (built)**: `.github/workflows/mac-check.yml` runs `cargo check --locked` on macOS
+   when Rust files change.
+2. **TV and Browser video (built)**: players' full screen (WKWebView's element full screen; WebView2's
+   full-screen event fills the window), and leaving the TV tab pauses it.
+3. **Ad blocker polish (built)**: a shield in the Browser/TV bars allows ads on a site; Windows hides ad
+   boxes with the lists' element-hiding rules.
+4. **Faster start (built)**: each tab's code loads when first opened; the main bundle went from 1.2 MB to
+   under 400 KB.
+5. **Lecture recording (built)**: record in Study, transcribe on the computer with Whisper
+   (Transformers.js, model downloaded once in Settings), save a timestamped transcript note.
+6. **Drawings in notes (built)**: Excalidraw blocks, saved in the shared folder with a picture.
+7. **EPUB reading (built)**: epub.js book tabs with contents, highlights, flashcards, search by chapter.
+8. **PDF upgrades (built)**: saved highlights drawn on the page, dark pages, more OCR languages.
+9. **Browser (built)**: tabs, bookmarks, history, downloads to the Downloads folder (open, show, send to
+   the other computer), "send this page to my other computer" (a synced "Sent pages" checklist shown on
+   the other computer's start page), "open in my browser".
+10. **TV continue watching (built)**: the last page on each service, kept on each computer.
+11. **ChatGPT anywhere (built)**: ⌘/Ctrl+J opens the panel; ⌘/Ctrl+Shift+A asks about the selected text,
+    on BridgeDeck's own pages and on web pages (`webkeys.rs` passes shortcuts out of focused web pages).
+12. **Search everything (built)**: ⌘/Ctrl+K searches tabs, notes, calendar, books, bookmarks and history,
+    opens addresses and searches the web; ⌘/Ctrl+/ lists the shortcuts.
+13. **Backups (built)**: `backups.rs` writes notes (with flashcards), the calendar and settings to
+    `<shared>/BridgeDeck Backups/<computer>/<date>.json` daily, two weeks kept; Settings → Sync restores
+    (as new edits, so both computers take the restored versions; a safety backup is made first).
+14. **Remote control video and sound (built)**: H.264 from the system's encoder (VideoToolbox on a Mac,
+    Media Foundation's encoder on Windows) decoded with WebCodecs, used when both ends can, otherwise
+    JPEG tiles as before (and if the encoder or decoder fails mid-session). The host's sound (WASAPI
+    loopback on Windows, ScreenCaptureKit on macOS 13+) plays in the remote tab when turned on.
 
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
@@ -452,7 +459,7 @@ Done first: **ready-built releases** (step 0). Then, in order; each step is its 
   clipboard, AI rooms, Messages viewer (served by the Mac), notifications. iOS cannot host remote
   control, run the Syncthing helper, or stay connected in the background, so those capabilities are
   simply not advertised.
-- Wake-on-LAN button, audio in remote sessions, a SYSTEM service on Windows for UAC prompts, code
+- Wake-on-LAN button, a SYSTEM service on Windows for UAC prompts, code
   signing and notarisation.
 - **Built so far (free, no paid accounts)**:
   - Wake-on-LAN: paired computers report their hardware addresses in `/status`; a Wake button on

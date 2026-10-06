@@ -39,7 +39,7 @@ export function noteTitle(note: Note) {
 export function preview(note: Note) {
   const blocks = visible(note).filter(b => b.text.trim())
   const rest = note.title.trim() ? blocks : blocks.slice(1)
-  return rest.map(b => b.text.trim()).join(' · ').slice(0, 120)
+  return rest.map(b => b.kind === 'drawing' ? '✎ Drawing' : b.text.trim()).join(' · ').slice(0, 120)
 }
 
 /** Markdown typed at the start of a paragraph that turns it into another kind of block. */
@@ -188,6 +188,7 @@ export function toMarkdown(note: Note) {
       case 'todo': lines.push(`${pad(block)}- [${block.checked ? 'x' : ' '}] ${block.text}${due}`); break
       case 'quote': lines.push(block.text.split('\n').map(l => `> ${l}`).join('\n')); break
       case 'code': lines.push('```', block.text, '```'); break
+      case 'drawing': lines.push(`![Drawing](bridgedeck-drawing:${block.text})`, ''); break
       default: lines.push(block.text, '')
     }
   }

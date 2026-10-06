@@ -1,5 +1,6 @@
 import WebFullscreen from './WebFullscreen'
 import ChatPanel from './ChatPanel'
+import { Palette, ShortcutKeys, ShortcutsHelp } from './Palette'
 import { useEffect, Suspense } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
 import { BridgeLinkBackground, sourceUpdateStore } from '../core/bridgelink'
@@ -45,6 +46,8 @@ export default function App() {
     <div className="shell">
       <TabBar />
       <WebFullscreen />
+      <ShortcutKeys />
+      {hydrated && <><Palette /><ShortcutsHelp /></>}
       <div className="shell-body">
       <main className={fill ? 'fill' : undefined}>
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}

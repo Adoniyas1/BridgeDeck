@@ -29,9 +29,12 @@
     "mac:signing": "bash scripts/mac-signing.sh"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@huggingface/transformers": "^3.8.1",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tesseract.js-data/eng": "^1.0.0",
+    "epubjs": "^0.3.93",
     "katex": "^0.16.47",
     "lucide-react": "^0.468.0",
     "pdfjs-dist": "^4.10.38",

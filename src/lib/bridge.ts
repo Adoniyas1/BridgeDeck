@@ -130,12 +130,12 @@ export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
 export const remoteHostStop = () => native<RemoteHostStatus>('remote_host_stop')
 /** Remote control: viewing a paired device. Frames and events arrive on `channel` (see remote/viewer.rs). */
-export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown) =>
-  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent })
+export const remoteConnect = (peer: string, monitor: number, maxWidth: number, quality: number, onEvent: unknown, media: { codecs?: string[]; audio?: boolean } = {}) =>
+  native<string>('remote_connect', { peer, monitor, maxWidth, quality, onEvent, codecs: media.codecs ?? [], audio: media.audio ?? false })
 export const remoteFrameDrawn = (session: string) => native<void>('remote_frame_drawn', { session })
 export const remoteInput = (session: string, events: unknown[]) => native<void>('remote_input', { session, events })
-export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number }) =>
-  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null })
+export const remoteSettings = (session: string, changes: { monitor?: number; maxWidth?: number; quality?: number; audio?: boolean; codec?: 'h264' | 'tiles' }) =>
+  native<void>('remote_settings', { session, monitor: changes.monitor ?? null, maxWidth: changes.maxWidth ?? null, quality: changes.quality ?? null, audio: changes.audio ?? null, codec: changes.codec ?? null })
 export const remoteDisconnect = (session: string) => native<void>('remote_disconnect', { session })
 
 /** Messages, read by BridgeDeck on the Mac. `peer`: the paired Mac's instance id, or null on the Mac itself. */
@@ -385,7 +385,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
-export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code'
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing'
 export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
@@ -465,6 +465,7 @@ export const browserShow = (tab: string, url: string | null, x: number, y: numbe
 export const browserHide = (tab: string) => native<void>('browser_hide', { tab })
 /** Pauses the videos and sounds in a browser or TV page. */
 export const browserPause = (tab: string) => native<void>('browser_pause', { tab })
+export const browserClose = (tab: string) => native<void>('browser_close', { tab })
 export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
 /** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
 export type MangaChapter = { id: string; title: string }
@@ -513,3 +514,21 @@ export async function pickExtension(folder: boolean): Promise<string | null> {
   const picked = folder ? await open({ directory: true, multiple: false }) : await open({ multiple: false, filters: [{ name: 'Chrome extension', extensions: ['crx', 'zip'] }] })
   return typeof picked === 'string' ? picked : null
 }
+
+/** Speech-to-text models for lecture recording, downloaded once (src-tauri/src/models.rs). */
+export type ModelsStatus = { engine: boolean; models: string[]; downloading: boolean }
+export const modelsStatus = () => native<ModelsStatus>('models_status')
+export const modelsDownload = (model: string) => native<ModelsStatus>('models_download', { model })
+export const ocrLanguagesStatus = () => native<string[]>('ocr_languages_status')
+export const ocrLanguagesDownload = (languages: string[]) => native<string[]>('ocr_languages_download', { languages })
+export const modelsRemove = (model: string) => native<ModelsStatus>('models_remove', { model })
+
+/** Drawings in notes, kept in the shared folder (src-tauri/src/drawings.rs). */
+export const drawingLoad = (id: string) => native<{ scene: string | null; svg: string | null }>('drawing_load', { id })
+export const drawingSave = (id: string, scene: string, svg: string) => native<void>('drawing_save', { id, scene, svg })
+/** Daily backups of notes, the calendar and settings in the shared folder (src-tauri/src/backups.rs). */
+export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; bytes: number; mine: boolean }
+export type BackupRestored = { notes: number; events: number; settings: unknown | null }
+export const backupsList = () => native<BackupInfo[]>('backups_list')
+export const backupNow = () => native<string>('backup_now')
+export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings })

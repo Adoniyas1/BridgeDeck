@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, ChevronDown, ChevronLeft, ChevronRight, MoveHorizontal, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, ChevronDown, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -7,12 +7,15 @@ import type { DynamicTab } from '../../core/tabs'
 import { activateTab } from '../../core/tabs'
 import { between, newId, visible } from '../notes/model'
 import { notesStore, openNoteRequest, refreshNotes } from '../notes/state'
-import { bookLink, chaptersTitle, courseFolder, currentPath, highlightsTitle, outlineParents, outlineToMarkdown, type OutlineItem } from './model'
+import { useStore } from '../../core/store'
+import { bookLink, chaptersTitle, courseFolder, currentPath, highlightsByPage, highlightsTitle, inHighlight, outlineParents, outlineToMarkdown, type OutlineItem } from './model'
 import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
 import { loadBook, pdfjs } from './pdf'
+import EpubTab from './EpubTab'
 
+const NO_MARKS: string[] = []
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
 function savedPage(course: string, file: string) {
   try { return Number(localStorage.getItem(pageKey(course, file))) || 1 } catch { return 1 }
@@ -36,7 +39,7 @@ async function resolveOutline(doc: PDFDocumentProxy, items: Outline | null): Pro
 }
 
 /** One page: drawn when it comes near the screen, with a text layer so passages can be selected. */
-function Page({ doc, number, scale, size }: { doc: PDFDocumentProxy; number: number; scale: number; size: { width: number; height: number } }) {
+function Page({ doc, number, scale, size, marks }: { doc: PDFDocumentProxy; number: number; scale: number; size: { width: number; height: number }; marks: string[] }) {
   const box = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
   // Pages can differ in size (a cover, a fold-out); until this one is read, assume the first page's.
@@ -76,11 +79,22 @@ function Page({ doc, number, scale, size }: { doc: PDFDocumentProxy; number: num
       el.replaceChildren(canvas, text)
       el.style.setProperty('--scale-factor', String(scale))
       await new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: text, viewport }).render()
+      if (!cancelled) markHighlights(el, marksRef.current)
     })().catch(() => undefined)
     return () => { cancelled = true; page?.cleanup() }
   }, [near, doc, number, scale])
 
+  // Saved highlights are drawn on the page's text (and again when one is added).
+  const marksRef = useRef(marks)
+  marksRef.current = marks
+  const markKey = marks.join('\u0000')
+  useEffect(() => { if (box.current) markHighlights(box.current, marks) }, [markKey])
+
   return <div ref={box} className="book-page" data-page={number} style={{ width: shown.width * scale, height: shown.height * scale }} />
+}
+
+function markHighlights(page: HTMLElement, quotes: string[]) {
+  for (const span of page.querySelectorAll<HTMLElement>('.textLayer span')) span.classList.toggle('bd-highlight', quotes.length > 0 && inHighlight(span.textContent ?? '', quotes))
 }
 
 export default function BookTab({ tab, active }: { tab: DynamicTab; active: boolean }) {
@@ -108,6 +122,11 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const anchor = useRef<{ page: number; frac: number; offset: number } | null>(null)
   const scale = zoom === 'fit' ? (areaWidth > 0 ? Math.min(4, Math.max(0.3, (areaWidth - 24) / size.width)) : 1.3) : zoom
   const isEpub = file.toLowerCase().endsWith('.epub')
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem('bd-pdf-dark') === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem('bd-pdf-dark', dark ? '1' : '0') } catch { /* not remembered */ } }, [dark])
+  const allNotes = useStore(notesStore)
+  const highlightNote = allNotes.find(n => n.title === highlightsTitle(title) && n.folder === courseFolder(course))
+  const marks = useMemo(() => highlightsByPage(highlightNote, course, file), [highlightNote, course, file])
 
   useEffect(() => {
     if (isEpub) return
@@ -263,11 +282,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     } catch (e) { setStatus(String(e)) }
   }
 
-  if (isEpub) {
-    const root = libraryStore.get().library?.root ?? ''
-    return <div className="book-tab"><div className="card book-message"><BookMarked size={22} /><p>EPUB books open in your usual reader for now; reading them inside BridgeDeck comes next.</p>
-      <div className="actions"><button onClick={() => void openPath(`${root}/${course}/${file}`)}><BookMarked size={15} />Open in your reader</button></div></div></div>
-  }
+  if (isEpub) return <EpubTab tab={tab} active={active} />
 
   return <div className="book-tab" style={{ display: active ? undefined : 'none' }}>
     <div className="book-toolbar">
@@ -279,6 +294,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <span className="book-zoom">{Math.round(scale * 100 / 1.3)}%</span>
       <button className="cal-icon" title="Larger (or pinch)" onClick={() => zoomTo(scale + 0.15)}><Plus size={15} /></button>
       <button className={`cal-icon${zoom === 'fit' ? ' on' : ''}`} title="Fit the page to the width" onClick={() => zoomTo('fit')}><MoveHorizontal size={15} /></button>
+      <button className={`cal-icon${dark ? ' on' : ''}`} title={dark ? 'Light pages' : 'Dark pages (for reading at night)'} onClick={() => setDark(d => !d)}>{dark ? <Sun size={15} /> : <Moon size={15} />}</button>
       <span className="grow book-title">{title}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onMouseDown={e => e.preventDefault()} onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
       <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onMouseDown={e => e.preventDefault()} onClick={() => { setCard({ back: selection.replace(/\s+/g, ' '), page }); window.getSelection()?.removeAllRanges() }}><Layers size={14} /> Flashcard</button>
@@ -294,9 +310,9 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     {status && <p className="book-status">{status}</p>}
     <div className="book-body">
       {showOutline && <nav className="book-outline">{outline?.length ? <Contents items={outline} page={page} onGo={goTo} /> : <p className="hint">No table of contents in this book.</p>}</nav>}
-      <div className="book-scroll" ref={scroller} onScroll={onScroll}>
+      <div className={`book-scroll${dark ? ' dark' : ''}`} ref={scroller} onScroll={onScroll}>
         {error ? <p className="cal-error">{error}</p> : !doc ? <p className="hint">Opening…</p>
-          : Array.from({ length: doc.numPages }, (_, i) => <Page key={i} doc={doc} number={i + 1} scale={scale} size={size} />)}
+          : Array.from({ length: doc.numPages }, (_, i) => <Page key={i} doc={doc} number={i + 1} scale={scale} size={size} marks={marks.get(i + 1) ?? NO_MARKS} />)}
       </div>
     </div>
   </div>

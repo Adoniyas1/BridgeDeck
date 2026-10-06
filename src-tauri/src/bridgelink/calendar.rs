@@ -298,6 +298,25 @@ fn changed(manager: &BridgeLinkManager) {
     });
 }
 
+/// All events, for a backup (backups.rs).
+pub fn all(manager: &BridgeLinkManager) -> Result<Vec<Event>, String> {
+    Ok(manager.lock()?.calendar.list())
+}
+
+/// Puts events back from a backup, as new edits (they win over later changes and deletions on
+/// both computers). Events added since are kept. Returns how many.
+pub fn restore_all(manager: &BridgeLinkManager, events: Vec<Event>) -> Result<usize, String> {
+    local(manager, |calendar, device, now| {
+        let mut count = 0;
+        for event in events.into_iter().filter(|e| !e.deleted) {
+            if calendar.save_from_ui(event, device, now).is_ok() {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
 pub(super) fn local<T>(manager: &BridgeLinkManager, change: impl FnOnce(&mut CalendarStore, &str, u64) -> Result<T, String>) -> Result<T, String> {
     let value = {
         let mut runtime = manager.lock()?;

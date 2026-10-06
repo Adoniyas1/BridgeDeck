@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { AppWindow, MessageCircleQuestion, RefreshCw, Settings, X } from 'lucide-react'
+import { AppWindow, MessageCircleQuestion, RefreshCw, Search, Settings, X } from 'lucide-react'
 import { chatPanelStore, toggleChatPanel } from '../core/chatgpt'
 import { hydratedStore } from '../core/config'
 import { refreshAll } from '../core/refresh'
+import { MOD, runShortcut } from '../core/shortcuts'
 import { useStore, type Store } from '../core/store'
 import { activateTab, closeTab, tabsStore } from '../core/tabs'
 import { features } from '../features/registry'
@@ -55,7 +56,8 @@ export default function TabBar() {
       </nav>
       <div className="tab-actions">
         {!hydrated && <span className="save-state">Loading…</span>}
-        <button className={chatOpen ? 'icon-button active' : 'icon-button'} onClick={toggleChatPanel} title="ChatGPT (side panel)" aria-label="ChatGPT"><MessageCircleQuestion size={15} /></button>
+        <button className="icon-button" onClick={() => runShortcut('search')} title={`Search everything (${MOD} K)`} aria-label="Search"><Search size={15} /></button>
+        <button className={chatOpen ? 'icon-button active' : 'icon-button'} onClick={toggleChatPanel} title={`ChatGPT (side panel, ${MOD} J)`} aria-label="ChatGPT"><MessageCircleQuestion size={15} /></button>
         <button className="icon-button" onClick={() => void refreshAll()} title="Refresh"><RefreshCw size={15} /></button>
         <button className={active === 'settings' ? 'icon-button active' : 'icon-button'} onClick={() => activateTab('settings')} title="Settings" aria-label="Settings"><Settings size={15} /></button>
       </div>

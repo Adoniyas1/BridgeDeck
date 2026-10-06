@@ -50,7 +50,7 @@ export default function CalendarPage({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
-      if (editing || viewing || (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return
+      if (e.metaKey || e.ctrlKey || e.altKey || editing || viewing || (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return
       if (e.key === 't') setAnchor(startOfDay(Date.now()))
       else if (e.key === 'ArrowLeft' || e.key === 'j') step(-1)
       else if (e.key === 'ArrowRight' || e.key === 'k') step(1)

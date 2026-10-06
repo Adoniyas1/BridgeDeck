@@ -35,6 +35,14 @@ async function takeSentFiles() {
   activateTab('files')
 }
 
+/** Files from another tab (a download in the Browser) to send: queued here, Files opens to pick a computer. */
+export function queueForSending(paths: string[]) {
+  if (!paths.length) return
+  addPaths(paths)
+  setTransferState(`${paths.length} item${paths.length === 1 ? '' : 's'} ready to send. Pick a computer.`)
+  activateTab('files')
+}
+
 export async function addTransferPaths(directory = false) {
   try {
     const picked = await pickTransferPaths(directory)

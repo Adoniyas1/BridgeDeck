@@ -97,3 +97,34 @@ export function currentPath(items: OutlineItem[], page: number, path = ''): stri
   const here = `${path}${found}/`
   return [here, ...currentPath(items[found].items, page, here)]
 }
+
+/** Saved highlights of one book, by page, from its highlights note (a quote followed by its link). */
+export function highlightsByPage(note: Note | undefined, course: string, file: string): Map<number, string[]> {
+  const out = new Map<number, string[]>()
+  if (!note) return out
+  const blocks = note.blocks.filter(b => !b.deleted).sort((a, b) => (a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : 0))
+  blocks.forEach((block, i) => {
+    if (block.kind !== 'quote') return
+    const link = blocks[i + 1]?.text.match(/\((book:[^)\s]+)\)/)?.[1]
+    const target = link ? parseBookLink(link) : null
+    if (!target || target.course !== course || target.file !== file) return
+    out.set(target.page, [...(out.get(target.page) ?? []), block.text])
+  })
+  return out
+}
+
+const squash = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** Whether a line of a page's text overlaps one of its highlights: inside it, containing it, or
+ *  sharing a long stretch with its start or end (pages lay text out in whole lines, longer or
+ *  shorter than what was highlighted). Lines of under 4 letters never count. */
+export function inHighlight(line: string, quotes: string[]) {
+  const a = squash(line)
+  if (a.replace(/[^a-z0-9]/g, '').length < 4) return false
+  return quotes.some(quote => {
+    const q = squash(quote)
+    if (q.includes(a) || a.includes(q)) return true
+    const k = Math.min(24, Math.floor(Math.min(a.length, q.length) * 0.6))
+    return k >= 12 && (q.includes(a.slice(0, k)) || q.includes(a.slice(-k)) || a.includes(q.slice(0, k)) || a.includes(q.slice(-k)))
+  })
+}
