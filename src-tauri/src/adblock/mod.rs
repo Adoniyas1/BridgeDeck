@@ -92,6 +92,13 @@ static POPUPS: Mutex<bool> = Mutex::new(true);
 /// Sites the person allowed ads on, and sites allowed to open pop-ups.
 static ALLOWED_SITES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static POPUP_SITES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// macOS: WebKit crashed BridgeDeck building the full lists, so only the basic ones are used
+/// until the person asks for the lists again.
+static BASIC: Mutex<bool> = Mutex::new(false);
+
+pub fn basic() -> bool {
+    get(&BASIC, false)
+}
 /// Bumped when a change needs pages remade with a new script.
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -201,6 +208,8 @@ pub struct Status {
     pub scriptlets: usize,
     pub annoyances: bool,
     pub popups: bool,
+    /// macOS: only the basic lists, after WebKit crashed building the full ones.
+    pub basic: bool,
     pub error: Option<String>,
 }
 
@@ -301,6 +310,10 @@ pub fn refresh(app: &AppHandle, force: bool) -> Result<(), String> {
 
 pub fn init(app: &AppHandle, on: bool) {
     set(&ENABLED, on);
+    #[cfg(target_os = "macos")]
+    if platform::crashed_last_time(app) {
+        set(&BASIC, true);
+    }
     let app = app.clone();
     std::thread::spawn(move || { let _ = refresh(&app, false); });
 }
@@ -317,6 +330,7 @@ pub fn status(app: &AppHandle) -> Status {
         scriptlets: stored.as_ref().map(|r| r.scriptlets.iter().filter(|s| page::SUPPORTED.contains(&s.value.name.as_str())).count()).unwrap_or(0),
         annoyances: get(&ANNOYANCES, true),
         popups: get(&POPUPS, true),
+        basic: basic(),
         error: LAST_ERROR.lock().ok().and_then(|e| e.clone()),
     }
 }
@@ -390,6 +404,8 @@ pub fn adblock_options(app: AppHandle, annoyances: bool, popups: bool, popup_sit
 
 #[tauri::command]
 pub async fn adblock_update(app: AppHandle) -> Result<Status, String> {
+    // Asking for the lists again tries the full ones again, even after a crash.
+    set(&BASIC, false);
     let worker = app.clone();
     tauri::async_runtime::spawn_blocking(move || refresh(&worker, true)).await.map_err(|e| e.to_string())??;
     Ok(status(&app))
@@ -506,6 +522,7 @@ mod platform {
     use objc2_foundation::{NSArray, NSError, NSString};
     use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKWebView};
     use sha2::Digest;
+    use std::{collections::VecDeque, panic::{catch_unwind, AssertUnwindSafe}};
 
     const PREFIX: &str = "bridgedeck-adblock";
 
@@ -513,9 +530,22 @@ mod platform {
     struct Compiled(Vec<Retained<WKContentRuleList>>);
     unsafe impl Send for Compiled {}
     static COMPILED: Mutex<Compiled> = Mutex::new(Compiled(Vec::new()));
-    /// The identifiers of the compiled lists, and a counter that makes older compiles give up.
     static COMPILED_IDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
     static ROUND: AtomicU64 = AtomicU64::new(0);
+
+    /// Written while WebKit builds a list. Still there at the next start means the build crashed
+    /// BridgeDeck: then only the basic lists are used (see `init`).
+    fn marker(app: &AppHandle) -> Option<PathBuf> {
+        super::dir(app).map(|d| d.join("building-list"))
+    }
+
+    /// At start: whether WebKit crashed BridgeDeck building the lists last time.
+    pub fn crashed_last_time(app: &AppHandle) -> bool {
+        let Some(path) = marker(app) else { return false };
+        let crashed = path.exists();
+        let _ = fs::remove_file(path);
+        crashed
+    }
 
     /// Puts the compiled lists on a page, or takes them off when the blocker is off.
     unsafe fn apply(webview: &WKWebView) {
@@ -552,17 +582,27 @@ mod platform {
         fallback: Option<String>,
     }
 
-    /// Gets WebKit's lists for the current rules: those compiled at an earlier launch when they
-    /// haven't changed, else compiled now (in the background; WebKit calls back when done). Then
-    /// puts them on every page.
+    /// The lists still to get, one at a time (several big builds at once take a lot of memory).
+    struct Queue {
+        round: u64,
+        ids: Vec<String>,
+        jobs: VecDeque<Job>,
+        done: Vec<Retained<WKContentRuleList>>,
+    }
+    unsafe impl Send for Queue {}
+    static QUEUE: Mutex<Option<Queue>> = Mutex::new(None);
+
+    /// Gets WebKit's lists for the current rules: those built at an earlier launch when they
+    /// haven't changed, else built now, one at a time in the background. Then puts them on every page.
     pub fn rules_changed(app: &AppHandle) {
         let Some(rules) = RULES.lock().ok().and_then(|r| r.clone()) else { return };
         let app = app.clone();
         std::thread::spawn(move || {
             let allowed = super::allowed_sites();
-            let full = super::safari::lists(&rules, &allowed, false);
-            let simple = super::safari::lists(&rules, &allowed, true);
-            let jobs: Vec<Job> = full.into_iter().map(|l| {
+            let mode = if super::basic() { super::safari::Mode::Basic } else { super::safari::Mode::Full };
+            let lists = super::safari::lists(&rules, &allowed, mode);
+            let simple = (mode == super::safari::Mode::Full).then(|| super::safari::lists(&rules, &allowed, super::safari::Mode::Simple)).unwrap_or_default();
+            let jobs: VecDeque<Job> = lists.into_iter().map(|l| {
                 let digest = sha2::Sha256::digest(l.json.as_bytes());
                 let id = format!("{PREFIX}-{}-{}", l.name, digest.iter().take(6).map(|b| format!("{b:02x}")).collect::<String>());
                 let fallback = l.hiding.then(|| simple.iter().find(|s| s.name == l.name).map(|s| s.json.clone())).flatten();
@@ -575,94 +615,113 @@ mod platform {
             let _ = main.run_on_main_thread(move || unsafe {
                 if same {
                     reattach_all(&app);
-                } else {
-                    load_or_compile(app, round, jobs);
+                    return;
                 }
+                if let Ok(mut q) = QUEUE.lock() {
+                    *q = Some(Queue { round, ids: ids.clone(), jobs, done: Vec::new() });
+                }
+                cleanup(ids);
+                next(&app, round);
             });
         });
     }
 
-    /// Results as they arrive: one slot per list.
-    struct Pending {
-        round: u64,
-        ids: Vec<String>,
-        lists: Vec<Option<Retained<WKContentRuleList>>>,
-        left: usize,
-    }
-    unsafe impl Send for Pending {}
-    static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
-
-    unsafe fn load_or_compile(app: AppHandle, round: u64, jobs: Vec<Job>) {
+    /// Removes lists from earlier versions of the rules.
+    unsafe fn cleanup(keep: Vec<String>) {
         let Some(mtm) = objc2::MainThreadMarker::new() else { return };
         let Some(store) = WKContentRuleListStore::defaultStore(mtm) else { return };
-        let ids: Vec<String> = jobs.iter().map(|j| j.id.clone()).collect();
-        // Lists from earlier versions of the rules are removed.
-        let (keep, old_store) = (ids.clone(), store.clone());
-        let cleanup = RcBlock::new(move |found: *mut NSArray<NSString>| {
-            let Some(found) = found.as_ref() else { return };
-            for old in found.iter() {
-                let old = old.to_string();
-                if old.starts_with(PREFIX) && !keep.contains(&old) {
-                    old_store.removeContentRuleListForIdentifier_completionHandler(Some(&NSString::from_str(&old)), None);
+        let old_store = store.clone();
+        let found = RcBlock::new(move |found: *mut NSArray<NSString>| {
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                let Some(found) = found.as_ref() else { return };
+                for old in found.iter() {
+                    let old = old.to_string();
+                    if old.starts_with(PREFIX) && !keep.contains(&old) {
+                        old_store.removeContentRuleListForIdentifier_completionHandler(Some(&NSString::from_str(&old)), None);
+                    }
                 }
-            }
+            }));
         });
-        store.getAvailableContentRuleListIdentifiers(Some(&cleanup));
-        if let Ok(mut p) = PENDING.lock() {
-            *p = Some(Pending { round, ids, lists: jobs.iter().map(|_| None).collect(), left: jobs.len() });
-        }
-        for (slot, job) in jobs.into_iter().enumerate() {
-            let (app2, store2) = (app.clone(), store.clone());
-            let id = NSString::from_str(&job.id);
-            let found = RcBlock::new(move |list: *mut WKContentRuleList, _error: *mut NSError| {
-                if list.is_null() {
-                    compile(&app2, &store2, round, slot, &job.id, &job.json, job.fallback.clone());
-                } else {
-                    done(&app2, round, slot, list);
-                }
-            });
-            store.lookUpContentRuleListForIdentifier_completionHandler(Some(&id), Some(&found));
-        }
+        store.getAvailableContentRuleListIdentifiers(Some(&found));
     }
 
-    unsafe fn compile(app: &AppHandle, store: &Retained<WKContentRuleListStore>, round: u64, slot: usize, id: &str, json: &str, fallback: Option<String>) {
-        let (app2, store2, id2) = (app.clone(), store.clone(), id.to_string());
-        let finished = RcBlock::new(move |list: *mut WKContentRuleList, _error: *mut NSError| {
-            if list.is_null() {
-                // A rule WebKit won't take: a hiding list is tried with simple selectors; else left out.
-                match fallback.clone() {
-                    Some(simple) => compile(&app2, &store2, round, slot, &id2, &simple, None),
-                    None => done(&app2, round, slot, std::ptr::null_mut()),
+    /// The next list: looked up (built before), else built. When none are left, they go on the pages.
+    unsafe fn next(app: &AppHandle, round: u64) {
+        let job = {
+            let Ok(mut q) = QUEUE.lock() else { return };
+            let Some(queue) = q.as_mut().filter(|q| q.round == round) else { return };
+            match queue.jobs.pop_front() {
+                Some(job) => job,
+                None => {
+                    let finished = q.take().expect("checked");
+                    if let Ok(mut c) = COMPILED.lock() {
+                        c.0 = finished.done;
+                    }
+                    if let Ok(mut c) = COMPILED_IDS.lock() {
+                        *c = finished.ids;
+                    }
+                    drop(q);
+                    reattach_all(app);
+                    return;
                 }
-                return;
             }
-            done(&app2, round, slot, list);
-        });
-        store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(Some(&NSString::from_str(id)), Some(&NSString::from_str(json)), Some(&finished));
-    }
-
-    /// One list is ready (or left out). When all are, they go on the pages.
-    unsafe fn done(app: &AppHandle, round: u64, slot: usize, list: *mut WKContentRuleList) {
-        let finished = {
-            let Ok(mut pending) = PENDING.lock() else { return };
-            let Some(p) = pending.as_mut().filter(|p| p.round == round) else { return };
-            if p.lists[slot].is_none() && p.left > 0 {
-                p.lists[slot] = Retained::retain(list);
-                p.left -= 1;
-            }
-            if p.left > 0 {
-                return;
-            }
-            pending.take()
         };
-        let Some(p) = finished else { return };
-        if let Ok(mut c) = COMPILED.lock() {
-            c.0 = p.lists.into_iter().flatten().collect();
+        let Some(mtm) = objc2::MainThreadMarker::new() else { return };
+        let Some(store) = WKContentRuleListStore::defaultStore(mtm) else { return };
+        let (app2, store2) = (app.clone(), store.clone());
+        let id = NSString::from_str(&job.id);
+        let job = std::cell::RefCell::new(Some(job));
+        let found = RcBlock::new(move |list: *mut WKContentRuleList, _error: *mut NSError| {
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                let Some(job) = job.borrow_mut().take() else { return };
+                if list.is_null() {
+                    build(&app2, &store2, round, job.id, job.json, job.fallback);
+                } else {
+                    keep(&app2, round, list);
+                }
+            }));
+        });
+        store.lookUpContentRuleListForIdentifier_completionHandler(Some(&id), Some(&found));
+    }
+
+    /// Has WebKit build a list. The marker file says a build is under way, so a crash during it
+    /// switches to the basic lists next time. A hiding list WebKit refuses is built again with
+    /// simple selectors; any other refused list is left out.
+    unsafe fn build(app: &AppHandle, store: &Retained<WKContentRuleListStore>, round: u64, id: String, json: String, fallback: Option<String>) {
+        if let Some(path) = marker(app) {
+            let _ = fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
+            let _ = fs::write(&path, &id);
         }
-        if let Ok(mut c) = COMPILED_IDS.lock() {
-            *c = p.ids;
+        let (app2, store2, id2) = (app.clone(), store.clone(), id.clone());
+        let fallback = std::cell::RefCell::new(fallback);
+        let finished = RcBlock::new(move |list: *mut WKContentRuleList, _error: *mut NSError| {
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                if let Some(path) = marker(&app2) {
+                    let _ = fs::remove_file(path);
+                }
+                if list.is_null() {
+                    match fallback.borrow_mut().take() {
+                        Some(simple) => build(&app2, &store2, round, id2.clone(), simple, None),
+                        None => next(&app2, round),
+                    }
+                    return;
+                }
+                keep(&app2, round, list);
+            }));
+        });
+        store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(Some(&NSString::from_str(&id)), Some(&NSString::from_str(&json)), Some(&finished));
+    }
+
+    /// Keeps a list that's ready, and goes on to the next.
+    unsafe fn keep(app: &AppHandle, round: u64, list: *mut WKContentRuleList) {
+        if let Ok(mut q) = QUEUE.lock() {
+            if let Some(queue) = q.as_mut().filter(|q| q.round == round) {
+                if let Some(list) = Retained::retain(list) {
+                    queue.done.push(list);
+                }
+            }
         }
-        reattach_all(app);
+        next(app, round);
     }
 }
 
@@ -711,7 +770,7 @@ mod real_lists {
         let (rules, count) = load(&dir).unwrap();
         println!("{count} lists in {:?}: network {} (hosts {}, addresses {}), allow {}, hide {} + {} on sites, scriptlets {} (supported {})", t.elapsed(), rules.network_rules(), rules.host_block.len(), rules.url_block.len(), rules.host_allow.len() + rules.url_allow.len(), rules.hide.len(), rules.hide_on.len(), rules.scriptlets.len(), rules.scriptlets.iter().filter(|s| page::SUPPORTED.contains(&s.value.name.as_str())).count());
         let t = std::time::Instant::now();
-        let lists = safari::lists(&rules, &[], false);
+        let lists = safari::lists(&rules, &[], safari::Mode::Full);
         for l in &lists {
             let n: Vec<serde_json::Value> = serde_json::from_str(&l.json).unwrap();
             println!("safari {}: {} rules, {} KB", l.name, n.len(), l.json.len() / 1024);
