@@ -27,6 +27,9 @@ Mimir's optional skill packs come from alirezarezvani/claude-skills, MIT, © 202
 ## ts-fsrs
 Study flashcards are scheduled with ts-fsrs (`ts-fsrs` on npm), an implementation of the FSRS algorithm, MIT, © open-spaced-repetition and contributors. It is a package dependency; its licence ships inside `node_modules/ts-fsrs`.
 
+## epub.js
+EPUB books are read in the Study tab with epub.js (`epubjs` on npm), BSD-2-Clause, © futurepress. It is a package dependency; its licence ships inside `node_modules/epubjs`.
+
 ## Excalidraw
 Drawings in notes use Excalidraw (`@excalidraw/excalidraw` on npm), MIT, © Excalidraw contributors; its fonts (OFL and similar open licences) are bundled except the large Chinese/Japanese one. It is a package dependency; its licence ships inside `node_modules/@excalidraw/excalidraw`.
 
@@ -40,7 +43,7 @@ The ad blocker for web pages uses the EasyList and EasyPrivacy filter lists (eas
 "Get uBlock Origin Lite" downloads the extension's latest Chromium release from github.com/uBlockOrigin/uBOL-home (GPLv3, © Raymond Hill and contributors). BridgeDeck does not ship it.
 
 ## Tesseract.js
-Text recognition for scanned book pages uses Tesseract.js (`tesseract.js` on npm, Apache-2.0, © Jerome Wu and contributors), its WebAssembly build of Tesseract OCR (`tesseract.js-core`, Apache-2.0, © Google and contributors) and the English model (`@tesseract.js-data/eng`, from tesseract-ocr/tessdata, Apache-2.0). The worker, engine and model are bundled into the app at `/ocr/` and run on the computer; nothing is downloaded. Their licences ship inside `node_modules/tesseract.js` and `node_modules/tesseract.js-core`.
+Text recognition for scanned book pages uses Tesseract.js (`tesseract.js` on npm, Apache-2.0, © Jerome Wu and contributors), its WebAssembly build of Tesseract OCR (`tesseract.js-core`, Apache-2.0, © Google and contributors) and the English model (`@tesseract.js-data/eng`, from tesseract-ocr/tessdata, Apache-2.0). The worker, engine and English model are bundled into the app at `/ocr/` and run on the computer. Other languages chosen in Settings (also from tesseract-ocr/tessdata, Apache-2.0) are downloaded once from npm (`@tesseract.js-data/<language>`). Their licences ship inside `node_modules/tesseract.js` and `node_modules/tesseract.js-core`.
 
 ## PDF.js
 The Study tab reads textbooks with PDF.js (`pdfjs-dist` on npm), Apache-2.0, © Mozilla and contributors. It is a package dependency; its licence ships inside `node_modules/pdfjs-dist`.

@@ -1,4 +1,7 @@
 import { createWorker, OEM, type Worker } from 'tesseract.js'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import { configStore } from '../../core/config'
+import { ocrLanguagesStatus } from '../../lib/bridge'
 import type { PDFPageProxy } from 'pdfjs-dist/types/src/display/api'
 
 /** A page with fewer letters than this is treated as a scan (an image of text) and read by text recognition. */
@@ -26,19 +29,28 @@ const SIMD_PROBE = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 
 
 let engine: Promise<Worker> | null = null
 
-/** Starts Tesseract once, from the files bundled at /ocr/ (see vite.config.ts); nothing is downloaded. */
+/** Starts Tesseract once, from the files bundled at /ocr/ (see vite.config.ts). English comes
+ *  with the app; other languages chosen in Settings are read from the ones downloaded
+ *  (src-tauri/src/models.rs, served by the bdmodel scheme). Nothing is downloaded here. */
 function start() {
   if (!engine) {
-    const base = new URL('/ocr/', location.href).href
-    const simd = typeof WebAssembly === 'object' && WebAssembly.validate(SIMD_PROBE)
-    engine = createWorker('eng', OEM.LSTM_ONLY, {
-      workerPath: `${base}worker.min.js`,
-      corePath: `${base}tesseract-core-${simd ? 'simd-' : ''}lstm.wasm.js`,
-      langPath: base.replace(/\/$/, ''),
-      gzip: true,
-      cacheMethod: 'none',
-      workerBlobURL: false,
-    })
+    engine = (async () => {
+      const base = new URL('/ocr/', location.href).href
+      const simd = typeof WebAssembly === 'object' && WebAssembly.validate(SIMD_PROBE)
+      const chosen = configStore.get().study?.ocrLanguages ?? []
+      const have = chosen.length ? await ocrLanguagesStatus().catch(() => [] as string[]) : []
+      const extra = chosen.filter(l => l !== 'eng' && have.includes(l))
+      const languages = extra.length && have.includes('eng') ? ['eng', ...extra] : ['eng']
+      const langPath = languages.length > 1 ? convertFileSrc('tessdata', 'bdmodel') : base.replace(/\/$/, '')
+      return createWorker(languages.join('+'), OEM.LSTM_ONLY, {
+        workerPath: `${base}worker.min.js`,
+        corePath: `${base}tesseract-core-${simd ? 'simd-' : ''}lstm.wasm.js`,
+        langPath,
+        gzip: true,
+        cacheMethod: 'none',
+        workerBlobURL: false,
+      })
+    })()
     engine.catch(() => { engine = null })
   }
   return engine

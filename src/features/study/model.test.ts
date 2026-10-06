@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CalEvent, Note } from '../../lib/bridge'
-import { bookLink, courseEvents, courseNotes, currentPath, highlightMarkdown, outlineParents, outlineToMarkdown, parseBookLink } from './model'
+import { bookLink, courseEvents, courseNotes, currentPath, highlightMarkdown, highlightsByPage, inHighlight, outlineParents, outlineToMarkdown, parseBookLink } from './model'
 
 describe('study', () => {
   it('turns a table of contents into a chapter checklist with sections as sub-tasks', () => {
@@ -43,5 +43,28 @@ describe('book contents', () => {
   })
   it('lists the entries that can be folded', () => {
     expect(outlineParents(book)).toEqual(['1/', '1/1/', '2/'])
+  })
+})
+
+describe('highlights on the page', () => {
+  const block = (id: string, kind: 'quote' | 'p', text: string, pos: string) => ({ id, kind, text, checked: false, due: null, pos, updated: 1, by: 'x', deleted: false })
+  const note = { id: 'h', title: 'Calculus — highlights', folder: 'Study/Math', pinned: false, kind: 'note' as const, created: 1, titleUpdated: 1, metaUpdated: 1, deleted: false, seq: 1, blocks: [
+    block('1', 'quote', 'The chain rule: the derivative of f(g(x)) is f′(g(x)) g′(x).', 'a'),
+    block('2', 'p', '[Calculus, p. 3](book:Math/calc.pdf#3)', 'b'),
+    block('3', 'quote', 'Other book', 'c'),
+    block('4', 'p', '[Other, p. 3](book:Math/other.pdf#3)', 'd'),
+  ] }
+  it('finds a book’s highlights by page', () => {
+    const pages = highlightsByPage(note, 'Math', 'calc.pdf')
+    expect([...pages.keys()]).toEqual([3])
+    expect(pages.get(3)?.[0]).toContain('chain rule')
+  })
+  it('marks lines that are part of a highlight', () => {
+    const quotes = highlightsByPage(note, 'Math', 'calc.pdf').get(3)!
+    expect(inHighlight('the derivative of f(g(x))', quotes)).toBe(true)
+    expect(inHighlight('of', quotes)).toBe(false)
+    expect(inHighlight('integrals are areas', quotes)).toBe(false)
+    expect(inHighlight('Using it: the chain rule: the derivative of f(g(x)) is f′(g(x)) g′(x). Next we', quotes)).toBe(true)
+    expect(inHighlight('Some unrelated line about integrals and their areas here', quotes)).toBe(false)
   })
 })

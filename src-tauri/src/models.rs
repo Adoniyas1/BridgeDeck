@@ -198,6 +198,70 @@ pub fn download(app: &AppHandle, id: &str) -> Result<(), String> {
     result
 }
 
+// ---- Text recognition languages (scanned book pages) ----
+
+/** Languages text recognition can read besides English, downloaded when chosen. */
+pub const OCR_LANGUAGES: [&str; 13] = ["eng", "spa", "fra", "deu", "ita", "por", "rus", "ara", "hin", "chi_sim", "jpn", "kor", "amh"];
+
+fn tessdata(root: &Path) -> PathBuf {
+    root.join("tessdata")
+}
+
+/// The language files downloaded so far (codes).
+pub fn ocr_languages(root: &Path) -> Vec<String> {
+    OCR_LANGUAGES.iter().filter(|l| tessdata(root).join(format!("{l}.traineddata.gz")).is_file()).map(|l| l.to_string()).collect()
+}
+
+/// The `<lang>.traineddata.gz` inside a `@tesseract.js-data/<lang>` npm package.
+pub fn traineddata_from_package(tgz: &[u8], lang: &str) -> Result<Vec<u8>, String> {
+    let want = format!("package/4.0.0_best_int/{lang}.traineddata.gz");
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tgz));
+    for entry in archive.entries().map_err(|e| e.to_string())? {
+        let mut entry = entry.map_err(|e| e.to_string())?;
+        if entry.path().map(|p| p.to_string_lossy() == want).unwrap_or(false) {
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data).map_err(|e| e.to_string())?;
+            return Ok(data);
+        }
+    }
+    Err(format!("The {lang} language pack had no model in it"))
+}
+
+/// Downloads the chosen languages (and English, which goes with them) for text recognition.
+pub fn download_ocr_languages(langs: &[String]) -> Result<Vec<String>, String> {
+    let root = root()?;
+    let dir = tessdata(&root);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(600)).user_agent("BridgeDeck").build().map_err(|e| e.to_string())?;
+    let wanted: Vec<&str> = std::iter::once("eng").chain(langs.iter().map(String::as_str)).collect();
+    for lang in wanted {
+        if !OCR_LANGUAGES.contains(&lang) {
+            return Err(format!("No language called {lang}"));
+        }
+        let to = dir.join(format!("{lang}.traineddata.gz"));
+        if to.is_file() {
+            continue;
+        }
+        let url = format!("https://registry.npmjs.org/@tesseract.js-data/{lang}/-/{lang}-1.0.0.tgz");
+        let tgz = client.get(&url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| format!("Couldn't download the {lang} language: {e}"))?;
+        let data = traineddata_from_package(&tgz, lang)?;
+        let part = to.with_extension("part");
+        fs::write(&part, data).map_err(|e| e.to_string())?;
+        fs::rename(&part, &to).map_err(|e| e.to_string())?;
+    }
+    Ok(ocr_languages(&root))
+}
+
+#[tauri::command]
+pub fn ocr_languages_status() -> Vec<String> {
+    root().map(|r| ocr_languages(&r)).unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn ocr_languages_download(languages: Vec<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || download_ocr_languages(&languages)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn models_status() -> ModelsStatus {
     status()
@@ -230,6 +294,23 @@ mod tests {
         assert!(resolve(&root, "/../secret").is_none());
         assert!(resolve(&root, "/onnx-community/whisper-tiny.en/missing.json").is_none());
         assert!(!model_ready(&root, "onnx-community/whisper-tiny.en"));
+
+        // A language pack as npm publishes it: package/4.0.0_best_int/<lang>.traineddata.gz.
+        let mut tgz = Vec::new();
+        {
+            let gz = flate2::write::GzEncoder::new(&mut tgz, flate2::Compression::fast());
+            let mut builder = tar::Builder::new(gz);
+            for (name, body) in [("package/4.0.0/amh.traineddata.gz", &b"fast"[..]), ("package/4.0.0_best_int/amh.traineddata.gz", &b"best"[..])] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder.append_data(&mut header, name, body).unwrap();
+            }
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        assert_eq!(traineddata_from_package(&tgz, "amh").unwrap(), b"best");
+        assert!(traineddata_from_package(&tgz, "spa").is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

@@ -22,6 +22,7 @@ export const defaultConfig: AppConfig = {
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
   browsing: { adblock: true, allowAds: [] },
+  study: { ocrLanguages: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -89,6 +90,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
+    study: { ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [] },
     browsing: { adblock: input.browsing?.adblock !== false, allowAds: Array.isArray(input.browsing?.allowAds) ? input.browsing.allowAds.filter((s): s is string => typeof s === 'string').slice(0, 200) : [] },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },

@@ -518,6 +518,8 @@ export async function pickExtension(folder: boolean): Promise<string | null> {
 export type ModelsStatus = { engine: boolean; models: string[]; downloading: boolean }
 export const modelsStatus = () => native<ModelsStatus>('models_status')
 export const modelsDownload = (model: string) => native<ModelsStatus>('models_download', { model })
+export const ocrLanguagesStatus = () => native<string[]>('ocr_languages_status')
+export const ocrLanguagesDownload = (languages: string[]) => native<string[]>('ocr_languages_download', { languages })
 export const modelsRemove = (model: string) => native<ModelsStatus>('models_remove', { model })
 
 /** Drawings in notes, kept in the shared folder (src-tauri/src/drawings.rs). */

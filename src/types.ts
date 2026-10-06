@@ -53,6 +53,8 @@ export type AppConfig = {
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
   tv: { shortcuts: Array<{ name: string; url: string }> }
+  /** Study: languages text recognition reads in scanned books (English is always included). */
+  study: { ocrLanguages: string[] }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker. */
   browsing: { adblock: boolean; allowAds: string[] }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */

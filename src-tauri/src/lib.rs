@@ -627,6 +627,8 @@ pub fn run() {
             browser::browser_show,
             browser::browser_pause,
             models::models_status,
+            models::ocr_languages_status,
+            models::ocr_languages_download,
             drawings::drawing_load,
             drawings::drawing_save,
             models::models_download,
