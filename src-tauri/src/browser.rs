@@ -104,13 +104,104 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "about")
 }
 
+/// The blocker's script generation each page was made with (a page with an older one is remade
+/// when next shown, so a change to the blocker reaches it).
+static GENERATIONS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+
+fn made_with(label: &str) -> u64 {
+    GENERATIONS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(label).copied())).unwrap_or(0)
+}
+
+/// A window the pop-up guard (adblock/page.rs) marked as opened by the page's script: its real
+/// address.
+fn unwrap_popup(url: &Url) -> Option<Url> {
+    if url.host_str() != Some("bridgedeck.invalid") || url.path() != "/popup" {
+        return None;
+    }
+    url.query_pairs().find(|(k, _)| k == "u").and_then(|(_, v)| Url::parse(&v).ok()).filter(allowed)
+}
+
+static POPUP_WINDOWS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A real pop-up window, still connected to the page that opened it (sign-in windows report back
+/// to their page this way). It opens at the address the page asked for.
+fn popup_window(app: &AppHandle, url: Url, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
+    let n = POPUP_WINDOWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("browser-popup{n}");
+    let nav_app = app.clone();
+    let nav_label = label.clone();
+    let builder = tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::External(Url::parse("about:blank").expect("valid")))
+        .window_features(features)
+        .title(url.host_str().unwrap_or("BridgeDeck"))
+        .min_inner_size(320.0, 240.0)
+        .on_document_title_changed(|window, title| { let _ = window.set_title(&title); })
+        // The guard's address is swapped for the real one (the window keeps its opener).
+        .on_navigation(move |to| {
+            if let Some(real) = unwrap_popup(to) {
+                if let Some(view) = nav_app.get_webview(&nav_label) {
+                    let _ = view.navigate(real);
+                }
+                return false;
+            }
+            allowed(to)
+        })
+        .on_new_window(|_, _| NewWindowResponse::Deny);
+    #[cfg(target_os = "macos")]
+    let builder = builder.user_agent(USER_AGENT);
+    match builder.build() {
+        Ok(window) => {
+            crate::adblock::attach(app, &label);
+            NewWindowResponse::Create { window }
+        }
+        Err(_) => NewWindowResponse::Deny,
+    }
+}
+
+/// What happens to a new window a page asks for: blocked (and reported, so the person can open it
+/// anyway), a real pop-up window (sized windows, such as sign-ins), or a new Browser tab.
+fn new_window(app: &AppHandle, tab: &str, label: &str, url: Url, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
+    let (real, scripted) = match unwrap_popup(&url) {
+        Some(real) => (real, true),
+        None => (url.clone(), false),
+    };
+    if !allowed(&real) {
+        return NewWindowResponse::Deny;
+    }
+    let opener = app.get_webview(label).and_then(|v| v.url().ok());
+    let opener_host = opener.as_ref().and_then(|u| u.host_str()).unwrap_or("").to_ascii_lowercase();
+    if crate::adblock::popup(real.as_str(), &opener_host, scripted) == crate::adblock::Popup::Block {
+        let _ = app.emit_to(MAIN, "browser-popup-blocked", json!({ "tab": tab, "url": real.as_str(), "opener": opener_host }));
+        return NewWindowResponse::Deny;
+    }
+    let same_site = real.host_str().map(|h| crate::adblock::filters::site(&h.to_ascii_lowercase()) == crate::adblock::filters::site(&opener_host)).unwrap_or(false);
+    if features.size().is_some() {
+        // Pop-ups are opened at the guard's address, which the window swaps for the real one.
+        return popup_window(app, real, features);
+    }
+    if tab == "tv" && same_site {
+        if let Some(view) = app.get_webview(label) {
+            let _ = view.navigate(real);
+        }
+        return NewWindowResponse::Deny;
+    }
+    let _ = app.emit_to(MAIN, "browser-open-tab", json!({ "tab": tab, "url": real.as_str() }));
+    NewWindowResponse::Deny
+}
+
 /// Shows the browser tab's page at `x, y` (`w × h`, logical pixels in the window), creating it on
 /// first use; with `url`, goes there.
 #[tauri::command]
 pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let id = label(&tab)?;
     let (pos, size) = crate::placement::bounds(x, y, w, h);
-    let target = url.as_deref().map(address);
+    let mut target = url.as_deref().map(address);
+    // Made before the blocker last changed: remade (at the same page) with the new script.
+    if let Some(view) = app.get_webview(&id).filter(|_| made_with(&id) < crate::adblock::generation()) {
+        if target.is_none() {
+            target = view.url().ok().filter(allowed);
+        }
+        let _ = view.close();
+    }
     if let Some(view) = app.get_webview(&id) {
         view.set_position(pos).map_err(|e| e.to_string())?;
         view.set_size(size).map_err(|e| e.to_string())?;
@@ -125,11 +216,23 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     let start = target.unwrap_or_else(|| Url::parse("https://duckduckgo.com/").expect("valid"));
     let (nav_app, new_app, title_app, load_app, down_app) = (app.clone(), app.clone(), app.clone(), app.clone(), app.clone());
     let (nav_tab, nav_label, new_tab, title_tab, load_tab, down_tab) = (tab.clone(), id.clone(), id.clone(), tab.clone(), tab.clone(), tab.clone());
-    let builder = WebviewBuilder::new(&id, WebviewUrl::External(start))
+    let new_tab_name = tab.clone();
+    let generation = crate::adblock::generation();
+    let mut builder = WebviewBuilder::new(&id, WebviewUrl::External(start))
         // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
         // own drop handler, which queues files for sending to the other computer.
         .disable_drag_drop_handler()
-        .initialization_script(crate::webkeys::SCRIPT)
+        .initialization_script(crate::webkeys::SCRIPT);
+    // The blocker's scripts: the pop-up guard and the page script (scriptlets; element hiding on
+    // Windows, where WebKit's content blocker doesn't do it).
+    if let Some(guard) = crate::adblock::popup_guard() {
+        builder = builder.initialization_script_for_all_frames(guard);
+    }
+    let script = crate::adblock::page_script(cfg!(windows));
+    if !script.is_empty() {
+        builder = builder.initialization_script_for_all_frames(script);
+    }
+    let builder = builder
         .on_navigation(move |url| {
             let page = || nav_app.get_webview(&nav_label).and_then(|v| v.url().ok());
             if crate::webkeys::handle(&nav_app, &nav_tab, page, url) {
@@ -144,15 +247,7 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
             }
             ok
         })
-        // Links that open a new window open in this tab instead.
-        .on_new_window(move |url, _| {
-            if allowed(&url) {
-                if let Some(view) = new_app.get_webview(&new_tab) {
-                    let _ = view.navigate(url);
-                }
-            }
-            NewWindowResponse::Deny
-        })
+        .on_new_window(move |url, features| new_window(&new_app, &new_tab_name, &new_tab, url, features))
         .on_document_title_changed(move |_, title| {
             let _ = title_app.emit_to(MAIN, "browser-title", json!({ "tab": title_tab, "title": title }));
         })
@@ -177,6 +272,9 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
         match crate::extensions::web_data_dir(&app) { Some(data) => builder.data_directory(data), None => builder }
     };
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open the page: {e}"))?;
+    if let Ok(mut g) = GENERATIONS.lock() {
+        g.get_or_insert_with(HashMap::new).insert(id.clone(), generation);
+    }
     crate::placement::verify(&app, &id, x, y);
     crate::adblock::attach(&app, &id);
     crate::webmedia::setup(&app, &id);

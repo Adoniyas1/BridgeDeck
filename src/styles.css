@@ -686,6 +686,11 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .browser-tab-close,.browser-tab-new{border:0;background:none;color:var(--muted);padding:4px 6px;border-radius:6px;display:inline-flex}
 .browser-tab-close:hover,.browser-tab-new:hover{color:var(--text);background:var(--surface-2)}
 .browser-bar .cal-icon.starred{color:#f5b301}
+.popup-bar{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 12px;background:var(--surface-2);border-bottom:1px solid var(--line);color:var(--muted)}
+.popup-bar .grow{display:block;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.popup-bar strong{color:var(--text);display:inline}
+.popup-bar .ghost{display:inline-flex;align-items:center;gap:4px;padding:2px 8px}
+body.web-full .popup-bar{display:none}
 .browser-notice{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--muted)}
 .browser-downloads{display:flex;flex-direction:column;gap:4px}
 .browser-download{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}

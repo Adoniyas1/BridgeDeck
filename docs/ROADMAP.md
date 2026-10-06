@@ -453,6 +453,23 @@ All built (steps 1–14 in one pull request after the releases). What each becam
     JPEG tiles as before (and if the encoder or decoder fails mid-session). The host's sound (WASAPI
     loopback on Windows, ScreenCaptureKit on macOS 13+) plays in the remote tab when turned on.
 
+### Ad and pop-up blocker, stronger (asked 2026-10-06: "a lot better ad blocker and pop up blocker")
+- **Lists**: EasyList, EasyPrivacy, uBlock Origin's (filters by year, badware, privacy, quick fixes, unbreak),
+  Peter Lowe's; cookie banners and annoyances (uBlock's two + Fanboy's) unless turned off. About 124k
+  blocking rules, 74k hiding rules, 12k scriptlet rules.
+- **Rules** (`adblock/filters.rs`): server and address patterns (`*`, `^`, `|`), `domain=`, party, request
+  kinds, `important`, `popup`, `document`, `badfilter`, `generichide`; hosts files; CSS hiding with
+  `:has`/`:not`; scriptlets. Requests are found by a word index (≈7 µs a request on Windows).
+- **macOS** (`adblock/safari.rs`): several content-blocker lists (WebKit's 150k limit and all-or-nothing
+  compile); a refused hiding list is retried with simple selectors.
+- **Page script** (`adblock/page.rs`, `scriptlets.js`): ~40 uBlock-compatible scriptlets, per-site data a
+  page finds with one search, a YouTube ad skipper; on Windows, element hiding that adds class/id selectors
+  only when the page has them.
+- **Pop-ups** (browser.rs): a guard marks windows a page opens by script; ad pop-ups and script-opened
+  pop-ups to other sites are blocked with a bar ("Open it", "Always allow on this site"); links to new
+  windows open as Browser tabs; sized windows (sign-ins) open as real pop-ups that keep their opener.
+- Changes the person makes remake the open pages so their scripts update.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

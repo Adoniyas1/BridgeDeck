@@ -640,6 +640,7 @@ pub fn run() {
             adblock::adblock_set,
             adblock::adblock_allow_sites,
             adblock::adblock_update,
+            adblock::adblock_options,
             extensions::extensions_list,
             extensions::extensions_add,
             extensions::extensions_remove,

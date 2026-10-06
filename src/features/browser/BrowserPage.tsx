@@ -9,7 +9,8 @@ import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { queueForSending } from '../files/state'
 import { pageName, siteOf } from './model'
-import { clearHistory, dismissDownload, downloadsStore, fileName, folderOf, historyStore, markSentOpened, remember, sendPage, useSentPages } from './state'
+import PopupBar from './PopupBar'
+import { blockerChangedStore, clearHistory, dismissDownload, downloadsStore, fileName, folderOf, historyStore, markSentOpened, remember, sendPage, useSentPages } from './state'
 import { AdShield } from './WebSettings'
 
 const START = [
@@ -34,6 +35,8 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
   // Search everything and the shortcuts list sit where the page would: it's hidden while they're open.
   const overlay = useOverlayOpen()
   const active = onScreen && !overlay
+  // The blocker changed: showing the page again remakes it with the new rules (browser.rs).
+  const blockerChanged = useStore(blockerChangedStore)
   const address = useRef<HTMLInputElement>(null)
   const area = useRef<HTMLDivElement>(null)
   const [tabs, setTabs] = useState<Tab[]>(() => [blankTab()])
@@ -68,7 +71,7 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
     // The area can also move without resizing (a notice above it appears or goes): check now and then.
     const timer = window.setInterval(place, 400)
     return () => { observer.disconnect(); window.removeEventListener('resize', place); window.clearInterval(timer); void browserHide(id).catch(() => undefined) }
-  }, [active, tab.id, tab.started])
+  }, [active, tab.id, tab.started, blockerChanged])
 
   // The address bar follows the picked tab.
   useEffect(() => { setTyped(tab.url) }, [tab.id])
@@ -181,6 +184,7 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
       <button type="button" className="ghost" title="Open ChatGPT (with this page's address, ready for you to ask about it)" onClick={() => void askChatGPT(tab.url ? `About this page: ${tab.title ? `"${tab.title}" ` : ''}${tab.url}\n\n` : undefined)}><MessageCircleQuestion size={14} /> ChatGPT</button>
     </form>
     {error && <p className="cal-error">{error}</p>}
+    <PopupBar tab={tab.id} />
     {notice && <p className="browser-notice">{notice} <button className="ghost" onClick={() => setNotice('')}><X size={12} /></button></p>}
     <Downloads />
     <div ref={area} className="browser-area">

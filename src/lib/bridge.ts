@@ -495,12 +495,13 @@ export const mangaApplyDetails = (series: string, details: MangaDetails) => nati
 export const mangaAddPeppercarrot = (episodes: number[]) => native<number>('manga_add_peppercarrot', { episodes })
 export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' | 'list', markdown: string) => native<Note>('notes_create_markdown', { title, folder, kind, markdown })
 
-/** The built-in ad blocker for web pages (src-tauri/src/adblock.rs). */
-export type AdblockStatus = { enabled: boolean; updated: number; servers: number; hiding: number; error: string | null }
+/** The built-in ad and pop-up blocker for web pages (src-tauri/src/adblock/). */
+export type AdblockStatus = { enabled: boolean; updated: number; lists: number; servers: number; hiding: number; scriptlets: number; annoyances: boolean; popups: boolean; error: string | null }
 export const adblockStatus = () => native<AdblockStatus>('adblock_status')
 export const adblockSet = (enabled: boolean) => native<AdblockStatus>('adblock_set', { enabled })
 export const adblockAllowSites = (sites: string[]) => native<AdblockStatus>('adblock_allow_sites', { sites })
 export const adblockUpdate = () => native<AdblockStatus>('adblock_update')
+export const adblockOptions = (annoyances: boolean, popups: boolean, popupSites: string[]) => native<AdblockStatus>('adblock_options', { annoyances, popups, popupSites })
 
 /** Chrome extensions for web pages, Windows only (src-tauri/src/extensions.rs). */
 export type BrowserExtension = { id: string; name: string; version: string; description: string }

@@ -3,7 +3,9 @@ import { listen } from '@tauri-apps/api/event'
 import { isTauri, notesCreate, notesSave, type Note } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { notify } from '../../core/notify'
+import { browserCommandStore } from '../../core/shortcuts'
 import { createStore, useStore } from '../../core/store'
+import { activateTab } from '../../core/tabs'
 import { between, newId, visible } from '../notes/model'
 import { notesStore, refreshNotes } from '../notes/state'
 import { addHistory, pageName, SENT_FOLDER, SENT_TITLE, sentLine, sentNote, sentPages, type Page } from './model'
@@ -38,6 +40,19 @@ export const dismissDownload = (url: string) => downloadsStore.set(list => list.
 
 export const fileName = (path: string) => path.split(/[\\/]/).pop() || path
 export const folderOf = (path: string) => path.replace(/[\\/][^\\/]*$/, '')
+
+/** Pop-ups the blocker stopped, newest first (shown in the Browser and TV bars). */
+export type BlockedPopup = { tab: string; url: string; opener: string; at: number }
+export const popupsStore = createStore<BlockedPopup[]>([])
+export const dismissPopups = (tab: string) => popupsStore.set(list => list.filter(p => p.tab !== tab))
+/** Bumped when the blocker changes: the Browser and TV show their pages again, which remakes them. */
+export const blockerChangedStore = createStore(0)
+
+/** Opens an address in a new Browser tab (from a link that opens a new window, or "open it"). */
+export function openInNewTab(url: string) {
+  browserCommandStore.set({ name: 'open', url, at: Date.now() })
+  activateTab('browser')
+}
 
 /** Sends a page to the other computer(s): a line in the synced "Sent pages" checklist, which the
  *  other computer's Browser shows on its start page (and announces). */
@@ -84,7 +99,15 @@ export function BrowserBackground() {
       if (state === 'done') notify('files', 'Download finished', path ? fileName(path) : url)
       if (state === 'failed') notify('files', 'Download failed', path ? fileName(path) : url)
     })
-    return () => void stop.then(fn => fn()).catch(() => undefined)
+    const more = [
+      listen<{ tab: string; url: string }>('browser-open-tab', e => openInNewTab(e.payload.url)),
+      listen<{ tab: string; url: string; opener: string }>('browser-popup-blocked', e => {
+        const { tab, url, opener } = e.payload
+        popupsStore.set(list => [{ tab, url, opener, at: Date.now() }, ...list.filter(p => p.url !== url)].slice(0, 5))
+      }),
+      listen('adblock-changed', () => blockerChangedStore.set(n => n + 1)),
+    ]
+    return () => { void stop.then(fn => fn()).catch(() => undefined); more.forEach(p => void p.then(fn => fn()).catch(() => undefined)) }
   }, [])
 
   const sent = useSentPages()

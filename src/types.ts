@@ -56,7 +56,16 @@ export type AppConfig = {
   /** Study: languages text recognition reads in scanned books (English is always included). */
   study: { ocrLanguages: string[] }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker, and the Browser's bookmarks. */
-  browsing: { adblock: boolean; allowAds: string[]; bookmarks: Array<{ name: string; url: string }> }
+  browsing: {
+    adblock: boolean
+    allowAds: string[]
+    /** Cookie banners, newsletter boxes and other annoyances removed too. */
+    annoyances: boolean
+    /** Pop-ups opened by a page's script (and pop-up ads) blocked; sites allowed to open them. */
+    popups: boolean
+    popupSites: string[]
+    bookmarks: Array<{ name: string; url: string }>
+  }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
   setup: { dismissed: boolean; notificationsReviewed: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */
