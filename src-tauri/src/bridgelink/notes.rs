@@ -18,7 +18,7 @@ const MAX_TITLE: usize = 300;
 const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
-const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code"];
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing"];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -586,6 +586,8 @@ pub fn to_markdown(note: &Note) -> String {
             "todo" => format!("{pad}- [{}] {}{due}", if block.checked { "x" } else { " " }, block.text),
             "quote" => block.text.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"),
             "code" => format!("```\n{}\n```", block.text),
+            // The picture lives in the shared folder; this link brings the drawing back on import.
+            "drawing" => format!("![Drawing](bridgedeck-drawing:{})", block.text),
             _ => block.text.clone(),
         };
         // List items sit together; everything else is separated by a blank line, as Markdown
@@ -662,6 +664,8 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
             Some(("h2", text.to_string(), false))
         } else if let Some(text) = line.strip_prefix("# ") {
             Some(("h1", text.to_string(), false))
+        } else if let Some(id) = line.strip_prefix("![Drawing](bridgedeck-drawing:").and_then(|r| r.strip_suffix(')')).filter(|id| crate::drawings::valid_id(id)) {
+            Some(("drawing", id.to_string(), false))
         } else {
             line.strip_prefix("> ").map(|text| ("quote", text.to_string(), false))
         };
@@ -1013,6 +1017,15 @@ mod tests {
         // Moving it back out is a change like any other.
         let out = store.apply(NotePatch { id: note.id.clone(), blocks: vec![Block { indent: 0, ..sub }], ..Default::default() }, "mac", 300).unwrap();
         assert_eq!(out.blocks.iter().find(|b| b.id == "s1").unwrap().indent, 0);
+    }
+
+    #[test]
+    fn drawings_go_out_to_markdown_and_come_back() {
+        let mut store = NoteStore::default();
+        let note = store.create_from_markdown(None, "note", "Sketch", "", "Before\n\n![Drawing](bridgedeck-drawing:abc_12)\n\n![Drawing](bridgedeck-drawing:../x)", "mac", 100).unwrap();
+        let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
+        assert_eq!(kinds, vec![("p", "Before"), ("drawing", "abc_12"), ("p", "![Drawing](bridgedeck-drawing:../x)")]);
+        assert!(to_markdown(&note).contains("![Drawing](bridgedeck-drawing:abc_12)"));
     }
 
     #[test]

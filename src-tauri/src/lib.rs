@@ -19,6 +19,7 @@ mod adblock;
 mod extensions;
 mod webmedia;
 mod models;
+mod drawings;
 mod chatgpt;
 mod manga;
 mod projects;
@@ -626,6 +627,8 @@ pub fn run() {
             browser::browser_show,
             browser::browser_pause,
             models::models_status,
+            drawings::drawing_load,
+            drawings::drawing_save,
             models::models_download,
             models::models_remove,
             adblock::adblock_status,

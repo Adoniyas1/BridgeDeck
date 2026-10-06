@@ -1,17 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Pin, PinOff, Quote, Search, Share2, Hash, Link2, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, Link2, Trash2, X } from 'lucide-react'
 import { notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
 import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink } from '../study/open'
+import { DrawingBlock } from './DrawingBlock'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
-  ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code],
+  ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code], ['drawing', 'Drawing', PenTool],
 ]
 
 /** "All", "Pinned", a folder or a tag. */
@@ -313,6 +314,12 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
 
   function setKind(kind: NoteBlockKind) {
     const id = lastKindTarget.current ?? blocks[blocks.length - 1]?.id
+    if (kind === 'drawing') {
+      // A drawing is a block of its own, after the current one (its text is the drawing's id).
+      insertAfter(id ?? null, { kind: 'drawing', text: newId() })
+      setFocus(null)
+      return
+    }
     if (!id) return
     updateBlock(id, { kind })
     setFocus({ id, caret: 'end' })
@@ -486,6 +493,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     : block.kind === 'todo' ? <input type="checkbox" className="notes-check" checked={block.checked} onChange={onCheck} />
     : null
   const overdue = block.due && !block.checked && block.due <= Date.now()
+  if (block.kind === 'drawing') return <div className="notes-block kind-drawing"><span className="notes-fold-space" /><DrawingBlock id={block.text} /></div>
 
   return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`} style={{ paddingLeft: indentOf(block) * 26 }}>
     {folded !== null ? <button className="notes-fold" title={folded ? 'Show sub-tasks' : 'Hide sub-tasks'} onClick={onFold}>{folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button> : <span className="notes-fold-space" />}

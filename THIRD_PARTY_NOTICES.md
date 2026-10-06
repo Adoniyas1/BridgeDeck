@@ -27,6 +27,9 @@ Mimir's optional skill packs come from alirezarezvani/claude-skills, MIT, © 202
 ## ts-fsrs
 Study flashcards are scheduled with ts-fsrs (`ts-fsrs` on npm), an implementation of the FSRS algorithm, MIT, © open-spaced-repetition and contributors. It is a package dependency; its licence ships inside `node_modules/ts-fsrs`.
 
+## Excalidraw
+Drawings in notes use Excalidraw (`@excalidraw/excalidraw` on npm), MIT, © Excalidraw contributors; its fonts (OFL and similar open licences) are bundled except the large Chinese/Japanese one. It is a package dependency; its licence ships inside `node_modules/@excalidraw/excalidraw`.
+
 ## Transformers.js, ONNX Runtime and Whisper (lecture transcription)
 Lecture recordings are transcribed on the computer with Transformers.js (`@huggingface/transformers`, Apache-2.0, © Hugging Face) and ONNX Runtime Web (`onnxruntime-web`, MIT, © Microsoft). Its small loader is bundled; its WebAssembly and the Whisper models (OpenAI Whisper tiny.en / base.en, MIT, in the ONNX versions published by onnx-community on Hugging Face) are downloaded once when the user asks, not shipped.
 

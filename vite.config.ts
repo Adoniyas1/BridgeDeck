@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Plugin } from 'vite'
 
 // Text recognition for scanned book pages (Tesseract.js) runs from files inside the app, never a CDN:
@@ -16,15 +17,29 @@ const OCR_FILES: Record<string, string> = {
   'ort/ort-wasm-simd-threaded.jsep.mjs': 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs',
 }
 
+// Excalidraw's fonts (drawings in notes), served at /excalidraw/fonts/ instead of a CDN. The large
+// Chinese/Japanese font is left out; those characters fall back to a system font.
+function folderFiles(dest: string, source: string, skip: string[] = []): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of readdirSync(source)) {
+    if (skip.includes(name)) continue
+    const path = join(source, name)
+    if (statSync(path).isDirectory()) Object.assign(out, folderFiles(`${dest}/${name}`, path))
+    else out[`${dest}/${name}`] = path
+  }
+  return out
+}
+Object.assign(OCR_FILES, folderFiles('excalidraw/fonts', 'node_modules/@excalidraw/excalidraw/dist/prod/fonts', ['Xiaolai']))
+
 function ocrFiles(): Plugin {
   return {
     name: 'bridgedeck-ocr-files',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const name = req.url ? req.url.slice(1).split('?')[0] : ''
+        const name = req.url ? decodeURIComponent(req.url.slice(1).split('?')[0]) : ''
         const source = name && Object.hasOwn(OCR_FILES, name) ? OCR_FILES[name] : ''
         if (!source) return next()
-        res.setHeader('Content-Type', /\.m?js$/.test(name) ? 'text/javascript' : 'application/octet-stream')
+        res.setHeader('Content-Type', /\.m?js$/.test(name) ? 'text/javascript' : name.endsWith('.woff2') ? 'font/woff2' : 'application/octet-stream')
         res.end(readFileSync(source))
       })
     },

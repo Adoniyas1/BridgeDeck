@@ -29,6 +29,7 @@
     "mac:signing": "bash scripts/mac-signing.sh"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@huggingface/transformers": "^3.8.1",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",

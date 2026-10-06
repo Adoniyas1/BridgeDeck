@@ -797,3 +797,11 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .tv-bar, body.w
 .lecture-dot{width:10px;height:10px;border-radius:50%;background:#e5484d;animation:lecture-pulse 1.2s infinite}
 @keyframes lecture-pulse{50%{opacity:.3}}
 .lecture-models{display:flex;gap:16px;margin:4px 0 8px;font-size:13px}.lecture-models small{color:var(--muted)}
+/* Drawings in notes */
+.notes-drawing{flex:1;min-width:0}
+.notes-drawing-view{display:block;width:100%;min-height:80px;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);background:#fff;padding:8px;cursor:pointer}
+.notes-drawing-view img{max-width:100%;max-height:480px;display:block;margin:0 auto}
+.notes-drawing-view .hint{display:flex;align-items:center;justify-content:center;gap:6px;color:#666}
+.drawing-editor{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column}
+.drawing-editor-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.drawing-editor-canvas{flex:1;min-height:0}
