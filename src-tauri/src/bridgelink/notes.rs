@@ -277,6 +277,27 @@ impl NoteStore {
         Ok(self.notes[&next.id].clone())
     }
 
+    /// Puts a note back as it was in a backup. A note that still exists gets the backup's title,
+    /// folder and blocks as a new edit (so it wins on the other computer too), and blocks added
+    /// since are removed; a note deleted since comes back as a new note (its deletion has spread).
+    pub fn restore(&mut self, backup: Note, device: &str, now: u64) -> Result<Note, String> {
+        let blocks: Vec<Block> = backup.blocks.into_iter().filter(|b| !b.deleted).collect();
+        let id = match self.notes.get(&backup.id).filter(|n| !n.deleted) {
+            Some(current) => current.id.clone(),
+            None => {
+                let created = self.create(&backup.kind, &backup.folder, device, now)?;
+                let first = created.blocks.iter().map(|b| b.id.clone()).collect::<Vec<_>>();
+                // The new note's empty first block goes, unless the backup has a block with its id.
+                self.apply(NotePatch { id: created.id.clone(), removed: first, ..Default::default() }, device, now)?;
+                created.id
+            }
+        };
+        let keep: std::collections::HashSet<&str> = blocks.iter().map(|b| b.id.as_str()).collect();
+        let removed = self.notes[&id].blocks.iter().filter(|b| !b.deleted && !keep.contains(b.id.as_str())).map(|b| b.id.clone()).collect();
+        let patch = NotePatch { id, title: Some(backup.title), folder: Some(backup.folder), pinned: Some(backup.pinned), kind: Some(backup.kind), removed, blocks };
+        self.apply(patch, device, now)
+    }
+
     pub fn delete(&mut self, id: &str, now: u64) -> bool {
         let Some(note) = self.notes.get_mut(id) else { return false };
         if note.deleted {
@@ -456,6 +477,23 @@ pub fn save_chat(manager: &BridgeLinkManager, source: &str, title: &str, folder:
             }
             None => store.create_from_markdown(None, "note", &title, &folder, &markdown, device, now),
         }
+    })
+}
+
+/// All notes, for a backup (backups.rs).
+pub fn all(manager: &BridgeLinkManager) -> Result<Vec<Note>, String> {
+    Ok(manager.lock()?.notes.list())
+}
+
+/// Puts notes back from a backup. Returns how many.
+pub fn restore_all(manager: &BridgeLinkManager, notes: Vec<Note>) -> Result<usize, String> {
+    local(manager, |store, device, now| {
+        let mut count = 0;
+        for note in notes.into_iter().filter(|n| !n.deleted).filter_map(sanitize_note) {
+            store.restore(note, device, now)?;
+            count += 1;
+        }
+        Ok(count)
     })
 }
 
@@ -875,6 +913,28 @@ mod tests {
         assert_eq!(columns[1].1.iter().map(|b| (b.text.as_str(), b.checked)).collect::<Vec<_>>(), vec![("Wire the ESC", false), ("Order motors", false), ("Check torque", true)]);
         let note = store.board_move(&board.id, "wire", "Doing", "pc", 6).unwrap();
         assert_eq!(board_columns(&note)[1].1.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), vec!["Order motors", "Check torque", "Wire the ESC"]);
+    }
+
+    #[test]
+    fn a_backup_puts_notes_back_as_they_were_and_brings_deleted_ones_back_as_new() {
+        let mut store = NoteStore::default();
+        let note = store.create_from_markdown(None, "note", "Chain rule", "Study", "First\n\nSecond", "mac", 1).unwrap();
+        let backup = note.clone();
+        let first = shown(&note)[0].id.clone();
+        // Since the backup: the first line edited, a line added, the title changed.
+        let mut edited = shown(&note)[0].clone();
+        edited.text = "Changed".into();
+        let added = Block { id: "added".into(), kind: "p".into(), text: "New".into(), pos: "z".into(), ..Default::default() };
+        store.apply(NotePatch { id: note.id.clone(), title: Some("Renamed".into()), blocks: vec![edited, added], ..Default::default() }, "pc", 2).unwrap();
+        let back = store.restore(backup.clone(), "mac", 3).unwrap();
+        assert_eq!(back.id, note.id);
+        assert_eq!((back.title.as_str(), to_markdown(&back).as_str()), ("Chain rule", "First\n\nSecond"));
+        assert!(back.blocks.iter().find(|b| b.id == first).is_some_and(|b| b.updated == 3), "restored lines are new edits, so they win on the other computer");
+        // Deleted since the backup: it comes back under a new id.
+        store.delete(&note.id, 4);
+        let again = store.restore(backup, "mac", 5).unwrap();
+        assert_ne!(again.id, note.id);
+        assert_eq!((again.title.as_str(), again.folder.as_str(), to_markdown(&again).as_str()), ("Chain rule", "Study", "First\n\nSecond"));
     }
 
     fn block(id: &str, text: &str, updated: u64, by: &str) -> Block {

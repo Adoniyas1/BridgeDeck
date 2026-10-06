@@ -16,10 +16,9 @@ pub fn valid_id(id: &str) -> bool {
 
 fn folder(app: &AppHandle) -> Result<PathBuf, String> {
     let shared = crate::shared_folder(app);
-    if shared.trim().is_empty() {
-        return Err("Set up the shared folder first (Settings → Sync)".into());
-    }
-    Ok(PathBuf::from(shared).join("Drawings"))
+    // A blank setting means the usual place (~/BridgeDeck Shared).
+    let shared = if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) };
+    Ok(shared.join("Drawings"))
 }
 
 #[derive(Serialize)]

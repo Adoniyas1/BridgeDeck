@@ -17,6 +17,7 @@ mod browser;
 mod placement;
 mod adblock;
 mod extensions;
+mod backups;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -571,6 +572,7 @@ pub fn run() {
             transfer::init(app.handle());
             study::init(app.handle());
             models::init(app.handle());
+            backups::init(app.handle());
             adblock::init(app.handle(), true);
             // New messages as they arrive: watched on the Mac, followed from the other computers.
             imessage::watch::start_local(app.handle().clone());
@@ -645,6 +647,9 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,
+            backups::backups_list,
+            backups::backup_now,
+            backups::backup_restore,
             manga::manga_library,
             manga::manga_pages,
             manga::manga_add,

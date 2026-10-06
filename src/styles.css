@@ -865,3 +865,12 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .browser-tabs, 
 .shortcuts-help td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .shortcuts-help td:first-child{white-space:nowrap;width:1%}
 .shortcuts-help td kbd{margin-right:3px}
+
+/* Settings → Sync: backups */
+.backup-list{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.backup-row{display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);flex-wrap:wrap}
+.backup-row .grow{display:flex;flex-direction:column;min-width:200px}
+.backup-row small{color:var(--muted);font-size:11px}
+.backup-row .ghost{display:inline-flex;align-items:center;gap:6px}
+.backup-restore{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+.backup-restore label{display:inline-flex;align-items:center;gap:4px}

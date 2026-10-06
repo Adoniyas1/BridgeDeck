@@ -526,3 +526,9 @@ export const modelsRemove = (model: string) => native<ModelsStatus>('models_remo
 /** Drawings in notes, kept in the shared folder (src-tauri/src/drawings.rs). */
 export const drawingLoad = (id: string) => native<{ scene: string | null; svg: string | null }>('drawing_load', { id })
 export const drawingSave = (id: string, scene: string, svg: string) => native<void>('drawing_save', { id, scene, svg })
+/** Daily backups of notes, the calendar and settings in the shared folder (src-tauri/src/backups.rs). */
+export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; bytes: number; mine: boolean }
+export type BackupRestored = { notes: number; events: number; settings: unknown | null }
+export const backupsList = () => native<BackupInfo[]>('backups_list')
+export const backupNow = () => native<string>('backup_now')
+export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings })
