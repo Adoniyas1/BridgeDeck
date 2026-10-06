@@ -12,6 +12,7 @@ import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
 import { loadBook, pdfjs } from './pdf'
+import EpubTab from './EpubTab'
 
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
 function savedPage(course: string, file: string) {
@@ -263,11 +264,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     } catch (e) { setStatus(String(e)) }
   }
 
-  if (isEpub) {
-    const root = libraryStore.get().library?.root ?? ''
-    return <div className="book-tab"><div className="card book-message"><BookMarked size={22} /><p>EPUB books open in your usual reader for now; reading them inside BridgeDeck comes next.</p>
-      <div className="actions"><button onClick={() => void openPath(`${root}/${course}/${file}`)}><BookMarked size={15} />Open in your reader</button></div></div></div>
-  }
+  if (isEpub) return <EpubTab tab={tab} active={active} />
 
   return <div className="book-tab" style={{ display: active ? undefined : 'none' }}>
     <div className="book-toolbar">

@@ -805,3 +805,6 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .tv-bar, body.w
 .drawing-editor{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column}
 .drawing-editor-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)}
 .drawing-editor-canvas{flex:1;min-height:0}
+.epub-area{flex:1;min-width:0;min-height:0;background:#fff;overflow:hidden}
+.epub-area.dark{background:#17181b}
+.epub-area .epub-container{margin:0 auto}
