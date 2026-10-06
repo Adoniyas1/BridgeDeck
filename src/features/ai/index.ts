@@ -1,13 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, lazy } from 'react'
 import { Bot } from 'lucide-react'
 import { isTauri, notificationSettings } from '../../lib/bridge'
 import { configStore } from '../../core/config'
 import { useStore } from '../../core/store'
 import { usePeriodicRefresh } from '../../core/refresh'
 import type { FeatureManifest } from '../features'
-import AiPage from './AiPage'
 import RoomTab from './RoomTab'
 import { openRoomsStore, refreshWorkspace } from './state'
+const AiPage = lazy(() => import('./AiPage'))
 
 /** Keeps the open-room count on the tab current while the page is closed. */
 function AiBackground() {

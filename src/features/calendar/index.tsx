@@ -1,11 +1,11 @@
 import { CalendarDays } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy } from 'react'
 import { calendarAppleShare, isTauri } from '../../lib/bridge'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
-import CalendarPage from './CalendarPage'
 import { appleStore, CalendarBackground } from './state'
+const CalendarPage = lazy(() => import('./CalendarPage'))
 
 const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
