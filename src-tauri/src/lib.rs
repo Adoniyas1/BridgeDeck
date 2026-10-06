@@ -18,6 +18,7 @@ mod placement;
 mod adblock;
 mod extensions;
 mod backups;
+mod circuits;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -649,6 +650,10 @@ pub fn run() {
             browser::browser_go,
             browser::browser_close,
             backups::backups_list,
+            circuits::circuits_list,
+            circuits::circuit_load,
+            circuits::circuit_save,
+            circuits::circuit_delete,
             backups::backup_now,
             backups::backup_restore,
             manga::manga_library,
