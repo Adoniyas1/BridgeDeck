@@ -18,6 +18,7 @@ mod placement;
 mod adblock;
 mod extensions;
 mod webmedia;
+mod models;
 mod chatgpt;
 mod manga;
 mod projects;
@@ -567,6 +568,7 @@ pub fn run() {
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
+            models::init(app.handle());
             adblock::init(app.handle(), true);
             // New messages as they arrive: watched on the Mac, followed from the other computers.
             imessage::watch::start_local(app.handle().clone());
@@ -583,6 +585,7 @@ pub fn run() {
         .on_window_event(tray::on_window_event)
         // Textbooks for the Study reader, from the library folder only (see study.rs).
         .register_uri_scheme_protocol(study::SCHEME, |_ctx, request| study::serve(&request))
+        .register_uri_scheme_protocol(models::SCHEME, |_ctx, request| models::serve(&request))
         // Manga pages and covers, from the Manga library only (see manga.rs).
         .register_uri_scheme_protocol(manga::SCHEME, |_ctx, request| manga::serve(&request))
         .invoke_handler(tauri::generate_handler![
@@ -622,6 +625,9 @@ pub fn run() {
             chatgpt::chatgpt_new,
             browser::browser_show,
             browser::browser_pause,
+            models::models_status,
+            models::models_download,
+            models::models_remove,
             adblock::adblock_status,
             adblock::adblock_set,
             adblock::adblock_allow_sites,

@@ -513,3 +513,9 @@ export async function pickExtension(folder: boolean): Promise<string | null> {
   const picked = folder ? await open({ directory: true, multiple: false }) : await open({ multiple: false, filters: [{ name: 'Chrome extension', extensions: ['crx', 'zip'] }] })
   return typeof picked === 'string' ? picked : null
 }
+
+/** Speech-to-text models for lecture recording, downloaded once (src-tauri/src/models.rs). */
+export type ModelsStatus = { engine: boolean; models: string[]; downloading: boolean }
+export const modelsStatus = () => native<ModelsStatus>('models_status')
+export const modelsDownload = (model: string) => native<ModelsStatus>('models_download', { model })
+export const modelsRemove = (model: string) => native<ModelsStatus>('models_remove', { model })

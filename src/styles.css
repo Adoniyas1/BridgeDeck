@@ -792,3 +792,8 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .tv-bar, body.w
 .ad-shield{color:var(--ok)}.ad-shield.off{color:var(--muted)}
 .ad-allowed{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
 .tab-loading{padding:24px}
+.lecture-live{display:flex;align-items:center;gap:10px;font-size:14px;margin:6px 0}
+.lecture-live .danger{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.lecture-dot{width:10px;height:10px;border-radius:50%;background:#e5484d;animation:lecture-pulse 1.2s infinite}
+@keyframes lecture-pulse{50%{opacity:.3}}
+.lecture-models{display:flex;gap:16px;margin:4px 0 8px;font-size:13px}.lecture-models small{color:var(--muted)}

@@ -15,6 +15,7 @@ import { openBook } from './open'
 import { libraryStore, refreshLibrary } from './state'
 import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
+import { LectureCard } from './LectureCard'
 
 export default function StudyPage({ active }: { active: boolean }) {
   const { library, error } = useStore(libraryStore)
@@ -124,6 +125,7 @@ function CourseView({ name, books, root, status, onStatus }: { name: string; boo
       <FocusCard course={name} />
       <FlashcardsCard course={name} onStatus={onStatus} />
     </div>
+    <LectureCard course={name} />
     <BookSearchCard course={name} books={books} />
     <div className="two-col">
       <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button>} />
