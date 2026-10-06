@@ -498,6 +498,7 @@ export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' 
 export type AdblockStatus = { enabled: boolean; updated: number; servers: number; hiding: number; error: string | null }
 export const adblockStatus = () => native<AdblockStatus>('adblock_status')
 export const adblockSet = (enabled: boolean) => native<AdblockStatus>('adblock_set', { enabled })
+export const adblockAllowSites = (sites: string[]) => native<AdblockStatus>('adblock_allow_sites', { sites })
 export const adblockUpdate = () => native<AdblockStatus>('adblock_update')
 
 /** Chrome extensions for web pages, Windows only (src-tauri/src/extensions.rs). */

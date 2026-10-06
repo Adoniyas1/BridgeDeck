@@ -241,7 +241,7 @@ impl Rules {
 
     /// The rules as a Safari content-blocker list (for WebKit on macOS). Kept under WebKit's limit.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    pub fn safari_list(&self, with_hiding: bool) -> String {
+    pub fn safari_list(&self, with_hiding: bool, allowed_sites: &[String]) -> String {
         fn regex_path(path: &str) -> String {
             path.chars().map(|c| match c {
                 '*' => ".*".to_string(),
@@ -300,6 +300,10 @@ impl Rules {
                 out.push(serde_json::json!({ "trigger": trigger(host, rule), "action": { "type": "ignore-previous-rules" } }));
             }
         }
+        // Sites the person allowed ads on: nothing on their pages is blocked or hidden.
+        for site in allowed_sites {
+            out.push(serde_json::json!({ "trigger": { "url-filter": ".*", "if-domain": [format!("*{site}")] }, "action": { "type": "ignore-previous-rules" } }));
+        }
         serde_json::to_string(&out).unwrap_or_else(|_| "[]".into())
     }
 }
@@ -308,6 +312,53 @@ impl Rules {
 
 static RULES: Mutex<Option<Arc<Rules>>> = Mutex::new(None);
 static ENABLED: Mutex<bool> = Mutex::new(true);
+/// Sites the person allowed ads on (from the Browser and TV bars).
+static ALLOWED_SITES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn allowed_sites() -> Vec<String> {
+    ALLOWED_SITES.lock().map(|a| a.clone()).unwrap_or_default()
+}
+
+/// Whether a page on `host` is on a site the person allowed ads on.
+pub fn site_allowed(host: &str, sites: &[String]) -> bool {
+    let host = host.to_ascii_lowercase();
+    sites.iter().any(|s| host == *s || host.ends_with(&format!(".{s}")))
+}
+
+/// The cleaned list of allowed sites ("www." dropped, hosts only).
+pub fn clean_sites(sites: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = sites.iter().map(|s| s.trim().to_ascii_lowercase().trim_start_matches("www.").to_string()).filter(|s| valid_host(s)).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+impl Rules {
+    /// A script that hides ad elements on the page it runs in (Windows, where WebView2 has no
+    /// built-in hiding): the general rules and the page's site's own, unless ads are allowed there.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn hiding_script(&self, allowed_sites: &[String]) -> String {
+        let css = |selectors: &[String]| selectors.chunks(200).map(|c| format!("{}{{display:none!important}}", c.join(","))).collect::<Vec<_>>().join("\n");
+        let mut by_site: HashMap<&str, Vec<String>> = HashMap::new();
+        for (sites, sel) in &self.hide_on {
+            for site in sites {
+                by_site.entry(site.as_str()).or_default().push(sel.clone());
+            }
+        }
+        let by_site: HashMap<&str, String> = by_site.into_iter().map(|(k, v)| (k, css(&v))).collect();
+        format!(
+            r#"(function(){{if(window.__bdHide)return;window.__bdHide=1;var h=location.hostname.toLowerCase(),a={allowed},s={sites},css={general};
+function on(d){{return h===d||h.slice(-d.length-1)==="."+d}}
+for(var i=0;i<a.length;i++)if(on(a[i]))return;
+for(var d in s)if(on(d))css+="\n"+s[d];
+function add(){{var e=document.createElement("style");e.textContent=css;(document.head||document.documentElement).appendChild(e)}}
+if(document.documentElement)add();else document.addEventListener("DOMContentLoaded",add)}})();"#,
+            allowed = serde_json::to_string(allowed_sites).unwrap_or_else(|_| "[]".into()),
+            sites = serde_json::to_string(&by_site).unwrap_or_else(|_| "{}".into()),
+            general = serde_json::to_string(&css(&self.hide)).unwrap_or_else(|_| "\"\"".into()),
+        )
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -427,12 +478,47 @@ pub fn adblock_status(app: AppHandle) -> Status {
     status(&app)
 }
 
+/// Set when the person changed something (on/off, an allowed site): the pages reload once the new
+/// rules are in place, to show the change.
+static RELOAD: Mutex<bool> = Mutex::new(false);
+
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+fn reload_if_asked(app: &AppHandle) {
+    let asked = RELOAD.lock().map(|mut r| std::mem::take(&mut *r)).unwrap_or(false);
+    if asked {
+        for label in page_labels(app) {
+            if let Some(view) = app.get_webview(&label) {
+                let _ = view.eval("location.reload()");
+            }
+        }
+    }
+}
+
+fn ask_reload() {
+    if let Ok(mut r) = RELOAD.lock() {
+        *r = true;
+    }
+}
+
+/// Sets the sites ads are allowed on; pages reload to show the change.
+#[tauri::command]
+pub fn adblock_allow_sites(app: AppHandle, sites: Vec<String>) -> Status {
+    let sites = clean_sites(&sites);
+    let changed = ALLOWED_SITES.lock().map(|mut a| if *a != sites { *a = sites; true } else { false }).unwrap_or(false);
+    if changed {
+        ask_reload();
+        platform::rules_changed(&app);
+    }
+    status(&app)
+}
+
 #[tauri::command]
 pub fn adblock_set(app: AppHandle, enabled: bool) -> Status {
-    if let Ok(mut e) = ENABLED.lock() {
-        *e = enabled;
+    let changed = ENABLED.lock().map(|mut e| if *e != enabled { *e = enabled; true } else { false }).unwrap_or(false);
+    if changed {
+        ask_reload();
+        platform::rules_changed(&app);
     }
-    platform::rules_changed(&app);
     status(&app)
 }
 
@@ -444,7 +530,7 @@ pub async fn adblock_update(app: AppHandle) -> Result<Status, String> {
 }
 
 /// The labels of the pages the blocker applies to.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn page_labels(app: &AppHandle) -> Vec<String> {
     app.webviews().into_keys().filter(|l| l.starts_with("browser-") || l == "chatgpt").collect()
 }
@@ -453,7 +539,7 @@ fn page_labels(app: &AppHandle) -> Vec<String> {
 #[cfg(windows)]
 mod platform {
     use super::*;
-    use webview2_com::{Microsoft::Web::WebView2::Win32::*, WebResourceRequestedEventHandler};
+    use webview2_com::{AddScriptToExecuteOnDocumentCreatedCompletedHandler, Microsoft::Web::WebView2::Win32::*, WebResourceRequestedEventHandler};
     use windows::core::{Interface, HSTRING, PWSTR};
 
     fn take(p: PWSTR) -> String {
@@ -492,6 +578,7 @@ mod platform {
         }
         let Some(view) = app.get_webview(label) else { return };
         let label = label.to_string();
+        let (app2, label2) = (app.clone(), label.clone());
         let _ = view.with_webview(move |page| unsafe {
             let Ok(webview) = page.controller().CoreWebView2() else { return };
             let env = page.environment();
@@ -518,7 +605,11 @@ mod platform {
                 let kind = match kind_of(context) { Some(k) => k, None if uri == page => return Ok(()), None => kind::FRAME };
                 let Ok(url) = tauri::Url::parse(&uri) else { return Ok(()) };
                 let path = match url.query() { Some(q) => format!("{}?{q}", url.path()), None => url.path().to_string() };
-                let request = Request { host: url.host_str().unwrap_or_default(), path: &path, page_host: &host_of(&page), kind };
+                let page_host = host_of(&page);
+                if super::site_allowed(&page_host, &super::allowed_sites()) {
+                    return Ok(());
+                }
+                let request = Request { host: url.host_str().unwrap_or_default(), path: &path, page_host: &page_host, kind };
                 if rules.blocks_request(&request) {
                     let response = env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))?;
                     args.SetResponse(&response)?;
@@ -527,6 +618,7 @@ mod platform {
             }));
             let mut token = Default::default();
             if webview.add_WebResourceRequested(&handler, &mut token).is_ok() {
+                install_hiding(&app2, &label2);
                 if let Ok(mut a) = ATTACHED.lock() {
                     a.push(label);
                 }
@@ -534,8 +626,41 @@ mod platform {
         });
     }
 
-    /// The handler reads the current rules on every request, so a change applies at once.
-    pub fn rules_changed(_app: &AppHandle) {}
+    /// The hiding script each page has (WebView2's id for it), so it can be replaced.
+    static SCRIPTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+    /// Puts the current hiding script on a page (replacing the one before), or none when off.
+    fn install_hiding(app: &AppHandle, label: &str) {
+        let Some(view) = app.get_webview(label) else { return };
+        let script = super::rules().map(|r| r.hiding_script(&super::allowed_sites()));
+        let label = label.to_string();
+        let _ = view.with_webview(move |page| unsafe {
+            let Ok(webview) = page.controller().CoreWebView2() else { return };
+            let old = SCRIPTS.lock().ok().and_then(|mut s| s.iter().position(|(l, _)| *l == label).map(|i| s.remove(i).1));
+            if let Some(id) = old {
+                let _ = webview.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id));
+            }
+            let Some(script) = script else { return };
+            let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(move |result, id| {
+                if result.is_ok() {
+                    if let Ok(mut s) = SCRIPTS.lock() {
+                        s.push((label, id));
+                    }
+                }
+                Ok(())
+            }));
+            let _ = webview.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script), &handler);
+        });
+    }
+
+    /// Requests are checked against the current rules every time, so only the hiding scripts need
+    /// replacing (pages reload to show it).
+    pub fn rules_changed(app: &AppHandle) {
+        for label in super::page_labels(app) {
+            install_hiding(app, &label);
+        }
+        super::reload_if_asked(app);
+    }
 }
 
 // ---- macOS: WebKit applies the rules as a Safari content blocker ----
@@ -589,6 +714,7 @@ mod platform {
         for label in super::page_labels(app) {
             attach(app, &label);
         }
+        super::reload_if_asked(app);
     }
 
     /// Gets WebKit's list for the current rules: the one compiled at an earlier launch when the
@@ -598,7 +724,8 @@ mod platform {
         let Some(rules) = RULES.lock().ok().and_then(|r| r.clone()) else { return };
         let app = app.clone();
         std::thread::spawn(move || {
-            let json = rules.safari_list(true);
+            let allowed = super::allowed_sites();
+            let json = rules.safari_list(true, &allowed);
             let digest = sha2::Sha256::digest(json.as_bytes());
             let id = format!("{IDENTIFIER}-{}", digest.iter().take(6).map(|b| format!("{b:02x}")).collect::<String>());
             let current = COMPILED_ID.lock().map(|c| *c == id).unwrap_or(false);
@@ -658,7 +785,7 @@ mod platform {
             if list.is_null() {
                 // A rule WebKit won't take: try again with blocking only.
                 if with_hiding {
-                    let json = rules2.safari_list(false);
+                    let json = rules2.safari_list(false, &super::allowed_sites());
                     compile(&app2, &id2, &json, &rules2, false);
                 }
                 return;
@@ -729,14 +856,20 @@ mod tests {
     fn makes_a_safari_list() {
         let mut rules = Rules::default();
         parse(LIST, &mut rules);
-        let list: Vec<serde_json::Value> = serde_json::from_str(&rules.safari_list(true)).unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_str(&rules.safari_list(true, &[])).unwrap();
         assert_eq!(list[0]["trigger"]["url-filter"], "^[htpsw]+://([a-z0-9-]+\\.)*ads\\.example\\.com[/:?]");
         assert!(list.iter().any(|r| r["trigger"]["load-type"][0] == "third-party"));
         assert!(list.iter().any(|r| r["trigger"]["resource-type"][0] == "script"));
         assert!(list.iter().any(|r| r["trigger"]["url-filter"] == "^[htpsw]+://([a-z0-9-]+\\.)*cdn\\.com(:[0-9]+)?/path/ad\\.js"));
         assert_eq!(list.last().unwrap()["action"]["type"], "ignore-previous-rules");
         assert!(list.iter().any(|r| r["action"]["type"] == "css-display-none" && r["trigger"]["if-domain"][0] == "*news.com"));
-        let no_hiding: Vec<serde_json::Value> = serde_json::from_str(&rules.safari_list(false)).unwrap();
+        let allowing: Vec<serde_json::Value> = serde_json::from_str(&rules.safari_list(true, &["news.com".into()])).unwrap();
+        assert_eq!(allowing.last().unwrap()["trigger"]["if-domain"][0], "*news.com");
+        assert_eq!(allowing.last().unwrap()["action"]["type"], "ignore-previous-rules");
+        let script = rules.hiding_script(&["ok.org".into()]);
+        assert!(script.contains("display:none!important") && script.contains("\"ok.org\"") && script.contains(".promo"));
+        assert!(site_allowed("www.news.com", &clean_sites(&["www.News.com".into()])) && !site_allowed("othernews.com", &["news.com".into()]));
+        let no_hiding: Vec<serde_json::Value> = serde_json::from_str(&rules.safari_list(false, &[])).unwrap();
         assert!(no_hiding.iter().all(|r| r["action"]["type"] != "css-display-none"));
     }
 }
@@ -751,7 +884,7 @@ mod real_lists {
         let dir = PathBuf::from(std::env::var("BD_LISTS").unwrap());
         let t = std::time::Instant::now();
         let rules = load(&dir).unwrap();
-        let json = rules.safari_list(true);
+        let json = rules.safari_list(true, &[]);
         let n: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         println!("servers {} rules {} allow {} hide {} hide_on {} | safari rules {} ({} KB) in {:?}", rules.block.len(), rules.server_rules(), rules.allow.len(), rules.hide.len(), rules.hide_on.len(), n.len(), json.len() / 1024, t.elapsed());
         for (h, p) in [("ad.doubleclick.net", "cnn.com"), ("doubleclick.net", "cnn.com"), ("pagead2.googlesyndication.com", "cnn.com"), ("googlesyndication.com", "cnn.com"), ("www.google-analytics.com", "cnn.com"), ("www.youtube.com", "youtube.com"), ("i.ytimg.com", "youtube.com"), ("cdn.jsdelivr.net", "x.com"), ("fonts.googleapis.com", "x.com"), ("chatgpt.com", "chatgpt.com"), ("www.netflix.com", "netflix.com")] {
