@@ -1,9 +1,11 @@
 //! The rules as Safari content-blocker lists, which WebKit applies itself on macOS.
 //!
-//! WebKit takes at most 150,000 rules per list and refuses a whole list over one rule it can't
-//! read, so the rules go in several lists: blocking (in parts, each with every exception), the
-//! `important` rules, general hiding and per-site hiding. A hiding list WebKit refuses is tried
-//! again with only the simplest selectors.
+//! WebKit builds these lists inside BridgeDeck itself, and big lists of wildcard patterns can take
+//! it gigabytes and bring the app down, so the lists are kept to what it builds comfortably:
+//! server rules and plain address rules (wildcard address rules are left to the page script and
+//! uBlock's scriptlets), in parts of 40,000, plus general and per-site hiding. A hiding list WebKit
+//! refuses is tried again with only the simplest selectors. After a crash, `Mode::Basic` keeps
+//! just the plain server rules.
 
 // Used on macOS only.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -11,8 +13,19 @@
 use super::filters::{kind, simple_selector, NetRule, Party, Rules};
 use serde_json::{json, Value};
 
-/// Rules per list, under WebKit's limit with room to spare.
-const PER_LIST: usize = 140_000;
+/// Rules per list (WebKit's limit is 150,000; smaller lists build with far less memory).
+const PER_LIST: usize = 40_000;
+
+/// How much goes into the lists.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    /// Everything WebKit builds comfortably, CSS hiding as written.
+    Full,
+    /// The same with only the simplest selectors (when WebKit refuses a hiding list).
+    Simple,
+    /// After WebKit crashed building the lists: plain server rules only, no hiding.
+    Basic,
+}
 /// Selectors per hiding rule.
 const PER_HIDE_RULE: usize = 150;
 
@@ -41,8 +54,15 @@ fn regex(pattern: &str) -> String {
 
 /// The trigger for a network rule (server rule when `host` is given), or none when WebKit can't
 /// express it (pop-up-only rules, entity sites, non-ASCII).
-fn trigger(host: Option<&str>, rule: &NetRule) -> Option<Value> {
-    if !rule.pattern.is_ascii() {
+fn trigger(host: Option<&str>, rule: &NetRule, mode: Mode) -> Option<Value> {
+    // Wildcards make WebKit's matcher grow fast: those rules are left out.
+    if !rule.pattern.is_ascii() || rule.pattern.contains('*') {
+        return None;
+    }
+    if mode == Mode::Basic && (host.is_none() || !rule.pattern.is_empty() || rule.kinds != 0 || !rule.domains.is_empty() || !rule.not_domains.is_empty()) {
+        return None;
+    }
+    if host.is_none() && rule.pattern.trim_matches('^').len() < 6 {
         return None;
     }
     let filter = match host {
@@ -109,21 +129,21 @@ pub struct List {
 
 /// Every list for the rules. `allowed`: sites the person allowed ads on (nothing applies there).
 /// `simple`: hiding lists with only the simplest selectors.
-pub fn lists(rules: &Rules, allowed: &[String], simple: bool) -> Vec<List> {
+pub fn lists(rules: &Rules, allowed: &[String], mode: Mode) -> Vec<List> {
     let mut out = Vec::new();
     let blocks = |important: bool| -> Vec<Value> {
         let mut hosts: Vec<_> = rules.host_block.iter().collect();
         hosts.sort_by(|a, b| a.0.cmp(b.0));
         let by_host = hosts.into_iter().flat_map(|(h, list)| list.iter().map(move |r| (Some(h.as_str()), r)));
         let by_url = rules.url_block.iter().map(|r| (None, r));
-        by_host.chain(by_url).filter(|(_, r)| r.important == important).filter_map(|(h, r)| trigger(h, r)).map(|t| json!({ "trigger": t, "action": { "type": "block" } })).collect()
+        by_host.chain(by_url).filter(|(_, r)| r.important == important).filter_map(|(h, r)| trigger(h, r, mode)).map(|t| json!({ "trigger": t, "action": { "type": "block" } })).collect()
     };
     let mut exceptions: Vec<Value> = {
         let mut hosts: Vec<_> = rules.host_allow.iter().collect();
         hosts.sort_by(|a, b| a.0.cmp(b.0));
         let by_host = hosts.into_iter().flat_map(|(h, list)| list.iter().map(move |r| (Some(h.as_str()), r)));
         let by_url = rules.url_allow.iter().map(|r| (None, r));
-        by_host.chain(by_url).filter_map(|(h, r)| trigger(h, r)).map(|t| json!({ "trigger": t, "action": { "type": "ignore-previous-rules" } })).collect()
+        by_host.chain(by_url).filter_map(|(h, r)| trigger(h, r, mode)).map(|t| json!({ "trigger": t, "action": { "type": "ignore-previous-rules" } })).collect()
     };
     exceptions.extend(ignore_for(allowed));
     let room = PER_LIST.saturating_sub(exceptions.len()).max(10_000);
@@ -139,7 +159,11 @@ pub fn lists(rules: &Rules, allowed: &[String], simple: bool) -> Vec<List> {
         out.push(List { name: "important".into(), json: Value::Array(list).to_string(), hiding: false });
     }
 
-    let usable = |s: &String| !simple || simple_selector(s);
+    if mode == Mode::Basic {
+        return out;
+    }
+    // `:has()` only builds on recent WebKit; it's left out rather than risk the whole list.
+    let usable = |s: &String| if mode == Mode::Simple { simple_selector(s) } else { !s.contains(":has(") };
     // General hiding: selectors some sites unhide get rules of their own that skip those sites.
     let mut unhidden_on: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
     for (site, selectors) in &rules.unhide_on {
@@ -168,7 +192,7 @@ pub fn lists(rules: &Rules, allowed: &[String], simple: bool) -> Vec<List> {
         let yes: Vec<String> = h.sites.iter().filter(|s| !s.ends_with(".*")).map(|s| format!("*{s}")).collect();
         (!yes.is_empty()).then(|| json!({ "trigger": { "url-filter": ".*", "if-domain": yes }, "action": { "type": "css-display-none", "selector": h.value } }))
     }).collect();
-    for (i, part) in specific.chunks(PER_LIST - 10_000).enumerate() {
+    for (i, part) in specific.chunks(PER_LIST).enumerate() {
         let mut list = part.to_vec();
         list.extend(ignore_for(&rules.no_hide));
         list.extend(ignore_for(allowed));
@@ -186,27 +210,31 @@ mod tests {
     fn makes_safari_lists() {
         let mut rules = Rules::default();
         rules.add_list(LIST);
-        let lists = lists(&rules, &["news.com".into()], false);
+        let lists = lists(&rules, &["news.com".into()], Mode::Full);
         let names: Vec<&str> = lists.iter().map(|l| l.name.as_str()).collect();
         assert_eq!(names, vec!["net0", "important", "hide", "site0"]);
         let net: Vec<Value> = serde_json::from_str(&lists[0].json).unwrap();
         let filters: Vec<&str> = net.iter().filter_map(|r| r["trigger"]["url-filter"].as_str()).collect();
         assert!(filters.contains(&"^[htpsw]+://([a-z0-9-]+\\.)*ads\\.example\\.com[/:?]"));
         assert!(filters.contains(&"^[htpsw]+://([a-z0-9-]+\\.)*cdn\\.com/path/ad\\.js"));
-        assert!(filters.contains(&"/banner/ads/.*"), "{filters:?}");
-        assert!(filters.contains(&"^https://track\\..*/pixel\\.gif$"));
+        assert!(!filters.iter().any(|f| f.contains("banner/ads") || f.contains("track\\.")), "wildcard address rules stay out: {filters:?}");
+        assert!(filters.iter().any(|f| f.contains("ad-300x250")), "plain address rules go in");
         assert!(!filters.iter().any(|f| f.contains("pop\\.com")), "pop-up rules are BridgeDeck's, not WebKit's");
         let site = net.iter().find(|r| r["trigger"]["url-filter"].as_str().unwrap().contains("site\\.com")).unwrap();
         assert_eq!(site["trigger"]["if-domain"][0], "*x.com");
         assert_eq!(net.last().unwrap()["trigger"]["if-domain"][0], "*news.com", "allowed sites last");
         assert!(net.iter().any(|r| r["action"]["type"] == "ignore-previous-rules" && r["trigger"]["url-filter"].as_str().unwrap().contains("ok\\.ads")));
         let hide: Vec<Value> = serde_json::from_str(&lists[2].json).unwrap();
-        assert!(hide[0]["action"]["selector"].as_str().unwrap().contains(".x:has(.y)"));
+        assert!(!hide[0]["action"]["selector"].as_str().unwrap().contains(":has("), "no :has() for WebKit");
         assert!(hide.iter().any(|r| r["trigger"]["unless-domain"][0] == "*news.com"));
         assert!(hide.iter().any(|r| r["trigger"]["if-domain"][0] == "*quiet.org" && r["action"]["type"] == "ignore-previous-rules"), "generichide");
-        let simple = super::lists(&rules, &[], true);
+        let simple = super::lists(&rules, &[], Mode::Simple);
         let hide: Vec<Value> = serde_json::from_str(&simple.iter().find(|l| l.name == "hide").unwrap().json).unwrap();
         assert!(!hide[0]["action"]["selector"].as_str().unwrap().contains(":has"));
+        let basic = super::lists(&rules, &[], Mode::Basic);
+        assert_eq!(basic.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), vec!["net0", "important"], "no hiding after a crash");
+        let net: Vec<Value> = serde_json::from_str(&basic[0].json).unwrap();
+        assert!(net.iter().filter(|r| r["action"]["type"] == "block").all(|r| r["trigger"].get("resource-type").is_none() && r["trigger"].get("if-domain").is_none()), "plain server rules only");
         assert_eq!(regex("^ad^x*"), format!("{SEPARATOR}ad{SEPARATOR}x.*"));
     }
 }

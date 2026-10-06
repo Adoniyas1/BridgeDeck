@@ -470,6 +470,18 @@ All built (steps 1–14 in one pull request after the releases). What each becam
   windows open as Browser tabs; sized windows (sign-ins) open as real pop-ups that keep their opener.
 - Changes the person makes remake the open pages so their scripts update.
 
+### Logic tab: gates, 74-series chips and truth tables (asked 2026-10-07)
+- **Designer** (`src/features/logic/`): switches, clock, LEDs, +5V/ground, gates (AND OR NOT NAND NOR XOR XNOR
+  BUF, 2–4 inputs) and DIP chips with datasheet pinouts (7400 7402 7404 7408 7410 7411 7420 7421 7427 7432
+  7486 74266, 7474 D flip-flop). Wire pin to pin; the simulation runs live (unknown and shorted wires shown,
+  chips dead until pin 14 is on +5V and pin 7 on ground, flip-flops on clock edges).
+- **Truth tables both ways**: filled in from the circuit with each output's simplest expression
+  (Quine–McCluskey); or from typed expressions, or by filling in a table's outputs (with don't-cares), with
+  "Build the circuit".
+- **Chips for projects**: the gates packed onto real chips (wide gates split into ones that exist) with a
+  pin-by-pin wiring list (spare inputs tied off, LED resistors); circuits saved in a project's `Circuits`
+  folder (`circuits.rs`), tables and wiring saved as notes in the project's folder.
+
 ### Phase 7: Mobile and extras
 - **iPhone / iPad (D12)**: a BridgeDeck mobile build (Tauri 2 supports iOS) that pairs like any
   device and uses the capabilities iOS allows: remote-control viewer, Files (LocalSend protocol),

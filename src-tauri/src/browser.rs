@@ -137,13 +137,16 @@ fn popup_window(app: &AppHandle, url: Url, features: tauri::webview::NewWindowFe
         .on_document_title_changed(|window, title| { let _ = window.set_title(&title); })
         // The guard's address is swapped for the real one (the window keeps its opener).
         .on_navigation(move |to| {
-            if let Some(real) = unwrap_popup(to) {
-                if let Some(view) = nav_app.get_webview(&nav_label) {
-                    let _ = view.navigate(real);
+            let to = to.clone();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Some(real) = unwrap_popup(&to) {
+                    if let Some(view) = nav_app.get_webview(&nav_label) {
+                        let _ = view.navigate(real);
+                    }
+                    return false;
                 }
-                return false;
-            }
-            allowed(to)
+                allowed(&to)
+            })).unwrap_or(false)
         })
         .on_new_window(|_, _| NewWindowResponse::Deny);
     #[cfg(target_os = "macos")]
@@ -228,9 +231,11 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     if let Some(guard) = crate::adblock::popup_guard() {
         builder = builder.initialization_script_for_all_frames(guard);
     }
+    // The page script: every frame on Windows (WebView2 adds them to frames anyway), the page itself
+    // on macOS (it's large, and ad pages open many frames).
     let script = crate::adblock::page_script(cfg!(windows));
     if !script.is_empty() {
-        builder = builder.initialization_script_for_all_frames(script);
+        builder = if cfg!(windows) { builder.initialization_script_for_all_frames(script) } else { builder.initialization_script(script) };
     }
     let builder = builder
         .on_navigation(move |url| {
@@ -247,7 +252,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
             }
             ok
         })
-        .on_new_window(move |url, features| new_window(&new_app, &new_tab_name, &new_tab, url, features))
+        // A panic here would take BridgeDeck down (it runs inside the web view's own callback).
+        .on_new_window(move |url, features| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| new_window(&new_app, &new_tab_name, &new_tab, url, features))).unwrap_or(NewWindowResponse::Deny)
+        })
         .on_document_title_changed(move |_, title| {
             let _ = title_app.emit_to(MAIN, "browser-title", json!({ "tab": title_tab, "title": title }));
         })

@@ -533,3 +533,9 @@ export type BackupRestored = { notes: number; events: number; settings: unknown 
 export const backupsList = () => native<BackupInfo[]>('backups_list')
 export const backupNow = () => native<string>('backup_now')
 export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings })
+/** Logic circuits, kept in the shared folder (src-tauri/src/circuits.rs). */
+export type CircuitFile = { project: string; name: string; modified: number }
+export const circuitsList = () => native<CircuitFile[]>('circuits_list')
+export const circuitLoad = (project: string, name: string) => native<string>('circuit_load', { project, name })
+export const circuitSave = (project: string, name: string, circuit: string) => native<void>('circuit_save', { project, name, circuit })
+export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
