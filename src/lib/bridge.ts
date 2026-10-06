@@ -463,6 +463,8 @@ export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
 /** The Browser tab's page (src-tauri/src/browser.rs): placed over the tab's area in logical pixels. */
 export const browserShow = (tab: string, url: string | null, x: number, y: number, w: number, h: number) => native<void>('browser_show', { tab, url, x, y, w, h })
 export const browserHide = (tab: string) => native<void>('browser_hide', { tab })
+/** Pauses the videos and sounds in a browser or TV page. */
+export const browserPause = (tab: string) => native<void>('browser_pause', { tab })
 export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
 /** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
 export type MangaChapter = { id: string; title: string }
@@ -496,6 +498,7 @@ export const notesCreateMarkdown = (title: string, folder: string, kind: 'note' 
 export type AdblockStatus = { enabled: boolean; updated: number; servers: number; hiding: number; error: string | null }
 export const adblockStatus = () => native<AdblockStatus>('adblock_status')
 export const adblockSet = (enabled: boolean) => native<AdblockStatus>('adblock_set', { enabled })
+export const adblockAllowSites = (sites: string[]) => native<AdblockStatus>('adblock_allow_sites', { sites })
 export const adblockUpdate = () => native<AdblockStatus>('adblock_update')
 
 /** Chrome extensions for web pages, Windows only (src-tauri/src/extensions.rs). */

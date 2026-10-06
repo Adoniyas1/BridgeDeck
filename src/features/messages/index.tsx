@@ -1,8 +1,9 @@
+import { lazy } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { useStore } from '../../core/store'
 import type { FeatureManifest } from '../features'
-import Messages from './Messages'
 import { checkMessagesSource, checkingSourceStore, MessagesBackground, messagesSourceStore, messagesUnreadStore } from './state'
+const Messages = lazy(() => import('./Messages'))
 
 function MessagesPage({ active }: { active: boolean }) {
   const source = useStore(messagesSourceStore)

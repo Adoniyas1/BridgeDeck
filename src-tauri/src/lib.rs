@@ -17,6 +17,7 @@ mod browser;
 mod placement;
 mod adblock;
 mod extensions;
+mod webmedia;
 mod chatgpt;
 mod manga;
 mod projects;
@@ -620,8 +621,10 @@ pub fn run() {
             chatgpt::chatgpt_hide,
             chatgpt::chatgpt_new,
             browser::browser_show,
+            browser::browser_pause,
             adblock::adblock_status,
             adblock::adblock_set,
+            adblock::adblock_allow_sites,
             adblock::adblock_update,
             extensions::extensions_list,
             extensions::extensions_add,

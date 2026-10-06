@@ -1,10 +1,10 @@
 import { FolderOpen, NotebookPen } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy } from 'react'
 import { isTauri, openPath, pickTransferPaths, vaultSettings, type VaultStatus } from '../../lib/bridge'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
-import NotesPage from './NotesPage'
 import { NotesBackground, overdueStore } from './state'
+const NotesPage = lazy(() => import('./NotesPage'))
 
 /** The vault: notes as Markdown files that Obsidian, Logseq or Zettlr can open. */
 function NotesSettings() {

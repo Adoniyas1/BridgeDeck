@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Download, FolderOpen, PackagePlus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
-import { adblockSet, adblockStatus, adblockUpdate, extensionsAdd, extensionsGetUblock, extensionsList, extensionsRemove, isTauri, pickExtension, type AdblockStatus, type BrowserExtension } from '../../lib/bridge'
+import { Download, FolderOpen, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import { adblockAllowSites, adblockSet, adblockStatus, adblockUpdate, extensionsAdd, extensionsGetUblock, extensionsList, extensionsRemove, isTauri, pickExtension, type AdblockStatus, type BrowserExtension } from '../../lib/bridge'
 import { setConfig, useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle, Toggle } from '../../ui'
@@ -9,9 +9,29 @@ const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.
 
 /** Keeps the ad blocker on or off as the settings say (the setting lives with BridgeDeck's settings). */
 export function AdblockBackground() {
-  const on = useConfig().browsing.adblock
+  const { adblock: on, allowAds } = useConfig().browsing
   useEffect(() => { if (isTauri()) void adblockSet(on).catch(() => undefined) }, [on])
+  const sites = allowAds.join(',')
+  useEffect(() => { if (isTauri()) void adblockAllowSites(sites ? sites.split(',') : []).catch(() => undefined) }, [sites])
   return null
+}
+
+/** The site of a page, as kept in the allowed list ("www." dropped). */
+export function siteOf(url: string) {
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, '') } catch { return '' }
+}
+
+/** The shield in the Browser and TV bars: whether ads are blocked on this page's site, and a
+ *  click to allow them there (or block them again). The page reloads with the change. */
+export function AdShield({ url }: { url: string }) {
+  const config = useConfig()
+  const site = siteOf(url)
+  if (!config.browsing.adblock || !site || !/^https?:/.test(url)) return null
+  const allowed = config.browsing.allowAds.includes(site)
+  const toggle = () => setConfig(c => ({ ...c, browsing: { ...c.browsing, allowAds: allowed ? c.browsing.allowAds.filter(s => s !== site) : [...c.browsing.allowAds, site] } }))
+  return <button type="button" className={`cal-icon ad-shield${allowed ? ' off' : ''}`} title={allowed ? `Ads are allowed on ${site}. Click to block them again.` : `Blocking ads on ${site}. Click to allow ads on this site (if it breaks or asks you to).`} onClick={toggle}>
+    {allowed ? <ShieldOff size={15} /> : <ShieldCheck size={15} />}
+  </button>
 }
 
 /** Settings → Web pages: the ad blocker, and Chrome extensions on Windows. */
@@ -48,12 +68,13 @@ export function WebSettings() {
   const updated = status?.updated ? new Date(status.updated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''
   return <>
     <Card><SectionTitle title="Ad blocker" subtitle="For the Browser and TV tabs and the ChatGPT panel" action={<ShieldCheck size={18} />} />
-      <Toggle checked={config.browsing.adblock} onChange={adblock => setConfig(c => ({ ...c, browsing: { adblock } }))} label="Block ads and trackers" />
+      <Toggle checked={config.browsing.adblock} onChange={adblock => setConfig(c => ({ ...c, browsing: { ...c.browsing, adblock } }))} label="Block ads and trackers" />
       <p className="hint">{status?.servers
         ? `${status.servers.toLocaleString()} ad and tracker servers blocked${onWindows ? '' : `, ${status.hiding.toLocaleString()} kinds of ads hidden`} · EasyList and EasyPrivacy${updated ? `, updated ${updated}` : ''}`
         : 'Getting the EasyList and EasyPrivacy block lists…'}</p>
       {status?.error && <p className="error-text">{status.error}</p>}
       <div className="actions"><button className="secondary" disabled={!!busy} onClick={() => void run('update', async () => { setStatus(await adblockUpdate()); setMessage('Block lists updated.') })}><RefreshCw size={15} />{busy === 'update' ? 'Updating…' : 'Update lists now'}</button></div>
+      {config.browsing.allowAds.length > 0 && <div className="ad-allowed"><span className="hint">Ads allowed on:</span>{config.browsing.allowAds.map(site => <button key={site} className="ghost" title={`Block ads on ${site} again`} onClick={() => setConfig(c => ({ ...c, browsing: { ...c.browsing, allowAds: c.browsing.allowAds.filter(x => x !== site) } }))}>{site} ×</button>)}</div>}
       <p className="hint">Lists update by themselves every few days. Video ads inside a site’s own player (YouTube’s, for one) come from the site itself and usually get through; on Windows, uBlock Origin Lite below catches more of them.</p>
     </Card>
     <Card><SectionTitle title="Extensions" subtitle={onWindows ? 'Chrome extensions for web pages in BridgeDeck' : 'Chrome extensions work on Windows only'} />

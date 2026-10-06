@@ -54,7 +54,7 @@ export type AppConfig = {
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
   tv: { shortcuts: Array<{ name: string; url: string }> }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker. */
-  browsing: { adblock: boolean }
+  browsing: { adblock: boolean; allowAds: string[] }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
   setup: { dismissed: boolean; notificationsReviewed: boolean }
   /** BridgeDeck in Explorer's Send to menu (Windows; the Mac's Open With entry comes with the app). */

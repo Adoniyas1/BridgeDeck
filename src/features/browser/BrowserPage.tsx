@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { ArrowLeft, ArrowRight, Globe, MessageCircleQuestion, RotateCw, X } from 'lucide-react'
 import { browserGo, browserHide, browserShow, isTauri } from '../../lib/bridge'
 import { askChatGPT } from '../../core/chatgpt'
+import { AdShield } from './WebSettings'
 
 const TAB = '1'
 const START = [
@@ -72,6 +73,7 @@ export default function BrowserPage({ active }: { active: boolean }) {
       <button type="button" className="cal-icon" title="Back" disabled={!started} onClick={() => void browserGo(TAB, 'back')}><ArrowLeft size={15} /></button>
       <button type="button" className="cal-icon" title="Forward" disabled={!started} onClick={() => void browserGo(TAB, 'forward')}><ArrowRight size={15} /></button>
       <button type="button" className="cal-icon" title={loading ? 'Stop' : 'Reload'} disabled={!started} onClick={() => void browserGo(TAB, loading ? 'stop' : 'reload')}>{loading ? <X size={15} /> : <RotateCw size={15} />}</button>
+      <AdShield url={url} />
       <input value={typed} onChange={e => setTyped(e.target.value)} onFocus={e => e.target.select()} placeholder="Search, or type a web address" spellCheck={false} />
       <button type="button" className="ghost" title="Open ChatGPT (with this page's address, ready for you to ask about it)" onClick={() => void askChatGPT(url ? `About this page: ${title ? `"${title}" ` : ''}${url}\n\n` : undefined)}><MessageCircleQuestion size={14} /> ChatGPT</button>
     </form>

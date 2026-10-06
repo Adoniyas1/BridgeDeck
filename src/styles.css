@@ -787,3 +787,8 @@ main.fill .book-scroll{border-radius:0;padding:8px 0}
 .tv-area{flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center}
 .tv-watching>.cal-error{margin:6px 12px}
 body.tv-full .tabbar{display:none}
+/* A web page's video in full screen (Windows): only the page shows. */
+body.web-full .tabbar, body.web-full .browser-bar, body.web-full .tv-bar, body.web-full .chat-panel, body.web-full main>.notice{display:none}
+.ad-shield{color:var(--ok)}.ad-shield.off{color:var(--muted)}
+.ad-allowed{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+.tab-loading{padding:24px}

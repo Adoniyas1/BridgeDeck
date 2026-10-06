@@ -115,6 +115,7 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open the page: {e}"))?;
     crate::placement::verify(&app, &id, x, y);
     crate::adblock::attach(&app, &id);
+    crate::webmedia::setup(&app, &id);
     Ok(())
 }
 
@@ -123,6 +124,15 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
 pub fn browser_hide(app: AppHandle, tab: String) -> Result<(), String> {
     if let Some(view) = app.get_webview(&label(&tab)?) {
         view.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Pauses the videos and sounds in a browser or TV page (the TV tab when it's left).
+#[tauri::command]
+pub fn browser_pause(app: AppHandle, tab: String) -> Result<(), String> {
+    if let Some(view) = app.get_webview(&label(&tab)?) {
+        view.eval(crate::webmedia::PAUSE_MEDIA).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

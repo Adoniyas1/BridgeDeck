@@ -1,6 +1,7 @@
+import { lazy } from 'react'
 import { Tv } from 'lucide-react'
 import type { FeatureManifest } from '../features'
-import TvPage from './TvPage'
+const TvPage = lazy(() => import('./TvPage'))
 
 /** Shows and films from streaming sites, inside BridgeDeck's window (like the Browser tab). Kept
  *  mounted so a show keeps playing its place while another tab is open. */

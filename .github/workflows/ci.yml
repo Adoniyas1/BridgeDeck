@@ -1,5 +1,5 @@
 # Cheap checks for every pull request and push to main (roadmap D13). Everything runs on Linux;
-# the Windows build is compile-checked by cross-compiling. macOS code is built only by release.yml.
+# the Windows build is compile-checked by cross-compiling. macOS code is checked by mac-check.yml.
 name: CI
 
 on:
