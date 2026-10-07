@@ -187,6 +187,37 @@ pub fn projects_files(project: String) -> Result<Vec<ProjectFile>, String> {
     Ok(all)
 }
 
+/// Files BridgeDeck keeps in a project folder: the parts list (a spreadsheet as CSV, so it also
+/// opens in Excel or Numbers) and the project's settings (its budget).
+const PROJECT_FILES: &[&str] = &["parts.csv", "project.json"];
+const MAX_PROJECT_FILE: usize = 1024 * 1024;
+
+#[tauri::command]
+pub fn project_file_read(project: String, name: String) -> Result<Option<String>, String> {
+    if !PROJECT_FILES.contains(&name.as_str()) {
+        return Err("Not a project file".into());
+    }
+    let path = project_dir(&current_root()?, &project)?.join(&name);
+    match fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn project_file_write(project: String, name: String, text: String) -> Result<(), String> {
+    if !PROJECT_FILES.contains(&name.as_str()) {
+        return Err("Not a project file".into());
+    }
+    if text.len() > MAX_PROJECT_FILE {
+        return Err("That's too big to save".into());
+    }
+    let path = project_dir(&current_root()?, &project)?.join(&name);
+    let partial = path.with_extension("partial");
+    fs::write(&partial, text).and_then(|_| fs::rename(&partial, &path)).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn projects_import_mimir() -> Result<usize, String> {
     import_old(&current_root()?, &mimir_old_root())

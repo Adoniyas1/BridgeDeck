@@ -552,3 +552,13 @@ export const errorLogClear = () => native<void>('error_log_clear')
 export type PythonRun = { ok: boolean; stdout: string; stderr: string; images: string[]; ms: number; timedOut: boolean; version: string }
 export const pythonStatus = () => native<string | null>('python_status')
 export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })
+/** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
+export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
+export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })
+export const noteVersion = (id: string, at: number) => native<{ at: number; title: string; markdown: string }>('note_version', { id, at })
+export const noteVersionRestore = (id: string, at: number) => native<Note>('note_version_restore', { id, at })
+export const circuitVersions = (project: string, name: string) => native<number[]>('circuit_versions', { project, name })
+export const circuitVersionLoad = (project: string, name: string, at: number) => native<string>('circuit_version_load', { project, name, at })
+/** A project's parts list (parts.csv) and settings (project.json) in its folder (projects.rs). */
+export const projectFileRead = (project: string, name: 'parts.csv' | 'project.json') => native<string | null>('project_file_read', { project, name })
+export const projectFileWrite = (project: string, name: 'parts.csv' | 'project.json', text: string) => native<void>('project_file_write', { project, name, text })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CircuitBoard, FilePlus, FolderOpen, Grid2x2, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
-import { circuitDelete, circuitLoad, circuitSave, circuitsList, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
+import { Activity, CircuitBoard, FilePlus, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { projectFolder } from '../projects/model'
@@ -39,6 +39,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [projects, setProjects] = useState<string[]>([])
   const [message, setMessage] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [versions, setVersions] = useState<number[]>([])
   const svg = useRef<SVGSVGElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number; moved: boolean } | null>(null)
@@ -202,6 +203,20 @@ export default function LogicPage({ active }: { active: boolean }) {
             <button onClick={() => void open(f)}><span>{f.name}</span><small>{f.project || 'No project'}</small></button>
             <button className="ghost" title="Delete" onClick={() => { if (window.confirm(`Delete ${f.name}?`)) void run(async () => { await circuitDelete(f.project, f.name); refreshFiles() }) }}><Trash2 size={12} /></button>
           </div>) : <p className="hint">No saved circuits yet.</p>}
+        </div>
+      </details>
+      <details className="logic-open" onToggle={e => { if ((e.target as HTMLDetailsElement).open && isTauri()) void circuitVersions(file.project, file.name.trim()).then(setVersions).catch(() => setVersions([])) }}>
+        <summary className="ghost" title="Earlier saved versions of this circuit"><History size={14} /> Versions</summary>
+        <div className="logic-files">
+          {versions.length ? versions.map(at => <div key={at} className="logic-file">
+            <button onClick={() => void run(async () => {
+              if (dirty && !window.confirm('Open an earlier version? Changes to the circuit on screen aren’t saved.')) return
+              setCircuit(readCircuit(await circuitVersionLoad(file.project, file.name.trim(), at)))
+              setDirty(true)
+              flops.current = {}
+              setMessage(`Opened the version saved before ${new Date(at).toLocaleString()}. Save to keep it (the current one stays in Versions).`)
+            })}><span>{new Date(at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span><small>replaced then</small></button>
+          </div>) : <p className="hint">No earlier versions. Each save keeps the one it replaces.</p>}
         </div>
       </details>
       <button className="ghost" onClick={fresh}><FilePlus size={14} /> New</button>

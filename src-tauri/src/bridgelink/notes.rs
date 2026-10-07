@@ -118,6 +118,13 @@ pub struct NoteStore {
     seen: HashMap<String, u64>,
 }
 
+impl NoteStore {
+    /// A note by id (deleted ones too).
+    pub fn get(&self, id: &str) -> Option<&Note> {
+        self.notes.get(id)
+    }
+}
+
 fn clean_text(value: &str, max: usize) -> String {
     value.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).take(max).collect()
 }
@@ -521,8 +528,26 @@ pub fn notes_create(kind: String, folder: String, manager: State<'_, BridgeLinkM
 }
 
 #[tauri::command]
-pub fn notes_save(patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+pub fn notes_save(app: AppHandle, patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    // The version it's leaving goes in its history (at most one every ten minutes).
+    let before = manager.lock()?.notes.get(&patch.id).filter(|n| !n.deleted).cloned();
+    if let Some(before) = before {
+        crate::note_history::before_change(&app, &before, now_ms());
+    }
     local(&manager, |notes, device, now| notes.apply(patch, device, now))
+}
+
+/// Puts an earlier version of a note back (as a new edit, so it reaches the other computer too).
+/// The version it replaces is kept first, so this can be undone the same way.
+#[tauri::command]
+pub fn note_version_restore(app: AppHandle, id: String, at: u64, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    let version = crate::note_history::version(&app, &id, at)?;
+    let current = manager.lock()?.notes.get(&id).filter(|n| !n.deleted).cloned().ok_or("That note isn't here any more")?;
+    crate::note_history::force_keep(&app, &current, now_ms());
+    local(&manager, |notes, device, now| {
+        let blocks = blocks_from_markdown(&version.markdown, "", device, now);
+        notes.restore(Note { title: version.title.clone(), blocks, ..current.clone() }, device, now)
+    })
 }
 
 /// A note made from Markdown (a book's chapter checklist, highlights).

@@ -22,6 +22,7 @@ mod canvas;
 mod circuits;
 mod errorlog;
 mod python;
+mod note_history;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -615,6 +616,9 @@ pub fn run() {
             bridgelink::notes::notes_list,
             bridgelink::notes::notes_create,
             bridgelink::notes::notes_save,
+            bridgelink::notes::note_version_restore,
+            note_history::note_versions,
+            note_history::note_version,
             bridgelink::notes::notes_delete,
             bridgelink::notes::notes_create_markdown,
             study::study_library,
@@ -627,6 +631,8 @@ pub fn run() {
             projects::projects_add,
             projects::projects_files,
             projects::projects_import_mimir,
+            projects::project_file_read,
+            projects::project_file_write,
             skill_packs::skill_packs_status,
             skill_packs::skill_packs_install,
             chatgpt::chatgpt_show,
@@ -666,6 +672,8 @@ pub fn run() {
             circuits::circuit_load,
             circuits::circuit_save,
             circuits::circuit_delete,
+            circuits::circuit_versions,
+            circuits::circuit_version_load,
             backups::backup_now,
             backups::backup_restore,
             manga::manga_library,
