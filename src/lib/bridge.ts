@@ -578,3 +578,9 @@ export const phoneSettings = (enabled: boolean) => native<PhoneStatus>('phone_se
 export const phoneStatus = () => native<PhoneStatus>('phone_status')
 export const phoneNewKey = () => native<PhoneStatus>('phone_new_key')
 export const phonePublish = (snapshot: unknown) => native<void>('phone_publish', { snapshot })
+export const browserHas = (tab: string) => native<boolean>('browser_has', { tab })
+/** The Spotify desktop app on this computer (src-tauri/src/spotify.rs). */
+export type NowPlaying = { supported: boolean; running: boolean; playing: boolean; title: string; artist: string; album: string; artwork: string; positionMs: number | null; durationMs: number | null; volume: number | null; error: string }
+export const spotifyStatus = () => native<NowPlaying>('spotify_status')
+export const spotifyControl = (action: 'playpause' | 'next' | 'previous' | 'volume', value?: number) => native<NowPlaying>('spotify_control', { action, value: value ?? null })
+export const spotifyOpen = () => native<void>('spotify_open')

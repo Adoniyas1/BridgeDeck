@@ -22,6 +22,7 @@ mod canvas;
 mod circuits;
 mod errorlog;
 mod python;
+mod spotify;
 mod phone;
 mod note_history;
 mod webkeys;
@@ -663,6 +664,7 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,
+            browser::browser_has,
             browser::exam_sites,
             backups::backups_list,
             canvas::canvas_feed,
@@ -671,6 +673,9 @@ pub fn run() {
             phone::phone_status,
             phone::phone_new_key,
             phone::phone_publish,
+            spotify::spotify_status,
+            spotify::spotify_control,
+            spotify::spotify_open,
             python::python_status,
             python::python_run,
             errorlog::error_log_read,

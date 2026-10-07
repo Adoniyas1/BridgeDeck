@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { ArrowLeft, ArrowRight, Clock, Download as DownloadIcon, ExternalLink, FolderOpen, Globe, Laptop, MessageCircleQuestion, Plus, RotateCw, Send, Star, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Clock, Download as DownloadIcon, ExternalLink, FolderOpen, Globe, Laptop, MessageCircleQuestion, PanelTopOpen, Plus, RotateCw, Send, Star, Trash2, X } from 'lucide-react'
 import { browserClose, browserGo, browserHide, browserShow, isTauri, openExternal, openPath } from '../../lib/bridge'
+import { openTab } from '../../core/tabs'
 import { askChatGPT } from '../../core/chatgpt'
 import { setConfig, useConfig } from '../../core/config'
 import { browserCommandStore, useOverlayOpen } from '../../core/shortcuts'
@@ -134,6 +135,21 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
     if (id === current) setCurrent(left[Math.min(index, left.length - 1)].id)
   }
 
+  /** Moves a tab's page into a BridgeDeck tab of its own (like a book or PDF): the same page, so it
+   *  keeps its place, sign-in and playback. */
+  function moveOut(id: string) {
+    const t = tabs.find(x => x.id === id)
+    if (!t?.started) return
+    if (isTauri()) void browserHide(id).catch(() => undefined)
+    delete pending.current[id]
+    const index = tabs.findIndex(x => x.id === id)
+    const rest = tabs.filter(x => x.id !== id)
+    const left = rest.length ? rest : [blankTab()]
+    setTabs(left)
+    if (id === current) setCurrent(left[Math.min(index, left.length - 1)].id)
+    openTab({ kind: 'web', title: pageName(t).slice(0, 40), params: { page: t.id, url: t.url, title: t.title } })
+  }
+
   // Shortcuts (⌘T, ⌘W, ⌘L) and pages opened from elsewhere (Search everything).
   const command = useStore(browserCommandStore)
   const handled = useRef(0)
@@ -143,6 +159,14 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
     if (command.name === 'new-tab') { newTab(); window.setTimeout(() => address.current?.focus(), 0) }
     else if (command.name === 'close-tab') closeTab(tab.id)
     else if (command.name === 'address') address.current?.focus()
+    else if (command.name === 'adopt' && command.page) {
+      // A page back from its own tab: it already exists, so it's shown as it is.
+      const back: Tab = { id: command.page, url: command.url ?? '', title: command.title ?? '', loading: false, started: true }
+      // Blank tabs give way to it.
+      setTabs(list => [...list.filter(t => t.started && t.id !== back.id), back])
+      setCurrent(back.id)
+      setTyped(back.url)
+    }
     else if (command.name === 'open' && command.url) {
       if (tab.started) newTab(command.url)
       else { setTyped(command.url); open(command.url) }
@@ -168,6 +192,7 @@ export default function BrowserPage({ active: onScreen }: { active: boolean }) {
     <div className="browser-tabs" role="tablist">
       {tabs.map(t => <div key={t.id} className={`browser-tab${t.id === tab.id ? ' on' : ''}`} role="tab" aria-selected={t.id === tab.id}>
         <button className="browser-tab-name" title={t.url || 'New tab'} onClick={() => setCurrent(t.id)}>{t.started ? (t.loading && !t.title ? 'Loading…' : pageName(t)) : 'New tab'}</button>
+        {t.started && <button className="browser-tab-close" title="Move to its own tab (like a book or PDF)" onClick={() => moveOut(t.id)}><PanelTopOpen size={12} /></button>}
         <button className="browser-tab-close" title="Close tab" onClick={() => closeTab(t.id)}><X size={12} /></button>
       </div>)}
       <button className="browser-tab-new" title="New tab" onClick={() => newTab()}><Plus size={14} /></button>
