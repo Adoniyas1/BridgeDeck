@@ -430,12 +430,17 @@ export type VaultStatus = { enabled: boolean; path: string; files: number; error
 export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp'; bytes: number; indexed: boolean }
-export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean }
+/** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string }
+export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
+export const studySetCourseInfo = (name: string, info: CourseInfo) => native<void>('study_set_course_info', { name, info })
+export const studyPlanRead = () => native<string>('study_plan_read')
+export const studyPlanWrite = (text: string) => native<void>('study_plan_write', { text })
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })

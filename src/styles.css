@@ -601,6 +601,33 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .homework-preview em{color:var(--warn);font-style:normal}
 .homework-preview small{color:var(--muted)}
 .homework-date{width:92px;flex:none;color:var(--muted);font-variant-numeric:tabular-nums}
+.course-details{display:flex;flex-wrap:wrap;gap:10px;margin:-6px 0 14px}
+.course-details label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted)}
+.course-details label span{display:inline-flex;align-items:center;gap:4px}
+.course-details input,.course-details select{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);padding:5px 8px;font:inherit;font-size:12px;min-width:120px}
+.course-details select{max-width:300px}
+.study-course-title{display:block;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.study-plan-toggle{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;margin:4px 0;font-size:12px}
+.study-plan-toggle.active{border-color:var(--accent);color:var(--text)}
+.degree-progress{display:flex;height:6px;border-radius:3px;background:var(--surface-3,var(--line));overflow:hidden;margin:0 0 10px}
+.degree-progress i{background:var(--ok)}
+.degree-progress i.taking{background:var(--accent)}
+.degree-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}
+@media(max-width:1100px){.degree-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.degree-semester h4{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.degree-course{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);margin-bottom:6px}
+.degree-course.taking{border-color:var(--accent)}
+.degree-course.done{opacity:.6}
+.degree-main{flex:1;min-width:0;display:flex;gap:7px;align-items:flex-start;border:0;background:transparent;color:var(--text);text-align:left;padding:7px 8px;font-size:12px}
+.degree-mark{width:16px;height:16px;flex:none;border:1px solid var(--line-strong);border-radius:50%;display:grid;place-items:center;margin-top:1px}
+.degree-course.done .degree-mark{background:var(--ok);border-color:var(--ok);color:#06170e}
+.degree-course.taking .degree-mark{color:var(--accent);border-color:var(--accent)}
+.degree-text{min-width:0}
+.degree-text small{color:var(--muted)}
+.degree-text span{color:var(--muted);font-size:11px}
+.degree-text em{color:var(--faint,var(--muted));font-size:10px;font-style:normal}
+.degree-actions{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px}
+.degree-actions button{font-size:11px;padding:3px 6px;display:inline-flex;align-items:center;gap:3px}
 .study-book-cover.slides{color:var(--warn);width:68px;height:52px;margin:8px 0}
 .study-archived-toggle{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;margin:4px 0 8px;font-size:12px}
 .study-course-list.archived button{opacity:.7}

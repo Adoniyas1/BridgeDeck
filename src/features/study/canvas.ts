@@ -194,22 +194,33 @@ export function dueText(due: number | null, now: number) {
   return new Date(due).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` ${time}`
 }
 
-/** The Study course name for a Canvas course: "E E 201 Sec05" → "EE 201", "MATH-221-01 Fall 2026" →
- *  "MATH 221"; the course's name when its code has no number. */
+/** A course's catalog code: "E E 201 Sec05" → "EE 201", "MATH-224-01 Fall 2026" → "MATH 224",
+ *  "EE 370L" → "EE 370L"; null when there's none. Spaced single letters are one subject ("E E",
+ *  "C E C S"); a number needs three digits, so a section ("Sec05") or a year isn't taken for one. */
+export function courseKey(text: string): string | null {
+  const m = text.match(/(?:^|[^A-Za-z])((?:[A-Za-z][ .]){1,4}[A-Za-z]|[A-Za-z]{2,6})[\s_.-]*(\d{3})([A-Za-z]?)(?![\dA-Za-z])/)
+  return m ? `${m[1].replace(/[ .]/g, '').toUpperCase()} ${m[2]}${m[3].toUpperCase()}` : null
+}
+
+/** The Study course name for a Canvas course: its catalog code ("EE 201"), else its name. */
 export function studyNameFor(course: Pick<CanvasCourse, 'code' | 'name'>) {
-  for (const text of [course.code, course.name]) {
-    const m = text.match(/\b([A-Za-z](?:[A-Za-z&]|\s(?=[A-Za-z]))*)\s*[-_ ]?\s*(\d{3,4}[A-Z]?)\b/)
-    if (m) return `${m[1].replace(/[\s&]+/g, '')} ${m[2]}`
-  }
-  return course.name.trim().slice(0, 60)
+  return courseKey(course.code) ?? courseKey(course.name) ?? course.name.trim().slice(0, 60)
 }
 
 /** Whether a Canvas course ("MATH-221-01 Fall 2026") is the Study course ("Math 221"). */
 export function courseMatches(study: string, canvas: string) {
   if (!study || !canvas) return false
-  const key = (s: string) => s.toLowerCase().match(/([a-z]{2,})[\s_-]*(\d{2,4})/)
-  const [a, b] = [key(study), key(canvas)]
-  if (a && b) return a[1] === b[1] && a[2] === b[2]
+  const [a, b] = [courseKey(study), courseKey(canvas)]
+  if (a && b) return a === b
   const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
   return plain(canvas).includes(plain(study)) || plain(study).includes(plain(canvas))
+}
+
+/** The names a Study course goes by: its folder name, its catalog code, and its linked Canvas
+ *  course's code. An assignment belongs to it when its course matches any of them. */
+export type CourseNames = { name: string; code?: string; canvasCode?: string }
+export function belongsTo(course: CourseNames, assignmentCourse: string) {
+  if (!assignmentCourse) return false
+  if (course.canvasCode && assignmentCourse === course.canvasCode) return true
+  return [course.name, course.code ?? ''].some(n => n && courseMatches(n, assignmentCourse))
 }

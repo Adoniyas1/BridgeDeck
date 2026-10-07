@@ -57,9 +57,9 @@ export function courseNotes(notes: Note[], course: string) {
 }
 
 /** Upcoming calendar events for a course: its name in the title. */
-export function courseEvents(events: CalEvent[], course: string, now = Date.now()) {
-  const name = course.toLowerCase()
-  return events.filter(e => !e.deleted && e.title.toLowerCase().includes(name) && (e.repeat || e.end >= now)).sort((a, b) => a.start - b.start)
+export function courseEvents(events: CalEvent[], course: string, now = Date.now(), code = '') {
+  const names = [course, code].filter(Boolean).map(n => n.toLowerCase())
+  return events.filter(e => !e.deleted && names.some(n => e.title.toLowerCase().includes(n)) && (e.repeat || e.end >= now)).sort((a, b) => a.start - b.start)
 }
 
 export function fmtBytes(bytes: number) {

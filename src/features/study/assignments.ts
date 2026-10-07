@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse } from '../../lib/bridge'
+import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studySetCourseInfo } from '../../lib/bridge'
 import { configStore, setConfig } from '../../core/config'
 import { setExam } from '../../core/exam'
 import { notify } from '../../core/notify'
@@ -7,8 +7,9 @@ import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
 import { libraryStore, refreshLibrary } from './state'
+import { catalogTitle, sameCourseTitle } from './plans'
 import { CACHE, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
 
 /** The calendar feed, or the Canvas site (read with an access token, or with the sign-in in BridgeDeck's browser). */
@@ -48,21 +49,34 @@ export async function refreshCanvas() {
 /** Each Canvas course becomes a Study course the first time it's seen (unless one already matches),
  *  so it can be archived or deleted and stays that way. */
 async function addCanvasCourses(courses: CanvasCourse[]) {
-  const added = new Set(configStore.get().canvas.added)
-  const fresh = courses.filter(c => !added.has(c.id))
-  if (!fresh.length) return
   if (!libraryStore.get().library) await refreshLibrary()
   const library = libraryStore.get().library
   if (!library) return
-  const names = library.courses.map(c => c.name)
-  for (const course of fresh) {
+  const added = new Set(configStore.get().canvas.added)
+  let changed = false
+  for (const course of courses) {
+    const code = courseKey(course.code) ?? courseKey(course.name) ?? ''
+    const link = { canvasId: course.id, canvasCode: course.code }
+    const study = library.courses.find(s => s.info.canvasId === course.id)
+      ?? library.courses.find(s => !s.info.canvasId && (belongsTo({ name: s.name, code: s.info.code }, course.code) || courseMatches(s.name, course.name)
+        // "Calc 3" is the plan's MATH 224 "Calculus 3".
+        || (!s.info.code && !!catalogTitle(code) && sameCourseTitle(s.name, catalogTitle(code)))))
+    if (study) {
+      // Linked, so its assignments land in it whatever the names.
+      if (study.info.canvasId !== course.id || study.info.canvasCode !== course.code) {
+        await studySetCourseInfo(study.name, { ...study.info, ...link, code: study.info.code || code, title: study.info.title || catalogTitle(code) })
+        changed = true
+      }
+      continue
+    }
+    if (added.has(course.id)) continue
     const name = studyNameFor(course)
-    if (names.some(n => courseMatches(n, course.code) || courseMatches(n, course.name) || n.toLowerCase() === name.toLowerCase())) continue
     await studyAddCourse(name)
-    names.push(name)
+    await studySetCourseInfo(name, { code, title: catalogTitle(code) || course.name, ...link }).catch(() => undefined)
+    changed = true
   }
-  setConfig(c => ({ ...c, canvas: { ...c.canvas, added: [...new Set([...c.canvas.added, ...fresh.map(f => f.id)])].slice(-200) } }))
-  await refreshLibrary()
+  if (courses.some(c => !added.has(c.id))) setConfig(c => ({ ...c, canvas: { ...c.canvas, added: [...new Set([...c.canvas.added, ...courses.map(f => f.id)])].slice(-200) } }))
+  if (changed) await refreshLibrary()
 }
 
 /** Canvas assignments with this computer's done marks, and the ones added here. */
