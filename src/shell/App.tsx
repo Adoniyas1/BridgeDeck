@@ -22,6 +22,7 @@ function UnknownTab({ tab }: { tab: DynamicTab }) {
 }
 
 const FILL_KINDS = new Set(['study-book', 'web'])
+const HIDDEN_SOURCE_KEY = 'bridgedeck.hiddenSourceUpdate'
 
 /** Shown for the moment a tab's code is loading (each tab's code loads when first opened). */
 function Loading() {
@@ -38,6 +39,9 @@ export default function App() {
   const { active, dynamic } = useStore(tabsStore)
   const notice = useStore(noticeStore)
   const sourceUpdate = useStore(sourceUpdateStore)
+  // Closing the rebuild notice hides it until the source changes again.
+  const [hiddenSourceAt, setHiddenSourceAt] = useState(() => { try { return localStorage.getItem(HIDDEN_SOURCE_KEY) ?? '' } catch { return '' } })
+  const hideSourceUpdate = (at: string) => { setHiddenSourceAt(at); try { localStorage.setItem(HIDDEN_SOURCE_KEY, at) } catch { /* only for this run */ } }
 
   useEffect(() => { void hydrateConfig() }, [])
   // The browser and books use the whole window under the tab bar, with no page margins.
@@ -55,7 +59,7 @@ export default function App() {
       <div className="shell-body">
       <main className={fill ? 'fill' : undefined}>
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
-        {sourceUpdate?.rebuildNeeded && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span></div>}
+        {sourceUpdate?.rebuildNeeded && String(sourceUpdate.newestSourceAt) !== hiddenSourceAt && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span><button title="Hide until the source changes again" onClick={() => hideSourceUpdate(String(sourceUpdate.newestSourceAt))}>×</button></div>}
 
         {hydrated && <>
           <BridgeLinkBackground />

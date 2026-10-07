@@ -902,6 +902,7 @@ main.fill .logic{height:auto}
 .logic-main{flex:1;min-height:0;display:grid;grid-template-columns:200px 1fr 340px}
 .logic-palette{overflow-y:auto;padding:8px 10px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
 .logic-palette h4{display:flex;align-items:center;justify-content:space-between;margin:10px 0 4px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.logic-palette>*,.logic-side>*{flex-shrink:0}
 .logic-palette-item{border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:var(--radius-sm);padding:5px 8px;font-size:12px;text-align:left;cursor:grab;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logic-palette-item:hover{border-color:var(--accent)}
 .logic-palette .hint{font-size:11px;margin-top:10px}
