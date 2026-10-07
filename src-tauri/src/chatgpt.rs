@@ -4,8 +4,8 @@
 //! the message box (and on the clipboard) for the person to read, change and send; BridgeDeck never
 //! sends messages.
 //!
-//! Chats are kept in BridgeDeck when the person presses the "Save to BridgeDeck" button BridgeDeck
-//! adds to the page: the conversation becomes a note (in the course or project it was started
+//! Chats are kept in BridgeDeck when the person presses "Save to BridgeDeck" in the panel's header
+//! (next to New chat and Close): the conversation becomes a note (in the course or project it was started
 //! from, else "ChatGPT"), on both computers and in search, and saving again updates it. The page
 //! hands the conversation over by opening `https://bridgedeck.invalid/chatgpt-save?…` addresses,
 //! which BridgeDeck catches and cancels. The panel has no access to BridgeDeck's commands
@@ -57,21 +57,15 @@ pub fn fill_script(text: &str) -> String {
     )
 }
 
-/// The "Save to BridgeDeck" button. It reads the open conversation only when pressed.
-pub const SAVE_BUTTON_SCRIPT: &str = r#"(() => {
-  if (document.getElementById('bridgedeck-save')) return;
-  const button = document.createElement('button');
-  button.id = 'bridgedeck-save';
-  button.textContent = 'Save to BridgeDeck';
-  button.title = 'Keep this chat as a note in BridgeDeck (saving again updates it)';
-  button.style.cssText = 'position:fixed;right:18px;bottom:96px;z-index:2147483647;padding:8px 13px;border-radius:999px;border:1px solid #3b4a63;background:#172132;color:#e9eef7;font:600 12px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer';
-  window.__bridgedeckSaved = (message) => { button.textContent = message; setTimeout(() => { button.textContent = 'Save to BridgeDeck'; button.disabled = false; }, 2500); };
-  button.addEventListener('click', () => {
+/// Gives the page `window.__bridgedeckSave()`, which the panel's "Save to BridgeDeck" button runs
+/// (`chatgpt_save`). It reads the open conversation only then. (Older versions drew their own
+/// button over the page; one left from before is removed.)
+pub const SAVE_SCRIPT: &str = r#"(() => {
+  document.getElementById('bridgedeck-save')?.remove();
+  window.__bridgedeckSave = () => {
     const nodes = [...document.querySelectorAll('[data-message-author-role]')];
     const messages = nodes.map(n => ({ role: n.getAttribute('data-message-author-role'), text: (n.innerText || '').trim() })).filter(m => m.text && (m.role === 'user' || m.role === 'assistant'));
-    if (!messages.length) { window.__bridgedeckSaved('No chat to save yet'); return; }
-    button.disabled = true;
-    button.textContent = 'Saving…';
+    if (!messages.length) { location.href = 'https://bridgedeck.invalid/chatgpt-save?empty=1'; return; }
     const chat = JSON.stringify({ url: location.href, title: document.title.replace(/\s*[|·-]\s*ChatGPT\s*$/i, '').trim(), messages });
     const bytes = new TextEncoder().encode(chat);
     let binary = '';
@@ -86,9 +80,17 @@ pub const SAVE_BUTTON_SCRIPT: &str = r#"(() => {
       setTimeout(next, 60);
     };
     next();
-  });
-  document.body.appendChild(button);
+  };
 })();"#;
+
+/// What the panel's button runs: the page's save, or (while the page hasn't loaded) "no chat".
+const RUN_SAVE: &str = "(window.__bridgedeckSave || (() => { location.href = 'https://bridgedeck.invalid/chatgpt-save?empty=1'; }))()";
+
+/// Tells the panel's header how a save went.
+fn report(app: &AppHandle, ok: bool, message: &str) {
+    use tauri::Emitter;
+    let _ = app.emit_to("main", "chatgpt-saved", serde_json::json!({ "ok": ok, "message": message }));
+}
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct Chat {
@@ -224,13 +226,14 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
             if crate::webkeys::handle(&handle, LABEL, page, url) {
                 return false;
             }
+            if url.host_str() == Some(SAVE_HOST) && url.query_pairs().any(|(k, _)| k == "empty") {
+                report(&handle, false, "No chat to save yet");
+                return false;
+            }
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
-            let message = match result.and_then(|chat| save(&handle, chat)) {
-                Ok(()) => "Saved in BridgeDeck ✓".to_string(),
-                Err(error) => error,
-            };
-            if let Some(view) = handle.get_webview(LABEL) {
-                let _ = view.eval(format!("window.__bridgedeckSaved && window.__bridgedeckSaved({})", serde_json::to_string(&message).unwrap_or_default()));
+            match result.and_then(|chat| save(&handle, chat)) {
+                Ok(()) => report(&handle, true, "Saved"),
+                Err(error) => report(&handle, false, &error),
             }
             false
         })
@@ -248,7 +251,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
         })
         .on_page_load(|view, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) && payload.url().host_str().is_some_and(|h| h.ends_with("chatgpt.com")) {
-                let _ = view.eval(SAVE_BUTTON_SCRIPT);
+                let _ = view.eval(SAVE_SCRIPT);
                 if let Some(text) = PENDING.lock().ok().and_then(|mut p| p.take()) {
                     fill(&view, &text);
                 }
@@ -267,6 +270,14 @@ pub fn chatgpt_hide(app: AppHandle) -> Result<(), String> {
         view.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Saves the open chat as a note (the panel's "Save to BridgeDeck"); the result arrives as a
+/// `chatgpt-saved` event.
+#[tauri::command]
+pub fn chatgpt_save(app: AppHandle) -> Result<(), String> {
+    let view = app.get_webview(LABEL).ok_or("ChatGPT isn't open")?;
+    view.eval(RUN_SAVE).map_err(|e| e.to_string())
 }
 
 /// Starts a new chat in the panel.

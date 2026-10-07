@@ -32,7 +32,7 @@ function checkReminders() {
 
 /** Loads notes, reloads when another computer's changes arrive, and announces due items. */
 export function NotesBackground() {
-  usePeriodicRefresh(async () => { await refreshNotes(); checkReminders() }, 30_000, [])
+  usePeriodicRefresh(async () => { await refreshNotes(); checkReminders() }, 30_000, [], 'same')
   useEffect(() => {
     const timer = window.setInterval(checkReminders, 15_000)
     return () => window.clearInterval(timer)

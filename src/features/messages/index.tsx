@@ -13,6 +13,6 @@ function MessagesPage({ active }: { active: boolean }) {
 
 /** Messages stays mounted: it keeps polling for desktop notifications and the unread badge on every tab. */
 export const messages: FeatureManifest = {
-  id: 'messages', title: 'Messages', icon: MessageSquare, Page: MessagesPage, keepAlive: true,
+  id: 'messages', title: 'Messages', icon: MessageSquare, Page: MessagesPage, keepAlive: true, mountAtStart: true,
   Background: MessagesBackground, badge: messagesUnreadStore,
 }

@@ -97,4 +97,20 @@ if (lib.includes('config-v7.json') && lib.includes('config-v6.json')) ok('native
 const cap = JSON.parse(readFileSync(join(root, 'src-tauri/capabilities/default.json'), 'utf8'))
 if (cap.permissions?.includes('dialog:allow-open')) ok('dialog open permission'); else fail('dialog open permission missing')
 
+// macOS and Windows don't tell "Assignments" from "assignments": two modules in one folder whose
+// names differ only in case (or only in extension) make an import resolve to the wrong one there,
+// though Linux (CI) builds fine. Every module name in a folder must be unique ignoring case.
+const moduleDirs = dir => readdirSync(join(root, dir), { withFileTypes: true }).filter(e => e.isDirectory() && !['node_modules', 'dist', 'target', 'public'].includes(e.name)).flatMap(e => moduleDirs(join(dir, e.name))).concat([dir])
+let caseClashes = 0
+for (const dir of ['src', 'mimir/src', 'agent'].filter(d => existsSync(join(root, d))).flatMap(moduleDirs)) {
+  const seen = new Map()
+  for (const name of readdirSync(join(root, dir)).filter(n => /\.(tsx?|jsx?|mjs|cjs|css)$/.test(n))) {
+    const key = name.replace(/\.(test\.)?(tsx?|jsx?|mjs|cjs|css)$/, m => m.startsWith('.test.') ? '.test' : '').toLowerCase()
+    const other = seen.get(key)
+    if (other) { caseClashes++; fail(`${dir}: ${other} and ${name} clash on macOS and Windows (names differ only in case or extension)`) }
+    seen.set(key, name)
+  }
+}
+if (!caseClashes) ok('no module names that clash on case-insensitive disks')
+
 if (!process.exitCode) console.log(`\nBridgeDeck ${pkg.version} static project verification passed.`)

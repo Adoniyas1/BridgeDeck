@@ -643,6 +643,7 @@ pub fn run() {
             chatgpt::chatgpt_show,
             chatgpt::chatgpt_hide,
             chatgpt::chatgpt_new,
+            chatgpt::chatgpt_save,
             browser::browser_show,
             browser::browser_pause,
             models::models_status,

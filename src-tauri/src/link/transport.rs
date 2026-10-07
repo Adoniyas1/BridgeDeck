@@ -102,6 +102,7 @@ pub async fn read_raw(recv: &mut quinn::RecvStream) -> Result<Vec<u8>, String> {
 
 pub struct Link {
     endpoint: quinn::Endpoint,
+    #[cfg_attr(not(test), allow(dead_code))]
     identity: Identity,
     /// Open connections by the peer's certificate fingerprint, whichever side opened them.
     connections: Mutex<HashMap<String, quinn::Connection>>,
@@ -128,15 +129,18 @@ impl Link {
         Ok(link)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn fingerprint(&self) -> &str {
         &self.identity.fingerprint
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn local_port(&self) -> Option<u16> {
         self.endpoint.local_addr().ok().map(|a| a.port())
     }
 
     /// Drops cached connections (they reconnect on the next request).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn forget_all(&self) {
         if let Ok(mut connections) = self.connections.lock() {
             connections.clear();

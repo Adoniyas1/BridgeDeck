@@ -2,11 +2,10 @@ import React, { useEffect, useState } from "react";
 import katex from "katex";
 
 /**
- * Renders a chat message's text, picking out ```mermaid fences and
- * $...$/$$...$$ math and rendering those specially; everything else stays
- * plain text exactly as before. Deliberately not a full markdown renderer —
- * Mimir's chat never had one, and STEM work needed math/diagrams, not
- * headings and bold text.
+ * Renders a chat message's text: ```mermaid fences as diagrams, $...$/$$...$$
+ * as math, code fences and `code`, and light Markdown (**bold**, *italic*,
+ * # headings, [links](https://…)). Everything is built as React elements, so
+ * a reply can't inject markup; line breaks stay as written.
  */
 export default function MessageContent({ text }: { text: string }): React.ReactElement {
   return <>{renderSegments(text)}</>;
@@ -35,7 +34,7 @@ function renderSegments(text: string): React.ReactNode[] {
   TOP_LEVEL.lastIndex = 0;
   while ((match = TOP_LEVEL.exec(text))) {
     if (match.index > lastIndex) {
-      nodes.push(...renderMathSegments(text.slice(lastIndex, match.index), key));
+      nodes.push(...renderCodeSegments(text.slice(lastIndex, match.index), key));
       key += 1000;
     }
     if (match[1] !== undefined) {
@@ -45,7 +44,63 @@ function renderSegments(text: string): React.ReactNode[] {
     }
     lastIndex = TOP_LEVEL.lastIndex;
   }
+  if (lastIndex < text.length) nodes.push(...renderCodeSegments(text.slice(lastIndex), key));
+  return nodes;
+}
+
+// Code is taken out before math, so a "$" inside code stays a dollar sign.
+const CODE_RE = /```[^\n`]*\n?([\s\S]*?)```|`([^`\n]+)`/g;
+
+function renderCodeSegments(text: string, keyBase: number): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = keyBase;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(CODE_RE.source, "g");
+  while ((match = re.exec(text))) {
+    if (match.index > lastIndex) {
+      nodes.push(...renderMathSegments(text.slice(lastIndex, match.index), key));
+      key += 100;
+    }
+    if (match[1] !== undefined) nodes.push(<pre key={`code-${key++}`}><code>{match[1].replace(/\n$/, "")}</code></pre>);
+    else nodes.push(<code key={`code-${key++}`}>{match[2]}</code>);
+    lastIndex = re.lastIndex;
+  }
   if (lastIndex < text.length) nodes.push(...renderMathSegments(text.slice(lastIndex), key));
+  return nodes;
+}
+
+const INLINE_RE = /\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+
+/** Bold, italic and links in a run of text. */
+function renderInline(text: string, keyBase: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(INLINE_RE.source, "g");
+  while ((match = re.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const k = `${keyBase}-${key++}`;
+    if (match[1] !== undefined) nodes.push(<strong key={k}>{match[1]}</strong>);
+    else if (match[2] !== undefined) nodes.push(<em key={k}>{match[2]}</em>);
+    else nodes.push(<a key={k} href={match[4]} target="_blank" rel="noopener noreferrer">{match[3]}</a>);
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+/** Plain text with headings ("# Title" lines) and inline formatting; newlines kept. */
+function renderMarkdown(text: string, keyBase: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  text.split(/(\n)/).forEach((part, i) => {
+    if (part === "\n") return void nodes.push("\n");
+    const heading = part.match(/^(#{1,4})\s+(.+)$/);
+    const [, hashes, title] = heading ?? [];
+    if (hashes && title) nodes.push(<strong key={`${keyBase}-h${i}`} className={`md-heading md-heading--${hashes.length}`}>{renderInline(title, `${keyBase}-h${i}`)}</strong>);
+    else nodes.push(...renderInline(part, `${keyBase}-l${i}`));
+  });
   return nodes;
 }
 
@@ -60,14 +115,14 @@ function renderMathSegments(text: string, keyBase: number): React.ReactNode[] {
   let match: RegExpExecArray | null;
   MATH_RE.lastIndex = 0;
   while ((match = MATH_RE.exec(text))) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    if (match.index > lastIndex) nodes.push(...renderMarkdown(text.slice(lastIndex, match.index), `t${key}`));
     const displayMath = match[1];
     const inlineMath = match[2];
     const expr = displayMath ?? inlineMath ?? "";
     nodes.push(<MathSpan key={`math-${key++}`} expr={expr} display={displayMath !== undefined} />);
     lastIndex = MATH_RE.lastIndex;
   }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  if (lastIndex < text.length) nodes.push(...renderMarkdown(text.slice(lastIndex), `t${key}`));
   return nodes;
 }
 

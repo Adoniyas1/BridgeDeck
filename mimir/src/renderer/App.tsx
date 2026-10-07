@@ -61,7 +61,9 @@ export default function App() {
     const offFace = window.mimir.face.onState((state) => setFaceState(state));
     const offStream = window.mimir.chat.onStream((event) => {
       if (event.type === "text-delta") {
-        setMessages((prev) => appendToAssistant(prev, assistantMessageId, event.text));
+        // The id is read now: a "turn-done" right behind this would clear it before React applies the update.
+        const id = assistantMessageId.current;
+        setMessages((prev) => appendToAssistant(prev, id, event.text));
         if (voiceOrigin.current) {
           const { chunks, remainder } = takeCompleteSentences(speechBuffer.current + event.text);
           speechBuffer.current = remainder;
@@ -70,7 +72,8 @@ export default function App() {
       } else if (event.type === "image") {
         // Shown directly in the assistant's bubble, never sent back to the
         // model — see the "image" ChatStreamEvent doc comment.
-        setMessages((prev) => appendToAssistant(prev, assistantMessageId, `\n![plot](${event.dataUrl})\n`));
+        const id = assistantMessageId.current;
+        setMessages((prev) => appendToAssistant(prev, id, `\n![plot](${event.dataUrl})\n`));
       } else if (event.type === "edit-pending") {
         setPendingEdit(event.pending);
       } else if (event.type === "error") {
@@ -335,75 +338,104 @@ export default function App() {
     await setOpenMicEnabled(config.openMicEnabled);
   }
 
-  return (
-    <div className="app">
-      <header className="app-header">
-        <div className="system-ident">
-          <span className="system-ident__eyebrow">MIMIR // LOCAL INTERFACE</span>
-          <strong>EMBER COGNITIVE CORE</strong>
-        </div>
-        <Face state={faceState} />
-        <div className="system-status" aria-live="polite">
-          <span className={`status-dot status-dot--${faceState}`} />
-          {faceState}
-        </div>
-        <button
-          type="button"
-          className="settings-toggle"
-          onClick={() => setShowSettings((s) => !s)}
-          aria-label="Open settings"
-          title="Settings"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9.4 3.5c0 .6-.05 1.15-.14 1.7l2.03 1.58a.85.85 0 0 1 .2 1.08l-1.92 3.3a.85.85 0 0 1-1.03.37l-2.4-.96c-.9.68-1.9 1.22-2.97 1.58l-.36 2.55a.85.85 0 0 1-.84.72h-3.84a.85.85 0 0 1-.84-.72l-.36-2.55a9.4 9.4 0 0 1-2.97-1.58l-2.4.96a.85.85 0 0 1-1.03-.37L.61 16.36a.85.85 0 0 1 .2-1.08l2.03-1.58A9.6 9.6 0 0 1 2.7 12c0-.58.05-1.15.14-1.7L.81 8.72a.85.85 0 0 1-.2-1.08l1.92-3.3a.85.85 0 0 1 1.03-.37l2.4.96A9.4 9.4 0 0 1 8.93 3.35l.36-2.55A.85.85 0 0 1 10.13 0h3.84c.42 0 .78.31.84.72l.36 2.55c1.07.36 2.07.9 2.97 1.58l2.4-.96c.4-.15.85 0 1.03.37l1.92 3.3c.2.36.12.82-.2 1.08l-2.03 1.58c.09.55.14 1.12.14 1.7Z"
-            />
-          </svg>
-        </button>
-      </header>
+  const stateLabel: Record<FaceState, string> = {
+    idle: "Standing by",
+    listening: "Listening",
+    thinking: "Thinking",
+    speaking: "Speaking",
+    error: "Something went wrong"
+  };
 
-      {showSettings ? (
-        <Settings onClose={() => setShowSettings(false)} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
-      ) : showSkills ? (
-        <SkillTree onClose={() => setShowSkills(false)} />
-      ) : (
-        <>
+  return (
+    <div className={`app app--${faceState}`}>
+      <div className="app-backdrop" aria-hidden="true">
+        <div className="app-aurora" />
+        <div className="app-grid" />
+      </div>
+
+      <aside className="core-panel">
+        <div className="core-panel__top">
+          <div className="system-ident">
+            <span className="system-ident__eyebrow">MIMIR</span>
+            <strong>Neural interface</strong>
+          </div>
+          <button
+            type="button"
+            className="settings-toggle"
+            onClick={() => {
+              setShowSkills(false);
+              setShowSettings((s) => !s);
+            }}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9.4 3.5c0 .6-.05 1.15-.14 1.7l2.03 1.58a.85.85 0 0 1 .2 1.08l-1.92 3.3a.85.85 0 0 1-1.03.37l-2.4-.96c-.9.68-1.9 1.22-2.97 1.58l-.36 2.55a.85.85 0 0 1-.84.72h-3.84a.85.85 0 0 1-.84-.72l-.36-2.55a9.4 9.4 0 0 1-2.97-1.58l-2.4.96a.85.85 0 0 1-1.03-.37L.61 16.36a.85.85 0 0 1 .2-1.08l2.03-1.58A9.6 9.6 0 0 1 2.7 12c0-.58.05-1.15.14-1.7L.81 8.72a.85.85 0 0 1-.2-1.08l1.92-3.3a.85.85 0 0 1 1.03-.37l2.4.96A9.4 9.4 0 0 1 8.93 3.35l.36-2.55A.85.85 0 0 1 10.13 0h3.84c.42 0 .78.31.84.72l.36 2.55c1.07.36 2.07.9 2.97 1.58l2.4-.96c.4-.15.85 0 1.03.37l1.92 3.3c.2.36.12.82-.2 1.08l-2.03 1.58c.09.55.14 1.12.14 1.7Z"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <Face state={faceState} />
+
+        <div className="system-status" aria-live="polite">
+          <div className="waveform" aria-hidden="true">
+            {Array.from({ length: 24 }, (_, i) => (
+              <span key={i} style={{ animationDelay: `${(i % 6) * 0.09 + Math.floor(i / 6) * 0.05}s` }} />
+            ))}
+          </div>
+          <div className="system-status__label">
+            <span className={`status-dot status-dot--${faceState}`} />
+            {stateLabel[faceState]}
+          </div>
+          <div className="system-status__hint">
+            {openMicActive ? "Open Mic is on: just talk" : `${navigator.userAgent.includes("Mac") ? "⌘⇧Space" : "Ctrl+Shift+Space"} to talk`}
+          </div>
+        </div>
+
         <QuickControls
-          onOpenSkills={() => setShowSkills(true)}
+          onOpenSkills={() => {
+            setShowSettings(false);
+            setShowSkills((s) => !s);
+          }}
           onError={(message) =>
             setMessages((prev) => [...prev, { id: newId(), role: "system", text: `⚠️ ${message}`, createdAt: Date.now() }])
           }
         />
-        <Chat
-          messages={messages}
-          pendingEdit={pendingEdit}
-          busy={busy}
-          openMicEnabled={openMicActive}
-          onSend={(text, files) => void handleSend(text, false, files)}
-          onStop={handleStop}
-          onApprove={() => {
-            if (pendingEdit) window.mimir.edit.approve(pendingEdit.id);
-            setPendingEdit(null);
-          }}
-          onReject={() => {
-            if (pendingEdit) window.mimir.edit.reject(pendingEdit.id);
-            setPendingEdit(null);
-          }}
-          onOpenMicToggle={() => void toggleOpenMic()}
-        />
-        </>
-      )}
+      </aside>
+
+      <main className="console">
+        {showSettings ? (
+          <Settings onClose={() => setShowSettings(false)} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
+        ) : showSkills ? (
+          <SkillTree onClose={() => setShowSkills(false)} />
+        ) : (
+          <Chat
+            messages={messages}
+            pendingEdit={pendingEdit}
+            busy={busy}
+            openMicEnabled={openMicActive}
+            onSend={(text, files) => void handleSend(text, false, files)}
+            onStop={handleStop}
+            onApprove={() => {
+              if (pendingEdit) window.mimir.edit.approve(pendingEdit.id);
+              setPendingEdit(null);
+            }}
+            onReject={() => {
+              if (pendingEdit) window.mimir.edit.reject(pendingEdit.id);
+              setPendingEdit(null);
+            }}
+            onOpenMicToggle={() => void toggleOpenMic()}
+          />
+        )}
+      </main>
     </div>
   );
 }
 
-function appendToAssistant(
-  prev: ChatMessage[],
-  idRef: React.MutableRefObject<string | null>,
-  delta: string
-): ChatMessage[] {
-  const id = idRef.current;
+function appendToAssistant(prev: ChatMessage[], id: string | null, delta: string): ChatMessage[] {
   if (!id) return prev;
   return prev.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m));
 }

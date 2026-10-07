@@ -8,6 +8,8 @@ set -uo pipefail
 MODE="$1"; BUNDLE="$2"; STATUS="$3"; SRC="$4"; APP_BUNDLE="$5"
 LOG="$STATUS.log"
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Building the window's code needs about 2 GB; Node's default limit can be lower on an 8 GB Mac.
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=4096"
 echo "=== BridgeDeck self-update $(date) mode=$MODE src=$SRC" > "$LOG"
 
 REQUESTED_BY=$(/usr/bin/sed -n 's/.*"requestedBy": *"\([^"]*\)".*/\1/p' "$STATUS" 2>/dev/null | head -1)
@@ -19,10 +21,22 @@ set_status() { # state stage message
   echo "[$2] $3" >> "$LOG"
 }
 fail() { set_status failed "$1" "$2 (log: $LOG)"; exit 1; }
+# The line in the log that says what went wrong (a compiler or npm error), for the app to show.
+reason() {
+  local first
+  # The first specific error says the most (a compiler error, a type error, running out of memory)…
+  first=$(grep -E 'error\[E[0-9]+\]|error TS[0-9]+|heap out of memory|npm ERR!|failed to bundle|^Error:' "$LOG" 2>/dev/null | head -1)
+  # …else the last line that mentions an error.
+  [ -n "$first" ] || first=$(grep -E '^error|FATAL|^\s*×' "$LOG" 2>/dev/null | grep -v warning | tail -1)
+  printf '%s' "$first" | tr -d '\r' | sed 's/^[[:space:]]*//' | cut -c1-220
+}
 run() { # stage label command...
   local stage=$1 label=$2; shift 2
   set_status running "$stage" "$label"
-  "$@" >> "$LOG" 2>&1 || fail "$stage" "$label failed"
+  if ! "$@" >> "$LOG" 2>&1; then
+    local why; why=$(reason)
+    fail "$stage" "$label failed${why:+: $why}"
+  fi
 }
 
 if [ "$MODE" = release ]; then

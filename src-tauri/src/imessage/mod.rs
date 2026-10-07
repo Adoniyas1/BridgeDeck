@@ -115,6 +115,7 @@ fn cached_contacts() -> Result<Vec<contacts::Contact>, String> {
 }
 
 /// Contact edits change the database; the next list reads it again.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn forget_contacts() {
     if let Ok(mut cache) = CONTACTS.lock() {
         *cache = None;

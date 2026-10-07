@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { ArrowLeft, ArrowRight, ExternalLink, History, LayoutGrid, Maximize2, Minimize2, Plus, RotateCw, Trash2, Tv, X } from 'lucide-react'
-import { browserGo, browserHide, browserPause, browserShow, isTauri, openExternal } from '../../lib/bridge'
+import { browserGo, browserPause, isTauri, openExternal } from '../../lib/bridge'
+import { usePagePlacement } from '../browser/placement'
 import { setConfig, useConfig } from '../../core/config'
 import { useOverlayOpen } from '../../core/shortcuts'
 import { addWatched, SERVICES, serviceFor, shortcutName, shortcutUrl, type Watched } from './model'
@@ -50,27 +51,7 @@ export default function TvPage({ active: onScreen }: { active: boolean }) {
   }
 
   // Keep the page over the area while watching; hide it on the service grid or another tab.
-  useEffect(() => {
-    if (!isTauri()) return
-    const el = area.current
-    if (!active || !watching || !el) { void browserHide(TAB).catch(() => undefined); return }
-    let last = ''
-    const place = () => {
-      const r = el.getBoundingClientRect()
-      const go = pending.current
-      const at = [r.left, r.top, r.width, r.height].map(Math.round).join(',')
-      if (at === last && !go) return
-      last = at
-      pending.current = null
-      void browserShow(TAB, go, r.left, r.top, r.width, r.height).then(() => setError('')).catch(e => setError(String(e)))
-    }
-    place()
-    const observer = new ResizeObserver(place)
-    observer.observe(el)
-    window.addEventListener('resize', place)
-    const timer = window.setInterval(place, 400)
-    return () => { observer.disconnect(); window.removeEventListener('resize', place); window.clearInterval(timer); void browserHide(TAB).catch(() => undefined) }
-  }, [active, watching, full, blockerChanged])
+  usePagePlacement(TAB, active && watching, area, () => { const go = pending.current; pending.current = null; return go }, setError, [full, blockerChanged])
 
   useEffect(() => {
     const stops = [

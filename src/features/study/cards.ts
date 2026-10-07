@@ -1,4 +1,6 @@
-import { createEmptyCard, fsrs, Rating, State, type Card, type Grade } from 'ts-fsrs'
+// Types only: the scheduler itself (ts-fsrs) is in review.ts, loaded with the Study tab, so Home's
+// counts don't bring it into the start-up bundle.
+import type { Card, Grade, State } from 'ts-fsrs'
 import type { Note, NoteBlock } from '../../lib/bridge'
 import { courseFolder } from './model'
 
@@ -9,7 +11,8 @@ import { courseFolder } from './model'
  */
 export type FlashCard = { noteId: string; block: NoteBlock; front: string; back: string; card: Card }
 
-const scheduler = fsrs({ enable_fuzz: true })
+/** ts-fsrs's State values. */
+const NEW = 0 as State, REVIEW = 2 as State
 const STATE = /\s*<!--fsrs ([^>]*?)-->/
 
 export const flashcardsTitle = (course: string) => `${course} — flashcards`
@@ -28,7 +31,8 @@ export function parseCard(text: string): { front: string; back: string; card: Ca
 function decodeState(raw: string): Card {
   const v = Object.fromEntries(raw.split(/\s+/).filter(Boolean).map(kv => kv.split('=') as [string, string]))
   const num = (k: string, d = 0) => Number.isFinite(Number(v[k])) && v[k] !== undefined ? Number(v[k]) : d
-  if (!v.due) return createEmptyCard(new Date(0))
+  // A new card (what ts-fsrs's createEmptyCard makes).
+  if (!v.due) return { due: new Date(0), stability: 0, difficulty: 0, elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: NEW, last_review: undefined }
   return {
     due: new Date(num('due')), stability: num('s'), difficulty: num('d'), elapsed_days: 0, scheduled_days: num('sd'),
     learning_steps: num('ls'), reps: num('r'), lapses: num('l'), state: num('st') as State,
@@ -67,38 +71,27 @@ export function deckOf(notes: Note[], course: string): FlashCard[] {
 
 /** Cards to review now: those due, oldest due first, then new ones (up to `newLimit`). */
 export function dueCards(deck: FlashCard[], now = Date.now(), newLimit = 20) {
-  const due = deck.filter(c => c.card.state !== State.New && c.card.due.getTime() <= now).sort((a, b) => a.card.due.getTime() - b.card.due.getTime())
-  const fresh = deck.filter(c => c.card.state === State.New).slice(0, newLimit)
+  const due = deck.filter(c => c.card.state !== NEW && c.card.due.getTime() <= now).sort((a, b) => a.card.due.getTime() - b.card.due.getTime())
+  const fresh = deck.filter(c => c.card.state === NEW).slice(0, newLimit)
   return [...due, ...fresh]
 }
 
 export function deckStats(deck: FlashCard[], now = Date.now()) {
   return {
     total: deck.length,
-    fresh: deck.filter(c => c.card.state === State.New).length,
-    due: deck.filter(c => c.card.state !== State.New && c.card.due.getTime() <= now).length,
-    learned: deck.filter(c => c.card.state === State.Review).length,
+    fresh: deck.filter(c => c.card.state === NEW).length,
+    due: deck.filter(c => c.card.state !== NEW && c.card.due.getTime() <= now).length,
+    learned: deck.filter(c => c.card.state === REVIEW).length,
   }
 }
 
+/** The answers, with ts-fsrs's Rating values. */
 export const GRADES: Array<{ grade: Grade; label: string; key: string }> = [
-  { grade: Rating.Again, label: 'Again', key: '1' },
-  { grade: Rating.Hard, label: 'Hard', key: '2' },
-  { grade: Rating.Good, label: 'Good', key: '3' },
-  { grade: Rating.Easy, label: 'Easy', key: '4' },
+  { grade: 1 as Grade, label: 'Again', key: '1' },
+  { grade: 2 as Grade, label: 'Hard', key: '2' },
+  { grade: 3 as Grade, label: 'Good', key: '3' },
+  { grade: 4 as Grade, label: 'Easy', key: '4' },
 ]
-
-export function review(card: Card, grade: Grade, now = new Date()): Card {
-  return scheduler.next(card, now, grade).card
-}
-
-/** "10m", "1d", "3mo": when the card comes back after each answer. */
-export function intervals(card: Card, now = new Date()): Record<number, string> {
-  const preview = scheduler.repeat(card, now)
-  const out: Record<number, string> = {}
-  for (const { grade } of GRADES) out[grade] = span(preview[grade].card.due.getTime() - now.getTime())
-  return out
-}
 
 export function span(ms: number) {
   const min = Math.max(1, Math.round(ms / 60_000))

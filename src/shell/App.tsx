@@ -1,7 +1,7 @@
 import WebFullscreen from './WebFullscreen'
 import ChatPanel from './ChatPanel'
 import { Palette, ShortcutKeys, ShortcutsHelp } from './Palette'
-import { useEffect, Suspense } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
 import TabErrorBoundary from './TabErrorBoundary'
 import { BridgeLinkBackground, sourceUpdateStore } from '../core/bridgelink'
@@ -41,6 +41,9 @@ export default function App() {
 
   useEffect(() => { void hydrateConfig() }, [])
   // The browser and books use the whole window under the tab bar, with no page margins.
+  // Kept-alive tabs mount when first opened (their code isn't loaded at start-up), then stay.
+  const [visited, setVisited] = useState<Set<string>>(() => new Set([active]))
+  useEffect(() => { setVisited(v => v.has(active) ? v : new Set(v).add(active)) }, [active])
   const fill = active === 'browser' || active === 'tv' || active === 'logic' || active === 'spotify' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
 
   return (
@@ -59,7 +62,7 @@ export default function App() {
           {features.map(({ id, Background }) => Background && <Background key={id} />)}
         </>}
 
-        {features.map(({ id, Page, keepAlive }) => Page && (active === id || keepAlive) &&
+        {features.map(({ id, Page, keepAlive, mountAtStart }) => Page && (active === id || (keepAlive && (mountAtStart || visited.has(id)))) &&
           <div key={id} className="tab-panel" hidden={active !== id}><TabErrorBoundary name={id}><Suspense fallback={<Loading />}><Page active={active === id} /></Suspense></TabErrorBoundary></div>)}
         {active === 'settings' && <div className="tab-panel"><TabErrorBoundary name="settings"><SettingsPage /></TabErrorBoundary></div>}
         {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} active={active === tab.id} />)}

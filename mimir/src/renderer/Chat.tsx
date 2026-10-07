@@ -61,15 +61,25 @@ export default function Chat({
         />
       )}
       <div className="chat-console-heading">
-        <span>CONVERSATION</span>
-        <span>{busy ? "PROCESSING" : "CHANNEL OPEN"}</span>
+        <span>Conversation</span>
+        <span className={busy ? "chat-state chat-state--busy" : "chat-state"}>{busy ? "Working" : "Ready"}</span>
       </div>
       <div className="chat-messages">
         {messages.map((m) => (
           <div key={m.id} className={`chat-bubble chat-bubble--${m.role}`}>
-            <span className="chat-role">{m.role === "user" ? "you" : m.role}</span>
+            <span className="chat-role">{m.role === "user" ? "You" : m.role === "assistant" ? "Mimir" : "System"}</span>
             <div className="chat-text">
-              {m.text ? <MessageContent text={m.text} /> : busy && m.role === "assistant" ? "…" : ""}
+              {m.text ? (
+                <MessageContent text={m.text} />
+              ) : busy && m.role === "assistant" ? (
+                <span className="typing" aria-label="Mimir is thinking">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              ) : (
+                ""
+              )}
             </div>
           </div>
         ))}
@@ -112,6 +122,7 @@ export default function Chat({
       )}
 
       <form className="chat-input" onSubmit={submit}>
+        <span className="chat-input__glow" aria-hidden="true" />
         <button
           type="button"
           className={`voice-control ${openMicEnabled ? "voice-control--active" : ""}`}
@@ -119,7 +130,7 @@ export default function Chat({
           aria-label={openMicEnabled ? "Pause Open Mic" : "Enable Open Mic"}
           title={openMicEnabled ? "Pause Open Mic" : "Enable Open Mic"}
         >
-          <span aria-hidden="true">{openMicEnabled ? String.fromCharCode(10074, 10074) : String.fromCharCode(9654)}</span>
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Zm-7 9a7 7 0 0 0 14 0M12 19v2" /></svg>
         </button>
         <button
           type="button"
@@ -128,7 +139,7 @@ export default function Chat({
           aria-label="Attach a file"
           title="Attach a photo, PDF, or file"
         >
-          <span aria-hidden="true">+</span>
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7" /></svg>
         </button>
         <button
           type="button"
@@ -137,7 +148,7 @@ export default function Chat({
           aria-label="Take a photo with the camera"
           title="Take a photo with the camera"
         >
-          <span aria-hidden="true">◉</span>
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
         </button>
         <input
           ref={fileInput}
@@ -153,16 +164,16 @@ export default function Chat({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Talk to Mimir…"
+          placeholder="Ask Mimir anything…"
           disabled={busy}
         />
         {busy && (
           <button type="button" className="voice-control voice-control--stop" onClick={onStop} aria-label="Stop Mimir" title="Stop Mimir">
-            <span aria-hidden="true">{String.fromCharCode(9632)}</span>
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
           </button>
         )}
-        <button type="submit" disabled={busy || (!draft.trim() && stagedFiles.length === 0)} className="btn">
-          Transmit
+        <button type="submit" disabled={busy || (!draft.trim() && stagedFiles.length === 0)} className="btn send-button" aria-label="Send" title="Send">
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 6l6 6-6 6" /></svg>
         </button>
       </form>
     </div>
