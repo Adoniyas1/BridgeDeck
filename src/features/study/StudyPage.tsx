@@ -16,7 +16,7 @@ import { libraryStore, refreshLibrary } from './state'
 import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
-import { AssignmentsCard, CanvasCard, ExamCard } from './Assignments'
+import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 
 export default function StudyPage({ active }: { active: boolean }) {
   const { library, error } = useStore(libraryStore)

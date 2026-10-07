@@ -2,7 +2,7 @@ import { lazy } from 'react'
 import { GraduationCap } from 'lucide-react'
 import type { FeatureManifest } from '../features'
 import { StudySettings } from './StudySettings'
-import { StudyBackground } from './Assignments'
+import { StudyBackground } from './AssignmentCards'
 const BookTab = lazy(() => import('./BookTab'))
 const StudyPage = lazy(() => import('./StudyPage'))
 

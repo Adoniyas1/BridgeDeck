@@ -13,6 +13,8 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 $Log = "$Status.log"
+# Building the window's code needs about 2 GB; give Node room on smaller machines.
+$env:NODE_OPTIONS = "$env:NODE_OPTIONS --max-old-space-size=4096".Trim()
 "=== BridgeDeck self-update $(Get-Date -Format s) mode=$Mode src=$Src" | Out-File $Log -Encoding utf8
 
 $previous = try { Get-Content $Status -Raw | ConvertFrom-Json } catch { $null }
@@ -25,10 +27,22 @@ function Set-Status([string]$state, [string]$stage, [string]$message) {
   "[$stage] $message" | Out-File $Log -Append -Encoding utf8
 }
 function Fail([string]$stage, [string]$message) { Set-Status 'failed' $stage "$message (log: $Log)"; exit 1 }
+# The line in the log that says what went wrong (a compiler or npm error), for the app to show.
+function Reason {
+  # The first specific error says the most (a compiler error, a type error, running out of memory)...
+  $line = Select-String -Path $Log -Pattern 'error\[E\d+\]|error TS\d+|heap out of memory|npm ERR!|failed to bundle|^Error:' -ErrorAction SilentlyContinue | Select-Object -First 1
+  # ...else the last line that mentions an error.
+  if (-not $line) { $line = Select-String -Path $Log -Pattern '^error|FATAL' -ErrorAction SilentlyContinue | Where-Object { $_.Line -notmatch 'warning' } | Select-Object -Last 1 }
+  if ($line) { $text = $line.Line.Trim(); if ($text.Length -gt 220) { $text = $text.Substring(0, 220) }; return $text }
+  return ''
+}
 function Run([string]$stage, [string]$label, [string]$exe, [string[]]$arguments) {
   Set-Status 'running' $stage $label
   & $exe @arguments 2>&1 | Out-File $Log -Append -Encoding utf8
-  if ($LASTEXITCODE -ne 0) { Fail $stage "$label failed" }
+  if ($LASTEXITCODE -ne 0) {
+    $why = Reason
+    if ($why) { Fail $stage "$label failed: $why" } else { Fail $stage "$label failed" }
+  }
 }
 
 if ($Mode -eq 'release') {
