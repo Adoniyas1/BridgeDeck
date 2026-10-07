@@ -385,7 +385,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
-export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing'
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python'
 export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
@@ -548,3 +548,7 @@ export type ErrorLog = { text: string; entries: number; crashes: number; path: s
 export const errorLogRead = () => native<ErrorLog>('error_log_read')
 export const errorLogAdd = (source: string, message: string) => native<void>('error_log_add', { source, message })
 export const errorLogClear = () => native<void>('error_log_clear')
+/** Python cells in notes, run by this computer's Python 3 (src-tauri/src/python.rs). */
+export type PythonRun = { ok: boolean; stdout: string; stderr: string; images: string[]; ms: number; timedOut: boolean; version: string }
+export const pythonStatus = () => native<string | null>('python_status')
+export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })

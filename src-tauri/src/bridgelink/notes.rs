@@ -18,7 +18,7 @@ const MAX_TITLE: usize = 300;
 const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
-const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing"];
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python"];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -624,6 +624,8 @@ pub fn to_markdown(note: &Note) -> String {
             "todo" => format!("{pad}- [{}] {}{due}", if block.checked { "x" } else { " " }, block.text),
             "quote" => block.text.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"),
             "code" => format!("```\n{}\n```", block.text),
+            "graph" => format!("```graph\n{}\n```", block.text),
+            "python" => format!("```python\n{}\n```", block.text),
             // The picture lives in the shared folder; this link brings the drawing back on import.
             "drawing" => format!("![Drawing](bridgedeck-drawing:{})", block.text),
             _ => block.text.clone(),
@@ -645,6 +647,8 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
     let mut blocks = Vec::new();
     let mut paragraph: Vec<String> = Vec::new();
     let mut code: Option<Vec<String>> = None;
+    // The fence's language: ```graph and ```python come back as those blocks.
+    let mut fence = "code";
     let push = |blocks: &mut Vec<Block>, kind: &str, text: String, checked: bool, indent: u8| {
         let pos = format!("{after}{:05}V", blocks.len() + 1);
         blocks.push(Block { id: Uuid::new_v4().to_string(), kind: kind.into(), text: clean_text(&text, MAX_TEXT), checked, indent: indent.min(MAX_INDENT), pos, updated: now, by: device.into(), ..Default::default() });
@@ -662,7 +666,7 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
             if raw.trim_start().starts_with("```") {
                 let text = lines.join("\n");
                 code = None;
-                push(&mut blocks, "code", text, false, 0);
+                push(&mut blocks, fence, text, false, 0);
             } else {
                 lines.push(raw.to_string());
             }
@@ -671,8 +675,13 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
         let spaces = raw.len() - raw.trim_start().len();
         let indent = (spaces / 2).min(MAX_INDENT as usize) as u8;
         let line = raw.trim();
-        if line.starts_with("```") {
+        if let Some(lang) = line.strip_prefix("```") {
             flush(&mut blocks, &mut paragraph);
+            fence = match lang.trim().to_ascii_lowercase().as_str() {
+                "graph" => "graph",
+                "python" | "py" | "python3" => "python",
+                _ => "code",
+            };
             code = Some(Vec::new());
             continue;
         }
@@ -1086,6 +1095,17 @@ mod tests {
         let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
         assert_eq!(kinds, vec![("p", "Before"), ("drawing", "abc_12"), ("p", "![Drawing](bridgedeck-drawing:../x)")]);
         assert!(to_markdown(&note).contains("![Drawing](bridgedeck-drawing:abc_12)"));
+    }
+
+    #[test]
+    fn graph_and_python_blocks_are_fenced() {
+        let mut store = NoteStore::default();
+        let md = "```graph\ny = sin(x)\nx: -5..5\n```\n\n```py\nprint(1)\n```\n\n```rust\nfn x() {}\n```";
+        let note = store.create_from_markdown(None, "note", "Lab", "", md, "mac", 100).unwrap();
+        let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
+        assert_eq!(kinds, vec![("graph", "y = sin(x)\nx: -5..5"), ("python", "print(1)"), ("code", "fn x() {}")]);
+        let out = to_markdown(&note);
+        assert!(out.starts_with("```graph\ny = sin(x)\nx: -5..5\n```\n\n```python\nprint(1)\n```"));
     }
 
     #[test]

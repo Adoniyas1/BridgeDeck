@@ -397,7 +397,7 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .notes-block-body{flex:1;min-width:0}
 .notes-block textarea,.notes-rendered{display:block;width:100%;border:0;outline:0;resize:none;overflow:hidden;background:transparent;color:var(--text);font:inherit;font-size:14px;line-height:1.6;padding:2px 0;margin:0;white-space:pre-wrap;word-break:break-word;min-height:26px;cursor:text}
 .notes-block textarea::placeholder{color:var(--faint)}
-.notes-rendered code,.kind-code textarea,.kind-code .notes-rendered{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+.notes-rendered code,.kind-code textarea,.kind-code .notes-rendered,.kind-graph textarea,.kind-python textarea,.kind-python .notes-rendered{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
 .notes-rendered code{background:var(--surface-3);border-radius:4px;padding:1px 4px}
 .notes-rendered a{color:var(--accent)}
 .kind-h1 textarea,.kind-h1 .notes-rendered{font-size:20px;font-weight:650;padding-top:10px}
@@ -405,7 +405,8 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .kind-h3 textarea,.kind-h3 .notes-rendered{font-size:15px;font-weight:600;padding-top:6px}
 .kind-quote .notes-block-body{border-left:2px solid var(--line-strong);padding-left:12px;color:var(--muted)}
 .kind-quote textarea,.kind-quote .notes-rendered{color:var(--muted)}
-.kind-code .notes-block-body{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 10px;margin:4px 0}
+.kind-python .notes-rendered{white-space:pre-wrap}
+.kind-code .notes-block-body,.kind-python .notes-block-body,.kind-graph .notes-block-body{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 10px;margin:4px 0}
 .notes-block.checked textarea,.notes-block.checked .notes-rendered{color:var(--faint);text-decoration:line-through}
 .notes-bullet{width:18px;flex:none;text-align:right;color:var(--muted);font-size:14px;line-height:1.6;padding-top:2px}
 .notes-check{flex:none;width:16px;height:16px;margin:6px 1px 0;accent-color:var(--accent);cursor:pointer}
@@ -1007,3 +1008,16 @@ main.fill .logic{height:auto}
 .logic-timing-wave.out{stroke:var(--logic-led-on)}
 .logic-timing-edge{stroke:var(--line-strong);stroke-dasharray:2 3}
 .logic-timing-tick{font-size:9px;fill:var(--faint)}
+.notes-graph{margin:4px 0;max-width:640px}
+.notes-graph.clickable{cursor:pointer}
+.notes-graph svg{width:100%;height:auto;display:block}
+.notes-graph line.grid{stroke:var(--line);stroke-width:1}
+.notes-graph line.axis{stroke:var(--faint);stroke-width:1.2}
+.notes-graph text{font-size:10px;fill:var(--faint)}
+.notes-graph-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
+.notes-graph-legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.notes-python-bar{display:flex;align-items:center;gap:8px;margin-top:6px}
+.notes-python-bar small{color:var(--muted)}
+.notes-python-out{margin:6px 0 0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto}
+.notes-python-out .err{color:#f07178}
+.notes-python-img{display:block;max-width:100%;margin-top:6px;border-radius:var(--radius-sm);background:#fff}

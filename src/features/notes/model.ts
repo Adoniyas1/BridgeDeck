@@ -47,7 +47,7 @@ export function shortcut(text: string): { kind: NoteBlockKind; text: string; che
   const rules: Array<[RegExp, NoteBlockKind, boolean?]> = [
     [/^### /, 'h3'], [/^## /, 'h2'], [/^# /, 'h1'],
     [/^\[[xX]\] /, 'todo', true], [/^\[ ?\] /, 'todo'], [/^- \[[xX]\] /, 'todo', true], [/^- \[ ?\] /, 'todo'],
-    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'],
+    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'], [/^```graph$/, 'graph'], [/^```(python|py)$/, 'python'],
   ]
   for (const [pattern, kind, checked] of rules) {
     const match = text.match(pattern)
@@ -188,6 +188,8 @@ export function toMarkdown(note: Note) {
       case 'todo': lines.push(`${pad(block)}- [${block.checked ? 'x' : ' '}] ${block.text}${due}`); break
       case 'quote': lines.push(block.text.split('\n').map(l => `> ${l}`).join('\n')); break
       case 'code': lines.push('```', block.text, '```'); break
+      case 'graph': lines.push('```graph', block.text, '```'); break
+      case 'python': lines.push('```python', block.text, '```'); break
       case 'drawing': lines.push(`![Drawing](bridgedeck-drawing:${block.text})`, ''); break
       default: lines.push(block.text, '')
     }

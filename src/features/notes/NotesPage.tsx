@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, Link2, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, Link2, Trash2, X } from 'lucide-react'
 import { notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
@@ -9,11 +9,16 @@ import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath,
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
+import { PlotView, PythonOutput } from './CellBlocks'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
   ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code], ['drawing', 'Drawing', PenTool],
+  ['graph', 'Graph', LineChart], ['python', 'Python', Terminal],
 ]
+
+/** Blocks typed like code: Enter is a new line (Shift+Enter a new block), no spell check. */
+const codeLike = (kind: NoteBlockKind) => kind === 'code' || kind === 'graph' || kind === 'python'
 
 /** "All", "Pinned", a folder or a tag. */
 type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; name: string } | { kind: 'tag'; name: string }
@@ -271,11 +276,11 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
     } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && block.kind === 'todo') {
       event.preventDefault()
       toggle(block.id)
-    } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && (block.kind === 'code' ? event.shiftKey : !event.shiftKey)) {
+    } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && (codeLike(block.kind) ? event.shiftKey : !event.shiftKey)) {
       event.preventDefault()
       // An empty sub-task moves out a level; an empty top-level item becomes plain text.
       if (!block.text.trim() && nestable && indentOf(block) > 0) { shiftIndent(index, -1); return }
-      if (!block.text && block.kind !== 'p' && block.kind !== 'code') { updateBlock(block.id, { kind: 'p' }); return }
+      if (!block.text && block.kind !== 'p' && !codeLike(block.kind)) { updateBlock(block.id, { kind: 'p' }); return }
       const before = block.text.slice(0, caret)
       const after = block.text.slice(area.selectionEnd)
       const current = { ...draftRef.current, blocks: draftRef.current.blocks.map(b => b.id === block.id ? { ...b, text: before } : b) }
@@ -321,7 +326,9 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
       return
     }
     if (!id) return
-    updateBlock(id, { kind })
+    const current = blocks.find(b => b.id === id)
+    // A new graph starts with an example to change.
+    updateBlock(id, kind === 'graph' && !current?.text.trim() ? { kind, text: 'y = sin(x)\nx: -2pi..2pi' } : { kind })
     setFocus({ id, caret: 'end' })
   }
 
@@ -487,7 +494,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     el.setSelectionRange(at, at)
   }, [focus])
 
-  const placeholder = block.kind === 'todo' ? 'To do' : block.kind.startsWith('h') ? 'Heading' : block.kind === 'code' ? 'Code' : editing ? 'Type, or start with # - [] > for formatting' : ''
+  const placeholder = block.kind === 'todo' ? 'To do' : block.kind.startsWith('h') ? 'Heading' : block.kind === 'code' ? 'Code' : block.kind === 'python' ? 'Python, e.g. print(2 ** 10)' : block.kind === 'graph' ? 'y = sin(x)' : editing ? 'Type, or start with # - [] > for formatting' : ''
   const marker = block.kind === 'li' ? <span className="notes-bullet">•</span>
     : block.kind === 'ol' ? <span className="notes-bullet">{number}.</span>
     : block.kind === 'todo' ? <input type="checkbox" className="notes-check" checked={block.checked} onChange={onCheck} />
@@ -500,13 +507,14 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     {marker}
     <div className="notes-block-body">
       {showArea
-        ? <textarea ref={area} rows={1} spellCheck={block.kind !== 'code'} value={block.text} placeholder={placeholder}
+        ? <textarea ref={area} rows={1} spellCheck={!codeLike(block.kind)} value={block.text} placeholder={placeholder}
             onChange={e => { onText(e.target.value); const q = linkQuery(e.target.value, e.target.selectionStart); setSuggest(q ? { ...q, index: 0 } : null) }}
             onKeyDown={keyDown} onFocus={onFocused} onBlur={() => { window.setTimeout(() => setSuggest(null), 150); onBlurred() }} />
+        : block.kind === 'graph' ? <PlotView text={block.text} onClick={onEdit} />
         : block.kind === 'p' && displayMath(block.text) !== null
           ? <div className="notes-rendered notes-math-block" onClick={onEdit} dangerouslySetInnerHTML={{ __html: renderMath(displayMath(block.text)!, true) }} />
           : <div className="notes-rendered" onClick={e => { if (!(e.target instanceof HTMLAnchorElement)) onEdit() }}>
-            {block.kind === 'code' ? block.text : inline(block.text).map((piece, i) => {
+            {block.kind === 'code' || block.kind === 'python' ? (block.text || <span className="hint">Python code</span>) : inline(block.text).map((piece, i) => {
               switch (piece.kind) {
                 case 'bold': return <strong key={i}>{piece.text}</strong>
                 case 'italic': return <em key={i}>{piece.text}</em>
@@ -520,6 +528,8 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
               }
             })}
           </div>}
+      {showArea && block.kind === 'graph' && <PlotView text={block.text} />}
+      {block.kind === 'python' && <PythonOutput code={block.text} />}
       {suggest && options.length > 0 && <div className="notes-suggest">
         {options.map((title, i) => <button key={title} className={i === suggest.index ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(title) }}>
           {findByTitle(nav.notes, title) ? <Link2 size={12} /> : <FilePlus size={12} />}{findByTitle(nav.notes, title) ? title : `New note “${title}”`}

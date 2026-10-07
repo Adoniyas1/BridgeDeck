@@ -21,6 +21,7 @@ mod backups;
 mod canvas;
 mod circuits;
 mod errorlog;
+mod python;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -656,6 +657,8 @@ pub fn run() {
             backups::backups_list,
             canvas::canvas_feed,
             canvas::canvas_api,
+            python::python_status,
+            python::python_run,
             errorlog::error_log_read,
             errorlog::error_log_add,
             errorlog::error_log_clear,
