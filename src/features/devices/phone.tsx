@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import qrcode from 'qrcode-generator'
 import { Copy, RefreshCw, Smartphone } from 'lucide-react'
 import { isTauri, phoneNewKey, phonePublish, phoneSettings, phoneStatus, type PhoneStatus } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
@@ -13,6 +12,8 @@ import { appleStore, eventsStore, itemsBetween } from '../calendar/state'
 import { addDays, startOfDay } from '../calendar/model'
 import { notesStore } from '../notes/state'
 import { allAssignments } from '../study/assignments'
+// The QR code library loads when the code is first shown, not with the app.
+const QrCode = lazy(() => import('./QrCode'))
 import { dueText, groupAssignments } from '../study/canvas'
 
 export const phoneStore = createStore<PhoneStatus>({ running: false, urls: [], error: '' })
@@ -37,7 +38,7 @@ export function PhoneBackground() {
   useEffect(() => {
     if (isTauri()) void phoneSettings(enabled).then(phoneStore.set).catch(() => undefined)
   }, [enabled])
-  usePeriodicRefresh(async () => { if (isTauri() && enabled) await phonePublish(phoneSnapshot()) }, 60_000, [enabled])
+  usePeriodicRefresh(async () => { if (isTauri() && enabled) await phonePublish(phoneSnapshot()) }, 60_000, [enabled], 'same')
   useEffect(() => {
     if (!isTauri()) return
     const offs: Array<() => void> = []
@@ -57,20 +58,6 @@ export function PhoneBackground() {
   return null
 }
 
-/** A QR code drawn as squares (no markup from outside). */
-function QrCode({ text }: { text: string }) {
-  const cells = useMemo(() => {
-    const qr = qrcode(0, 'M')
-    qr.addData(text)
-    qr.make()
-    const n = qr.getModuleCount()
-    let d = ''
-    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c},${r}h1v1h-1z`
-    return { n, d }
-  }, [text])
-  return <svg className="phone-qr" viewBox={`-2 -2 ${cells.n + 4} ${cells.n + 4}`} role="img" aria-label="QR code for the phone page"><rect x={-2} y={-2} width={cells.n + 4} height={cells.n + 4} fill="#fff" /><path d={cells.d} fill="#000" /></svg>
-}
-
 export function PhoneCard() {
   const config = useConfig()
   const status = useStore(phoneStore)
@@ -82,7 +69,7 @@ export function PhoneCard() {
     <Toggle checked={on} onChange={next => setConfig(c => ({ ...c, phone: { enabled: next } }))} label="Let my phone open BridgeDeck’s page on this Wi-Fi" />
     {on && status.error && <p className="error-text">{status.error}</p>}
     {on && url && <div className="phone-link">
-      <QrCode text={url} />
+      <Suspense fallback={<div className="phone-qr" />}><QrCode text={url} /></Suspense>
       <div className="grow">
         <p>Scan this with your phone’s camera (on the same Wi-Fi), then add the page to your home screen.</p>
         <code className="phone-url">{url.replace(/#.*/, '#…')}</code>

@@ -114,7 +114,7 @@ export function CalendarBackground() {
     checkReminders()
     const today = startOfDay(Date.now())
     void loadApple(today, addDays(today, 2))
-  }, 60_000, [])
+  }, 60_000, [], 'same')
   useEffect(() => {
     const timer = window.setInterval(checkReminders, 20_000)
     return () => window.clearInterval(timer)

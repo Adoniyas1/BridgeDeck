@@ -149,7 +149,7 @@ export function StudyBackground() {
   const exam = useStore(examStore)
   const canvas = useConfig().canvas
   const [, setTick] = useState(0)
-  usePeriodicRefresh(async () => { await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token])
+  usePeriodicRefresh(async () => { await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
     const timer = window.setInterval(() => { checkAssignmentReminders(); setTick(t => t + 1) }, 60_000)
     return () => window.clearInterval(timer)

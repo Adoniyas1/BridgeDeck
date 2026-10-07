@@ -17,7 +17,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::{mpsc, oneshot};
@@ -310,6 +309,8 @@ fn device_from_discovery(device: localsend::discovery::DiscoveredDevice) -> Opti
             fingerprint: device.fingerprint,
             device_model: device.device_model,
         }),
+        // Other channels, if the LocalSend core adds them.
+        #[allow(unreachable_patterns)]
         _ => None,
     }
 }

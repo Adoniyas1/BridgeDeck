@@ -496,7 +496,7 @@ fn response_error(peer: &PersistedPeer, response: &Response) -> String {
 
 pub(super) enum Delivery {
     /// The device couldn't be reached; worth retrying later.
-    Unreachable(String),
+    Unreachable(#[allow(dead_code)] String),
     /// The device answered and refused; retrying won't help.
     Rejected(String),
 }

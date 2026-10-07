@@ -146,4 +146,4 @@ function SkillPacks() {
   </div>
 }
 
-export const mimir: FeatureManifest = { id: 'mimir', title: 'Mimir', icon: Brain, Page: MimirPage, keepAlive: true, Background: MimirBackground, Settings: MimirSettings, settingsOrder: 45 }
+export const mimir: FeatureManifest = { id: 'mimir', title: 'Mimir', icon: Brain, Page: MimirPage, keepAlive: true, mountAtStart: true, Background: MimirBackground, Settings: MimirSettings, settingsOrder: 45 }

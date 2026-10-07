@@ -11,8 +11,10 @@ export type FeatureManifest = {
   icon: LucideIcon
   /** Fixed tab content. `active` is false while another tab is showing (only `keepAlive` pages stay mounted). */
   Page?: ComponentType<{ active: boolean }>
-  /** Keep the page mounted while hidden (it polls for notifications or badges). */
+  /** Keep the page mounted while hidden once it has been opened (a web page keeps playing). */
   keepAlive?: boolean
+  /** Mount the kept-alive page at start-up, before it's opened (it polls for notifications). */
+  mountAtStart?: boolean
   /** Mounted once after the config loads, for polling and native state; renders nothing. */
   Background?: ComponentType
   /** Section of the Settings tab; lower `settingsOrder` comes first. */

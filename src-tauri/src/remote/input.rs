@@ -1,3 +1,4 @@
+#![cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 //! Mouse and keyboard events from the viewer, and how they map to this computer's input.
 
 use serde::{Deserialize, Serialize};

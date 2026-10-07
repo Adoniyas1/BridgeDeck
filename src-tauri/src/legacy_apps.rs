@@ -30,10 +30,12 @@ pub struct LegacyApp {
     pub system_service: bool,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn home() -> PathBuf {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_default()
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn command(program: &str) -> Command {
     #[allow(unused_mut)]
     let mut command = Command::new(program);
@@ -68,6 +70,7 @@ fn kill(prefix: &str) {
 }
 
 /// Files in a folder whose name contains `needle` (case-insensitive).
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn matching_files(dir: PathBuf, needle: &str) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
         .map(|entries| entries.flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains(needle))).collect())
