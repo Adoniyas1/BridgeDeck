@@ -1071,3 +1071,23 @@ main.fill .logic{height:auto}
 .note-history-view h4{margin:0 0 8px}
 .note-history-view pre{margin:0;white-space:pre-wrap;font-size:12.5px;font-family:inherit}
 @media(max-width:700px){.note-history-body{grid-template-columns:1fr}}
+.clip-tools{display:flex;gap:8px;align-items:center;margin:10px 0 6px}
+.clip-search{flex:1;display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:0 8px;color:var(--muted)}
+.clip-search input{flex:1;background:transparent;border:0;outline:0;color:var(--text);padding:6px 0}
+.clip-list{display:flex;flex-direction:column;gap:4px;max-height:360px;overflow:auto}
+.clip-list button{display:block;text-align:left;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:var(--radius-sm);padding:7px 10px}
+.clip-list button:hover{border-color:var(--accent)}
+.clip-text{display:block;font-size:12.5px;white-space:pre-wrap;word-break:break-word;max-height:4.5em;overflow:hidden}
+.clip-list small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.locked-note{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:40px 16px;color:var(--muted)}
+.locked-note h3{margin:4px 0 0;color:var(--text)}
+.locked-open{display:flex;gap:8px;margin-top:8px}
+.locked-open input{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;min-width:220px}
+.locked-note.open{align-items:stretch;text-align:left;padding:8px 0}
+.locked-bar{display:flex;align-items:center;gap:8px;font-size:12px;padding:8px 10px;border:1px solid #4fc98a55;border-radius:var(--radius-sm);background:rgba(79,201,138,.06)}
+.locked-text{width:100%;min-height:340px;resize:vertical;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:12px;font:inherit;font-size:14px;line-height:1.55}
+.phone-link{display:flex;gap:16px;align-items:flex-start;margin:12px 0}
+.phone-qr{width:168px;height:168px;flex:none;border-radius:8px}
+.phone-link p{margin:0 0 8px;font-size:13px;color:var(--muted)}
+.phone-url{display:block;font-size:12px;word-break:break-all;margin-bottom:8px}
+@media(max-width:600px){.phone-link{flex-direction:column}}

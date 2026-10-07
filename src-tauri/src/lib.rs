@@ -22,6 +22,7 @@ mod canvas;
 mod circuits;
 mod errorlog;
 mod python;
+mod phone;
 mod note_history;
 mod webkeys;
 mod webmedia;
@@ -619,6 +620,9 @@ pub fn run() {
             bridgelink::notes::note_version_restore,
             note_history::note_versions,
             note_history::note_version,
+            note_history::note_history_clear,
+            bridgelink::notes::notes_replace_markdown,
+            bridgelink::notes::notes_markdown,
             bridgelink::notes::notes_delete,
             bridgelink::notes::notes_create_markdown,
             study::study_library,
@@ -663,6 +667,10 @@ pub fn run() {
             backups::backups_list,
             canvas::canvas_feed,
             canvas::canvas_api,
+            phone::phone_settings,
+            phone::phone_status,
+            phone::phone_new_key,
+            phone::phone_publish,
             python::python_status,
             python::python_run,
             errorlog::error_log_read,
@@ -747,6 +755,10 @@ pub fn run() {
             remote::host::remote_host_settings,
             clipboard::clipboard_status,
             clipboard::clipboard_settings,
+            clipboard::clipboard_history_settings,
+            clipboard::clipboard_history,
+            clipboard::clipboard_history_clear,
+            clipboard::clipboard_put,
             remote::host::remote_host_stop,
             remote::viewer::remote_connect,
             remote::viewer::remote_frame_drawn,

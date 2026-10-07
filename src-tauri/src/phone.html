@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>BridgeDeck</title>
+<style>
+:root{--bg:#0b0c0e;--card:#141518;--line:#24262b;--text:#ececef;--muted:#8b8e96;--accent:#8ab4ff;--good:#4fc98a;--bad:#f07178}
+@media (prefers-color-scheme: light){:root{--bg:#f4f5f7;--card:#fff;--line:#e2e4e8;--text:#15171a;--muted:#62666e;--accent:#2f6fe0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+h1{font-size:20px;margin:0}
+header small{color:var(--muted)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 10px}
+textarea,input[type=text]{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:84px;resize:vertical}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:#081221;font-weight:600}
+button.plain{background:transparent;color:var(--accent);padding:6px 4px}
+.row{display:flex;gap:8px;margin-top:8px;align-items:center}
+.row>*:first-child{flex:1}
+.note{color:var(--muted);font-size:13px;margin:8px 0 0}
+.ok{color:var(--good)}.err{color:var(--bad)}
+.item{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item time{color:var(--muted);min-width:72px;font-variant-numeric:tabular-nums}
+.item .due{color:var(--muted);font-size:13px}
+.item.late .due{color:var(--bad)}
+label.check{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line)}
+label.check:first-of-type{border-top:0}
+label.check input{width:22px;height:22px;margin:0;flex:none;accent-color:var(--good)}
+label.check.done span{color:var(--muted);text-decoration:line-through}
+details{border-top:1px solid var(--line);padding:6px 0}
+details:first-of-type{border-top:0}
+summary{font-weight:600;padding:6px 0;cursor:pointer}
+summary small{color:var(--muted);font-weight:400}
+.locked{text-align:center;padding:30px 10px}
+</style>
+</head>
+<body>
+<header><h1>BridgeDeck</h1><small id="computer"></small></header>
+<div id="locked" class="locked" hidden><h2>Not connected</h2><p class="note" id="lockedText">Open this page from the link or QR code in BridgeDeck → Settings → Phone.</p></div>
+<main id="main" hidden>
+  <section>
+    <h2>Send to the computer</h2>
+    <textarea id="text" placeholder="Text or a link. It lands on the computer's clipboard."></textarea>
+    <div class="row"><span class="note" id="sendState"></span><button id="send">Send</button></div>
+    <div class="row"><input type="file" id="file" multiple><button id="upload">Upload</button></div>
+    <p class="note" id="uploadState">Files go to the “From phone” folder in the shared folder.</p>
+  </section>
+  <section><h2>Today</h2><div id="today"></div></section>
+  <section><h2>Due soon</h2><div id="due"></div></section>
+  <section><h2>Checklists</h2><div id="lists"></div></section>
+</main>
+<script>
+// A new link opened over this page (only its #key changed) starts the page again.
+window.addEventListener('hashchange', function () { location.reload() })
+;(function () {
+  var hash = location.hash.replace(/^#/, '')
+  if (/^[0-9a-f]{24,}$/.test(hash)) { try { localStorage.setItem('bd-key', hash) } catch (e) {} history.replaceState(null, '', location.pathname) }
+  var key = ''
+  try { key = localStorage.getItem('bd-key') || hash } catch (e) { key = hash }
+  var $ = function (id) { return document.getElementById(id) }
+  var open = {}
+  function el(tag, attrs, text) { var e = document.createElement(tag); for (var k in attrs || {}) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e }
+  function api(path, body, raw) {
+    var options = { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Key': key } }
+    if (raw) { options.body = raw } else if (body !== undefined) { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify(body) }
+    return fetch(path, options).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j }) })
+  }
+  function time(ms) { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }
+  function render(data) {
+    $('computer').textContent = data.computer || ''
+    var s = data.snapshot || {}
+    var today = $('today'); today.textContent = ''
+    ;(s.today || []).forEach(function (i) { var row = el('div', { class: 'item' }); row.appendChild(el('time', {}, i.allDay ? 'All day' : time(i.start))); row.appendChild(el('span', {}, i.title)); today.appendChild(row) })
+    if (!(s.today || []).length) today.appendChild(el('p', { class: 'note' }, s.at ? 'Nothing else today.' : 'Open BridgeDeck on the computer to see the agenda here.'))
+    var due = $('due'); due.textContent = ''
+    ;(s.due || []).forEach(function (a) { var row = el('div', { class: 'item' + (a.late ? ' late' : '') }); var box = el('div'); box.appendChild(el('div', {}, a.title)); box.appendChild(el('div', { class: 'due' }, [a.course, a.when].filter(Boolean).join(' · '))); row.appendChild(box); due.appendChild(row) })
+    if (!(s.due || []).length) due.appendChild(el('p', { class: 'note' }, 'Nothing due this week.'))
+    var lists = $('lists'); lists.textContent = ''
+    ;(data.lists || []).forEach(function (l) {
+      var left = l.items.filter(function (i) { return !i.checked }).length
+      var d = el('details'); if (open[l.id]) d.open = true
+      d.addEventListener('toggle', function () { open[l.id] = d.open })
+      var sum = el('summary', {}, l.title + ' '); sum.appendChild(el('small', {}, left + ' left')); d.appendChild(sum)
+      l.items.forEach(function (i) {
+        var lab = el('label', { class: 'check' + (i.checked ? ' done' : '') }); lab.style.paddingLeft = (i.indent || 0) * 22 + 'px'
+        var box = el('input', { type: 'checkbox' }); box.checked = i.checked
+        box.addEventListener('change', function () { lab.className = 'check' + (box.checked ? ' done' : ''); api('/api/check', { note: l.id, block: i.id, checked: box.checked }).catch(function (e) { alert(e.message); box.checked = !box.checked }) })
+        lab.appendChild(box); lab.appendChild(el('span', {}, i.text)); d.appendChild(lab)
+      })
+      var add = el('div', { class: 'row' }); var input = el('input', { type: 'text', placeholder: 'Add an item' }); var btn = el('button', { class: 'plain' }, 'Add')
+      function doAdd() { if (!input.value.trim()) return; api('/api/add', { note: l.id, text: input.value }).then(function () { input.value = ''; refresh() }).catch(function (e) { alert(e.message) }) }
+      btn.addEventListener('click', doAdd); input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doAdd() })
+      add.appendChild(input); add.appendChild(btn); d.appendChild(add)
+      lists.appendChild(d)
+    })
+    if (!(data.lists || []).length) lists.appendChild(el('p', { class: 'note' }, 'No checklists yet.'))
+  }
+  function refresh() {
+    if (document.activeElement && document.activeElement.type === 'text') return
+    api('/api/summary').then(function (data) { $('locked').hidden = true; $('main').hidden = false; render(data) }).catch(function (e) { $('main').hidden = true; $('locked').hidden = false; if (key) $('lockedText').textContent = e.message })
+  }
+  $('send').addEventListener('click', function () {
+    var text = $('text').value; if (!text.trim()) return
+    $('sendState').textContent = 'Sending…'; $('sendState').className = 'note'
+    api('/api/text', { text: text }).then(function () { $('text').value = ''; $('sendState').textContent = 'On the computer’s clipboard.'; $('sendState').className = 'note ok' }).catch(function (e) { $('sendState').textContent = e.message; $('sendState').className = 'note err' })
+  })
+  $('upload').addEventListener('click', function () {
+    var files = Array.prototype.slice.call($('file').files); if (!files.length) return
+    var done = 0, state = $('uploadState')
+    function next() {
+      if (!files.length) { state.textContent = 'Sent ' + done + ' file' + (done === 1 ? '' : 's') + ' to “From phone”.'; state.className = 'note ok'; $('file').value = ''; return }
+      var f = files.shift(); state.textContent = 'Sending ' + f.name + '…'; state.className = 'note'
+      api('/api/upload?name=' + encodeURIComponent(f.name), null, f).then(function () { done++; next() }).catch(function (e) { state.textContent = f.name + ': ' + e.message; state.className = 'note err' })
+    }
+    next()
+  })
+  refresh()
+  setInterval(refresh, 15000)
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh() })
+})()
+</script>
+</body>
+</html>

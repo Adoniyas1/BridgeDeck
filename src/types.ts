@@ -39,10 +39,12 @@ export type AppConfig = {
   services: ServiceConfig[]
   /** This computer being controlled by paired devices (D15: allowed without asking by default). */
   remote: { allowControl: boolean; askFirst: boolean; askDevices: string[] }
-  /** Copying on one paired computer makes it pasteable on the others. */
-  clipboard: { sync: boolean }
+  /** Copying on one paired computer makes it pasteable on the others; recent copies kept (in memory) to paste again. */
+  clipboard: { sync: boolean; history: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
   notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean; reminders: boolean }
+  /** The phone page: a web page phones on the same Wi-Fi open to send things here and see the agenda. */
+  phone: { enabled: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */

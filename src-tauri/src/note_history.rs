@@ -105,6 +105,16 @@ pub fn note_versions(app: AppHandle, id: String) -> Result<Vec<VersionInfo>, Str
         .collect())
 }
 
+/// Forgets a note's earlier versions (when it's locked with a password, the versions from before
+/// would still hold its text).
+#[tauri::command]
+pub fn note_history_clear(app: AppHandle, id: String) -> Result<(), String> {
+    match fs::remove_dir_all(dir(&app, &id)?) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub fn note_version(app: AppHandle, id: String, at: u64) -> Result<Version, String> {
     version(&app, &id, at)

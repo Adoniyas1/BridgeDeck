@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Trash2, X } from 'lucide-react'
-import { noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
+import { noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
 import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
@@ -11,6 +11,8 @@ import { openBookLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
 import { PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
+import { LockDialog, LockedNote } from './LockedNote'
+import { lockText } from './lock'
 
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
@@ -149,6 +151,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
   const [editing, setEditing] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [history, setHistory] = useState(false)
+  const [locking, setLocking] = useState(false)
   const timer = useRef<number | undefined>(undefined)
   const saving = useRef(false)
   const lastKindTarget = useRef<string | null>(null)
@@ -198,13 +201,31 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
 
   const blocks = visible(draft)
 
-  /** Puts an earlier version back: what's typed is saved first, then the version replaces it. */
-  async function restoreVersion(at: number) {
-    await save()
-    const saved = await noteVersionRestore(draftRef.current.id, at)
+  const lockedBlock = blocks.find(b => b.kind === 'locked')
+
+  /** Takes a saved note as the current one (after locking, unlocking or putting a version back). */
+  function adopt(saved: Note) {
     base.current = saved
     setDraft(saved)
     notesStore.set(current => current.map(n => n.id === saved.id ? saved : n))
+  }
+
+  /** Encrypts the note's content and replaces it with the locked block; its earlier versions
+   *  (readable) are forgotten. */
+  async function lockNote(password: string) {
+    await save()
+    const id = draftRef.current.id
+    const sealed = await lockText(await notesMarkdown(id), password)
+    const current = visible(draftRef.current)
+    const saved = await notesSave({ id, removed: current.map(b => b.id), blocks: [{ id: newId(), kind: 'locked', text: sealed, checked: false, due: null, pos: between('', ''), updated: 0, by: '', deleted: false }] })
+    await noteHistoryClear(id).catch(() => undefined)
+    adopt(saved)
+  }
+
+  /** Puts an earlier version back: what's typed is saved first, then the version replaces it. */
+  async function restoreVersion(at: number) {
+    await save()
+    adopt(await noteVersionRestore(draftRef.current.id, at))
   }
 
   function updateBlock(id: string, changes: Partial<NoteBlock>) {
@@ -367,6 +388,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
 
   return <section className="card notes-editor">
     {history && <NoteHistory noteId={draft.id} onRestore={restoreVersion} onClose={() => setHistory(false)} />}
+    {locking && <LockDialog onLock={lockNote} onClose={() => setLocking(false)} />}
     <div className="notes-toolbar">
       <div className="notes-kinds">
         {KINDS.map(([kind, label, Icon]) => <button key={kind} className="notes-icon" title={label} onMouseDown={e => e.preventDefault()} onClick={() => setKind(kind)}><Icon size={15} /></button>)}
@@ -375,7 +397,8 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
         <label className="notes-folder" title="Folder"><Folder size={13} /><input list="notes-folders" placeholder="No folder" value={draft.folder} onChange={e => change({ ...draftRef.current, folder: e.target.value })} /></label>
         <datalist id="notes-folders">{folderNames.map(f => <option key={f} value={f} />)}</datalist>
         <button className="notes-icon" title={draft.pinned ? 'Unpin' : 'Pin to the top'} onClick={() => change({ ...draftRef.current, pinned: !draftRef.current.pinned })}>{draft.pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
-        <button className="notes-icon" title="Earlier versions" onClick={() => setHistory(true)}><History size={15} /></button>
+        {!lockedBlock && <button className="notes-icon" title="Lock with a password" onClick={() => setLocking(true)}><Lock size={15} /></button>}
+        {!lockedBlock && <button className="notes-icon" title="Earlier versions" onClick={() => setHistory(true)}><History size={15} /></button>}
         <button className="notes-icon" title="Copy as Markdown" onClick={() => void copyMarkdown()}><Copy size={15} /></button>
         <button className="notes-icon danger-icon" title="Delete" onClick={() => void remove()}><Trash2 size={15} /></button>
       </div>
@@ -387,7 +410,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
       <span>{checked.length} of {todos.length} done</span>
       {checked.length > 0 && <button className="ghost" onClick={() => change({ ...draftRef.current, blocks: draftRef.current.blocks.filter(b => !(b.kind === 'todo' && b.checked && !b.deleted)) })}>Clear done</button>}
     </div>}
-    <div className="notes-blocks">
+    {lockedBlock ? <LockedNote note={draft} block={lockedBlock} onSaved={adopt} /> : <div className="notes-blocks">
       {blocks.map((block, index) => {
         const level = indentOf(block)
         if (level > hideDeeperThan) return null
@@ -411,7 +434,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
         if (last && !last.text) setFocus({ id: last.id, caret: 0 })
         else insertAfter(last?.id ?? null, { kind: draft.kind === 'list' ? 'todo' : 'p' })
       }} />
-    </div>
+    </div>}
     <Backlinks note={draft} />
     <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code, [[link]], #tag, $math$. Tab makes a sub-task, Shift+Tab moves it back. ⌘/Ctrl+Enter ticks an item.'}</p>
   </section>

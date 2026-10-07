@@ -39,6 +39,7 @@ export function noteTitle(note: Note) {
 export function preview(note: Note) {
   const blocks = visible(note).filter(b => b.text.trim())
   const rest = note.title.trim() ? blocks : blocks.slice(1)
+  if (blocks.some(b => b.kind === 'locked')) return '🔒 Locked'
   return rest.map(b => b.kind === 'drawing' ? '✎ Drawing' : b.text.trim()).join(' · ').slice(0, 120)
 }
 
@@ -200,7 +201,7 @@ export function toMarkdown(note: Note) {
 export function matches(note: Note, query: string) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return true
-  const haystack = [note.title, note.folder, ...note.blocks.filter(b => !b.deleted).map(b => b.text)].join('\n').toLowerCase()
+  const haystack = [note.title, note.folder, ...note.blocks.filter(b => !b.deleted && b.kind !== 'locked').map(b => b.text)].join('\n').toLowerCase()
   return words.every(w => haystack.includes(w))
 }
 

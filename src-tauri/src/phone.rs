@@ -1,0 +1,439 @@
+//! The phone page: a small web page any phone on the same Wi-Fi can open (no app needed) to send
+//! text, links and files to this computer, see today's agenda and what's due, and tick checklists.
+//!
+//! It's off until turned on in Settings. It listens on the local network (port 41420) and every
+//! request but the page itself needs the key that's in the link (and the QR code) shown in Settings;
+//! a new key can be made at any time, which locks out phones that had the old one.
+
+use crate::bridgelink::BridgeLinkManager;
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::{
+    io::{Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
+use tauri::{AppHandle, Emitter, Manager};
+
+const PORT: u16 = 41420;
+const PAGE: &str = include_str!("phone.html");
+const MAX_JSON: usize = 256 * 1024;
+const MAX_UPLOAD: u64 = 500 * 1024 * 1024;
+const KEY_FILE: &str = "phone-key";
+
+struct Server {
+    stop: Arc<AtomicBool>,
+}
+
+static SERVER: Mutex<Option<Server>> = Mutex::new(None);
+static ERROR: Mutex<String> = Mutex::new(String::new());
+/// Today's agenda and what's due, as the window last worked it out (it knows recurring events and
+/// Canvas); the page shows it as is.
+static SNAPSHOT: Mutex<Option<Value>> = Mutex::new(None);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneStatus {
+    pub running: bool,
+    /// The page's address with its key, for each of this computer's network addresses.
+    pub urls: Vec<String>,
+    pub error: String,
+}
+
+fn key_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join(KEY_FILE))
+}
+
+fn new_key() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 18];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn key(app: &AppHandle) -> Result<String, String> {
+    let path = key_path(app)?;
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let text = text.trim().to_string();
+        if text.len() >= 24 && text.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(text);
+        }
+    }
+    let key = new_key();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::fs::write(&path, &key).map_err(|e| e.to_string())?;
+    Ok(key)
+}
+
+/// This computer's address on the local network (the one it would use to reach the internet; no
+/// packet is sent).
+fn lan_address() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    socket.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+}
+
+fn status(app: &AppHandle) -> PhoneStatus {
+    let running = SERVER.lock().map(|s| s.is_some()).unwrap_or(false);
+    let urls = match (running, key(app)) {
+        (true, Ok(key)) => lan_address().map(|ip| vec![format!("http://{ip}:{PORT}/#{key}")]).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    PhoneStatus { running, urls, error: ERROR.lock().map(|e| e.clone()).unwrap_or_default() }
+}
+
+fn start(app: &AppHandle) -> Result<(), String> {
+    let mut server = SERVER.lock().map_err(|_| "lock poisoned")?;
+    if server.is_some() {
+        return Ok(());
+    }
+    let listener = TcpListener::bind(("0.0.0.0", PORT)).map_err(|e| format!("Port {PORT} is in use or blocked: {e}"))?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let (app, flag) = (app.clone(), stop.clone());
+    std::thread::Builder::new()
+        .name("phone-page".into())
+        .spawn(move || {
+            while !flag.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, addr)) => {
+                        let app = app.clone();
+                        std::thread::spawn(move || handle(&app, stream, addr));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(80)),
+                    Err(_) => std::thread::sleep(Duration::from_millis(200)),
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    *server = Some(Server { stop });
+    Ok(())
+}
+
+fn stop() {
+    if let Ok(mut server) = SERVER.lock() {
+        if let Some(s) = server.take() {
+            s.stop.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+// ---- HTTP ----
+
+struct Request {
+    method: String,
+    path: String,
+    query: String,
+    headers: Vec<(String, String)>,
+    /// What was read past the headers (the start of the body).
+    rest: Vec<u8>,
+}
+
+impl Request {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+    fn length(&self) -> u64 {
+        self.header("content-length").and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+    }
+    fn param(&self, name: &str) -> Option<String> {
+        url::form_urlencoded::parse(self.query.as_bytes()).find(|(k, _)| k == name).map(|(_, v)| v.into_owned())
+    }
+}
+
+fn read_head(stream: &mut TcpStream) -> Result<Request, String> {
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 8192];
+    let end = loop {
+        let n = stream.read(&mut chunk).map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("closed".into());
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if let Some(i) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+            break i;
+        }
+        if buffer.len() > 32 * 1024 {
+            return Err("headers too large".into());
+        }
+    };
+    let head = String::from_utf8_lossy(&buffer[..end]).into_owned();
+    let mut lines = head.split("\r\n");
+    let mut first = lines.next().unwrap_or_default().split_whitespace();
+    let method = first.next().unwrap_or_default().to_string();
+    let target = first.next().unwrap_or("/").to_string();
+    let (path, query) = target.split_once('?').map(|(p, q)| (p.to_string(), q.to_string())).unwrap_or((target, String::new()));
+    let headers = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).collect();
+    Ok(Request { method, path, query, headers, rest: buffer[end + 4..].to_vec() })
+}
+
+fn read_body(stream: &mut TcpStream, request: &Request, max: usize) -> Result<Vec<u8>, String> {
+    let length = request.length() as usize;
+    if length > max {
+        return Err("too large".into());
+    }
+    let mut body = request.rest.clone();
+    body.truncate(length);
+    let mut chunk = [0u8; 16384];
+    while body.len() < length {
+        let n = stream.read(&mut chunk).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..n.min(length - body.len())]);
+    }
+    Ok(body)
+}
+
+fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8]) {
+    let label = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        413 => "Payload Too Large",
+        _ => "Error",
+    };
+    let head = format!(
+        "HTTP/1.1 {status} {label}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(body);
+}
+
+fn json_reply(stream: &mut TcpStream, status: u16, value: &Value) {
+    respond(stream, status, "application/json", value.to_string().as_bytes());
+}
+
+/// Compares without stopping at the first difference.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+fn handle(app: &AppHandle, mut stream: TcpStream, _addr: SocketAddr) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    let Ok(request) = read_head(&mut stream) else { return };
+    if request.method == "GET" && (request.path == "/" || request.path == "/index.html") {
+        return respond(&mut stream, 200, "text/html; charset=utf-8", PAGE.as_bytes());
+    }
+    if !request.path.starts_with("/api/") {
+        return respond(&mut stream, 404, "text/plain", b"Not found");
+    }
+    let authorized = key(app).is_ok_and(|key| request.header("x-key").is_some_and(|given| same(given, &key)));
+    if !authorized {
+        // Slows down guessing.
+        std::thread::sleep(Duration::from_millis(400));
+        return json_reply(&mut stream, 401, &json!({ "error": "This link is old. Open the new one from BridgeDeck → Settings → Phone." }));
+    }
+    let result = route(app, &mut stream, &request);
+    match result {
+        Ok(value) => json_reply(&mut stream, 200, &value),
+        Err(error) => json_reply(&mut stream, 400, &json!({ "error": error })),
+    }
+}
+
+fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<Value, String> {
+    let manager = app.state::<BridgeLinkManager>().inner().clone();
+    let body_json = |stream: &mut TcpStream| -> Result<Value, String> { serde_json::from_slice(&read_body(stream, request, MAX_JSON)?).map_err(|_| "Bad request".to_string()) };
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/api/summary") => {
+            let computer = manager.computer_name();
+            let snapshot = SNAPSHOT.lock().ok().and_then(|s| s.clone()).unwrap_or(json!({}));
+            Ok(json!({ "computer": computer, "snapshot": snapshot, "lists": crate::bridgelink::notes::phone_lists(&manager)? }))
+        }
+        ("POST", "/api/check") => {
+            let body = body_json(stream)?;
+            let (note, block, checked) = (body["note"].as_str().unwrap_or_default(), body["block"].as_str().unwrap_or_default(), body["checked"].as_bool().unwrap_or(false));
+            crate::bridgelink::notes::phone_check(&manager, note, block, checked)?;
+            let _ = app.emit("notes-changed", ());
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/add") => {
+            let body = body_json(stream)?;
+            crate::bridgelink::notes::phone_add(&manager, body["note"].as_str().unwrap_or_default(), body["text"].as_str().unwrap_or_default())?;
+            let _ = app.emit("notes-changed", ());
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/text") => {
+            let body = body_json(stream)?;
+            let text = body["text"].as_str().unwrap_or_default().trim().to_string();
+            if text.is_empty() {
+                return Err("Nothing to send".into());
+            }
+            crate::clipboard::put_text(text.clone()).ok();
+            crate::clipboard::remember_from(&text, "Phone");
+            let _ = app.emit("phone-text", json!({ "text": text }));
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/upload") => {
+            let name = request.param("name").unwrap_or_default();
+            let path = upload(app, stream, request, &name)?;
+            let _ = app.emit("phone-file", json!({ "name": path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "path": path.display().to_string() }));
+            Ok(json!({ "ok": true, "name": path.file_name().map(|n| n.to_string_lossy().to_string()) }))
+        }
+        _ => Err("Unknown request".into()),
+    }
+}
+
+/// A file name that's safe on Mac and Windows: no folders or reserved characters.
+pub fn clean_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let cleaned: String = base.chars().map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c }).collect();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim();
+    let cleaned: String = cleaned.chars().take(120).collect();
+    if cleaned.is_empty() { "From phone".into() } else { cleaned }
+}
+
+/// `name`, or "name (2).ext" and so on if it's taken.
+fn free_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.to_string(), String::new()),
+    };
+    (2..1000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
+}
+
+fn upload(app: &AppHandle, stream: &mut TcpStream, request: &Request, name: &str) -> Result<PathBuf, String> {
+    let length = request.length();
+    if length == 0 {
+        return Err("The file is empty".into());
+    }
+    if length > MAX_UPLOAD {
+        return Err("Files up to 500 MB can be sent this way".into());
+    }
+    let shared = crate::shared_folder(app);
+    let root = if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) };
+    save_upload(&root.join("From phone"), stream, request, name, length)
+}
+
+/// Streams the body to a new file in `dir` (complete files only: a broken upload leaves nothing).
+fn save_upload(dir: &Path, stream: &mut TcpStream, request: &Request, name: &str, length: u64) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = free_path(dir, &clean_file_name(name));
+    let partial = path.with_extension("partial-upload");
+    let result = (|| {
+        let mut file = std::fs::File::create(&partial).map_err(|e| e.to_string())?;
+        let start = request.rest.len().min(length as usize);
+        file.write_all(&request.rest[..start]).map_err(|e| e.to_string())?;
+        let mut left = length - start as u64;
+        let mut chunk = vec![0u8; 64 * 1024];
+        while left > 0 {
+            let n = stream.read(&mut chunk[..(left.min(64 * 1024) as usize)]).map_err(|e| e.to_string())?;
+            if n == 0 {
+                return Err("The upload stopped part way".to_string());
+            }
+            file.write_all(&chunk[..n]).map_err(|e| e.to_string())?;
+            left -= n as u64;
+        }
+        file.flush().map_err(|e| e.to_string())?;
+        drop(file);
+        std::fs::rename(&partial, &path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&partial);
+    }
+    result.map(|_| path)
+}
+
+// ---- Commands ----
+
+#[tauri::command]
+pub fn phone_settings(app: AppHandle, enabled: bool) -> PhoneStatus {
+    let result = if enabled { start(&app) } else { stop(); Ok(()) };
+    if let Ok(mut error) = ERROR.lock() {
+        *error = result.err().unwrap_or_default();
+    }
+    status(&app)
+}
+
+#[tauri::command]
+pub fn phone_status(app: AppHandle) -> PhoneStatus {
+    status(&app)
+}
+
+/// A new key: phones with the old link have to scan the new one.
+#[tauri::command]
+pub fn phone_new_key(app: AppHandle) -> Result<PhoneStatus, String> {
+    std::fs::write(key_path(&app)?, new_key()).map_err(|e| e.to_string())?;
+    Ok(status(&app))
+}
+
+#[tauri::command]
+pub fn phone_publish(snapshot: Value) {
+    if snapshot.to_string().len() <= MAX_JSON {
+        if let Ok(mut s) = SNAPSHOT.lock() {
+            *s = Some(snapshot);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uploaded_names_stay_in_the_folder() {
+        assert_eq!(clean_file_name("IMG_0042.HEIC"), "IMG_0042.HEIC");
+        assert_eq!(clean_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(clean_file_name("C:\\Users\\x\\photo.jpg"), "photo.jpg");
+        assert_eq!(clean_file_name(".hidden"), "hidden");
+        assert_eq!(clean_file_name("a<b>c?.txt"), "a_b_c_.txt");
+        assert_eq!(clean_file_name(""), "From phone");
+    }
+
+    #[test]
+    fn taken_names_get_a_number() {
+        let dir = std::env::temp_dir().join(format!("bd-phone-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(free_path(&dir, "a.jpg"), dir.join("a.jpg"));
+        std::fs::write(dir.join("a.jpg"), b"x").unwrap();
+        assert_eq!(free_path(&dir, "a.jpg"), dir.join("a (2).jpg"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_requests_and_streams_uploads() {
+        let dir = std::env::temp_dir().join(format!("bd-phone-upload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let sent = body.clone();
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            let head = format!("POST /api/upload?name=..%2Fphoto%20one.jpg HTTP/1.1\r\nHost: x\r\nX-Key: abc\r\nContent-Length: {}\r\n\r\n", sent.len());
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&sent).unwrap();
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_head(&mut stream).unwrap();
+        assert_eq!((request.method.as_str(), request.path.as_str()), ("POST", "/api/upload"));
+        assert_eq!(request.header("x-key"), Some("abc"));
+        assert_eq!(request.param("name").as_deref(), Some("../photo one.jpg"));
+        let path = save_upload(&dir, &mut stream, &request, &request.param("name").unwrap(), request.length()).unwrap();
+        client.join().unwrap();
+        assert_eq!(path, dir.join("photo one.jpg"));
+        assert_eq!(std::fs::read(&path).unwrap(), body);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keys_compare_whole() {
+        assert!(same("abc123", "abc123"));
+        assert!(!same("abc123", "abc124") && !same("abc", "abc123"));
+    }
+}
