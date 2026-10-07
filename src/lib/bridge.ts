@@ -543,3 +543,8 @@ export const circuitDelete = (project: string, name: string) => native<void>('ci
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
 export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
 export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })
+/** Crashes and errors on this computer (src-tauri/src/errorlog.rs). */
+export type ErrorLog = { text: string; entries: number; crashes: number; path: string }
+export const errorLogRead = () => native<ErrorLog>('error_log_read')
+export const errorLogAdd = (source: string, message: string) => native<void>('error_log_add', { source, message })
+export const errorLogClear = () => native<void>('error_log_clear')

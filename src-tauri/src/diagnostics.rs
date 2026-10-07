@@ -125,6 +125,11 @@ pub fn local_report(app: &AppHandle) -> String {
             }
         }
     }
+
+    let errors = crate::errorlog::recent(6 * 1024);
+    if !errors.trim().is_empty() {
+        let _ = writeln!(r, "\n[Recent errors]\n{}", errors.trim_end());
+    }
     redact(&r)
 }
 
@@ -151,6 +156,10 @@ pub async fn diagnostics_report(app: AppHandle) -> Result<String, String> {
 }
 
 /// UTC time as "2026-10-01 14:05 UTC" without a date crate.
+pub fn now_text() -> String {
+    chrono_like_now()
+}
+
 fn chrono_like_now() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));

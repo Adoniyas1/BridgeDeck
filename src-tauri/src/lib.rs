@@ -20,6 +20,7 @@ mod extensions;
 mod backups;
 mod canvas;
 mod circuits;
+mod errorlog;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -570,6 +571,7 @@ pub fn run() {
         .manage(BridgeLinkManager::default())
         .manage(sync_sidecar::SyncSidecar::default())
         .setup(|app| {
+            errorlog::init(app.handle());
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
@@ -654,6 +656,9 @@ pub fn run() {
             backups::backups_list,
             canvas::canvas_feed,
             canvas::canvas_api,
+            errorlog::error_log_read,
+            errorlog::error_log_add,
+            errorlog::error_log_clear,
             circuits::circuits_list,
             circuits::circuit_load,
             circuits::circuit_save,
@@ -772,6 +777,7 @@ pub fn run() {
                 send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
             }
             tauri::RunEvent::Exit => {
+                errorlog::closed();
                 mimir_host::stop();
                 sync_sidecar::shutdown(app);
             }
