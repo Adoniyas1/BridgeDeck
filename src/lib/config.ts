@@ -22,7 +22,8 @@ export const defaultConfig: AppConfig = {
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
   browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [] },
-  study: { ocrLanguages: [] },
+  study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'] },
+  canvas: { base: '', feed: '', token: '', remindHours: 24, done: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -90,7 +91,17 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
-    study: { ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [] },
+    study: {
+      ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [],
+      examBlock: Array.isArray(input.study?.examBlock) ? cleanSites(input.study.examBlock) : [...defaultConfig.study.examBlock],
+    },
+    canvas: {
+      base: typeof input.canvas?.base === 'string' ? input.canvas.base : '',
+      feed: typeof input.canvas?.feed === 'string' ? input.canvas.feed : '',
+      token: typeof input.canvas?.token === 'string' ? input.canvas.token : '',
+      remindHours: Number.isFinite(input.canvas?.remindHours) ? Math.max(0, Math.min(168, Number(input.canvas!.remindHours))) : defaultConfig.canvas.remindHours,
+      done: Array.isArray(input.canvas?.done) ? input.canvas.done.filter((d): d is string => typeof d === 'string').slice(-500) : [],
+    },
     browsing: {
       adblock: input.browsing?.adblock !== false,
       allowAds: cleanSites(input.browsing?.allowAds),

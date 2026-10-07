@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarPlus, ChevronLeft, ChevronRight, Download, ListChecks, MapPin, RefreshCw, Repeat, Trash2, Upload, X } from 'lucide-react'
+import { CalendarPlus, ChevronLeft, ChevronRight, Download, ExternalLink, GraduationCap, ListChecks, MapPin, RefreshCw, Repeat, Trash2, Upload, X } from 'lucide-react'
 import { calendarDelete, calendarImport, calendarReadIcs, calendarSave, calendarWriteIcs, pickIcsFile, type CalEvent, type CalRepeat } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
+import { openInNewTab } from '../browser/state'
 import { newId } from '../notes/model'
 import { fromIcs, toIcs } from './ics'
 import { touchesDay, addDays, addMonths, colorOf, COLORS, dateInput, DAY, formatRange, formatTime, fromInputs, layoutDay, monthGrid, sameDay, startOfDay, startOfWeek, timeInput, weekdayName, type Item } from './model'
@@ -222,7 +223,9 @@ function ItemDetails({ item, onClose }: { item: Item; onClose: () => void }) {
     <div className="card cal-modal small" onClick={e => e.stopPropagation()}>
       <div className="cal-modal-head"><h3>{item.title}</h3><button className="cal-icon" onClick={onClose}><X size={15} /></button></div>
       <p>{new Date(item.start).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · {formatRange(item)}</p>
-      {item.calendar && <p className="cal-muted">{item.source === 'todo' ? `Checklist: ${item.calendar}` : `Apple Calendar: ${item.calendar}`}</p>}
+      {item.calendar && <p className="cal-muted">{item.source === 'todo' ? `Checklist: ${item.calendar}` : item.source === 'canvas' ? `Canvas: ${item.calendar}` : `Apple Calendar: ${item.calendar}`}</p>}
+      {item.source === 'canvas' && <p className="cal-muted">{item.checked ? 'Done. ' : ''}From Canvas. Mark it done in the Study tab’s Assignments.</p>}
+      {item.source === 'canvas' && <div className="actions">{item.url && <button onClick={() => { openInNewTab(item.url!); onClose() }}><ExternalLink size={15} />Open in Canvas</button>}<button className="secondary" onClick={() => { activateTab('study'); onClose() }}><GraduationCap size={15} />Study</button></div>}
       {item.source === 'apple' && <p className="cal-muted">Shown from the Mac’s Apple Calendar. Change it there.</p>}
       {item.source === 'todo' && <div className="actions"><button onClick={() => { activateTab('notes'); onClose() }}><ListChecks size={15} />Open in Notes</button></div>}
     </div>

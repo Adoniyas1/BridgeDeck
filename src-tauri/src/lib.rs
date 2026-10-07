@@ -18,6 +18,7 @@ mod placement;
 mod adblock;
 mod extensions;
 mod backups;
+mod canvas;
 mod circuits;
 mod webkeys;
 mod webmedia;
@@ -649,7 +650,10 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,
+            browser::exam_sites,
             backups::backups_list,
+            canvas::canvas_feed,
+            canvas::canvas_api,
             circuits::circuits_list,
             circuits::circuit_load,
             circuits::circuit_save,

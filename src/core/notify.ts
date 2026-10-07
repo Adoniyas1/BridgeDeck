@@ -1,6 +1,7 @@
 import { desktopNotify } from '../lib/bridge'
 import type { LocalSendRecent, SyncConflict } from '../types'
 import { configStore } from './config'
+import { examOn } from './exam'
 
 /** Kinds of desktop notification the user can turn off. Remote control starting and pairing
  *  requests always notify: someone else is reaching this computer. */
@@ -8,6 +9,8 @@ export type NotifyKind = 'messages' | 'ai' | 'files' | 'sync' | 'updates' | 'rem
 
 export function notify(kind: NotifyKind, title: string, body: string) {
   if (!configStore.get().notifications[kind]) return
+  // Exam mode: only reminders get through.
+  if (kind !== 'reminders' && examOn()) return
   void desktopNotify(title, body).catch(() => undefined)
 }
 

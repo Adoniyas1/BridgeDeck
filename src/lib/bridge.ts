@@ -539,3 +539,7 @@ export const circuitsList = () => native<CircuitFile[]>('circuits_list')
 export const circuitLoad = (project: string, name: string) => native<string>('circuit_load', { project, name })
 export const circuitSave = (project: string, name: string, circuit: string) => native<void>('circuit_save', { project, name, circuit })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
+/** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
+export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
+export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
+export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })

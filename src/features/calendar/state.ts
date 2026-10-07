@@ -7,6 +7,8 @@ import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
 import { dueItems, noteTitle } from '../notes/model'
 import { notesStore } from '../notes/state'
+import { mergeCanvas, type Assignment } from '../study/canvas'
+import { canvasStore } from '../study/canvasStore'
 import { addDays, DAY, formatTime, startOfDay, type Item } from './model'
 import { occurrences } from './recur'
 
@@ -40,7 +42,7 @@ export async function loadApple(from: number, to: number, force = false) {
 }
 
 /** Everything the calendar shows between two times, soonest first. */
-export function itemsBetween(events: CalEvent[], notes: import('../../lib/bridge').Note[], apple: AppleItem[], from: number, to: number): Item[] {
+export function itemsBetween(events: CalEvent[], notes: import('../../lib/bridge').Note[], apple: AppleItem[], from: number, to: number, canvas: Assignment[] = []): Item[] {
   const items: Item[] = []
   for (const event of events) {
     if (event.deleted) continue
@@ -57,6 +59,11 @@ export function itemsBetween(events: CalEvent[], notes: import('../../lib/bridge
       items.push({ key: `apple:${a.from}:${a.id}`, source: 'apple', title: a.title || (a.kind === 'reminder' ? 'Reminder' : 'Event'), start: a.start, end: a.kind === 'reminder' ? a.start : a.end, allDay: a.allDay, color: a.kind === 'reminder' ? 'teal' : 'purple', calendar: `${a.calendar}${a.from ? ` · ${a.from}` : ''}` })
     }
   }
+  for (const a of canvas) {
+    if (a.due == null || a.due < from || a.due >= to) continue
+    const title = a.kind === 'event' ? a.title : `${a.done ? '✓ ' : ''}${a.title}`
+    items.push({ key: `${a.id}:${a.due}`, source: 'canvas', title, start: a.due, end: a.due, allDay: false, color: a.kind === 'event' ? 'blue' : 'red', calendar: a.course, checked: a.done, url: a.url })
+  }
   return items.sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start - b.start || a.title.localeCompare(b.title))
 }
 
@@ -64,9 +71,13 @@ export function useItems(from: number, to: number) {
   const events = useStore(eventsStore)
   const notes = useStore(notesStore)
   const apple = useStore(appleStore)
-  const showApple = useStore(configStore).calendar.showApple
+  const config = useStore(configStore)
+  const showApple = config.calendar.showApple
+  const canvasData = useStore(canvasStore)
+  const done = config.canvas.done
+  const canvas = useMemo(() => mergeCanvas(canvasData.feed, canvasData.api, done), [canvasData, done])
   useEffect(() => { void loadApple(from, to) }, [from, to, showApple])
-  return useMemo(() => itemsBetween(events, notes, showApple ? apple.items : [], from, to), [events, notes, apple.items, showApple, from, to])
+  return useMemo(() => itemsBetween(events, notes, showApple ? apple.items : [], from, to, canvas), [events, notes, apple.items, showApple, from, to, canvas])
 }
 
 const announced = new Set<string>()

@@ -2,11 +2,11 @@ import type { CalEvent } from '../../lib/bridge'
 
 export const DAY = 86_400_000
 
-/** What the calendar shows: an event occurrence, a checklist item due from Notes, or an Apple
- *  Calendar event or Reminder from the Mac. */
+/** What the calendar shows: an event occurrence, a checklist item due from Notes, an Apple Calendar
+ *  event or Reminder from the Mac, or a Canvas assignment or course event. */
 export type Item = {
   key: string
-  source: 'event' | 'todo' | 'apple'
+  source: 'event' | 'todo' | 'apple' | 'canvas'
   title: string
   start: number
   end: number
@@ -16,6 +16,8 @@ export type Item = {
   noteId?: string
   calendar?: string
   checked?: boolean
+  /** Canvas: the assignment's page. */
+  url?: string
 }
 
 export const COLORS: Array<[string, string]> = [

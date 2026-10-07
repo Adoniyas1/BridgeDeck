@@ -53,8 +53,12 @@ export type AppConfig = {
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
   tv: { shortcuts: Array<{ name: string; url: string }> }
-  /** Study: languages text recognition reads in scanned books (English is always included). */
-  study: { ocrLanguages: string[] }
+  /** Study: languages text recognition reads in scanned books (English is always included), and the
+   *  sites exam mode keeps closed in the Browser and TV tabs. */
+  study: { ocrLanguages: string[]; examBlock: string[] }
+  /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
+   *  the credential store), hours before a due date to remind, and assignments marked done here. */
+  canvas: { base: string; feed: string; token: string; remindHours: number; done: string[] }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker, and the Browser's bookmarks. */
   browsing: {
     adblock: boolean
