@@ -429,12 +429,14 @@ export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this wa
 export type VaultStatus = { enabled: boolean; path: string; files: number; error: string | null }
 export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
-export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub'; bytes: number; indexed: boolean }
-export type StudyCourse = { name: string; books: StudyBook[] }
+export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp'; bytes: number; indexed: boolean }
+export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
+export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
+export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
 export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
@@ -458,6 +460,10 @@ export const chatgptShow = (text: string | null, folder: string | null, x: numbe
 export const chatgptHide = () => native<void>('chatgpt_hide')
 export const chatgptNew = () => native<void>('chatgpt_new')
 export const chatgptSave = () => native<void>('chatgpt_save')
+/** Attaches a photo to the panel's message box (the person sends it). */
+export const chatgptAttachImage = (path: string) => native<void>('chatgpt_attach_image', { path })
+/** Reads the panel's chat back; it arrives as a `chatgpt-chat` event. */
+export const chatgptRead = () => native<void>('chatgpt_read')
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')
@@ -468,6 +474,7 @@ export const browserHide = (tab: string) => native<void>('browser_hide', { tab }
 export const browserPause = (tab: string) => native<void>('browser_pause', { tab })
 export const browserClose = (tab: string) => native<void>('browser_close', { tab })
 export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
+export const browserFillCode = (code: string) => native<number>('browser_fill_code', { code })
 /** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
 export type MangaChapter = { id: string; title: string }
 export type MangaProgress = { chapters?: Record<string, { page: number; pages: number; done: boolean; at: number }>; last?: string; at?: number; bookmarks?: Record<string, number[]> }

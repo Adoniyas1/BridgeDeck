@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, BookOpen, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Presentation, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
-import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyRemoveBook, type CalEvent } from '../../lib/bridge'
+import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, type CalEvent, type StudyBook } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
@@ -30,9 +30,21 @@ export default function StudyPage({ active }: { active: boolean }) {
     const current = libraryStore.get().library
     if (current) void indexLibrary(current, () => void refreshLibrary())
   }, 10_000, [active])
-  const courses = library?.courses ?? []
-  const course = courses.find(c => c.name === selected) ?? courses[0] ?? null
-  useEffect(() => { if (!selected && courses[0]) setSelected(courses[0].name) }, [selected, courses])
+  const [showArchived, setShowArchived] = useState(false)
+  const all = library?.courses ?? []
+  const courses = all.filter(c => !c.archived)
+  const archived = all.filter(c => c.archived)
+  const course = all.find(c => c.name === selected) ?? courses[0] ?? null
+  useEffect(() => { if ((!selected || !all.some(c => c.name === selected)) && courses[0]) setSelected(courses[0].name) }, [selected, all])
+
+  async function archive(name: string, on: boolean) {
+    try { await studyArchiveCourse(name, on); await refreshLibrary(); if (on) setSelected(null) } catch (e) { setStatus(String(e)) }
+  }
+
+  async function remove(name: string) {
+    if (!window.confirm(`Delete ${name}? Its folder (books, slides) goes to the Trash on this computer and is removed from your other computer. Its notes and calendar events stay. To keep it but hide it, archive it instead.`)) return
+    try { await studyDeleteCourse(name); setSelected(null); await refreshLibrary() } catch (e) { setStatus(String(e)) }
+  }
 
   async function addCourse() {
     const name = newCourse.trim()
@@ -53,6 +65,12 @@ export default function StudyPage({ active }: { active: boolean }) {
           <GraduationCap size={15} /><span>{c.name}</span><small>{c.books.length}</small>
         </button>)}
       </div>
+      {archived.length > 0 && <button className="ghost study-archived-toggle" onClick={() => setShowArchived(v => !v)}><Archive size={13} />{showArchived ? 'Hide' : 'Show'} archived ({archived.length})</button>}
+      {showArchived && <div className="study-course-list archived">
+        {archived.map(c => <button key={c.name} className={c.name === course?.name ? 'active' : ''} onClick={() => setSelected(c.name)}>
+          <Archive size={15} /><span>{c.name}</span><small>{c.books.length}</small>
+        </button>)}
+      </div>}
       <form className="study-new" onSubmit={e => { e.preventDefault(); void addCourse() }}>
         <input placeholder="New course, e.g. Math 221" value={newCourse} onChange={e => setNewCourse(e.target.value)} />
         <button className="cal-icon" title="Add course" disabled={!newCourse.trim()}><Plus size={16} /></button>
@@ -60,12 +78,16 @@ export default function StudyPage({ active }: { active: boolean }) {
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
     </aside>
-    {course ? <CourseView key={course.name} name={course.name} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status} />
+    {course ? <CourseView key={course.name} name={course.name} archived={course.archived} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status}
+        onArchive={on => void archive(course.name, on)} onDelete={() => void remove(course.name)} />
       : <div className="study-course"><Card className="study-empty"><GraduationCap size={28} /><h3>Add your first course</h3><p>Then add its textbooks (PDF), and BridgeDeck keeps them on both computers with your notes, chapter checklists and exam dates.</p></Card><AssignmentsCard courses={[]} /><CanvasCard /></div>}
   </div>
 }
 
-function CourseView({ name, courses, books, root, status, onStatus }: { name: string; courses: string[]; books: import('../../lib/bridge').StudyBook[]; root: string; status: string; onStatus: (s: string) => void }) {
+const SLIDES = /\.(pptx?|key|odp)$/i
+const isSlides = (book: StudyBook) => book.kind !== 'pdf' && book.kind !== 'epub'
+
+function CourseView({ name, archived, courses, books, root, status, onStatus, onArchive, onDelete }: { name: string; archived: boolean; courses: string[]; books: StudyBook[]; root: string; status: string; onStatus: (s: string) => void; onArchive: (on: boolean) => void; onDelete: () => void }) {
   const notes = useStore(notesStore)
   const events = useStore(eventsStore)
   const mine = useMemo(() => courseNotes(notes, name), [notes, name])
@@ -75,11 +97,11 @@ function CourseView({ name, courses, books, root, status, onStatus }: { name: st
   const [examTime, setExamTime] = useState('09:00')
 
   async function addBooks() {
-    const paths = (await pickTransferPaths(false)).filter(p => /\.(pdf|epub)$/i.test(p))
-    if (!paths.length) { onStatus('Choose PDF or EPUB files.'); return }
+    const paths = (await pickTransferPaths(false)).filter(p => /\.(pdf|epub)$/i.test(p) || SLIDES.test(p))
+    if (!paths.length) { onStatus('Choose PDF or EPUB books, or presentations (PowerPoint, Keynote).'); return }
     try {
       const added = await studyAddBooks(name, paths)
-      onStatus(`Added ${added.length} book${added.length === 1 ? '' : 's'}.`)
+      onStatus(`Added ${added.length} file${added.length === 1 ? '' : 's'}.`)
       await refreshLibrary()
     } catch (e) { onStatus(String(e)) }
   }
@@ -109,18 +131,26 @@ function CourseView({ name, courses, books, root, status, onStatus }: { name: st
     } catch (e) { onStatus(String(e)) }
   }
 
+  const readable = books.filter(b => !isSlides(b))
+  const slides = books.filter(isSlides)
+  const open = (book: StudyBook) => isSlides(book) ? void openPath(`${root}/${name}/${book.file}`).catch(e => onStatus(String(e))) : openBook(name, book.file, book.title)
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return <div className="study-course">
-    <Card><SectionTitle title={name} subtitle={`${books.length} book${books.length === 1 ? '' : 's'} · ${mine.length} note${mine.length === 1 ? '' : 's'}`}
-      action={<div className="actions"><button onClick={() => void addBooks()}><Plus size={15} />Add books</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button></div>} />
+    {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
+    <Card><SectionTitle title={name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
+      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
+        {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
+          : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
+        <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />
       {status && <p className="book-status">{status}</p>}
       {books.length ? <div className="study-books">{books.map(book => <div key={book.file} className="study-book">
-        <button className="study-book-cover" onClick={() => openBook(name, book.file, book.title)}><BookOpen size={26} /><span>{book.kind.toUpperCase()}</span></button>
+        <button className={`study-book-cover${isSlides(book) ? ' slides' : ''}`} onClick={() => open(book)}>{isSlides(book) ? <Presentation size={26} /> : <BookOpen size={26} />}<span>{book.kind.toUpperCase()}</span></button>
         <div className="grow"><strong title={book.file}>{book.title}</strong><small>{fmtBytes(book.bytes)}</small></div>
         <div className="study-book-actions">
-          <button className="ghost" onClick={() => openBook(name, book.file, book.title)}>Open</button>
+          <button className="ghost" title={isSlides(book) ? 'Opens in PowerPoint, Keynote or your presentation app' : undefined} onClick={() => open(book)}>Open</button>
           <button className="cal-icon" title="Remove" onClick={() => void removeBook(book.file, book.title)}><Trash2 size={14} /></button>
         </div>
-      </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks as PDFs; they appear on your other computer too.</p>}
+      </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks (PDF, EPUB) and lecture slides (PowerPoint, Keynote); they appear on your other computer too.</p>}
     </Card>
     <AssignmentsCard course={name} courses={courses} />
     <div className="study-tools">

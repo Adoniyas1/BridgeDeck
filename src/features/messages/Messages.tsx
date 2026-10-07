@@ -6,6 +6,8 @@ import { notify } from '../../core/notify'
 import type { ImAttachment, ImChat, ImContact, ImMessage } from '../../types'
 import { setConfig, useConfig } from '../../core/config'
 import type { MessagesSource } from './state'
+import { findCode } from './codes'
+import { gotCode } from './CodeChip'
 
 /** `visible`: the Messages page is on screen. The feed keeps polling while hidden so notifications and the
  *  unread badge work from any page; the open thread only loads while visible. */
@@ -293,9 +295,15 @@ export default function Messages({ source, visible, onUnreadChange, onCheckAgain
   function notifyNew(list: ImMessage[]) {
     const fresh = list.filter(m => !m.isFromMe && m.guid && !notified.current.has(m.guid) && toMs(m.dateCreated) > openedAt.current)
     fresh.forEach(m => notified.current.add(m.guid!))
-    const unseen = fresh.filter(m => !(visibleRef.current && document.hasFocus() && selectedGuidsRef.current.includes(m.chats![0].guid!)))
-    if (!unseen.length) return
     const nameOf = (address?: string | null) => peopleRef.current.get(addressKey(address))?.name ?? formatAddress(address)
+    // A one-time code is copied and offered in the tab bar (with its own notification) instead.
+    const coded = new Set<ImMessage>()
+    for (const m of fresh) {
+      const code = toMs(m.dateCreated) > Date.now() - 10 * 60_000 ? findCode(m.text) : null
+      if (code) { coded.add(m); gotCode(code, nameOf(m.handle?.address ?? m.chats![0].chatIdentifier)) }
+    }
+    const unseen = fresh.filter(m => !coded.has(m) && !(visibleRef.current && document.hasFocus() && selectedGuidsRef.current.includes(m.chats![0].guid!)))
+    if (!unseen.length) return
     if (unseen.length > 3) { notify('messages', 'Messages', `${unseen.length} new messages`); return }
     for (const m of unseen) {
       const chat = m.chats![0]

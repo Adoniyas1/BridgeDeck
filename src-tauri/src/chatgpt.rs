@@ -11,6 +11,9 @@
 //! which BridgeDeck catches and cancels. The panel has no access to BridgeDeck's commands
 //! (remote pages get no commands), and what can arrive this way is limited to saving
 //! chat notes, capped in size and rate.
+//!
+//! For the homework-from-a-photo import, BridgeDeck can also attach a photo to the message box
+//! (the person still sends it) and read the chat back without saving it (`chatgpt_read`).
 
 use base64::Engine;
 use std::{collections::HashMap, sync::Mutex, time::Instant};
@@ -31,6 +34,42 @@ static FOLDER: Mutex<Option<String>> = Mutex::new(None);
 /// Conversations arriving in parts, by save id.
 static PARTS: Mutex<Option<HashMap<String, Vec<Option<String>>>>> = Mutex::new(None);
 static SAVES: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+/// A photo waiting for the page to finish loading (a `data:` URL).
+static PENDING_IMAGE: Mutex<Option<(String, String)>> = Mutex::new(None);
+/// The next chat that arrives is handed to BridgeDeck's page (`chatgpt-chat`) instead of saved.
+static READ_NEXT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const MAX_IMAGE: u64 = 25 * 1024 * 1024;
+
+/// Script that attaches a picture to ChatGPT's message box once the page is ready: through the
+/// page's own file picker input, else as a dropped file.
+fn attach_script(name: &str, data_url: &str) -> String {
+    let (name, data) = (serde_json::to_string(name).unwrap_or_default(), serde_json::to_string(data_url).unwrap_or_default());
+    format!(
+        r#"(() => {{
+  const name = {name}, data = {data};
+  let tries = 0;
+  const timer = setInterval(() => {{
+    const box = document.querySelector('#prompt-textarea') || document.querySelector('main textarea, main [contenteditable="true"]');
+    const input = [...document.querySelectorAll('input[type="file"]')].find(i => !i.accept || /image/.test(i.accept)) || document.querySelector('input[type="file"]');
+    if ((!box || !input) && ++tries < 80) return;
+    clearInterval(timer);
+    // Decoded here rather than fetched: the page's content rules may not allow data: fetches.
+    const [head, body] = data.split(',');
+    const raw = atob(body), bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const file = new File([bytes], name, {{ type: head.slice(5, head.indexOf(';')) }});
+    const files = new DataTransfer();
+    files.items.add(file);
+    if (input) {{
+      input.files = files.files;
+      input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+    }} else if (box) {{
+      for (const type of ['dragenter', 'dragover', 'drop']) box.dispatchEvent(new DragEvent(type, {{ bubbles: true, cancelable: true, dataTransfer: files }}));
+    }}
+  }}, 250);
+}})();"#
+    )
+}
 
 /// Script that puts `text` in ChatGPT's message box once it appears (it doesn't send it).
 pub fn fill_script(text: &str) -> String {
@@ -227,10 +266,23 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
                 return false;
             }
             if url.host_str() == Some(SAVE_HOST) && url.query_pairs().any(|(k, _)| k == "empty") {
+                if READ_NEXT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    use tauri::Emitter;
+                    let _ = handle.emit_to("main", "chatgpt-chat", serde_json::json!({ "ok": false, "message": "No chat in ChatGPT yet" }));
+                    return false;
+                }
                 report(&handle, false, "No chat to save yet");
                 return false;
             }
             let Some(result) = receive_part(url) else { return url.host_str() != Some(SAVE_HOST) };
+            if READ_NEXT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                use tauri::Emitter;
+                let _ = match result {
+                    Ok(chat) => handle.emit_to("main", "chatgpt-chat", serde_json::json!({ "ok": true, "messages": chat.messages.iter().map(|m| serde_json::json!({ "role": m.role, "text": m.text })).collect::<Vec<_>>() })),
+                    Err(error) => handle.emit_to("main", "chatgpt-chat", serde_json::json!({ "ok": false, "message": error })),
+                };
+                return false;
+            }
             match result.and_then(|chat| save(&handle, chat)) {
                 Ok(()) => report(&handle, true, "Saved"),
                 Err(error) => report(&handle, false, &error),
@@ -255,6 +307,9 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
                 if let Some(text) = PENDING.lock().ok().and_then(|mut p| p.take()) {
                     fill(&view, &text);
                 }
+                if let Some((name, data)) = PENDING_IMAGE.lock().ok().and_then(|mut p| p.take()) {
+                    let _ = view.eval(attach_script(&name, &data));
+                }
             }
         });
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
@@ -277,6 +332,46 @@ pub fn chatgpt_hide(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn chatgpt_save(app: AppHandle) -> Result<(), String> {
     let view = app.get_webview(LABEL).ok_or("ChatGPT isn't open")?;
+    view.eval(RUN_SAVE).map_err(|e| e.to_string())
+}
+
+/// Attaches a picture (a file on this computer) to the message box in the panel, for the person to
+/// send. Call after the panel is shown.
+#[tauri::command]
+pub fn chatgpt_attach_image(app: AppHandle, path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(path);
+    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "heic" => "image/heic",
+        _ => return Err("Choose a photo (JPEG, PNG, HEIC or WebP)".into()),
+    };
+    if std::fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_IMAGE {
+        return Err("That photo is too big (25 MB at most)".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| format!("photo.{ext}"));
+    let data = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+    match app.get_webview(LABEL) {
+        Some(view) if view.url().is_ok_and(|u| u.host_str().is_some_and(|h| h.ends_with("chatgpt.com"))) => view.eval(attach_script(&name, &data)).map_err(|e| e.to_string()),
+        _ => {
+            if let Ok(mut pending) = PENDING_IMAGE.lock() {
+                *pending = Some((name, data));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Reads the open chat back (for the homework import) without saving it; it arrives as a
+/// `chatgpt-chat` event.
+#[tauri::command]
+pub fn chatgpt_read(app: AppHandle) -> Result<(), String> {
+    let view = app.get_webview(LABEL).ok_or("ChatGPT isn't open")?;
+    READ_NEXT.store(true, std::sync::atomic::Ordering::SeqCst);
     view.eval(RUN_SAVE).map_err(|e| e.to_string())
 }
 

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { GraduationCap, Languages, ShieldCheck } from 'lucide-react'
+import { GraduationCap, Languages, LogIn, ShieldCheck } from 'lucide-react'
 import { canvasApi, canvasFeed, isTauri, ocrLanguagesDownload, ocrLanguagesStatus } from '../../lib/bridge'
 import { feedAssignments } from './canvas'
 import { refreshCanvas } from './assignments'
 import { setConfig, useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
+import { openTab } from '../../core/tabs'
 import { Card, SectionTitle } from '../../ui'
 
 /** Languages text recognition can read in scanned books, besides English (codes Tesseract uses). */
@@ -52,6 +53,11 @@ function CanvasSettings() {
   const [busy, setBusy] = useState(false)
   const set = (patch: Partial<typeof canvas>) => setConfig(c => ({ ...c, canvas: { ...c.canvas, ...patch } }))
 
+  function signIn() {
+    const host = canvas.base.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    openTab({ id: 'web:canvas', kind: 'web', title: 'Canvas', params: { page: 'canvas', url: `https://${host}/login`, title: 'Canvas' } })
+  }
+
   async function test() {
     setBusy(true); setResult('')
     const lines: string[] = []
@@ -59,29 +65,30 @@ function CanvasSettings() {
       if (canvas.feed.trim()) {
         try { lines.push(`Calendar feed: ${feedAssignments(await canvasFeed(canvas.feed.trim())).filter(a => a.kind !== 'event').length} assignments.`) } catch (e) { lines.push(`Calendar feed: ${errorText(e, 'didn’t load')}`) }
       }
-      if (canvas.base.trim() && canvas.token.trim()) {
+      if (canvas.base.trim()) {
         try {
           const me = await canvasApi<{ name?: string }>(canvas.base, canvas.token, '/api/v1/users/self')
-          lines.push(`Signed in to Canvas as ${me?.name ?? 'you'}.`)
-        } catch (e) { lines.push(`Access token: ${errorText(e, 'didn’t work')}`) }
+          lines.push(`Signed in to Canvas as ${me?.name ?? 'you'}${canvas.token.trim() ? ' (access token)' : ''}.`)
+        } catch (e) { lines.push(`${canvas.token.trim() ? 'Access token' : 'Canvas'}: ${errorText(e, 'didn’t work')}`) }
       }
-      if (!lines.length) lines.push('Add the calendar feed link, or the Canvas address and an access token.')
+      if (!lines.length) lines.push('Add your school’s Canvas address and sign in, or the calendar feed link.')
       setResult(lines.join(' '))
       void refreshCanvas()
     } finally { setBusy(false) }
   }
 
   return <Card><SectionTitle title="Canvas" subtitle="Assignments, due dates, grades and announcements from your school’s Canvas" action={<GraduationCap size={18} />} />
-    <label>Calendar feed link<input type="password" autoComplete="off" placeholder="https://school.instructure.com/feeds/calendars/user_….ics" value={canvas.feed} onChange={e => set({ feed: e.target.value.trim() })} /></label>
     <label>Canvas address<input placeholder="school.instructure.com" value={canvas.base} onChange={e => set({ base: e.target.value.trim() })} /></label>
-    <label>Access token<input type="password" autoComplete="off" placeholder="Optional: for grades, announcements and what’s submitted" value={canvas.token} onChange={e => set({ token: e.target.value.trim() })} /></label>
+    <div className="actions"><button disabled={!canvas.base.trim() || !isTauri()} onClick={signIn}><LogIn size={14} />Sign in to Canvas</button></div>
+    <label>Calendar feed link<input type="password" autoComplete="off" placeholder="Optional: https://school.instructure.com/feeds/calendars/user_….ics" value={canvas.feed} onChange={e => set({ feed: e.target.value.trim() })} /></label>
+    <label>Access token<input type="password" autoComplete="off" placeholder="Optional: only if your school allows them" value={canvas.token} onChange={e => set({ token: e.target.value.trim() })} /></label>
     <label className="cal-setting">Remind me before a due date<select value={canvas.remindHours} onChange={e => set({ remindHours: Number(e.target.value) })}>
         {[0, 2, 6, 12, 24, 48, 72].map(h => <option key={h} value={h}>{h === 0 ? 'Only an hour before' : h < 24 ? `${h} hours (and an hour before)` : `${h / 24} day${h === 24 ? '' : 's'} (and an hour before)`}</option>)}
       </select></label>
     <div className="actions"><button disabled={busy || !isTauri()} onClick={() => void test()}>{busy ? 'Checking…' : 'Test and refresh'}</button></div>
     {result && <p className="hint">{result}</p>}
-    <p className="hint"><strong>Calendar feed:</strong> in Canvas, open Calendar, then “Calendar Feed” at the bottom right, and copy the link. That’s enough for assignments and due dates.</p>
-    <p className="hint"><strong>Access token</strong> (optional; some schools turn it off): Canvas → Account → Settings → “+ New Access Token”. It also shows grades, announcements and which assignments you’ve submitted. Both are kept in this computer’s password store, not in the settings file.</p>
+    <p className="hint"><strong>Sign in to Canvas</strong> opens your school’s Canvas in a BridgeDeck tab. Sign in there as usual (it remembers you), close the tab, and press “Test and refresh”. BridgeDeck then reads your courses (each becomes a Study course), every assignment including ones with no due date, grades, announcements and what you’ve submitted, the way Canvas’s own pages do. No access token needed.</p>
+    <p className="hint"><strong>Calendar feed</strong> (optional): Canvas → Calendar → “Calendar Feed”. <strong>Access token</strong> (optional, if your school allows them): Canvas → Account → Settings → “+ New Access Token”. Both are kept in this computer’s password store.</p>
   </Card>
 }
 

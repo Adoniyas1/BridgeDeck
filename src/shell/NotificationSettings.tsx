@@ -4,6 +4,7 @@ import { Card, SectionTitle, Toggle } from '../ui'
 
 const KINDS: Array<[NotifyKind, string]> = [
   ['messages', 'New iMessages and texts'],
+  ['mail', 'New email (Mail tab)'],
   ['ai', 'Messages from AI agents'],
   ['files', 'Files received, and requests to send you files'],
   ['sync', 'Sync conflicts (a file changed on two computers)'],

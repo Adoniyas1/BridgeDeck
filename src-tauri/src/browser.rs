@@ -228,6 +228,7 @@ fn new_window(app: &AppHandle, tab: &str, label: &str, url: Url, features: tauri
 #[tauri::command]
 pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let id = label(&tab)?;
+    set_shown(&id, true);
     let (pos, size) = crate::placement::bounds(x, y, w, h);
     let mut target = url.as_deref().map(address);
     // Made before the blocker last changed: remade (at the same page) with the new script.
@@ -268,6 +269,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     let script = crate::adblock::page_script(cfg!(windows));
     if !script.is_empty() {
         builder = if cfg!(windows) { builder.initialization_script_for_all_frames(script) } else { builder.initialization_script(script) };
+    }
+    // The Mail tab's pages say how many unread messages the inbox has in their title.
+    if tab.starts_with("mail") {
+        builder = builder.initialization_script(MAIL_SCRIPT);
     }
     let builder = builder
         .on_navigation(move |url| {
@@ -334,6 +339,7 @@ pub fn browser_has(app: AppHandle, tab: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn browser_hide(app: AppHandle, tab: String) -> Result<(), String> {
+    set_shown(&label(&tab)?, false);
     if let Some(view) = app.get_webview(&label(&tab)?) {
         view.hide().map_err(|e| e.to_string())?;
     }
@@ -366,10 +372,94 @@ pub fn browser_go(app: AppHandle, tab: String, action: String) -> Result<(), Str
 /// Closes a browser tab's page.
 #[tauri::command]
 pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
+    set_shown(&label(&tab)?, false);
     if let Some(view) = app.get_webview(&label(&tab)?) {
         view.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// For the Mail tab's pages: puts the inbox's unread count at the start of the page title,
+/// "(3) Mail - Outlook", where BridgeDeck reads it (Gmail already says "Inbox (3)"). Outlook on
+/// the web shows it beside Inbox in its folder list.
+const MAIL_SCRIPT: &str = r#"(() => {
+  if (window.top !== window) return;
+  const base = () => document.title.replace(/^\(\d+\)\s*/, '');
+  const count = () => {
+    if (/\bInbox \(\d+\)/.test(document.title)) return null;
+    for (const node of document.querySelectorAll('[role="treeitem"], [title^="Inbox"], [aria-label^="Inbox"]')) {
+      const label = (node.getAttribute('aria-label') || node.getAttribute('title') || '').trim();
+      const text = (node.innerText || '').trim();
+      if (!/^inbox\b/i.test(label) && !/^inbox\b/i.test(text)) continue;
+      const m = label.match(/(\d+)\s+unread/i) || text.match(/^inbox\s*(\d+)\b/i);
+      return m ? Number(m[1]) : 0;
+    }
+    return null;
+  };
+  setInterval(() => {
+    const n = count();
+    if (n == null) return;
+    const want = n ? '(' + n + ') ' + base() : base();
+    if (document.title !== want) document.title = want;
+  }, 4000);
+})();"#;
+
+/// The browser pages on screen now (shown and not hidden since).
+static SHOWN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn set_shown(label: &str, on: bool) {
+    if let Ok(mut shown) = SHOWN.lock() {
+        shown.retain(|l| l != label);
+        if on {
+            shown.push(label.to_string());
+        }
+    }
+}
+
+/// Types a one-time code into the page's code box: the box last typed in, else one marked for
+/// codes (autocomplete="one-time-code", or named code/otp/token…), spread over one-digit boxes
+/// when the site uses a box per digit. Uses the value setter and input events, so sites built
+/// with React and the like see it as typed.
+const FILL_CODE: &str = r#"(function (code) {
+  const typeable = el => el && el.tagName === 'INPUT' && /^(text|tel|number|password|)$/i.test(el.type || '') && !el.disabled && !el.readOnly && el.offsetParent !== null;
+  const named = el => /one-time-code/i.test(el.autocomplete || '') || /code|otp|token|verif|2fa|mfa|pin|passcode|one.?time/i.test([el.name, el.id, el.placeholder, el.getAttribute('aria-label')].join(' '));
+  const inputs = [...document.querySelectorAll('input')].filter(typeable);
+  let target = typeable(document.activeElement) ? document.activeElement : (inputs.find(el => /one-time-code/i.test(el.autocomplete || '')) || inputs.find(named));
+  if (!target && inputs.length === 1) target = inputs[0];
+  if (!target) return;
+  const set = (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    el.focus();
+    setter.call(el, value);
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const one = el => el.maxLength === 1;
+  if (one(target)) {
+    // The row of one-digit boxes the target is in, filled from its first box.
+    const row = inputs.filter(el => one(el) && el.parentElement && (el.parentElement === target.parentElement || el.parentElement.parentElement === target.parentElement.parentElement));
+    [...code].forEach((c, i) => { if (row[i]) set(row[i], c); });
+  } else {
+    set(target, code);
+  }
+})"#;
+
+/// Fills a one-time code (from a text message) into the browser page on screen.
+#[tauri::command]
+pub fn browser_fill_code(app: AppHandle, code: String) -> Result<usize, String> {
+    if code.is_empty() || code.len() > 12 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("That isn't a code".into());
+    }
+    let shown = SHOWN.lock().map(|s| s.clone()).unwrap_or_default();
+    let mut filled = 0;
+    for label in shown {
+        if let Some(view) = app.get_webview(&label) {
+            if view.eval(format!("{FILL_CODE}({})", json!(code))).is_ok() {
+                filled += 1;
+            }
+        }
+    }
+    Ok(filled)
 }
 
 #[cfg(test)]

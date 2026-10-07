@@ -2,6 +2,7 @@ import { ai } from './ai'
 import { browser } from './browser'
 import { tv } from './tv'
 import { spotify } from './spotify'
+import { mail } from './mail'
 import { calendar } from './calendar'
 import { devices } from './devices'
 import type { FeatureManifest } from './features'
@@ -18,4 +19,4 @@ import { study } from './study'
 import { sync } from './sync'
 
 /** Every feature, in tab order. The shell builds the tab bar, Settings and background work from this list. */
-export const features: FeatureManifest[] = [home, devices, remote, messages, notes, calendar, study, projects, logic, manga, browser, tv, spotify, ai, mimir, files, sync]
+export const features: FeatureManifest[] = [home, devices, remote, messages, mail, notes, calendar, study, projects, logic, manga, browser, tv, spotify, ai, mimir, files, sync]
