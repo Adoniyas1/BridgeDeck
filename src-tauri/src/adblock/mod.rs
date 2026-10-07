@@ -618,15 +618,16 @@ mod platform {
                     return;
                 }
                 if let Ok(mut q) = QUEUE.lock() {
-                    *q = Some(Queue { round, ids: ids.clone(), jobs, done: Vec::new() });
+                    *q = Some(Queue { round, ids, jobs, done: Vec::new() });
                 }
-                cleanup(ids);
                 next(&app, round);
             });
         });
     }
 
-    /// Removes lists from earlier versions of the rules.
+    /// Removes lists from earlier versions of the rules, once the new ones are all built (so
+    /// WebKit isn't deleting files while it writes others). WebKit always calls the remove's
+    /// completion handler, so it must be given one: passing none crashed BridgeDeck at start.
     unsafe fn cleanup(keep: Vec<String>) {
         let Some(mtm) = objc2::MainThreadMarker::new() else { return };
         let Some(store) = WKContentRuleListStore::defaultStore(mtm) else { return };
@@ -637,7 +638,8 @@ mod platform {
                 for old in found.iter() {
                     let old = old.to_string();
                     if old.starts_with(PREFIX) && !keep.contains(&old) {
-                        old_store.removeContentRuleListForIdentifier_completionHandler(Some(&NSString::from_str(&old)), None);
+                        let removed = RcBlock::new(|_error: *mut NSError| {});
+                        old_store.removeContentRuleListForIdentifier_completionHandler(Some(&NSString::from_str(&old)), Some(&removed));
                     }
                 }
             }));
@@ -658,10 +660,11 @@ mod platform {
                         c.0 = finished.done;
                     }
                     if let Ok(mut c) = COMPILED_IDS.lock() {
-                        *c = finished.ids;
+                        *c = finished.ids.clone();
                     }
                     drop(q);
                     reattach_all(app);
+                    cleanup(finished.ids);
                     return;
                 }
             }
