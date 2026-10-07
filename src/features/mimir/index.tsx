@@ -6,7 +6,7 @@ import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
-import { Card, SectionTitle, StatusPill, Toggle } from '../../ui'
+import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
 
 /** Mimir's process as BridgeDeck runs it (see src-tauri/src/mimir_host.rs). */
@@ -65,14 +65,22 @@ function MimirPage() {
     </div>
   }
   const busy = status.phase === 'setup' || status.phase === 'starting'
-  return <Card><SectionTitle title="Mimir" subtitle={phaseText(status, enabled)} action={<StatusPill online={status.phase === 'running'} label={busy ? 'Starting' : status.phase === 'failed' ? 'Problem' : enabled ? 'Stopped' : 'Not set up'} />} />
-    <div className="actions">
-      {!enabled && <button disabled={!status.available} onClick={() => setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))}><Brain size={16}/>Set up Mimir</button>}
-      {enabled && !busy && <button onClick={() => void start()}><Play size={16}/>{status.phase === 'failed' ? 'Try again' : 'Start'}</button>}
+  const tone = status.phase === 'failed' ? 'error' : busy ? 'busy' : 'idle'
+  return <div className={`mimir-launch mimir-launch--${tone}`}>
+    <div className="mimir-launch__backdrop" aria-hidden="true" />
+    <div className="mimir-launch__panel">
+      <div className="mimir-launch__core" aria-hidden="true"><i /><i /><i /><b /></div>
+      <span className="mimir-launch__eyebrow">MIMIR</span>
+      <h2>{busy ? (status.phase === 'setup' ? 'Setting up Mimir' : 'Waking Mimir') : status.phase === 'failed' ? 'Mimir couldn’t start' : enabled ? 'Mimir is asleep' : 'Your assistant, with a voice'}</h2>
+      <p>{phaseText(status, enabled)}</p>
+      <div className="actions">
+        {!enabled && <button disabled={!status.available} onClick={() => setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))}><Brain size={16}/>Set up Mimir</button>}
+        {enabled && !busy && <button onClick={() => void start()}><Play size={16}/>{status.phase === 'failed' ? 'Try again' : 'Start'}</button>}
+      </div>
+      {!enabled && <p className="mimir-launch__note">Setting up installs Mimir’s packages and builds it (a few minutes, once). It needs Node.js, which BridgeDeck’s own setup already installed.</p>}
+      {enabled && !!status.log.length && <pre className="mimir-log">{status.log.join('\n')}</pre>}
     </div>
-    {!enabled && <p className="vendor-note">Setting up installs Mimir’s packages and builds it (a few minutes, once). It needs Node.js, which BridgeDeck’s own setup already installed.</p>}
-    {enabled && !!status.log.length && <pre className="mimir-log">{status.log.join('\n')}</pre>}
-  </Card>
+  </div>
 }
 
 function MimirSettings() {

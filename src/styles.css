@@ -1120,3 +1120,27 @@ main.fill .logic{height:auto}
 .spotify-volume input{flex:1;accent-color:#1ed760}
 .spotify-foot{max-width:760px;text-align:center}
 @media(max-width:700px){.spotify-card{flex-direction:column;text-align:center}.spotify-art{width:180px;height:180px}}
+/* Mimir before it runs: a dark, glowing launch screen in Mimir's own style. */
+.mimir-launch{--glow:#6ee7ff;position:relative;min-height:calc(100vh - 120px);display:grid;place-items:center;border-radius:18px;overflow:hidden;background:#05070d;border:1px solid rgba(122,162,255,.16)}
+.mimir-launch--busy{--glow:#a78bfa}
+.mimir-launch--error{--glow:#fb7185}
+.mimir-launch__backdrop{position:absolute;inset:-20%;background:radial-gradient(35% 30% at 25% 30%,rgba(110,231,255,.14),transparent 70%),radial-gradient(30% 28% at 75% 25%,rgba(167,139,250,.14),transparent 70%),linear-gradient(rgba(122,162,255,.05) 1px,transparent 1px) 0 0/44px 44px,linear-gradient(90deg,rgba(122,162,255,.05) 1px,transparent 1px) 0 0/44px 44px;animation:mimir-drift 24s ease-in-out infinite alternate}
+@keyframes mimir-drift{to{transform:translate(3%,-2%) rotate(4deg)}}
+.mimir-launch__panel{position:relative;z-index:1;max-width:520px;padding:32px 28px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;color:#e6f0ff}
+.mimir-launch__core{position:relative;width:150px;height:150px;margin-bottom:8px;filter:drop-shadow(0 0 24px var(--glow))}
+.mimir-launch__core i{position:absolute;inset:0;border-radius:50%;border:2px solid transparent;border-top-color:var(--glow);border-bottom-color:color-mix(in srgb,var(--glow) 40%,transparent);animation:mimir-spin 6s linear infinite}
+.mimir-launch__core i:nth-child(2){inset:18px;border-width:1px;animation-duration:4s;animation-direction:reverse;opacity:.7}
+.mimir-launch__core i:nth-child(3){inset:-8px;border:1px dashed color-mix(in srgb,var(--glow) 45%,transparent);animation-duration:40s}
+.mimir-launch__core b{position:absolute;inset:52px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff,var(--glow) 45%,transparent 75%);animation:mimir-pulse 2.4s ease-in-out infinite}
+.mimir-launch--busy .mimir-launch__core i{animation-duration:1.6s}
+.mimir-launch--busy .mimir-launch__core b{animation-duration:.9s}
+@keyframes mimir-spin{to{transform:rotate(360deg)}}
+@keyframes mimir-pulse{50%{transform:scale(1.15);opacity:.85}}
+.mimir-launch__eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.32em;color:var(--glow);text-shadow:0 0 12px var(--glow)}
+.mimir-launch h2{margin:0;font-size:24px;font-weight:600}
+.mimir-launch p{margin:0;color:#8193b6;line-height:1.55}
+.mimir-launch .actions{justify-content:center;margin-top:8px}
+.mimir-launch .actions button,.mimir-launch .actions button:first-child:not(.secondary),.mimir-launch .actions button:first-child:not(.secondary):hover:not(:disabled){background:linear-gradient(135deg,#6ee7ff,#a78bfa);color:#050811;border:0;font-weight:600;box-shadow:0 0 22px rgba(110,231,255,.35);padding:10px 18px;font-size:13px}
+.mimir-launch__note{font-size:12px}
+.mimir-launch .mimir-log{max-width:100%;text-align:left}
+@media (prefers-reduced-motion:reduce){.mimir-launch__backdrop,.mimir-launch__core i,.mimir-launch__core b{animation-duration:30s}}
