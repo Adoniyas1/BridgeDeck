@@ -229,6 +229,15 @@ fn wanted() -> impl Iterator<Item = &'static List> {
     LISTS.iter().filter(move |l| l.group == Group::Ads || annoyances)
 }
 
+/// Web apps that get no general element hiding: thousands of selectors checked on every change to
+/// a busy app's page slow it down, and they have no banner ads to hide. Their ad and tracker
+/// requests are still blocked, and rules written for them still apply.
+const WEB_APPS: &[&str] = &[
+    "chatgpt.com", "openai.com", "claude.ai", "spotify.com", "office.com", "office365.com", "outlook.live.com", "live.com",
+    "mail.google.com", "docs.google.com", "drive.google.com", "calendar.google.com", "icloud.com", "instructure.com",
+    "github.com", "notion.so", "figma.com", "netflix.com", "music.apple.com", "tv.apple.com",
+];
+
 fn load(dir: &Path) -> Option<(Rules, usize)> {
     let mut rules = Rules::default();
     let mut count = 0;
@@ -238,6 +247,7 @@ fn load(dir: &Path) -> Option<(Rules, usize)> {
             count += 1;
         }
     }
+    rules.no_generic_hide.extend(WEB_APPS.iter().map(|s| s.to_string()));
     (count > 0).then_some((rules, count))
 }
 

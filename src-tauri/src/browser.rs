@@ -249,7 +249,9 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
         return Ok(());
     }
     let window = app.get_window(MAIN).ok_or("BridgeDeck's window isn't open")?;
-    let start = target.unwrap_or_else(|| Url::parse("https://duckduckgo.com/").expect("valid"));
+    // A page that was asleep opens where it was.
+    let slept = take_slept(&id);
+    let start = target.or(slept).unwrap_or_else(|| Url::parse("https://duckduckgo.com/").expect("valid"));
     let (nav_app, new_app, title_app, load_app, down_app) = (app.clone(), app.clone(), app.clone(), app.clone(), app.clone());
     let (nav_tab, nav_label, new_tab, title_tab, load_tab, down_tab) = (tab.clone(), id.clone(), id.clone(), tab.clone(), tab.clone(), tab.clone());
     let new_tab_name = tab.clone();
@@ -373,6 +375,7 @@ pub fn browser_go(app: AppHandle, tab: String, action: String) -> Result<(), Str
 #[tauri::command]
 pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
     set_shown(&label(&tab)?, false);
+    forget(&label(&tab)?);
     if let Some(view) = app.get_webview(&label(&tab)?) {
         view.close().map_err(|e| e.to_string())?;
     }
@@ -414,6 +417,118 @@ fn set_shown(label: &str, on: bool) {
             shown.push(label.to_string());
         }
     }
+    note_shown(label, on);
+}
+
+// ---- Sleeping pages ----
+//
+// Every web page is a process of its own (hundreds of MB for ChatGPT, Spotify or Outlook), and a
+// hidden one keeps all of it. Pages not looked at for a while are closed ("asleep") and opened
+// again where they were when they're next shown, like a browser's sleeping tabs. Pages the
+// Study tab keeps awake (playing music, checking mail) are left alone.
+
+/// When each hidden page (by webview label) was hidden.
+static HIDDEN_SINCE: Mutex<Option<HashMap<String, std::time::Instant>>> = Mutex::new(None);
+/// Where each sleeping page was, to open it there again.
+static SLEPT: Mutex<Option<HashMap<String, Url>>> = Mutex::new(None);
+/// Minutes hidden before a page sleeps (0: never), and the labels kept awake.
+static SLEEP: Mutex<(u64, Vec<String>)> = Mutex::new((15, Vec::new()));
+
+/// A page (any webview label: "browser-…", "chatgpt") was shown or hidden.
+pub fn note_shown(label: &str, on: bool) {
+    if let Ok(mut map) = HIDDEN_SINCE.lock() {
+        let map = map.get_or_insert_with(HashMap::new);
+        if on {
+            map.remove(label);
+        } else {
+            map.entry(label.to_string()).or_insert_with(std::time::Instant::now);
+        }
+    }
+}
+
+/// Where a sleeping page was (and it's awake again).
+pub fn take_slept(label: &str) -> Option<Url> {
+    SLEPT.lock().ok()?.as_mut()?.remove(label)
+}
+
+fn forget(label: &str) {
+    if let Ok(mut map) = HIDDEN_SINCE.lock() {
+        map.get_or_insert_with(HashMap::new).remove(label);
+    }
+    let _ = take_slept(label);
+}
+
+/// Puts pages hidden for longer than `after` to sleep; all hidden ones with `after` zero.
+fn sleep_hidden(app: &AppHandle, after: std::time::Duration) -> usize {
+    let keep = SLEEP.lock().map(|s| s.1.clone()).unwrap_or_default();
+    let due: Vec<String> = HIDDEN_SINCE.lock().ok().and_then(|m| m.as_ref().map(|m| m.iter().filter(|(l, t)| t.elapsed() >= after && !keep.contains(l)).map(|(l, _)| l.clone()).collect())).unwrap_or_default();
+    let mut slept = 0;
+    for label in due {
+        let Some(view) = app.get_webview(&label) else { forget(&label); continue };
+        if let Ok(url) = view.url() {
+            if let Ok(mut map) = SLEPT.lock() {
+                map.get_or_insert_with(HashMap::new).insert(label.clone(), url);
+            }
+        }
+        if let Ok(mut map) = HIDDEN_SINCE.lock() {
+            map.get_or_insert_with(HashMap::new).remove(&label);
+        }
+        let _ = view.close();
+        slept += 1;
+    }
+    if slept > 0 {
+        let _ = app.emit_to(MAIN, "pages-slept", slept);
+    }
+    slept
+}
+
+/// Checks every minute for pages to put to sleep.
+pub fn start_sleeper(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        let minutes = SLEEP.lock().map(|s| s.0).unwrap_or(0);
+        if minutes > 0 {
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || { sleep_hidden(&app2, std::time::Duration::from_secs(minutes * 60)); });
+        }
+    });
+}
+
+/// How long hidden pages stay open (0: always), and the pages (Browser-tab ids, or "chatgpt")
+/// kept awake: music playing, mail being checked.
+#[tauri::command]
+pub fn browser_sleep_settings(minutes: u64, keep: Vec<String>) {
+    let keep = keep.iter().filter_map(|t| if t == "chatgpt" { Some(t.clone()) } else { label(t).ok() }).collect();
+    if let Ok(mut s) = SLEEP.lock() {
+        *s = (minutes.min(24 * 60), keep);
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagesStatus {
+    /// Open web pages (Browser, TV, Spotify, Mail, ChatGPT…), on screen or hidden.
+    pub open: usize,
+    pub hidden: usize,
+    pub asleep: usize,
+    pub memory_total: u64,
+    pub memory_available: u64,
+}
+
+#[tauri::command]
+pub fn browser_pages_status(app: AppHandle) -> PagesStatus {
+    let open = app.webviews().keys().filter(|l| l.starts_with("browser-") || *l == "chatgpt").count();
+    let hidden = HIDDEN_SINCE.lock().ok().and_then(|m| m.as_ref().map(|m| m.keys().filter(|l| app.get_webview(l).is_some()).count())).unwrap_or(0);
+    let asleep = SLEPT.lock().ok().and_then(|m| m.as_ref().map(|m| m.len())).unwrap_or(0);
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    PagesStatus { open, hidden, asleep, memory_total: system.total_memory(), memory_available: system.available_memory() }
+}
+
+/// Puts every hidden page to sleep now (except those kept awake).
+#[tauri::command]
+pub fn browser_sleep_now(app: AppHandle) -> usize {
+    sleep_hidden(&app, std::time::Duration::ZERO)
 }
 
 /// Types a one-time code into the page's code box: the box last typed in, else one marked for

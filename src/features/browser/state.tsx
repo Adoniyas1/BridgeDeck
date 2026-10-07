@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { isTauri, notesCreate, notesSave, type Note } from '../../lib/bridge'
+import { browserSleepSettings, isTauri, notesCreate, notesSave, type Note } from '../../lib/bridge'
+import { configStore } from '../../core/config'
+import { mailPage } from '../mail/model'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { notify } from '../../core/notify'
 import { browserCommandStore } from '../../core/shortcuts'
@@ -109,6 +111,16 @@ export function BrowserBackground() {
     ]
     return () => { void stop.then(fn => fn()).catch(() => undefined); more.forEach(p => void p.then(fn => fn()).catch(() => undefined)) }
   }, [])
+
+  // Hidden pages sleep after a while (browser.rs); music and mail being checked stay awake.
+  const config = useStore(configStore)
+  const minutes = config.browsing.sleepMinutes
+  const mail = config.mail
+  useEffect(() => {
+    if (!isTauri()) return
+    const keep = ['spotify', 'tv', ...(mail.background ? mail.accounts.map(mailPage) : [])]
+    void browserSleepSettings(minutes, keep).catch(() => undefined)
+  }, [minutes, mail.background, mail.accounts])
 
   const sent = useSentPages()
   useEffect(() => {

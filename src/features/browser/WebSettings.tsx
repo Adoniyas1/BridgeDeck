@@ -5,6 +5,7 @@ import { setConfig, useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import { siteOf } from './model'
+import { SpeedCard } from './SpeedCard'
 
 const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 
@@ -66,6 +67,7 @@ export function WebSettings() {
 
   const updated = status?.updated ? new Date(status.updated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''
   return <>
+    <SpeedCard />
     <Card><SectionTitle title="Ad and pop-up blocker" subtitle="For the Browser and TV tabs and the ChatGPT panel" action={<ShieldCheck size={18} />} />
       <Toggle checked={config.browsing.adblock} onChange={adblock => setConfig(c => ({ ...c, browsing: { ...c.browsing, adblock } }))} label="Block ads and trackers" />
       <Toggle checked={config.browsing.popups} onChange={popups => setConfig(c => ({ ...c, browsing: { ...c.browsing, popups } }))} label="Block pop-ups (a page opening another site by itself, and pop-up ads)" />

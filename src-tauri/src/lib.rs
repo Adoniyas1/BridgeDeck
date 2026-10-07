@@ -582,6 +582,7 @@ pub fn run() {
             models::init(app.handle());
             backups::init(app.handle());
             adblock::init(app.handle(), true);
+            browser::start_sleeper(app.handle().clone());
             // New messages as they arrive: watched on the Mac, followed from the other computers.
             imessage::watch::start_local(app.handle().clone());
             imessage::watch::start_following(app.handle().clone(), app.state::<BridgeLinkManager>().inner().clone());
@@ -674,6 +675,9 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_fill_code,
+            browser::browser_sleep_settings,
+            browser::browser_pages_status,
+            browser::browser_sleep_now,
             browser::browser_close,
             browser::browser_has,
             browser::exam_sites,

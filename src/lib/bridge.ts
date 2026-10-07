@@ -482,6 +482,11 @@ export const browserHide = (tab: string) => native<void>('browser_hide', { tab }
 export const browserPause = (tab: string) => native<void>('browser_pause', { tab })
 export const browserClose = (tab: string) => native<void>('browser_close', { tab })
 export const browserGo = (tab: string, action: 'back' | 'forward' | 'reload' | 'stop') => native<void>('browser_go', { tab, action })
+export type PagesStatus = { open: number; hidden: number; asleep: number; memoryTotal: number; memoryAvailable: number }
+/** Hidden web pages sleep after `minutes` (0: never), except `keep` (Browser-tab ids, or "chatgpt"). */
+export const browserSleepSettings = (minutes: number, keep: string[]) => native<void>('browser_sleep_settings', { minutes, keep })
+export const browserPagesStatus = () => native<PagesStatus>('browser_pages_status')
+export const browserSleepNow = () => native<number>('browser_sleep_now')
 export const browserFillCode = (code: string) => native<number>('browser_fill_code', { code })
 /** The Manga library (src-tauri/src/manga.rs): series folders of .cbz/.zip chapters or image folders, in the synced folder. */
 export type MangaChapter = { id: string; title: string }
