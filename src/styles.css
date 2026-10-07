@@ -1122,6 +1122,23 @@ main.fill .logic{height:auto}
 .phone-url{display:block;font-size:12px;word-break:break-all;margin-bottom:8px}
 @media(max-width:600px){.phone-link{flex-direction:column}}
 /* Spotify tab */
+.mail{display:flex;flex-direction:column;height:100%}
+.mail-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.mail-bar>svg{color:var(--accent)}
+.mail-accounts{display:flex;gap:4px;flex-wrap:wrap}
+.mail-accounts button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:var(--radius-sm);padding:5px 10px;font-size:12px}
+.mail-accounts button.on{color:var(--text);border-color:var(--accent)}
+.mail-area{flex:1}
+.mail-add{max-width:720px;margin:32px auto;padding:0 20px;display:flex;flex-direction:column;gap:12px}
+.mail-add-head{display:flex;justify-content:space-between;align-items:center}
+.mail-add h2{margin:0;font-size:18px}
+.mail-services{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.mail-services button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:var(--radius-sm);padding:14px;text-align:left}
+.mail-services button:hover{border-color:var(--accent)}
+.mail-services small{color:var(--muted);font-size:11px}
+.mail-custom{display:flex;gap:8px}
+.mail-custom input{flex:1;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px}
+.mail-background{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
 .spotify{display:flex;flex-direction:column;height:100%}
 .spotify-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
 .spotify-bar svg{color:#1ed760}

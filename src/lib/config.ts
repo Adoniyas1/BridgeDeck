@@ -15,7 +15,8 @@ export const defaultConfig: AppConfig = {
   ],
   remote: { allowControl: true, askFirst: false, askDevices: [] },
   clipboard: { sync: true, history: true },
-  notifications: { messages: true, ai: true, files: true, sync: true, updates: true, reminders: true },
+  notifications: { messages: true, ai: true, files: true, sync: true, updates: true, reminders: true, mail: true },
+  mail: { accounts: [], background: true },
   phone: { enabled: false },
   updates: { auto: false },
   mimir: { enabled: false },
@@ -104,6 +105,10 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       remindHours: Number.isFinite(input.canvas?.remindHours) ? Math.max(0, Math.min(168, Number(input.canvas!.remindHours))) : defaultConfig.canvas.remindHours,
       done: Array.isArray(input.canvas?.done) ? input.canvas.done.filter((d): d is string => typeof d === 'string').slice(-500) : [],
       added: Array.isArray(input.canvas?.added) ? input.canvas.added.filter((d): d is string => typeof d === 'string').slice(-200) : [],
+    },
+    mail: {
+      accounts: Array.isArray(input.mail?.accounts) ? input.mail.accounts.filter(a => a && /^[a-z0-9]{1,12}$/.test(a.id) && typeof a.url === 'string' && /^https:\/\//.test(a.url)).map(a => ({ id: a.id, name: String(a.name || 'Mail').slice(0, 40), url: a.url })).slice(0, 8) : [],
+      background: input.mail?.background !== false,
     },
     browsing: {
       adblock: input.browsing?.adblock !== false,

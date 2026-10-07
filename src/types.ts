@@ -42,7 +42,9 @@ export type AppConfig = {
   /** Copying on one paired computer makes it pasteable on the others; recent copies kept (in memory) to paste again. */
   clipboard: { sync: boolean; history: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
-  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean; reminders: boolean }
+  notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean; reminders: boolean; mail: boolean }
+  /** The Mail tab: email accounts' web pages (Outlook, Gmail…), and whether they're checked in the background for new mail. */
+  mail: { accounts: MailAccount[]; background: boolean }
   /** The phone page: a web page phones on the same Wi-Fi open to send things here and see the agenda. */
   phone: { enabled: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
@@ -426,3 +428,5 @@ export type SyncthingAutoSetupResult = {
   restartRequired: boolean
   detail: string
 }
+
+export type MailAccount = { id: string; name: string; url: string }

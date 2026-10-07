@@ -270,6 +270,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     if !script.is_empty() {
         builder = if cfg!(windows) { builder.initialization_script_for_all_frames(script) } else { builder.initialization_script(script) };
     }
+    // The Mail tab's pages say how many unread messages the inbox has in their title.
+    if tab.starts_with("mail") {
+        builder = builder.initialization_script(MAIL_SCRIPT);
+    }
     let builder = builder
         .on_navigation(move |url| {
             let page = || nav_app.get_webview(&nav_label).and_then(|v| v.url().ok());
@@ -374,6 +378,31 @@ pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// For the Mail tab's pages: puts the inbox's unread count at the start of the page title,
+/// "(3) Mail - Outlook", where BridgeDeck reads it (Gmail already says "Inbox (3)"). Outlook on
+/// the web shows it beside Inbox in its folder list.
+const MAIL_SCRIPT: &str = r#"(() => {
+  if (window.top !== window) return;
+  const base = () => document.title.replace(/^\(\d+\)\s*/, '');
+  const count = () => {
+    if (/\bInbox \(\d+\)/.test(document.title)) return null;
+    for (const node of document.querySelectorAll('[role="treeitem"], [title^="Inbox"], [aria-label^="Inbox"]')) {
+      const label = (node.getAttribute('aria-label') || node.getAttribute('title') || '').trim();
+      const text = (node.innerText || '').trim();
+      if (!/^inbox\b/i.test(label) && !/^inbox\b/i.test(text)) continue;
+      const m = label.match(/(\d+)\s+unread/i) || text.match(/^inbox\s*(\d+)\b/i);
+      return m ? Number(m[1]) : 0;
+    }
+    return null;
+  };
+  setInterval(() => {
+    const n = count();
+    if (n == null) return;
+    const want = n ? '(' + n + ') ' + base() : base();
+    if (document.title !== want) document.title = want;
+  }, 4000);
+})();"#;
 
 /// The browser pages on screen now (shown and not hidden since).
 static SHOWN: Mutex<Vec<String>> = Mutex::new(Vec::new());
