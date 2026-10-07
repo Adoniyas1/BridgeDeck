@@ -59,7 +59,7 @@ export type AppConfig = {
   tv: { shortcuts: Array<{ name: string; url: string }> }
   /** Study: languages text recognition reads in scanned books (English is always included), and the
    *  sites exam mode keeps closed in the Browser and TV tabs. */
-  study: { ocrLanguages: string[]; examBlock: string[] }
+  study: { ocrLanguages: string[]; examBlock: string[]; /** Mail, Messages and AI notifications wait while a focus session runs. */ quietFocus: boolean }
   /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
    *  the credential store), hours before a due date to remind, and assignments marked done here. */
   canvas: { base: string; feed: string; token: string; remindHours: number; done: string[]; /** Canvas course ids already added to Study (each is added once, so a deleted one stays gone). */ added: string[] }

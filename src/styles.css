@@ -285,6 +285,14 @@ button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-a
 .tab-close{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--faint)}
 .tab-close:hover{background:var(--surface-3);color:var(--text)}
 .tab-divider{align-self:center;flex:0 0 auto;width:1px;height:18px;margin:0 6px;background:var(--line-strong)}
+.spotify-mini{display:flex;align-items:center;height:32px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:0 2px}
+.spotify-mini button{border:0;background:transparent;color:var(--muted);display:grid;place-items:center;height:28px;padding:0 6px;border-radius:6px}
+.spotify-mini button:hover{color:var(--text);background:var(--surface)}
+.spotify-mini .spotify-mini-song{display:flex;align-items:center;gap:6px;max-width:170px;color:var(--text);font-size:12px}
+.spotify-mini-song img{width:20px;height:20px;border-radius:3px;object-fit:cover}
+.spotify-mini-song svg{color:#1ed760}
+.spotify-mini-song span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1100px){.spotify-mini .spotify-mini-song span{display:none}}
 .code-chip{display:flex;align-items:center;height:32px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:var(--radius-sm);background:color-mix(in srgb,var(--accent) 14%,transparent);animation:code-in .25s ease-out}
 .code-chip button{border:0;background:transparent;color:var(--text);display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 10px}
 .code-chip-use b{font-variant-numeric:tabular-nums;letter-spacing:.06em;font-size:13px}
@@ -660,6 +668,55 @@ button.today-tile:hover{border-color:var(--accent)}
 .today-tile small{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .today-tile small.overdue{color:var(--bad)}
 .today-tile>button{margin-top:4px;display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.grade-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:10px}
+.grade-cat{border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;display:flex;flex-direction:column;gap:4px}
+.grade-cat-head{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.grade-cat-head label{display:inline-flex;align-items:center;gap:2px}
+.grade-cat input,.grade-need select{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);padding:3px 6px;font:inherit;font-size:12px;min-width:0}
+.grade-name{flex:1;font-weight:600}
+.grade-cat input.num{width:56px;text-align:right}
+.grade-cat-pct{min-width:48px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.grade-item{display:grid;grid-template-columns:1fr 60px auto 60px auto;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
+.grade-add{align-self:flex-start;font-size:11px;padding:3px 6px;display:inline-flex;align-items:center;gap:3px}
+.grade-need{border-top:1px solid var(--line);padding-top:10px;margin-top:10px;font-size:13px}
+.grade-need ul{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:4px}
+.grade-need li{display:flex;justify-content:space-between;gap:12px;font-size:12px}
+.grade-need li small{color:var(--muted)}
+.grade-need b.bad,.grade-need-line.bad{color:var(--bad)}
+.grade-need-line{margin:8px 0 0}
+.grade-need-line.ok{color:var(--ok)}
+.grade-need-line b{font-size:15px}
+.grade-need b.ok{color:var(--ok)}
+.degree-gpa{display:flex;flex-wrap:wrap;gap:18px;margin:0 0 10px;font-size:12px;color:var(--muted)}
+.degree-gpa b{color:var(--text);font-size:15px;margin:0 3px}
+.degree-gpa .bad b{color:var(--bad)}
+.degree-gpa .ok b{color:var(--ok)}
+.degree-grade{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:11px;padding:2px 3px}
+.degree-next{margin-top:14px}
+.degree-next-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px}
+.degree-next-list label{display:flex;align-items:center;gap:8px;font-size:12px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 8px}
+.degree-next-list label.on{border-color:var(--accent)}
+.degree-next-list small{color:var(--muted);white-space:nowrap}
+.degree-next .hint.warn{color:var(--warn)}
+.degree-waiting{margin-top:10px;font-size:12px}
+.degree-waiting summary{cursor:pointer;color:var(--muted)}
+.degree-waiting p{margin:4px 0}
+.degree-waiting small{color:var(--muted)}
+.problem-count{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;font-variant-numeric:tabular-nums;align-self:center}
+.problem-count.open{border-color:var(--accent);color:var(--text)}
+.problem-bar{width:42px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.problem-bar i{display:block;height:100%;background:var(--ok)}
+.problem-grid{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 2px}
+.problem-grid button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:6px;padding:2px 7px;font-size:11px;font-variant-numeric:tabular-nums}
+.problem-grid button.on{background:color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok);color:var(--text);text-decoration:line-through}
+.problem-grid button.problem-finish{border-color:var(--ok);color:var(--ok);text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.course-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.course-photos figure{margin:0;display:flex;flex-direction:column;gap:4px}
+.course-photo{padding:0;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg);aspect-ratio:4/3}
+.course-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.course-photos figcaption{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.course-photos figcaption span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.study-quiet{display:flex;gap:6px;align-items:flex-start;margin-top:10px;font-size:11px;color:var(--muted)}
 .study-book-cover.slides{color:var(--warn);width:68px;height:52px;margin:8px 0}
 .study-archived-toggle{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;margin:4px 0 8px;font-size:12px}
 .study-course-list.archived button{opacity:.7}

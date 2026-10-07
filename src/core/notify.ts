@@ -1,16 +1,19 @@
 import { desktopNotify } from '../lib/bridge'
 import type { LocalSendRecent, SyncConflict } from '../types'
 import { configStore } from './config'
-import { examOn } from './exam'
+import { examOn, quietUntilStore } from './exam'
 
 /** Kinds of desktop notification the user can turn off. Remote control starting and pairing
  *  requests always notify: someone else is reaching this computer. */
 export type NotifyKind = 'messages' | 'ai' | 'files' | 'sync' | 'updates' | 'reminders' | 'mail'
 
-export function notify(kind: NotifyKind, title: string, body: string) {
+/** `urgent`: gets through a focus session's quiet (a verification code someone is waiting for). */
+export function notify(kind: NotifyKind, title: string, body: string, urgent = false) {
   if (!configStore.get().notifications[kind]) return
   // Exam mode: only reminders get through.
   if (kind !== 'reminders' && examOn()) return
+  // A focus session: messages, mail and AI wait.
+  if (!urgent && (kind === 'messages' || kind === 'mail' || kind === 'ai') && quietUntilStore.get() > Date.now()) return
   void desktopNotify(title, body).catch(() => undefined)
 }
 

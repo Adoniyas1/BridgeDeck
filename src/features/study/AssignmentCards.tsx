@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { BookCheck, CalendarClock, Camera, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
+import { BookCheck, CalendarClock, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
 import { examStore } from '../../core/exam'
@@ -16,22 +16,36 @@ import { fromInputs } from '../calendar/model'
 import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
+import { expandProblems, problemLabel } from './problems'
+import { loadProblems, problemsStore, tickProblem } from './state'
 import { canvasStore } from './canvasStore'
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
 
 function Row({ a, now }: { a: Assignment; now: number }) {
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+  const problems = useMemo(() => expandProblems(a.title), [a.title])
+  const ticked = useStore(problemsStore)[a.id] ?? []
+  useEffect(() => { if (problems.length > 1) void loadProblems() }, [problems.length])
+  const doneCount = problems.filter(p => ticked.includes(p.key)).length
   const overdue = !a.done && a.due != null && a.due < now
+  const toggle = () => { setBusy(true); void toggleDone(a).catch(e => setNotice(errorText(e, 'Couldn’t change it'))).finally(() => setBusy(false)) }
+  const sections = new Set(problems.map(p => p.section)).size > 1
   return <div className={`assignment-row${a.done ? ' done' : ''}${overdue ? ' overdue' : ''}`}>
     <button className="cal-icon" title={a.done ? 'Mark not done' : a.source === 'canvas' ? 'Mark done (on this computer)' : 'Mark done'} disabled={busy || a.submitted}
-      onClick={() => { setBusy(true); void toggleDone(a).catch(e => setNotice(errorText(e, 'Couldn’t change it'))).finally(() => setBusy(false)) }}>
+      onClick={toggle}>
       {a.done ? <SquareCheck size={16} /> : <Square size={16} />}
     </button>
     <div className="grow">
       <strong>{a.title}</strong>
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
+      {open && <div className="problem-grid">{problems.map(p => <button key={p.key} className={ticked.includes(p.key) ? 'on' : ''} onClick={() => tickProblem(a.id, p.key)}>{problemLabel(p, sections)}</button>)}
+        {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
     </div>
+    {problems.length > 1 && <button className={`problem-count${open ? ' open' : ''}`} title="Problems to tick off" onClick={() => setOpen(v => !v)}>
+      <span className="problem-bar"><i style={{ width: `${(doneCount / problems.length) * 100}%` }} /></span>{doneCount}/{problems.length}
+    </button>}
     {a.url && <button className="ghost" title="Open in Canvas (Browser tab)" onClick={() => openInNewTab(a.url)}><ExternalLink size={14} /></button>}
   </div>
 }

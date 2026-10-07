@@ -4,11 +4,12 @@ import { activateTab, tabsStore } from './tabs'
 
 /** Shortcuts that work all over BridgeDeck, web pages included (src-tauri/src/webkeys.rs passes
  *  them on from a focused page). `key` is what's pressed with ⌘ on a Mac, Ctrl on Windows. */
-export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address'
+export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address' | 'code'
 export const SHORTCUTS: Array<{ keys: string; what: string; name?: ShortcutName; shift?: boolean; key?: string }> = [
   { keys: 'K', what: 'Search everything: tabs, notes, books, bookmarks, history', name: 'search', key: 'k' },
   { keys: 'J', what: 'Open or close the ChatGPT panel', name: 'chatgpt', key: 'j' },
   { keys: 'Shift A', what: 'Ask ChatGPT about the selected text (on any tab or web page)', name: 'ask', shift: true, key: 'a' },
+  { keys: 'Shift O', what: 'Fill in the latest verification code from Messages (and copy it)', name: 'code', shift: true, key: 'o' },
   { keys: '/', what: 'This list of shortcuts', name: 'shortcuts', key: '/' },
   { keys: '1–9', what: 'Go to the first, second… tab' },
   { keys: 'T', what: 'Browser: new tab', name: 'new-tab', key: 't' },
@@ -37,6 +38,9 @@ export function openInBrowser(url: string) {
   activateTab('browser')
 }
 
+/** Asks for the latest verification code to be filled in (the tab bar's code chip does it). */
+export const codeRequestStore = createStore(0)
+
 export function useOverlayOpen() {
   const palette = useStore(paletteStore)
   const help = useStore(shortcutsHelpStore)
@@ -62,6 +66,7 @@ export function runShortcut(name: ShortcutName, from: { text?: string; url?: str
     case 'search': shortcutsHelpStore.set(false); paletteStore.set(open => !open); return true
     case 'shortcuts': paletteStore.set(false); shortcutsHelpStore.set(open => !open); return true
     case 'chatgpt': toggleChatPanel(); return true
+    case 'code': codeRequestStore.set(Date.now()); return true
     case 'ask': {
       const text = (from.text ?? (typeof window !== 'undefined' ? String(window.getSelection() ?? '') : '')).trim()
       void askChatGPT(text ? askPrompt(text, from.url) : undefined)

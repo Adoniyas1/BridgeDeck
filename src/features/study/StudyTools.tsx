@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
 import { studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
+import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
@@ -21,6 +22,7 @@ const clock = (ms: number) => {
 export function FocusCard({ course }: { course: string }) {
   const focus = useStore(focusStore)
   const events = useStore(eventsStore)
+  const config = useConfig()
   const [, setNow] = useState(0)
   useEffect(() => {
     if (!focus) return
@@ -40,6 +42,7 @@ export function FocusCard({ course }: { course: string }) {
       <button onClick={() => startFocus(course, 25, 5)}><Play size={14} />25 min</button>
       <button className="secondary" onClick={() => startFocus(course, 50, 10)}><Timer size={14} />50 min</button>
     </div>}
+    <label className="study-quiet"><input type="checkbox" checked={config.study.quietFocus} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, quietFocus: e.target.checked } }))} /> Quiet Mail, Messages and AI notifications while focusing (verification codes still come through)</label>
   </Card>
 }
 

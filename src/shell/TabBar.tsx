@@ -8,6 +8,7 @@ import { useStore, type Store } from '../core/store'
 import { activateTab, closeTab, tabsStore } from '../core/tabs'
 import { features } from '../features/registry'
 import { CodeChip } from '../features/messages/CodeChip'
+import { SpotifyMini } from '../features/spotify/SpotifyMini'
 
 const fixed = features.filter(feature => feature.Page)
 const iconFor = (kind: string) => features.find(feature => feature.tabKinds?.[kind])?.icon ?? AppWindow
@@ -57,6 +58,7 @@ export default function TabBar() {
       </nav>
       <div className="tab-actions">
         <CodeChip />
+        <SpotifyMini />
         {!hydrated && <span className="save-state">Loading…</span>}
         <button className="icon-button" onClick={() => runShortcut('search')} title={`Search everything (${MOD} K)`} aria-label="Search"><Search size={15} /></button>
         <button className={chatOpen ? 'icon-button active' : 'icon-button'} onClick={toggleChatPanel} title={`ChatGPT (side panel, ${MOD} J)`} aria-label="ChatGPT"><MessageCircleQuestion size={15} /></button>

@@ -24,6 +24,8 @@ pub const SCHEME: &str = "bdbook";
 const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub"];
 /// Slides kept with a course and opened in the computer's own app (PDF slides are books).
 const SLIDE_EXTENSIONS: &[&str] = &["pptx", "ppt", "key", "odp"];
+/// Photos of notes and whiteboards kept with a course (shown, and read by text recognition).
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "heic", "webp"];
 /// In a course folder: the course is archived (hidden from the list, files kept). It syncs, so
 /// both computers agree.
 const ARCHIVED: &str = ".archived";
@@ -117,7 +119,7 @@ fn title_of(file: &str) -> String {
 
 fn book_kind(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    (BOOK_EXTENSIONS.contains(&ext.as_str()) || SLIDE_EXTENSIONS.contains(&ext.as_str())).then_some(ext)
+    (BOOK_EXTENSIONS.contains(&ext.as_str()) || SLIDE_EXTENSIONS.contains(&ext.as_str()) || IMAGE_EXTENSIONS.contains(&ext.as_str())).then_some(ext)
 }
 
 pub fn init(app: &tauri::AppHandle) {
@@ -186,7 +188,7 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut added = Vec::new();
     for path in paths {
-        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF, EPUB or presentation", path.display()))?;
+        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF, EPUB, presentation or photo", path.display()))?;
         let original = path.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("No file name")?;
         let file = free_name(&dir, &clean_name(&original)?);
         let bytes = fs::copy(path, dir.join(&file)).map_err(|e| format!("Couldn't copy {original}: {e}"))?;
@@ -230,9 +232,16 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     use tauri::http::{header, Response, StatusCode};
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
-    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
+    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
     let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
-    let mime = if book_kind(&path).as_deref() == Some("epub") { "application/epub+zip" } else { "application/pdf" };
+    let mime = match book_kind(&path).as_deref() {
+        Some("epub") => "application/epub+zip",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("heic") => "image/heic",
+        Some("webp") => "image/webp",
+        _ => "application/pdf",
+    };
     let total = data.len();
     let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("bytes=")).and_then(|v| v.split_once('-')).and_then(|(a, b)| {
         let start: usize = a.parse().ok()?;
@@ -493,7 +502,6 @@ fn state_file(key: &str) -> Result<&'static str, String> {
     match key {
         "term" => Ok(".term.json"),
         "problems" => Ok(".problems.json"),
-        "grades" => Ok(".grades.json"),
         _ => Err("Unknown study state".into()),
     }
 }
