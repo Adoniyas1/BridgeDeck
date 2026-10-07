@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarPlus, FilePlus, FileText, FolderInput, FolderKanban, FolderOpen, ListChecks, MessageCircleQuestion, NotebookPen, Plus } from 'lucide-react'
+import { CalendarClock, CalendarPlus, FilePlus, FileText, FolderInput, FolderKanban, FolderOpen, ListChecks, MessageCircleQuestion, NotebookPen, Plus } from 'lucide-react'
 import { askChatGPT, projectPrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, notesSave, openPath, projectsAdd, projectsFiles, projectsImportMimir, type CalEvent, type Note, type NotePatch, type ProjectFile } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -13,6 +13,7 @@ import { notesStore, openNoteRequest } from '../notes/state'
 import { fmtBytes } from '../study/model'
 import { addCard, BOARD_MARKDOWN, boardColumns, boardProgress, boardTitle, countdown, moveCard, projectEvents, projectFolder, tickCard } from './model'
 import { projectsStore, refreshProjects } from './state'
+import { PartsCard, TimelineCard } from './ProjectPlan'
 
 export default function ProjectsPage({ active }: { active: boolean }) {
   const { list, error } = useStore(projectsStore)
@@ -74,6 +75,7 @@ function ProjectView({ name, root, onStatus }: { name: string; root: string; onS
   const board = mine.find(n => n.title === boardTitle(name))
   const progress = boardProgress(board)
   const upcoming = useMemo(() => projectEvents(events, name).slice(0, 8), [events, name])
+  const milestones = useMemo(() => events.filter(e => !e.deleted && !e.repeat && e.title.toLowerCase().includes(name.toLowerCase())), [events, name])
   const [files, setFiles] = useState<ProjectFile[] | null>(null)
   usePeriodicRefresh(async () => { try { setFiles(await projectsFiles(name)) } catch { setFiles([]) } }, 15_000, [name])
 
@@ -92,6 +94,7 @@ function ProjectView({ name, root, onStatus }: { name: string; root: string; onS
       {board ? <Board note={board} onStatus={onStatus} /> : <div className="empty-state small"><ListChecks size={22} /><h3>No task board yet</h3><p>A board is a checklist note with a heading per column (To do, Doing, Done), so it also works in Notes and Obsidian.</p>
         <button onClick={() => void makeNote(boardTitle(name), 'list', BOARD_MARKDOWN, false)}>Make the board</button></div>}
     </Card>
+    <TimelineCard board={board} milestones={milestones} />
     <div className="two-col">
       <Card><SectionTitle title="Milestones" subtitle="From your calendar (events with the project name)" />
         {upcoming.length ? <div className="agenda-list">{upcoming.map(e => <button key={e.id} className="agenda-row" onClick={() => activateTab('calendar')}>
@@ -104,6 +107,7 @@ function ProjectView({ name, root, onStatus }: { name: string; root: string; onS
           {note.kind === 'list' ? <ListChecks size={14} /> : <NotebookPen size={14} />}<span className="grow">{noteTitle(note)}</span></button>)}</div> : <p className="hint">Nothing yet.</p>}
       </Card>
     </div>
+    <PartsCard project={name} root={root} />
     <Card><SectionTitle title="Files" subtitle="Newest first. Drop files into the folder; Mimir can read and write them too." />
       {files?.length ? <div className="project-files">{files.slice(0, 60).map(f => <button key={f.path} onClick={() => void openPath(`${root}/${name}/${f.path}`)} title={f.path}>
         <FileText size={14} /><span className="grow">{f.path}</span><small>{fmtBytes(f.bytes)}</small><small>{f.modified ? new Date(f.modified).toLocaleDateString() : ''}</small></button>)}</div>
@@ -117,6 +121,7 @@ function Board({ note, onStatus }: { note: Note; onStatus: (s: string) => void }
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [dragging, setDragging] = useState<string | null>(null)
   const [over, setOver] = useState<number | null>(null)
+  const [picking, setPicking] = useState<string | null>(null)
 
   async function save(patch: NotePatch | null) {
     if (!patch) return
@@ -137,7 +142,17 @@ function Board({ note, onStatus }: { note: Note; onStatus: (s: string) => void }
       {column.cards.map((card, i) => <div key={card.block.id} className={`board-card${card.block.checked ? ' done' : ''}`} draggable
         onDragStart={e => { setDragging(card.block.id); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDragging(null); setOver(null) }}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(null); if (dragging && dragging !== card.block.id) void save(moveCard(note, dragging, ci, i - 1)); setDragging(null) }}>
-        <label><input type="checkbox" checked={card.block.checked} onChange={e => void save(tickCard(note, card.block.id, e.target.checked))} /><span>{card.block.text || 'Untitled'}</span></label>
+        <label><input type="checkbox" checked={card.block.checked} onChange={e => void save(tickCard(note, card.block.id, e.target.checked))} /><span>{card.block.text || 'Untitled'}</span>
+          <button type="button" className="notes-icon board-due" title="Due date" onClick={e => { e.preventDefault(); setPicking(p => p === card.block.id ? null : card.block.id) }}><CalendarClock size={12} /></button></label>
+        {picking === card.block.id && <div className="board-due-pick">
+          <input type="date" autoFocus defaultValue={card.block.due ? dateInput(card.block.due) : ''} onChange={e => {
+            const [y, m, d] = e.target.value.split('-').map(Number)
+            // Due at the end of the working day, so the reminder comes that afternoon.
+            if (y) void save({ id: note.id, blocks: [{ ...card.block, due: new Date(y, m - 1, d, 17).getTime() }] })
+            setPicking(null)
+          }} />
+          {card.block.due && <button type="button" className="ghost" onClick={() => { void save({ id: note.id, blocks: [{ ...card.block, due: null }] }); setPicking(null) }}>No date</button>}
+        </div>}
         {(card.subs.length > 0 || card.block.due) && <div className="board-meta">
           {card.subs.length > 0 && <small>{card.subs.filter(s => s.checked).length}/{card.subs.length} sub-tasks</small>}
           {card.block.due && <small className={!card.block.checked && card.block.due <= Date.now() ? 'overdue' : ''}>{formatDue(card.block.due)}</small>}

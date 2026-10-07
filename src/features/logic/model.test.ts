@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCircuit, chipPlan, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
+import { buildCircuit, chipPlan, groupsCovering, kmapGroups, kmapLayout, termOf, timing, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
 
 const sw = (id: string, label: string, on = false): Part => ({ id, kind: 'switch', x: 0, y: 0, label, on })
 const led = (id: string, label: string): Part => ({ id, kind: 'led', x: 0, y: 0, label })
@@ -139,5 +139,76 @@ describe('chip plans', () => {
     expect(plan.chips.map(ch => `${ch.part}:${ch.slots.filter(Boolean).length}`)).toEqual(['7432:4', '7402:1'])
     expect(plan.notes).toEqual([])
     expect(pinRef({ id: 'u', kind: 'chip', x: 0, y: 0 }, '3')).toBe('u:3')
+  })
+})
+
+describe('16-pin chips, displays, maps and timing', () => {
+  const power = (id = 'u'): Part[] => [{ id: `${id}v`, kind: 'vcc', x: 0, y: 0 }, { id: `${id}g`, kind: 'gnd', x: 0, y: 0 }]
+  const powered = (id = 'u') => [w(`${id}v:out`, `${id}:16`), w(`${id}g:out`, `${id}:8`)]
+
+  it('decodes BCD to segments on a 7447 driving a common-anode display', () => {
+    const c: Circuit = {
+      version: 1,
+      parts: [sw('a', 'A'), sw('b', 'B'), sw('c', 'C'), sw('d', 'D'), { id: 'u', kind: 'chip', x: 0, y: 0, chip: '7447' }, { id: 's', kind: 'seg7', x: 0, y: 0, on: true }, ...power()],
+      wires: [w('a:out', 'u:7'), w('b:out', 'u:1'), w('c:out', 'u:2'), w('d:out', 'u:6'), ...powered(),
+        ...Object.entries({ a: 13, b: 12, c: 11, d: 10, e: 9, f: 15, g: 14 }).map(([seg, pin]) => w(`u:${pin}`, `s:${seg}`))],
+    }
+    const lit = (n: number) => {
+      const set = { ...c, parts: c.parts.map(p => (p.kind === 'switch' ? { ...p, on: !!(n & (1 << 'ABCD'.indexOf(p.label!))) } : p)) }
+      const sim = simulate(set)
+      return 'abcdefg'.split('').filter(seg => sim.pins[`s:${seg}`] === 0).join('')
+    }
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(lit)).toEqual(['abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'cdefg', 'abc', 'abcdefg', 'abcfg'])
+    expect(simulate(c).warnings).toEqual([])
+  })
+
+  it('selects one output of a 74138 and one input of a 74151', () => {
+    const decoder: Circuit = {
+      version: 1,
+      parts: [sw('a', 'A'), sw('b', 'B'), { id: 'u', kind: 'chip', x: 0, y: 0, chip: '74138' }, led('y', 'Y'), ...power(), { id: 'e', kind: 'vcc', x: 0, y: 0 }],
+      // A and B select; C, G2A and G2B low; G1 high. The LED watches Y2 (active low).
+      wires: [w('a:out', 'u:1'), w('b:out', 'u:2'), w('ug:out', 'u:3'), w('ug:out', 'u:4'), w('ug:out', 'u:5'), w('e:out', 'u:6'), w('u:13', 'y:in'), ...powered()],
+    }
+    expect(column(decoder)).toEqual([1, 0, 1, 1])
+    const mux: Circuit = {
+      version: 1,
+      parts: [sw('a', 'A'), sw('b', 'B'), { id: 'u', kind: 'chip', x: 0, y: 0, chip: '74151' }, led('y', 'Y'), ...power()],
+      // D1 and D2 high, the rest low; C low, strobe low.
+      wires: [w('b:out', 'u:11'), w('a:out', 'u:10'), w('ug:out', 'u:9'), w('ug:out', 'u:7'), w('uv:out', 'u:3'), w('uv:out', 'u:2'),
+        ...[4, 1, 15, 14, 13, 12].map(p => w('ug:out', `u:${p}`)), w('u:5', 'y:in'), ...powered()],
+    }
+    // Rows are A (select B) then B (select A): selected inputs 0, 1, 2, 3.
+    expect(column(mux)).toEqual([0, 1, 1, 0])
+  })
+
+  it('counts on a 74161, clears at once, and shows it on a timing diagram', () => {
+    const c: Circuit = {
+      version: 1,
+      parts: [{ id: 'k', kind: 'clock', x: 0, y: 0, label: 'CLK' }, sw('r', 'R', true), { id: 'u', kind: 'chip', x: 0, y: 0, chip: '74161' }, led('qa', 'QA'), led('qb', 'QB'), ...power()],
+      wires: [w('k:out', 'u:2'), w('r:out', 'u:1'), w('u:15', 'qa:in'), w('u:14', 'qb:in'), ...powered()],
+    }
+    const t = timing(c, 4)
+    expect(t.signals.map(s => s.name)).toEqual(['CLK', 'R', 'QA', 'QB'])
+    expect(t.signals[0].values).toEqual([0, 1, 0, 1, 0, 1, 0, 1])
+    expect(t.signals[2].values).toEqual([0, 1, 1, 0, 0, 1, 1, 0])
+    expect(t.signals[3].values).toEqual([0, 0, 0, 1, 1, 1, 1, 0])
+    const cleared = { ...c, parts: c.parts.map(p => (p.id === 'r' ? { ...p, on: false } : p)) }
+    let sim = simulate(c, { clock: false })
+    sim = simulate(c, { clock: true, state: sim.state })
+    expect(sim.pins['qa:in']).toBe(1)
+    sim = simulate(cleared, { clock: true, state: sim.state })
+    expect(sim.pins['qa:in']).toBe(0)
+    expect(truthTable(c).sequential).toBe(true)
+  })
+
+  it('lays out Karnaugh maps in Gray code with the simplest groups', () => {
+    const map = kmapLayout(['A', 'B', 'C', 'D'])!
+    expect(map.rows).toEqual([0, 1, 3, 2])
+    expect(map.cell(3, 2)).toBe(0b1110)
+    expect(kmapLayout(['A'])).toBeNull()
+    const table = tableOf(parseOutputs("Y = B·D' + A'·C"))
+    const { groups } = kmapGroups(table, 0)
+    expect(groups.map(g => termOf(table.inputs, g))).toEqual(["A'·C", "B·D'"])
+    expect(groupsCovering(groups, 0b0110)).toEqual([0, 1])
   })
 })

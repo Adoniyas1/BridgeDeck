@@ -94,16 +94,33 @@ pub struct Status {
     pub errors: Vec<String>,
 }
 
+/// Text copied recently (here or on a paired computer), newest first. Kept in memory only, so it's
+/// gone when BridgeDeck quits; what password managers mark as concealed is never in it.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub text: String,
+    pub at: u64,
+    /// "This computer", or the paired computer it came from.
+    pub from: String,
+}
+
+const HISTORY_LEN: usize = 50;
+const HISTORY_TEXT: usize = 100 * 1024;
+
 struct State {
     /// Off until the settings arrive from the UI, so nothing is sent before the user's choice is known.
     enabled: bool,
+    /// Keep a history of copied text (also off until the UI says).
+    history_on: bool,
+    history: std::collections::VecDeque<HistoryEntry>,
     available: bool,
     last: Option<Activity>,
     errors: Vec<String>,
     apply: Option<mpsc::Sender<Clip>>,
 }
 
-static STATE: Mutex<State> = Mutex::new(State { enabled: false, available: false, last: None, errors: Vec::new(), apply: None });
+static STATE: Mutex<State> = Mutex::new(State { enabled: false, history_on: false, history: std::collections::VecDeque::new(), available: false, last: None, errors: Vec::new(), apply: None });
 
 fn state() -> std::sync::MutexGuard<'static, State> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -127,6 +144,69 @@ pub fn clipboard_status() -> Status {
 pub fn clipboard_settings(enabled: bool) -> Status {
     state().enabled = enabled;
     status()
+}
+
+/// Adds copied text to the front of the history (a repeat moves to the front).
+fn remember_in(history: &mut std::collections::VecDeque<HistoryEntry>, text: &str, from: &str, at: u64) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let mut text = text.to_string();
+    if text.len() > HISTORY_TEXT {
+        let mut cut = HISTORY_TEXT;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+    }
+    history.retain(|e| e.text != text);
+    history.push_front(HistoryEntry { text, at, from: from.to_string() });
+    history.truncate(HISTORY_LEN);
+}
+
+/// Text that arrived some other way (the phone page) goes in the history too.
+pub fn remember_from(text: &str, from: &str) {
+    remember(text, from)
+}
+
+fn remember(text: &str, from: &str) {
+    let mut state = state();
+    if state.history_on {
+        remember_in(&mut state.history, text, from, now_ms());
+    }
+}
+
+#[tauri::command]
+pub fn clipboard_history_settings(enabled: bool) {
+    let mut state = state();
+    state.history_on = enabled;
+    if !enabled {
+        state.history.clear();
+    }
+}
+
+#[tauri::command]
+pub fn clipboard_history() -> Vec<HistoryEntry> {
+    state().history.iter().cloned().collect()
+}
+
+#[tauri::command]
+pub fn clipboard_history_clear() {
+    state().history.clear();
+}
+
+/// Puts text on this computer's clipboard (from the history, or sent from the phone page).
+pub fn put_text(text: String) -> Result<(), String> {
+    let apply = state().apply.clone().ok_or("The clipboard isn't available")?;
+    apply.send(Clip::Text(text)).map_err(|_| "The clipboard isn't available".to_string())
+}
+
+#[tauri::command]
+pub fn clipboard_put(text: String) -> Result<(), String> {
+    if text.len() > MAX_TEXT {
+        return Err("That's too long".into());
+    }
+    put_text(text)
 }
 
 /// Starts the clipboard thread (once, at launch).
@@ -161,8 +241,11 @@ fn watch(manager: BridgeLinkManager, incoming: mpsc::Receiver<Clip>) {
         if count.is_some() && count == last_count {
             continue;
         }
-        let enabled = state().enabled;
-        if !enabled {
+        let (enabled, history_on) = {
+            let state = state();
+            (state.enabled, state.history_on)
+        };
+        if !enabled && !history_on {
             // Turning sync on later doesn't send what was copied while it was off.
             last_count = count;
             last = if count.is_some() { None } else { read(&mut board, false).ok().flatten().map(|clip| clip.fingerprint()) };
@@ -184,7 +267,12 @@ fn watch(manager: BridgeLinkManager, incoming: mpsc::Receiver<Clip>) {
             continue;
         }
         last = Some(fingerprint);
-        send_to_all(&manager, clip);
+        if let Clip::Text(text) = &clip {
+            remember(text, "This computer");
+        }
+        if enabled {
+            send_to_all(&manager, clip);
+        }
     }
 }
 
@@ -325,6 +413,9 @@ pub async fn serve(peer_name: String, header: String, mut send: quinn::SendStrea
             return Err("Clipboard sync is off there".to_string());
         }
         let clip = decode(&header, bytes)?;
+        if let Clip::Text(text) = &clip {
+            remember(text, &peer_name);
+        }
         let (kind, summary) = (clip.kind(), clip.summary());
         apply.ok_or("The clipboard isn't available there")?.send(clip).map_err(|_| "The clipboard isn't available there".to_string())?;
         state().last = Some(Activity { direction: "received", peers: vec![peer_name], kind, summary, at: now_ms() });
@@ -396,6 +487,24 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn history_keeps_the_newest_fifty_without_repeats() {
+        let mut history = std::collections::VecDeque::new();
+        remember_in(&mut history, "a", "This computer", 1);
+        remember_in(&mut history, "b", "PC", 2);
+        remember_in(&mut history, "a", "This computer", 3);
+        remember_in(&mut history, "   ", "This computer", 4);
+        assert_eq!(history.iter().map(|e| (e.text.as_str(), e.at)).collect::<Vec<_>>(), vec![("a", 3), ("b", 2)]);
+        for i in 0..80 {
+            remember_in(&mut history, &format!("item {i}"), "This computer", 10 + i);
+        }
+        assert_eq!(history.len(), HISTORY_LEN);
+        assert_eq!(history[0].text, "item 79");
+        let long = "é".repeat(HISTORY_TEXT);
+        remember_in(&mut history, &long, "This computer", 999);
+        assert!(history[0].text.len() <= HISTORY_TEXT);
+    }
+
     use super::*;
 
     #[test]

@@ -39,6 +39,7 @@ export function noteTitle(note: Note) {
 export function preview(note: Note) {
   const blocks = visible(note).filter(b => b.text.trim())
   const rest = note.title.trim() ? blocks : blocks.slice(1)
+  if (blocks.some(b => b.kind === 'locked')) return '🔒 Locked'
   return rest.map(b => b.kind === 'drawing' ? '✎ Drawing' : b.text.trim()).join(' · ').slice(0, 120)
 }
 
@@ -47,7 +48,7 @@ export function shortcut(text: string): { kind: NoteBlockKind; text: string; che
   const rules: Array<[RegExp, NoteBlockKind, boolean?]> = [
     [/^### /, 'h3'], [/^## /, 'h2'], [/^# /, 'h1'],
     [/^\[[xX]\] /, 'todo', true], [/^\[ ?\] /, 'todo'], [/^- \[[xX]\] /, 'todo', true], [/^- \[ ?\] /, 'todo'],
-    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'],
+    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'], [/^```graph$/, 'graph'], [/^```(python|py)$/, 'python'],
   ]
   for (const [pattern, kind, checked] of rules) {
     const match = text.match(pattern)
@@ -188,6 +189,8 @@ export function toMarkdown(note: Note) {
       case 'todo': lines.push(`${pad(block)}- [${block.checked ? 'x' : ' '}] ${block.text}${due}`); break
       case 'quote': lines.push(block.text.split('\n').map(l => `> ${l}`).join('\n')); break
       case 'code': lines.push('```', block.text, '```'); break
+      case 'graph': lines.push('```graph', block.text, '```'); break
+      case 'python': lines.push('```python', block.text, '```'); break
       case 'drawing': lines.push(`![Drawing](bridgedeck-drawing:${block.text})`, ''); break
       default: lines.push(block.text, '')
     }
@@ -198,7 +201,7 @@ export function toMarkdown(note: Note) {
 export function matches(note: Note, query: string) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return true
-  const haystack = [note.title, note.folder, ...note.blocks.filter(b => !b.deleted).map(b => b.text)].join('\n').toLowerCase()
+  const haystack = [note.title, note.folder, ...note.blocks.filter(b => !b.deleted && b.kind !== 'locked').map(b => b.text)].join('\n').toLowerCase()
   return words.every(w => haystack.includes(w))
 }
 

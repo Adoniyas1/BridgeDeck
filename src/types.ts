@@ -39,10 +39,12 @@ export type AppConfig = {
   services: ServiceConfig[]
   /** This computer being controlled by paired devices (D15: allowed without asking by default). */
   remote: { allowControl: boolean; askFirst: boolean; askDevices: string[] }
-  /** Copying on one paired computer makes it pasteable on the others. */
-  clipboard: { sync: boolean }
+  /** Copying on one paired computer makes it pasteable on the others; recent copies kept (in memory) to paste again. */
+  clipboard: { sync: boolean; history: boolean }
   /** Desktop notifications by kind (remote control and pairing requests always notify). */
   notifications: { messages: boolean; ai: boolean; files: boolean; sync: boolean; updates: boolean; reminders: boolean }
+  /** The phone page: a web page phones on the same Wi-Fi open to send things here and see the agenda. */
+  phone: { enabled: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
@@ -53,8 +55,12 @@ export type AppConfig = {
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
   tv: { shortcuts: Array<{ name: string; url: string }> }
-  /** Study: languages text recognition reads in scanned books (English is always included). */
-  study: { ocrLanguages: string[] }
+  /** Study: languages text recognition reads in scanned books (English is always included), and the
+   *  sites exam mode keeps closed in the Browser and TV tabs. */
+  study: { ocrLanguages: string[]; examBlock: string[] }
+  /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
+   *  the credential store), hours before a due date to remind, and assignments marked done here. */
+  canvas: { base: string; feed: string; token: string; remindHours: number; done: string[] }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker, and the Browser's bookmarks. */
   browsing: {
     adblock: boolean

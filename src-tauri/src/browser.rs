@@ -104,6 +104,38 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "about")
 }
 
+/// Sites exam mode keeps closed (empty when it's off).
+static EXAM_SITES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn site_matches(host: &str, sites: &[String]) -> bool {
+    let host = host.trim_start_matches("www.").to_ascii_lowercase();
+    sites.iter().any(|site| host == *site || host.ends_with(&format!(".{site}")))
+}
+
+fn exam_blocked(url: &Url) -> bool {
+    let Some(host) = url.host_str() else { return false };
+    EXAM_SITES.lock().map(|sites| site_matches(host, &sites)).unwrap_or(false)
+}
+
+/// Starts (with the sites to keep closed) or ends (with none) exam mode's blocking. Pages already
+/// showing one of the sites are emptied.
+#[tauri::command]
+pub fn exam_sites(app: AppHandle, sites: Vec<String>) -> Result<(), String> {
+    let sites: Vec<String> = sites
+        .iter()
+        .map(|s| s.trim().trim_start_matches("https://").trim_start_matches("http://").trim_start_matches("www.").trim_end_matches('/').to_ascii_lowercase())
+        .filter(|s| !s.is_empty() && !s.contains('/'))
+        .take(200)
+        .collect();
+    *EXAM_SITES.lock().map_err(|_| "exam lock poisoned")? = sites;
+    for (label, view) in app.webviews() {
+        if label.starts_with("browser-") && view.url().is_ok_and(|url| exam_blocked(&url)) {
+            let _ = view.navigate(Url::parse("about:blank").expect("valid"));
+        }
+    }
+    Ok(())
+}
+
 /// The blocker's script generation each page was made with (a page with an older one is remade
 /// when next shown, so a change to the blocker reaches it).
 static GENERATIONS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
@@ -145,7 +177,7 @@ fn popup_window(app: &AppHandle, url: Url, features: tauri::webview::NewWindowFe
                     }
                     return false;
                 }
-                allowed(&to)
+                allowed(&to) && !exam_blocked(&to)
             })).unwrap_or(false)
         })
         .on_new_window(|_, _| NewWindowResponse::Deny);
@@ -243,6 +275,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
             if crate::webkeys::handle(&nav_app, &nav_tab, page, url) {
                 return false;
             }
+            if exam_blocked(url) {
+                let _ = nav_app.emit_to(MAIN, "exam-blocked", json!({ "tab": nav_tab, "url": url.as_str() }));
+                return false;
+            }
             let ok = allowed(url);
             if !ok {
                 // Mail and other links open in the system's own app.
@@ -333,6 +369,16 @@ pub fn browser_close(app: AppHandle, tab: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exam_sites_match_subdomains_only() {
+        let sites = vec!["youtube.com".to_string(), "x.com".to_string()];
+        assert!(site_matches("www.youtube.com", &sites));
+        assert!(site_matches("m.youtube.com", &sites));
+        assert!(site_matches("x.com", &sites));
+        assert!(!site_matches("box.com", &sites));
+        assert!(!site_matches("notyoutube.com", &sites));
+    }
 
     #[test]
     fn the_address_bar_takes_urls_domains_and_searches() {

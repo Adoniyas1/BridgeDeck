@@ -385,7 +385,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
-export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing'
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python' | 'locked'
 export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
@@ -539,3 +539,42 @@ export const circuitsList = () => native<CircuitFile[]>('circuits_list')
 export const circuitLoad = (project: string, name: string) => native<string>('circuit_load', { project, name })
 export const circuitSave = (project: string, name: string, circuit: string) => native<void>('circuit_save', { project, name, circuit })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
+/** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
+export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
+export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
+export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })
+/** Crashes and errors on this computer (src-tauri/src/errorlog.rs). */
+export type ErrorLog = { text: string; entries: number; crashes: number; path: string }
+export const errorLogRead = () => native<ErrorLog>('error_log_read')
+export const errorLogAdd = (source: string, message: string) => native<void>('error_log_add', { source, message })
+export const errorLogClear = () => native<void>('error_log_clear')
+/** Python cells in notes, run by this computer's Python 3 (src-tauri/src/python.rs). */
+export type PythonRun = { ok: boolean; stdout: string; stderr: string; images: string[]; ms: number; timedOut: boolean; version: string }
+export const pythonStatus = () => native<string | null>('python_status')
+export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })
+/** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
+export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
+export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })
+export const noteVersion = (id: string, at: number) => native<{ at: number; title: string; markdown: string }>('note_version', { id, at })
+export const noteVersionRestore = (id: string, at: number) => native<Note>('note_version_restore', { id, at })
+export const circuitVersions = (project: string, name: string) => native<number[]>('circuit_versions', { project, name })
+export const circuitVersionLoad = (project: string, name: string, at: number) => native<string>('circuit_version_load', { project, name, at })
+/** A project's parts list (parts.csv) and settings (project.json) in its folder (projects.rs). */
+export const projectFileRead = (project: string, name: 'parts.csv' | 'project.json') => native<string | null>('project_file_read', { project, name })
+export const projectFileWrite = (project: string, name: 'parts.csv' | 'project.json', text: string) => native<void>('project_file_write', { project, name, text })
+/** Recently copied text, kept in memory on this computer (clipboard.rs). */
+export type ClipboardEntry = { text: string; at: number; from: string }
+export const clipboardHistorySettings = (enabled: boolean) => native<void>('clipboard_history_settings', { enabled })
+export const clipboardHistory = () => native<ClipboardEntry[]>('clipboard_history')
+export const clipboardHistoryClear = () => native<void>('clipboard_history_clear')
+export const clipboardPut = (text: string) => native<void>('clipboard_put', { text })
+/** Password-locked notes: the Markdown to encrypt, putting Markdown back, forgetting old versions. */
+export const notesMarkdown = (id: string) => native<string>('notes_markdown', { id })
+export const notesReplaceMarkdown = (id: string, markdown: string) => native<Note>('notes_replace_markdown', { id, markdown })
+export const noteHistoryClear = (id: string) => native<void>('note_history_clear', { id })
+/** The phone page on the local network (src-tauri/src/phone.rs). */
+export type PhoneStatus = { running: boolean; urls: string[]; error: string }
+export const phoneSettings = (enabled: boolean) => native<PhoneStatus>('phone_settings', { enabled })
+export const phoneStatus = () => native<PhoneStatus>('phone_status')
+export const phoneNewKey = () => native<PhoneStatus>('phone_new_key')
+export const phonePublish = (snapshot: unknown) => native<void>('phone_publish', { snapshot })

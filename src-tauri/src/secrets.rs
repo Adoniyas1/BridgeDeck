@@ -17,6 +17,8 @@ const SECRET_PATHS: &[&str] = &[
     "/localsend/pin",
     "/devices/*/agentToken",
     "/devices/*/localsendPin",
+    "/canvas/token",
+    "/canvas/feed",
 ];
 
 pub type Secrets = BTreeMap<String, String>;

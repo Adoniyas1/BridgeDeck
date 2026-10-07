@@ -16,6 +16,7 @@ import { libraryStore, refreshLibrary } from './state'
 import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
+import { AssignmentsCard, CanvasCard, ExamCard } from './Assignments'
 
 export default function StudyPage({ active }: { active: boolean }) {
   const { library, error } = useStore(libraryStore)
@@ -59,12 +60,12 @@ export default function StudyPage({ active }: { active: boolean }) {
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
     </aside>
-    {course ? <CourseView key={course.name} name={course.name} books={course.books} root={library!.root} onStatus={setStatus} status={status} />
-      : <Card className="study-empty"><GraduationCap size={28} /><h3>Add your first course</h3><p>Then add its textbooks (PDF), and BridgeDeck keeps them on both computers with your notes, chapter checklists and exam dates.</p></Card>}
+    {course ? <CourseView key={course.name} name={course.name} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status} />
+      : <div className="study-course"><Card className="study-empty"><GraduationCap size={28} /><h3>Add your first course</h3><p>Then add its textbooks (PDF), and BridgeDeck keeps them on both computers with your notes, chapter checklists and exam dates.</p></Card><AssignmentsCard courses={[]} /><CanvasCard /></div>}
   </div>
 }
 
-function CourseView({ name, books, root, status, onStatus }: { name: string; books: import('../../lib/bridge').StudyBook[]; root: string; status: string; onStatus: (s: string) => void }) {
+function CourseView({ name, courses, books, root, status, onStatus }: { name: string; courses: string[]; books: import('../../lib/bridge').StudyBook[]; root: string; status: string; onStatus: (s: string) => void }) {
   const notes = useStore(notesStore)
   const events = useStore(eventsStore)
   const mine = useMemo(() => courseNotes(notes, name), [notes, name])
@@ -121,10 +122,13 @@ function CourseView({ name, books, root, status, onStatus }: { name: string; boo
         </div>
       </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks as PDFs; they appear on your other computer too.</p>}
     </Card>
+    <AssignmentsCard course={name} courses={courses} />
     <div className="study-tools">
       <FocusCard course={name} />
       <FlashcardsCard course={name} onStatus={onStatus} />
+      <ExamCard course={name} />
     </div>
+    <CanvasCard />
     <LectureCard course={name} />
     <BookSearchCard course={name} books={books} />
     <div className="two-col">

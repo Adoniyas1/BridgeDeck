@@ -18,7 +18,12 @@ mod placement;
 mod adblock;
 mod extensions;
 mod backups;
+mod canvas;
 mod circuits;
+mod errorlog;
+mod python;
+mod phone;
+mod note_history;
 mod webkeys;
 mod webmedia;
 mod models;
@@ -569,6 +574,7 @@ pub fn run() {
         .manage(BridgeLinkManager::default())
         .manage(sync_sidecar::SyncSidecar::default())
         .setup(|app| {
+            errorlog::init(app.handle());
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
@@ -611,6 +617,12 @@ pub fn run() {
             bridgelink::notes::notes_list,
             bridgelink::notes::notes_create,
             bridgelink::notes::notes_save,
+            bridgelink::notes::note_version_restore,
+            note_history::note_versions,
+            note_history::note_version,
+            note_history::note_history_clear,
+            bridgelink::notes::notes_replace_markdown,
+            bridgelink::notes::notes_markdown,
             bridgelink::notes::notes_delete,
             bridgelink::notes::notes_create_markdown,
             study::study_library,
@@ -623,6 +635,8 @@ pub fn run() {
             projects::projects_add,
             projects::projects_files,
             projects::projects_import_mimir,
+            projects::project_file_read,
+            projects::project_file_write,
             skill_packs::skill_packs_status,
             skill_packs::skill_packs_install,
             chatgpt::chatgpt_show,
@@ -649,11 +663,25 @@ pub fn run() {
             browser::browser_hide,
             browser::browser_go,
             browser::browser_close,
+            browser::exam_sites,
             backups::backups_list,
+            canvas::canvas_feed,
+            canvas::canvas_api,
+            phone::phone_settings,
+            phone::phone_status,
+            phone::phone_new_key,
+            phone::phone_publish,
+            python::python_status,
+            python::python_run,
+            errorlog::error_log_read,
+            errorlog::error_log_add,
+            errorlog::error_log_clear,
             circuits::circuits_list,
             circuits::circuit_load,
             circuits::circuit_save,
             circuits::circuit_delete,
+            circuits::circuit_versions,
+            circuits::circuit_version_load,
             backups::backup_now,
             backups::backup_restore,
             manga::manga_library,
@@ -727,6 +755,10 @@ pub fn run() {
             remote::host::remote_host_settings,
             clipboard::clipboard_status,
             clipboard::clipboard_settings,
+            clipboard::clipboard_history_settings,
+            clipboard::clipboard_history,
+            clipboard::clipboard_history_clear,
+            clipboard::clipboard_put,
             remote::host::remote_host_stop,
             remote::viewer::remote_connect,
             remote::viewer::remote_frame_drawn,
@@ -768,6 +800,7 @@ pub fn run() {
                 send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
             }
             tauri::RunEvent::Exit => {
+                errorlog::closed();
                 mimir_host::stop();
                 sync_sidecar::shutdown(app);
             }

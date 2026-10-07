@@ -2,7 +2,7 @@
 
 export type Level = 0 | 1 | null
 export type GateType = 'AND' | 'OR' | 'NOT' | 'NAND' | 'NOR' | 'XOR' | 'XNOR' | 'BUF'
-export type PartKind = 'switch' | 'clock' | 'led' | 'vcc' | 'gnd' | 'gate' | 'chip'
+export type PartKind = 'switch' | 'clock' | 'led' | 'vcc' | 'gnd' | 'gate' | 'chip' | 'seg7'
 
 export type Part = {
   id: string
@@ -14,7 +14,7 @@ export type Part = {
   chip?: string
   /** Switch, clock and LED names (A, B… X, Y…). */
   label?: string
-  /** A switch's position. */
+  /** A switch's position; for a 7-segment display, common anode (a segment lights on 0, as from a 7447). */
   on?: boolean
 }
 /** A wire between two pins, written "partId:pin". */
@@ -27,7 +27,12 @@ export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNO
 
 type ChipGate = { type: GateType; ins: number[]; out: number }
 type ChipFlop = { d: number; clk: number; pre: number; clr: number; q: number; nq: number }
-export type ChipDef = { part: string; name: string; pins: number; vcc: number; gnd: number; gates: ChipGate[]; flops?: ChipFlop[]; labels: Record<number, string> }
+/** A chip that isn't gates or flip-flops (decoders, multiplexers, counters): its input and output
+ *  pins, its outputs from its inputs and stored value, and for a counter what a rising clock edge
+ *  (`edge`) or an asynchronous input (`now`, e.g. clear) does to the stored value. */
+type PinLevel = (pin: number) => Level
+type ChipLogic = { ins: number[]; outs: number[]; out: (pin: PinLevel, n: number) => Record<number, Level>; clk?: number; edge?: (pin: PinLevel, n: number) => number; now?: (pin: PinLevel) => number | null }
+export type ChipDef = { part: string; name: string; pins: number; vcc: number; gnd: number; gates: ChipGate[]; flops?: ChipFlop[]; logic?: ChipLogic; labels: Record<number, string> }
 
 const quad = (type: GateType, layout: 'standard' | 'nor' | 'xnor'): ChipGate[] => {
   if (layout === 'nor') return [{ type, ins: [2, 3], out: 1 }, { type, ins: [5, 6], out: 4 }, { type, ins: [8, 9], out: 10 }, { type, ins: [11, 12], out: 13 }]
@@ -71,6 +76,68 @@ export const CHIPS: ChipDef[] = [
   chip('74266', 'Quad 2-input XNOR', quad('XNOR', 'xnor')),
   chip('7474', 'Dual D flip-flop (rising edge)', [], [{ clr: 1, d: 2, clk: 3, pre: 4, q: 5, nq: 6 }, { clr: 13, d: 12, clk: 11, pre: 10, q: 9, nq: 8 }]),
 ]
+
+// ---- 16-pin chips (pin 16 to +5 V, pin 8 to ground) ----
+
+/** Control inputs left unconnected float high on TTL chips. */
+const high = (v: Level): 0 | 1 => (v === 0 ? 0 : 1)
+const bits = (pin: PinLevel, pins: number[]): number | null => {
+  let n = 0
+  for (const [i, p] of pins.entries()) { const v = pin(p); if (v === null) return null; n |= v << i }
+  return n
+}
+const allOf = (pins: number[], v: Level) => Object.fromEntries(pins.map(p => [p, v]))
+
+/** Segments lit for each value on a 7447 (a–g), including its odd shapes for 10–15. */
+export const SEGMENTS_7447 = ['abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'cdefg', 'abc', 'abcdefg', 'abcfg', 'deg', 'cdg', 'bfg', 'adfg', 'defg', '']
+const SEG_PINS_7447: Record<string, number> = { a: 13, b: 12, c: 11, d: 10, e: 9, f: 15, g: 14 }
+
+function chip16(part: string, name: string, labels: Record<number, string>, logic: ChipLogic): ChipDef {
+  return { part, name, pins: 16, vcc: 16, gnd: 8, gates: [], logic, labels: { ...labels, 8: 'GND', 16: 'VCC' } }
+}
+
+CHIPS.push(
+  chip16('7447', 'BCD to 7-segment decoder (outputs low = lit)', { 7: 'A', 1: 'B', 2: 'C', 6: 'D', 3: 'LT̅', 4: 'BI̅', 5: 'RBI̅', 13: 'a̅', 12: 'b̅', 11: 'c̅', 10: 'd̅', 9: 'e̅', 15: 'f̅', 14: 'g̅' }, {
+    ins: [7, 1, 2, 6, 3, 4, 5], outs: Object.values(SEG_PINS_7447),
+    out: pin => {
+      const outs = Object.values(SEG_PINS_7447)
+      if (high(pin(4)) === 0) return allOf(outs, 1)
+      if (high(pin(3)) === 0) return allOf(outs, 0)
+      const n = bits(pin, [7, 1, 2, 6])
+      if (n === null) return allOf(outs, null)
+      const lit = n === 0 && high(pin(5)) === 0 ? '' : SEGMENTS_7447[n]
+      return Object.fromEntries(Object.entries(SEG_PINS_7447).map(([seg, p]) => [p, lit.includes(seg) ? 0 : 1]))
+    },
+  }),
+  chip16('74138', '3-to-8 line decoder (outputs active low)', { 1: 'A', 2: 'B', 3: 'C', 4: 'G2A̅', 5: 'G2B̅', 6: 'G1', 15: 'Y0̅', 14: 'Y1̅', 13: 'Y2̅', 12: 'Y3̅', 11: 'Y4̅', 10: 'Y5̅', 9: 'Y6̅', 7: 'Y7̅' }, {
+    ins: [1, 2, 3, 4, 5, 6], outs: [15, 14, 13, 12, 11, 10, 9, 7],
+    out: pin => {
+      const outs = [15, 14, 13, 12, 11, 10, 9, 7]
+      if (high(pin(6)) === 0 || high(pin(4)) === 1 || high(pin(5)) === 1) return allOf(outs, 1)
+      const n = bits(pin, [1, 2, 3])
+      return n === null ? allOf(outs, null) : Object.fromEntries(outs.map((p, i) => [p, i === n ? 0 : 1]))
+    },
+  }),
+  chip16('74151', '8-to-1 multiplexer', { 4: 'D0', 3: 'D1', 2: 'D2', 1: 'D3', 15: 'D4', 14: 'D5', 13: 'D6', 12: 'D7', 11: 'A', 10: 'B', 9: 'C', 7: 'G̅', 5: 'Y', 6: 'W' }, {
+    ins: [4, 3, 2, 1, 15, 14, 13, 12, 11, 10, 9, 7], outs: [5, 6],
+    out: pin => {
+      if (high(pin(7)) === 1) return { 5: 0, 6: 1 }
+      const n = bits(pin, [11, 10, 9])
+      const v = n === null ? null : pin([4, 3, 2, 1, 15, 14, 13, 12][n])
+      return { 5: v, 6: v === null ? null : v ? 0 : 1 }
+    },
+  }),
+  chip16('74161', '4-bit binary counter (sync load, async clear)', { 1: 'CLR̅', 2: 'CLK', 3: 'A', 4: 'B', 5: 'C', 6: 'D', 7: 'ENP', 9: 'LOAD̅', 10: 'ENT', 15: 'QA', 14: 'QB', 13: 'QC', 12: 'QD', 11: 'RCO' }, {
+    ins: [1, 2, 3, 4, 5, 6, 7, 9, 10], outs: [15, 14, 13, 12, 11], clk: 2,
+    out: (pin, n) => ({ 15: n & 1 ? 1 : 0, 14: n & 2 ? 1 : 0, 13: n & 4 ? 1 : 0, 12: n & 8 ? 1 : 0, 11: n === 15 && high(pin(10)) === 1 ? 1 : 0 }),
+    now: pin => (high(pin(1)) === 0 ? 0 : null),
+    edge: (pin, n) => {
+      if (high(pin(9)) === 0) return bits(pin, [3, 4, 5, 6]) ?? n
+      return high(pin(7)) === 1 && high(pin(10)) === 1 ? (n + 1) % 16 : n
+    },
+  }),
+)
+
 export const chipDef = (part?: string) => CHIPS.find(c => c.part === part)
 
 // ---- Shapes and pins ----
@@ -90,6 +157,7 @@ export function sizeOf(part: Part): { w: number; h: number } {
     case 'gate': return { w: 60, h: gateHeight(part.gate === 'NOT' || part.gate === 'BUF' ? 1 : part.inputs ?? 2) }
     case 'chip': { const n = chipDef(part.chip)?.pins ?? 14; return { w: (n / 2) * 20 + 20, h: 60 } }
     case 'led': return { w: 40, h: 40 }
+    case 'seg7': return { w: 60, h: 90 }
     default: return { w: 40, h: 40 }
   }
 }
@@ -100,6 +168,7 @@ export function pinsOf(part: Part): PinDef[] {
   switch (part.kind) {
     case 'switch': case 'clock': case 'vcc': case 'gnd': return [{ name: 'out', x: w + 10, y: h / 2, dir: 'out' }]
     case 'led': return [{ name: 'in', x: -10, y: h / 2, dir: 'in' }]
+    case 'seg7': return SEG7_PINS.map((name, i) => ({ name, x: -10, y: 10 + i * 11.5, dir: 'in' as const, label: name }))
     case 'gate': {
       const n = part.gate === 'NOT' || part.gate === 'BUF' ? 1 : part.inputs ?? 2
       const ins: PinDef[] = Array.from({ length: n }, (_, i) => ({ name: `in${i}`, x: -10, y: n === 1 ? h / 2 : 10 + i * ((h - 20) / (n - 1)), dir: 'in' }))
@@ -111,8 +180,8 @@ export function pinsOf(part: Part): PinDef[] {
       const half = def.pins / 2
       const dirOf = (p: number): PinDir => {
         if (p === def.vcc || p === def.gnd) return 'power'
-        if (def.gates.some(g => g.out === p) || def.flops?.some(f => f.q === p || f.nq === p)) return 'out'
-        if (def.gates.some(g => g.ins.includes(p)) || def.flops?.some(f => [f.d, f.clk, f.pre, f.clr].includes(p))) return 'in'
+        if (def.gates.some(g => g.out === p) || def.flops?.some(f => f.q === p || f.nq === p) || def.logic?.outs.includes(p)) return 'out'
+        if (def.gates.some(g => g.ins.includes(p)) || def.flops?.some(f => [f.d, f.clk, f.pre, f.clr].includes(p)) || def.logic?.ins.includes(p)) return 'in'
         return 'nc'
       }
       return Array.from({ length: def.pins }, (_, i) => {
@@ -124,6 +193,9 @@ export function pinsOf(part: Part): PinDef[] {
     }
   }
 }
+
+/** A 7-segment display's inputs, top to bottom. */
+export const SEG7_PINS = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
 
 export const pinRef = (part: Part, pin: string) => `${part.id}:${pin}`
 
@@ -152,7 +224,7 @@ function gateValue(type: GateType, ins: Level[]): Level {
 }
 
 /** Flip-flop memory kept between simulation steps: last clock level and Q, by "partId:index". */
-export type FlopState = Record<string, { clk: Level; q: 0 | 1 }>
+export type FlopState = Record<string, { clk: Level; q: 0 | 1; n?: number }>
 
 export type Sim = {
   /** Each pin's level. */
@@ -227,7 +299,15 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
             if (!powered) {
               def.gates.forEach(g => set(ref(g.out), null))
               def.flops?.forEach(f => { set(ref(f.q), null); set(ref(f.nq), null) })
+              def.logic?.outs.forEach(p => set(ref(p), null))
               break
+            }
+            if (def.logic) {
+              const pin = (p: number) => level(ref(p))
+              const key = `${part.id}:r`
+              const now = def.logic.now?.(pin)
+              if (now != null) state[key] = { clk: state[key]?.clk ?? null, q: 0, n: now }
+              for (const [p, v] of Object.entries(def.logic.out(pin, state[key]?.n ?? 0))) set(ref(p), v)
             }
             for (const g of def.gates) set(ref(g.out), gateValue(g.type, g.ins.map(p => level(ref(p)))))
             def.flops?.forEach((f, i) => {
@@ -240,7 +320,7 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
             })
             break
           }
-          case 'led': break
+          case 'led': case 'seg7': break
         }
       }
       if (!changed) return true
@@ -252,8 +332,18 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
   // Flip-flops take D on a rising clock edge (clock low last step, high now), then the rest settles.
   for (const part of c.parts) {
     const def = chipDef(part.chip)
-    if (part.kind !== 'chip' || !def?.flops) continue
+    if (part.kind !== 'chip' || !def) continue
     const powered = level(pinRef(part, String(def.vcc))) === 1 && level(pinRef(part, String(def.gnd))) === 0
+    if (def.logic?.clk && def.logic.edge) {
+      const key = `${part.id}:r`
+      const before = state[key] ?? { clk: null, q: 0, n: 0 }
+      const pin = (p: number) => level(pinRef(part, String(p)))
+      const clk = pin(def.logic.clk)
+      const n = powered && before.clk === 0 && clk === 1 && def.logic.now?.(pin) == null ? def.logic.edge(pin, before.n ?? 0) : before.n ?? 0
+      state[key] = { clk, q: 0, n }
+      continue
+    }
+    if (!def.flops) continue
     def.flops.forEach((f, i) => {
       const key = flopKey(part, i)
       const before = state[key] ?? { clk: null, q: 0 }
@@ -266,7 +356,7 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
       state[key] = { clk, q }
     })
   }
-  if (c.parts.some(p => chipDef(p.chip)?.flops)) stable = settle()
+  if (c.parts.some(p => chipDef(p.chip)?.flops || chipDef(p.chip)?.logic?.clk)) stable = settle()
   if (!stable) warnings.add('The circuit keeps changing (it oscillates): a loop without a flip-flop.')
 
   for (const part of c.parts) {
@@ -286,8 +376,8 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
   // Inputs with nothing driving them.
   const drivenNets = new Set([...drive.keys()].map(r => netOf.get(r)))
   for (const part of c.parts) {
-    if (part.kind !== 'gate' && part.kind !== 'led') continue
-    if (pinsOf(part).some(pin => pin.dir === 'in' && !drivenNets.has(netOf.get(pinRef(part, pin.name))))) warnings.add(`${names[part.id]} has an input that isn't connected.`)
+    if (part.kind !== 'gate' && part.kind !== 'led' && part.kind !== 'seg7') continue
+    if (part.kind === 'seg7' ? !pinsOf(part).some(pin => drivenNets.has(netOf.get(pinRef(part, pin.name)))) : pinsOf(part).some(pin => pin.dir === 'in' && !drivenNets.has(netOf.get(pinRef(part, pin.name))))) warnings.add(`${names[part.id]} has an input that isn't connected.`)
   }
   return { pins, shorts: c.wires.filter(w => shortNets.has(netOf.get(w.a) ?? '')).map(w => w.id), warnings: [...warnings], state }
 }
@@ -321,7 +411,7 @@ export const MAX_TABLE_INPUTS = 10
 export function truthTable(c: Circuit): TruthTable {
   const inputs = c.parts.filter(p => p.kind === 'switch').sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
   const outputs = c.parts.filter(p => p.kind === 'led').sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
-  const sequential = c.parts.some(p => p.kind === 'clock' || chipDef(p.chip)?.flops?.length)
+  const sequential = c.parts.some(p => p.kind === 'clock' || chipDef(p.chip)?.flops?.length || chipDef(p.chip)?.logic?.clk)
   const table: TruthTable = { inputs: inputs.map(p => p.label ?? '?'), outputs: outputs.map(p => p.label ?? '?'), rows: [], sequential }
   if (inputs.length > MAX_TABLE_INPUTS) return { ...table, error: `More than ${MAX_TABLE_INPUTS} inputs: ${2 ** inputs.length} rows is too many to list.` }
   const n = inputs.length
@@ -336,14 +426,15 @@ export function truthTable(c: Circuit): TruthTable {
 
 // ---- Simplifying (Quine–McCluskey) ----
 
-type Implicant = { value: number; mask: number }
+/** A product term: the bits outside `mask` must equal `value`. */
+export type Implicant = { value: number; mask: number }
 
-/** The smallest sum of products for the rows where an output is 1 (`dontCares` may be either). */
-export function minimize(vars: string[], minterms: number[], dontCares: number[] = []): string {
-  const n = vars.length
+/** The groups (prime implicants) a smallest sum of products uses, in textbook order. Empty when
+ *  the output is never 1; one group with every bit masked when it's always 1. */
+export function implicants(n: number, minterms: number[], dontCares: number[] = []): Implicant[] {
   const ones = new Set(minterms)
-  if (!ones.size) return '0'
-  if (ones.size + new Set(dontCares.filter(d => !ones.has(d))).size === 2 ** n && n >= 0) return '1'
+  if (!ones.size) return []
+  if (ones.size + new Set(dontCares.filter(d => !ones.has(d))).size === 2 ** n) return [{ value: 0, mask: 2 ** n - 1 }]
   let groups: Implicant[] = [...new Set([...minterms, ...dontCares])].map(v => ({ value: v, mask: 0 }))
   const primes: Implicant[] = []
   while (groups.length) {
@@ -379,14 +470,25 @@ export function minimize(vars: string[], minterms: number[], dontCares: number[]
     chosen.push(best)
     for (const m of [...left]) if (covers(best, m)) left.delete(m)
   }
-  const term = (p: Implicant) => vars.map((v, i) => {
+  // Textbook order: terms with earlier variables first, plain before complemented.
+  const key = (p: Implicant) => Array.from({ length: n }, (_, i) => { const bit = 1 << (n - 1 - i); return p.mask & bit ? 2 : p.value & bit ? 0 : 1 })
+  const compare = (a: Implicant, b: Implicant) => { const ka = key(a), kb = key(b); for (let i = 0; i < n; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i]; return 0 }
+  return [...chosen].sort(compare)
+}
+
+/** A group as a product term, e.g. A·C'. */
+export function termOf(vars: string[], p: Implicant) {
+  const n = vars.length
+  return vars.map((v, i) => {
     const bit = 1 << (n - 1 - i)
     return p.mask & bit ? '' : p.value & bit ? v : `${v}'`
   }).filter(Boolean).join('·') || '1'
-  // Textbook order: terms with earlier variables first, plain before complemented.
-  const key = (p: Implicant) => vars.map((_, i) => { const bit = 1 << (n - 1 - i); return p.mask & bit ? 2 : p.value & bit ? 0 : 1 })
-  const compare = (a: Implicant, b: Implicant) => { const ka = key(a), kb = key(b); for (let i = 0; i < n; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i]; return 0 }
-  return [...chosen].sort(compare).map(term).join(' + ')
+}
+
+/** The smallest sum of products for the rows where an output is 1 (`dontCares` may be either). */
+export function minimize(vars: string[], minterms: number[], dontCares: number[] = []): string {
+  const groups = implicants(vars.length, minterms, dontCares)
+  return groups.length ? groups.map(p => termOf(vars, p)).join(' + ') : '0'
 }
 
 const bitCount = (x: number) => { let c = 0; while (x) { x &= x - 1; c++ } return c }
@@ -695,7 +797,7 @@ export const emptyCircuit = (): Circuit => ({ version: 1, parts: [], wires: [] }
 /** A saved circuit, checked (anything odd is dropped rather than trusted). */
 export function readCircuit(text: string): Circuit {
   const raw = JSON.parse(text)
-  const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip'].includes(p.kind)) : []
+  const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip', 'seg7'].includes(p.kind)) : []
   const ids = new Set(parts.map(p => p.id))
   const wires: Wire[] = Array.isArray(raw?.wires) ? raw.wires.filter((w: Wire) => typeof w?.a === 'string' && typeof w.b === 'string' && ids.has(w.a.split(':')[0]) && ids.has(w.b.split(':')[0])) : []
   return { version: 1, parts, wires }
@@ -708,4 +810,58 @@ export function tableMarkdown(table: TruthTable, exprs: Record<string, string> =
   for (const row of table.rows) lines.push(`| ${[...row.in, ...row.out.map(v => (v === null ? '?' : v))].join(' | ')} |`)
   const ex = Object.entries(exprs).map(([k, v]) => `- ${k} = ${v}`)
   return [lines.join('\n'), ex.length ? `\n${ex.join('\n')}` : ''].join('\n')
+}
+
+// ---- Karnaugh maps ----
+
+/** Gray-code order: neighbours differ in one bit. */
+const gray = (bits: number) => Array.from({ length: 2 ** bits }, (_, i) => i ^ (i >> 1))
+
+export type KMap = { rowVars: string[]; colVars: string[]; rows: number[]; cols: number[]; cell: (row: number, col: number) => number }
+
+/** The layout of a Karnaugh map for 2 to 4 variables (rows: the first half, columns: the rest),
+ *  null for other sizes. `cell` gives the truth table row (minterm) at a place. */
+export function kmapLayout(vars: string[]): KMap | null {
+  const n = vars.length
+  if (n < 2 || n > 4) return null
+  const rowBits = Math.floor(n / 2), colBits = n - rowBits
+  return { rowVars: vars.slice(0, rowBits), colVars: vars.slice(rowBits), rows: gray(rowBits), cols: gray(colBits), cell: (r, c) => (r << colBits) | c }
+}
+
+/** Which groups (by index in `groups`) cover a minterm. */
+export const groupsCovering = (groups: Implicant[], m: number) => groups.flatMap((g, i) => ((m & ~g.mask) === g.value ? [i] : []))
+
+/** An output's 1s, don't-cares and the groups of its smallest sum of products. */
+export function kmapGroups(table: TruthTable, out: number) {
+  const ones: number[] = [], either: number[] = []
+  table.rows.forEach((row, i) => { if (row.out[out] === 1) ones.push(i); else if (row.out[out] === null) either.push(i) })
+  return { ones, either, groups: implicants(table.inputs.length, ones, either) }
+}
+
+// ---- Timing diagrams ----
+
+export type Timing = { steps: number; signals: Array<{ name: string; kind: 'in' | 'clock' | 'out'; values: Level[] }> }
+
+/** Every clock, switch and LED over `cycles` clock cycles from power-up (two steps a cycle: clock
+ *  low, then high — the rising edge). Switches stay where they are. */
+export function timing(c: Circuit, cycles: number): Timing {
+  const clocks = c.parts.filter(p => p.kind === 'clock')
+  const switches = c.parts.filter(p => p.kind === 'switch').sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
+  const leds = c.parts.filter(p => p.kind === 'led').sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
+  const signals: Timing['signals'] = [
+    ...clocks.map(p => ({ name: p.label ?? 'CLK', kind: 'clock' as const, values: [] as Level[] })),
+    ...switches.map(p => ({ name: p.label ?? '?', kind: 'in' as const, values: [] as Level[] })),
+    ...leds.map(p => ({ name: p.label ?? '?', kind: 'out' as const, values: [] as Level[] })),
+  ]
+  let state: FlopState = {}
+  const steps = cycles * 2
+  for (let step = 0; step < steps; step++) {
+    const sim = simulate(c, { clock: step % 2 === 1, state })
+    state = sim.state
+    let i = 0
+    for (const p of clocks) signals[i++].values.push(sim.pins[pinRef(p, 'out')] ?? null)
+    for (const p of switches) signals[i++].values.push(p.on ? 1 : 0)
+    for (const p of leds) signals[i++].values.push(sim.pins[pinRef(p, 'in')] ?? null)
+  }
+  return { steps, signals }
 }

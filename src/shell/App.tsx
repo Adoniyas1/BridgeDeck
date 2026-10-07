@@ -3,6 +3,7 @@ import ChatPanel from './ChatPanel'
 import { Palette, ShortcutKeys, ShortcutsHelp } from './Palette'
 import { useEffect, Suspense } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
+import TabErrorBoundary from './TabErrorBoundary'
 import { BridgeLinkBackground, sourceUpdateStore } from '../core/bridgelink'
 import { hydrateConfig, hydratedStore } from '../core/config'
 import { noticeStore, setNotice } from '../core/notice'
@@ -29,7 +30,7 @@ function Loading() {
 
 function DynamicTabView({ tab, active }: { tab: DynamicTab; active: boolean }) {
   const View = features.map(feature => feature.tabKinds?.[tab.kind]).find(Boolean)
-  return <div className="tab-panel" hidden={!active}><Suspense fallback={<Loading />}>{View ? <View tab={tab} active={active} /> : <UnknownTab tab={tab} />}</Suspense></div>
+  return <div className="tab-panel" hidden={!active}><TabErrorBoundary name={tab.kind}><Suspense fallback={<Loading />}>{View ? <View tab={tab} active={active} /> : <UnknownTab tab={tab} />}</Suspense></TabErrorBoundary></div>
 }
 
 export default function App() {
@@ -59,8 +60,8 @@ export default function App() {
         </>}
 
         {features.map(({ id, Page, keepAlive }) => Page && (active === id || keepAlive) &&
-          <div key={id} className="tab-panel" hidden={active !== id}><Suspense fallback={<Loading />}><Page active={active === id} /></Suspense></div>)}
-        {active === 'settings' && <div className="tab-panel"><SettingsPage /></div>}
+          <div key={id} className="tab-panel" hidden={active !== id}><TabErrorBoundary name={id}><Suspense fallback={<Loading />}><Page active={active === id} /></Suspense></TabErrorBoundary></div>)}
+        {active === 'settings' && <div className="tab-panel"><TabErrorBoundary name="settings"><SettingsPage /></TabErrorBoundary></div>}
         {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} active={active === tab.id} />)}
       </main>
       <ChatPanel />

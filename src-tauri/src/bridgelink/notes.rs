@@ -18,7 +18,7 @@ const MAX_TITLE: usize = 300;
 const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
-const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing"];
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python", "locked"];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +116,13 @@ pub struct NoteStore {
     notes: HashMap<String, Note>,
     seq: u64,
     seen: HashMap<String, u64>,
+}
+
+impl NoteStore {
+    /// A note by id (deleted ones too).
+    pub fn get(&self, id: &str) -> Option<&Note> {
+        self.notes.get(id)
+    }
 }
 
 fn clean_text(value: &str, max: usize) -> String {
@@ -462,6 +469,47 @@ fn changed(manager: &BridgeLinkManager) {
     });
 }
 
+// ---- The phone page (phone.rs) ----
+
+/// Checklists (notes with tasks, locked ones left out), newest first, for the phone page.
+pub fn phone_lists(manager: &BridgeLinkManager) -> Result<serde_json::Value, String> {
+    let runtime = manager.lock()?;
+    let mut notes: Vec<&Note> = runtime.notes.notes.values().filter(|n| !n.deleted && !n.blocks.iter().any(|b| !b.deleted && b.kind == "locked") && n.blocks.iter().any(|b| !b.deleted && b.kind == "todo")).collect();
+    notes.sort_by(|a, b| b.updated().cmp(&a.updated()).then_with(|| a.title.cmp(&b.title)));
+    let lists: Vec<serde_json::Value> = notes
+        .into_iter()
+        .take(30)
+        .map(|n| {
+            let items: Vec<serde_json::Value> = shown(n).into_iter().filter(|b| b.kind == "todo").take(200).map(|b| serde_json::json!({ "id": b.id, "text": b.text, "checked": b.checked, "indent": b.indent })).collect();
+            serde_json::json!({ "id": n.id, "title": if n.title.trim().is_empty() { "Checklist" } else { n.title.as_str() }, "folder": n.folder, "items": items })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(lists))
+}
+
+/// Ticks a checklist item from the phone.
+pub fn phone_check(manager: &BridgeLinkManager, note: &str, block: &str, checked: bool) -> Result<(), String> {
+    local(manager, |store, device, now| {
+        let current = store.notes.get(note).filter(|n| !n.deleted).ok_or("No such list")?;
+        let item = current.blocks.iter().find(|b| b.id == block && !b.deleted && b.kind == "todo").ok_or("No such item")?.clone();
+        store.apply(NotePatch { id: note.into(), blocks: vec![Block { checked, ..item }], ..Default::default() }, device, now).map(|_| ())
+    })
+}
+
+/// Adds an item to the end of a checklist from the phone.
+pub fn phone_add(manager: &BridgeLinkManager, note: &str, text: &str) -> Result<(), String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Nothing to add".into());
+    }
+    local(manager, |store, device, now| {
+        let current = store.notes.get(note).filter(|n| !n.deleted).ok_or("No such list")?;
+        let last = current.blocks.iter().filter(|b| !b.deleted).map(|b| b.pos.clone()).max().unwrap_or_default();
+        let block = Block { id: Uuid::new_v4().to_string(), kind: "todo".into(), text: clean_text(text, MAX_TEXT), pos: format!("{last}V"), updated: now, by: device.into(), ..Default::default() };
+        store.apply(NotePatch { id: note.into(), blocks: vec![block], ..Default::default() }, device, now).map(|_| ())
+    })
+}
+
 /// Saves a conversation from the ChatGPT window as a note: the same chat (its address on the first
 /// line) is updated where it is; a new one goes in `folder`.
 pub fn save_chat(manager: &BridgeLinkManager, source: &str, title: &str, folder: &str, markdown: &str) -> Result<Note, String> {
@@ -521,8 +569,38 @@ pub fn notes_create(kind: String, folder: String, manager: State<'_, BridgeLinkM
 }
 
 #[tauri::command]
-pub fn notes_save(patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+pub fn notes_save(app: AppHandle, patch: NotePatch, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    // The version it's leaving goes in its history (at most one every ten minutes).
+    let before = manager.lock()?.notes.get(&patch.id).filter(|n| !n.deleted).cloned();
+    if let Some(before) = before {
+        crate::note_history::before_change(&app, &before, now_ms());
+    }
     local(&manager, |notes, device, now| notes.apply(patch, device, now))
+}
+
+/// A note's content as Markdown (what gets encrypted when it's locked).
+#[tauri::command]
+pub fn notes_markdown(id: String, manager: State<'_, BridgeLinkManager>) -> Result<String, String> {
+    manager.lock()?.notes.get(&id).filter(|n| !n.deleted).map(to_markdown).ok_or_else(|| "No such note".to_string())
+}
+
+/// Replaces a note's content with Markdown (a locked note unlocked for good).
+#[tauri::command]
+pub fn notes_replace_markdown(id: String, markdown: String, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    local(&manager, |notes, device, now| notes.replace_markdown(&id, &markdown, device, now))
+}
+
+/// Puts an earlier version of a note back (as a new edit, so it reaches the other computer too).
+/// The version it replaces is kept first, so this can be undone the same way.
+#[tauri::command]
+pub fn note_version_restore(app: AppHandle, id: String, at: u64, manager: State<'_, BridgeLinkManager>) -> Result<Note, String> {
+    let version = crate::note_history::version(&app, &id, at)?;
+    let current = manager.lock()?.notes.get(&id).filter(|n| !n.deleted).cloned().ok_or("That note isn't here any more")?;
+    crate::note_history::force_keep(&app, &current, now_ms());
+    local(&manager, |notes, device, now| {
+        let blocks = blocks_from_markdown(&version.markdown, "", device, now);
+        notes.restore(Note { title: version.title.clone(), blocks, ..current.clone() }, device, now)
+    })
 }
 
 /// A note made from Markdown (a book's chapter checklist, highlights).
@@ -624,6 +702,10 @@ pub fn to_markdown(note: &Note) -> String {
             "todo" => format!("{pad}- [{}] {}{due}", if block.checked { "x" } else { " " }, block.text),
             "quote" => block.text.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"),
             "code" => format!("```\n{}\n```", block.text),
+            "graph" => format!("```graph\n{}\n```", block.text),
+            "python" => format!("```python\n{}\n```", block.text),
+            // A password-locked note's content, encrypted in the window (never the password).
+            "locked" => format!("```bridgedeck-locked\n{}\n```", block.text),
             // The picture lives in the shared folder; this link brings the drawing back on import.
             "drawing" => format!("![Drawing](bridgedeck-drawing:{})", block.text),
             _ => block.text.clone(),
@@ -645,6 +727,8 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
     let mut blocks = Vec::new();
     let mut paragraph: Vec<String> = Vec::new();
     let mut code: Option<Vec<String>> = None;
+    // The fence's language: ```graph and ```python come back as those blocks.
+    let mut fence = "code";
     let push = |blocks: &mut Vec<Block>, kind: &str, text: String, checked: bool, indent: u8| {
         let pos = format!("{after}{:05}V", blocks.len() + 1);
         blocks.push(Block { id: Uuid::new_v4().to_string(), kind: kind.into(), text: clean_text(&text, MAX_TEXT), checked, indent: indent.min(MAX_INDENT), pos, updated: now, by: device.into(), ..Default::default() });
@@ -662,7 +746,7 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
             if raw.trim_start().starts_with("```") {
                 let text = lines.join("\n");
                 code = None;
-                push(&mut blocks, "code", text, false, 0);
+                push(&mut blocks, fence, text, false, 0);
             } else {
                 lines.push(raw.to_string());
             }
@@ -671,8 +755,14 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
         let spaces = raw.len() - raw.trim_start().len();
         let indent = (spaces / 2).min(MAX_INDENT as usize) as u8;
         let line = raw.trim();
-        if line.starts_with("```") {
+        if let Some(lang) = line.strip_prefix("```") {
             flush(&mut blocks, &mut paragraph);
+            fence = match lang.trim().to_ascii_lowercase().as_str() {
+                "graph" => "graph",
+                "python" | "py" | "python3" => "python",
+                "bridgedeck-locked" => "locked",
+                _ => "code",
+            };
             code = Some(Vec::new());
             continue;
         }
@@ -1086,6 +1176,17 @@ mod tests {
         let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
         assert_eq!(kinds, vec![("p", "Before"), ("drawing", "abc_12"), ("p", "![Drawing](bridgedeck-drawing:../x)")]);
         assert!(to_markdown(&note).contains("![Drawing](bridgedeck-drawing:abc_12)"));
+    }
+
+    #[test]
+    fn graph_and_python_blocks_are_fenced() {
+        let mut store = NoteStore::default();
+        let md = "```graph\ny = sin(x)\nx: -5..5\n```\n\n```py\nprint(1)\n```\n\n```rust\nfn x() {}\n```";
+        let note = store.create_from_markdown(None, "note", "Lab", "", md, "mac", 100).unwrap();
+        let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
+        assert_eq!(kinds, vec![("graph", "y = sin(x)\nx: -5..5"), ("python", "print(1)"), ("code", "fn x() {}")]);
+        let out = to_markdown(&note);
+        assert!(out.starts_with("```graph\ny = sin(x)\nx: -5..5\n```\n\n```python\nprint(1)\n```"));
     }
 
     #[test]
