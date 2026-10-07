@@ -40,8 +40,11 @@ itself syncs between the computers.
   `.dmg` (Mac) or `-setup.exe` (Windows).
 - **Locally**: `npm run tauri build` on each computer.
 
-Every pull request runs the cheap checks in `.github/workflows/ci.yml` (frontend build and tests, the
-static verifier, and Rust checks for Linux and Windows). Installers are built only on demand (D13).
+Pull requests run only the checks for what they change, to save Actions minutes (the repository is
+private): `ci.yml` for the web app (build, tests, the static verifier), `rust.yml` for `src-tauri/`
+(Linux and Windows checks and tests), `mac-check.yml` for `src-tauri/` on macOS (whose minutes count
+ten times), and `mimir.yml` for `mimir/`. Every job has a time limit. Installers are built only on
+demand (D13).
 
 ## Working rules for people and AI assistants
 
