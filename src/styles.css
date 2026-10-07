@@ -285,6 +285,12 @@ button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-a
 .tab-close{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--faint)}
 .tab-close:hover{background:var(--surface-3);color:var(--text)}
 .tab-divider{align-self:center;flex:0 0 auto;width:1px;height:18px;margin:0 6px;background:var(--line-strong)}
+.code-chip{display:flex;align-items:center;height:32px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:var(--radius-sm);background:color-mix(in srgb,var(--accent) 14%,transparent);animation:code-in .25s ease-out}
+.code-chip button{border:0;background:transparent;color:var(--text);display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 10px}
+.code-chip-use b{font-variant-numeric:tabular-nums;letter-spacing:.06em;font-size:13px}
+.code-chip-close{color:var(--muted)!important;padding:0 8px 0 4px!important}
+.code-chip button:hover{color:var(--accent)}
+@keyframes code-in{from{opacity:0;transform:translateY(-4px)}}
 .tab-badge{display:grid;place-items:center;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:#0a84ff;color:#fff;font-size:10px;font-style:normal;font-weight:600}
 .tab-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .icon-button.active{color:var(--text);background:var(--surface-2)}

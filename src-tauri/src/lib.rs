@@ -664,6 +664,7 @@ pub fn run() {
             extensions::extensions_get_ublock,
             browser::browser_hide,
             browser::browser_go,
+            browser::browser_fill_code,
             browser::browser_close,
             browser::browser_has,
             browser::exam_sites,
