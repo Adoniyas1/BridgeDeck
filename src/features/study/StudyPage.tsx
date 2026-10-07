@@ -18,6 +18,7 @@ import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
+import { ClassTimes, TermCard } from './ClassTimes'
 import { canvasStore } from './canvasStore'
 import { catalogTitle } from './plans'
 import { courseKey } from './canvas'
@@ -70,6 +71,7 @@ export default function StudyPage({ active }: { active: boolean }) {
           <GraduationCap size={15} /><span>{c.name}{c.info.title && c.info.title !== c.name ? <small className="study-course-title">{c.info.title}</small> : null}</span><small>{c.books.length}</small>
         </button>)}
       </div>
+      <TermCard />
       <button className={`ghost study-plan-toggle${planOpen ? ' active' : ''}`} onClick={() => setPlanOpen(v => !v)}><MapIcon size={13} />Degree plan</button>
       {archived.length > 0 && <button className="ghost study-archived-toggle" onClick={() => setShowArchived(v => !v)}><Archive size={13} />{showArchived ? 'Hide' : 'Show'} archived ({archived.length})</button>}
       {showArchived && <div className="study-course-list archived">
@@ -151,6 +153,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />
       {status && <p className="book-status">{status}</p>}
       <CourseDetails course={course} onStatus={onStatus} />
+      <ClassTimes course={course} onStatus={onStatus} />
       {books.length ? <div className="study-books">{books.map(book => <div key={book.file} className="study-book">
         <button className={`study-book-cover${isSlides(book) ? ' slides' : ''}`} onClick={() => open(book)}>{isSlides(book) ? <Presentation size={26} /> : <BookOpen size={26} />}<span>{book.kind.toUpperCase()}</span></button>
         <div className="grow"><strong title={book.file}>{book.title}</strong><small>{fmtBytes(book.bytes)}</small></div>

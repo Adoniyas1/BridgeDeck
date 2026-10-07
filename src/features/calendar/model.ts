@@ -3,10 +3,11 @@ import type { CalEvent } from '../../lib/bridge'
 export const DAY = 86_400_000
 
 /** What the calendar shows: an event occurrence, a checklist item due from Notes, an Apple Calendar
- *  event or Reminder from the Mac, or a Canvas assignment or course event. */
+ *  event or Reminder from the Mac, a Canvas assignment or course event, a class (Study's class
+ *  times) or an event from a subscribed calendar (Outlook…). */
 export type Item = {
   key: string
-  source: 'event' | 'todo' | 'apple' | 'canvas'
+  source: 'event' | 'todo' | 'apple' | 'canvas' | 'class' | 'feed'
   title: string
   start: number
   end: number

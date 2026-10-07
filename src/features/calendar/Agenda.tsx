@@ -12,7 +12,7 @@ export default function TodayAgenda() {
   const now = Date.now()
   const todays = items.filter(i => i.start < addDays(today, 1) && (i.allDay || i.end > now || i.start >= now || i.source === 'todo'))
   const tomorrow = items.filter(i => i.start >= addDays(today, 1)).slice(0, 3)
-  const row = (item: typeof items[number]) => <button key={item.key} className="agenda-row" onClick={() => activateTab(item.source === 'todo' ? 'notes' : item.source === 'canvas' ? 'study' : 'calendar')}>
+  const row = (item: typeof items[number]) => <button key={item.key} className="agenda-row" onClick={() => activateTab(item.source === 'todo' ? 'notes' : item.source === 'canvas' || item.source === 'class' ? 'study' : 'calendar')}>
     <i style={{ background: colorOf(item.color) }} />
     <span className="agenda-time">{item.source === 'todo' ? <ListChecks size={12} /> : null}{formatRange(item)}</span>
     <span className="grow agenda-title">{item.title}</span>

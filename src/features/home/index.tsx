@@ -20,6 +20,7 @@ import { installUpdate, updatesStore } from '../devices/updates'
 import { leftoverStore, LeftoverBackground, stopLeftovers } from './leftovers'
 import TodayAgenda from '../calendar/Agenda'
 import { DueSoonCard } from '../study/AssignmentCards'
+import { TodayCard } from '../study/TodayCard'
 import { AwayCard, BriefBackground, BriefCard, BriefSettings } from './brief-ui'
 
 const canHost = (platform?: string) => platform === 'macos' || platform === 'windows'
@@ -152,6 +153,7 @@ function HomePage() {
     {config.setup.dismissed ? <NeedsAttention /> : <SetupChecklist />}
     <Leftovers />
     <AwayCard />
+    <TodayCard />
     <TodayAgenda />
     <DueSoonCard />
     <BriefCard />

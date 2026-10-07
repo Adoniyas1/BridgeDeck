@@ -72,6 +72,9 @@ pub struct CourseInfo {
     pub title: String,
     pub canvas_id: String,
     pub canvas_code: String,
+    /// The rest is kept as the Study tab wrote it: class times ("meetings") and grading.
+    #[serde(flatten)]
+    pub more: serde_json::Map<String, serde_json::Value>,
 }
 
 const INFO: &str = ".course.json";
@@ -476,9 +479,41 @@ pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> 
 #[tauri::command]
 pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), String> {
     let short = |s: &str| s.trim().chars().take(120).collect::<String>();
-    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code) };
+    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code), more: info.more };
+    let bytes = serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_PLAN {
+        return Err("Too much to keep for one course".into());
+    }
     let dir = course_dir(&current_root()?, &name)?;
-    fs::write(dir.join(INFO), serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    fs::write(dir.join(INFO), bytes).map_err(|e| e.to_string())
+}
+
+/// Study-wide state kept beside the courses (synced): the semester's dates, homework progress.
+fn state_file(key: &str) -> Result<&'static str, String> {
+    match key {
+        "term" => Ok(".term.json"),
+        "problems" => Ok(".problems.json"),
+        "grades" => Ok(".grades.json"),
+        _ => Err("Unknown study state".into()),
+    }
+}
+
+#[tauri::command]
+pub fn study_state_read(key: String) -> Result<String, String> {
+    match fs::read_to_string(current_root()?.join(state_file(&key)?)) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn study_state_write(key: String, text: String) -> Result<(), String> {
+    let file = state_file(&key)?;
+    if text.len() > MAX_PLAN || serde_json::from_str::<serde_json::Value>(&text).is_err() {
+        return Err("Not study state".into());
+    }
+    fs::write(current_root()?.join(file), text).map_err(|e| e.to_string())
 }
 
 /// The degree plan's saved state (JSON), empty when there's none yet.
@@ -540,6 +575,17 @@ pub fn study_search(query: String, course: Option<String>) -> Result<Vec<Hit>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn course_info_keeps_what_the_study_tab_adds() {
+        let text = r#"{"code":"EE 201","title":"Digital Logic Design","canvasId":"7","canvasCode":"E E 201 Sec05","meetings":[{"days":[1,3],"start":"10:00","end":"11:15","room":"ECS 302"}],"grading":{"categories":[]}}"#;
+        let info: CourseInfo = serde_json::from_str(text).unwrap();
+        assert_eq!((info.code.as_str(), info.canvas_id.as_str()), ("EE 201", "7"));
+        assert!(info.more.contains_key("meetings") && info.more.contains_key("grading"));
+        let back: serde_json::Value = serde_json::to_value(&info).unwrap();
+        assert_eq!(back["meetings"][0]["room"], "ECS 302");
+        assert_eq!(back["canvasCode"], "E E 201 Sec05");
+    }
 
     #[test]
     fn courses_and_books_are_listed_added_and_served_only_from_the_library() {

@@ -52,7 +52,7 @@ export type AppConfig = {
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
   mimir: { enabled: boolean }
   /** Calendar tab: Apple Calendar from a Mac, first day of the week, reminder for new events (minutes). */
-  calendar: { showApple: boolean; weekStart: 0 | 1; defaultReminder: number | null }
+  calendar: { showApple: boolean; weekStart: 0 | 1; defaultReminder: number | null; /** Subscribed calendars (Outlook's published ICS link and the like), shown read-only. */ feeds: CalendarFeed[] }
   /** Morning brief and evening study nudges as notifications ("HH:MM", this computer's time); "while you were away" on Home. */
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
@@ -430,3 +430,5 @@ export type SyncthingAutoSetupResult = {
 }
 
 export type MailAccount = { id: string; name: string; url: string }
+
+export type CalendarFeed = { id: string; name: string; url: string; color: string }

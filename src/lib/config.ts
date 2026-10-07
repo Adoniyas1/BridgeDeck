@@ -20,7 +20,7 @@ export const defaultConfig: AppConfig = {
   phone: { enabled: false },
   updates: { auto: false },
   mimir: { enabled: false },
-  calendar: { showApple: false, weekStart: 0, defaultReminder: 10 },
+  calendar: { showApple: false, weekStart: 0, defaultReminder: 10, feeds: [] },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
   browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [] },
@@ -91,7 +91,10 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     phone: { enabled: input.phone?.enabled === true },
     updates: { ...defaultConfig.updates, ...(input.updates || {}) },
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
-    calendar: { ...defaultConfig.calendar, ...(input.calendar || {}) },
+    calendar: {
+      ...defaultConfig.calendar, ...(input.calendar || {}),
+      feeds: Array.isArray(input.calendar?.feeds) ? input.calendar.feeds.filter(f => f && typeof f.url === 'string' && /^(https|webcal):\/\//.test(f.url) && /^[a-z0-9]{1,12}$/.test(String(f.id))).map(f => ({ id: f.id, name: String(f.name || 'Calendar').slice(0, 40), url: f.url, color: String(f.color || 'purple') })).slice(0, 10) : [],
+    },
     brief: { ...defaultConfig.brief, ...(input.brief || {}) },
     tv: { shortcuts: cleanShortcuts(input.tv?.shortcuts) },
     study: {

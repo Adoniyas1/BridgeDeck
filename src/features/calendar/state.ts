@@ -9,6 +9,9 @@ import { dueItems, noteTitle } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { mergeCanvas, type Assignment } from '../study/canvas'
 import { canvasStore } from '../study/canvasStore'
+import { libraryStore, termStore } from '../study/state'
+import { classesBetween } from '../study/schedule'
+import { feedItemsStore, refreshFeeds } from './feeds'
 import { addDays, DAY, formatTime, startOfDay, type Item } from './model'
 import { occurrences } from './recur'
 
@@ -42,8 +45,8 @@ export async function loadApple(from: number, to: number, force = false) {
 }
 
 /** Everything the calendar shows between two times, soonest first. */
-export function itemsBetween(events: CalEvent[], notes: import('../../lib/bridge').Note[], apple: AppleItem[], from: number, to: number, canvas: Assignment[] = []): Item[] {
-  const items: Item[] = []
+export function itemsBetween(events: CalEvent[], notes: import('../../lib/bridge').Note[], apple: AppleItem[], from: number, to: number, canvas: Assignment[] = [], extra: Item[] = []): Item[] {
+  const items: Item[] = extra.filter(i => i.start < to && (i.end > i.start ? i.end > from : i.start >= from))
   for (const event of events) {
     if (event.deleted) continue
     for (const o of occurrences(event, from, to)) {
@@ -77,7 +80,19 @@ export function useItems(from: number, to: number) {
   const done = config.canvas.done
   const canvas = useMemo(() => mergeCanvas(canvasData.feed, canvasData.api, done), [canvasData, done])
   useEffect(() => { void loadApple(from, to) }, [from, to, showApple])
-  return useMemo(() => itemsBetween(events, notes, showApple ? apple.items : [], from, to, canvas), [events, notes, apple.items, showApple, from, to, canvas])
+  const library = useStore(libraryStore).library
+  const term = useStore(termStore)
+  const feeds = useStore(feedItemsStore)
+  const extra = useMemo(() => [...classItems(library?.courses.filter(c => !c.archived) ?? [], term, from, to), ...feeds], [library, term, from, to, feeds])
+  return useMemo(() => itemsBetween(events, notes, showApple ? apple.items : [], from, to, canvas, extra), [events, notes, apple.items, showApple, from, to, canvas, extra])
+}
+
+/** Classes from Study's class times, as calendar items. */
+export function classItems(courses: Parameters<typeof classesBetween>[0], term: Parameters<typeof classesBetween>[1], from: number, to: number): Item[] {
+  return classesBetween(courses, term, from, to).map(c => ({
+    key: `class:${c.course}:${c.start}`, source: 'class' as const, title: `${c.course}${c.kind ? ` ${c.kind}` : ''}`, start: c.start, end: c.end, allDay: false, color: 'teal',
+    calendar: [c.title, c.room].filter(Boolean).join(' · '),
+  }))
 }
 
 const announced = new Set<string>()
@@ -115,6 +130,8 @@ export function CalendarBackground() {
     const today = startOfDay(Date.now())
     void loadApple(today, addDays(today, 2))
   }, 60_000, [], 'same')
+  const feeds = useStore(configStore).calendar.feeds
+  usePeriodicRefresh(refreshFeeds, 30 * 60_000, [feeds], 'slow')
   useEffect(() => {
     const timer = window.setInterval(checkReminders, 20_000)
     return () => window.clearInterval(timer)

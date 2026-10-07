@@ -10,6 +10,9 @@ import { addAssignments, useAssignments } from './assignments'
 import { courseMatches } from './canvas'
 import { courseFolder } from './model'
 import { dateHomework, homeworkPrompt, homeworkTitle, readHomework } from './homework'
+import { classDaysOf } from './schedule'
+import { libraryStore, termStore } from './state'
+import { useStore } from '../../core/store'
 
 const IMAGE = /\.(jpe?g|png|heic|webp|gif)$/i
 
@@ -19,7 +22,10 @@ export function HomeworkImport({ course, onClose }: { course: string; onClose: (
   const existing = useAssignments()
   const [photo, setPhoto] = useState('')
   const [answer, setAnswer] = useState('')
-  const [start, setStart] = useState('')
+  const term = useStore(termStore)
+  const info = useStore(libraryStore).library?.courses.find(c => c.name === course)?.info
+  // The semester's first day (Study → Semester) is the first week, unless the photo says otherwise.
+  const [start, setStart] = useState(term?.start ?? '')
   const [time, setTime] = useState('23:59')
   const [nextClass, setNextClass] = useState(false)
   const [skip, setSkip] = useState<Set<number>>(new Set())
@@ -42,16 +48,19 @@ export function HomeworkImport({ course, onClose }: { course: string; onClose: (
 
   const parsed = useMemo(() => readHomework(answer), [answer])
   useEffect(() => { if (parsed.semesterStart && !start) setStart(dateInput(parsed.semesterStart)) }, [parsed.semesterStart])
+  const classDays = useMemo(() => info ? classDaysOf(info, term) : [], [info, term])
   const dated = useMemo(() => {
     if (!start || !parsed.rows.length) return []
     const rows = dateHomework(parsed.rows, fromInputs(start, '00:00'))
     const [h, m] = (time || '23:59').split(':').map(Number)
     return rows.map((row, i) => {
-      const day = nextClass && rows[i + 1] ? rows[i + 1].date : row.date
+      // The next class: from the course's class times when it has them, else the sheet's next row.
+      const later = classDays.find(d => d > row.date)
+      const day = !nextClass ? row.date : later ?? (rows[i + 1] ? rows[i + 1].date : row.date)
       const due = new Date(day); due.setHours(h, m, 0, 0)
       return { ...row, due: due.getTime(), title: homeworkTitle(row) }
     })
-  }, [parsed, start, time, nextClass])
+  }, [parsed, start, time, nextClass, classDays])
   const already = useMemo(() => new Set(existing.filter(a => a.source === 'manual' && courseMatches(course, a.course)).map(a => a.title)), [existing, course])
   useEffect(() => { setSkip(new Set(dated.flatMap((row, i) => already.has(row.title) || (!row.text && !/exam|quiz|test|due/i.test(row.note)) ? [i] : []))) }, [dated.length, already])
 

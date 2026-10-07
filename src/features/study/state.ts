@@ -1,5 +1,5 @@
 import type { Card } from 'ts-fsrs'
-import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
+import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyStateRead, studyStateWrite, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
 import { configStore } from '../../core/config'
 import { notify } from '../../core/notify'
 import { createStore } from '../../core/store'
@@ -8,17 +8,28 @@ import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { flashcardsTitle, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
+import { readTerm, type Term } from './schedule'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
+/** The semester's dates and breaks (Study → courses → Semester). */
+export const termStore = createStore<Term | null>(null)
 
-/** Reads the course folders (in the synced folder, so books added on the other computer appear). */
+/** Reads the course folders (in the synced folder, so books added on the other computer appear)
+ *  and the semester's dates. */
 export async function refreshLibrary() {
   if (!isTauri()) return
   try {
     libraryStore.set({ library: await studyLibrary(configStore.get().syncthing.sharedFolderPath), error: '' })
+    const term = readTerm(await studyStateRead('term').catch(() => ''))
+    if (JSON.stringify(term) !== JSON.stringify(termStore.get())) termStore.set(term)
   } catch (e) {
     libraryStore.set(current => ({ ...current, error: String(e) }))
   }
+}
+
+export async function saveTerm(term: Term | null) {
+  termStore.set(term)
+  await studyStateWrite('term', JSON.stringify(term ?? {}))
 }
 
 // ---- Flashcards ----
