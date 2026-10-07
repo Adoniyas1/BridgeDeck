@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Note } from '../../lib/bridge'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, studyNameFor, type Assignment } from './canvas'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, studyNameFor, courseKey, belongsTo, type Assignment } from './canvas'
 
 const FEED = [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Instructure//Canvas//EN',
@@ -118,5 +118,23 @@ describe('studyNameFor', () => {
     expect(studyNameFor({ code: 'E E 201 Sec05', name: 'Electric Circuits' })).toBe('EE 201')
     expect(studyNameFor({ code: 'MATH-221-01 Fall 2026', name: 'Calculus III' })).toBe('MATH 221')
     expect(studyNameFor({ code: 'Orientation', name: 'New Student Orientation' })).toBe('New Student Orientation')
+  })
+})
+
+describe('course codes', () => {
+  it('reads catalog codes from Canvas and Study names', () => {
+    expect(courseKey('E E 201 Sec05')).toBe('EE 201')
+    expect(courseKey('MATH-224-01 Fall 2026')).toBe('MATH 224')
+    expect(courseKey('EE 370L Control Lab')).toBe('EE 370L')
+    expect(courseKey('C E C S 174 Sec 02')).toBe('CECS 174')
+    expect(courseKey('Calc 3')).toBeNull()
+    expect(courseKey('Fall 2026 Orientation')).toBeNull()
+  })
+  it('matches Canvas courses to Study courses by code or link', () => {
+    expect(courseMatches('EE 201', 'E E 201 Sec05')).toBe(true)
+    expect(courseMatches('EE 201', 'E E 202 Sec01')).toBe(false)
+    expect(belongsTo({ name: 'Calc 3', code: 'MATH 224' }, 'MATH 224 Sec 07')).toBe(true)
+    expect(belongsTo({ name: 'Calc 3', canvasCode: 'Calculus III - Fall 26' }, 'Calculus III - Fall 26')).toBe(true)
+    expect(belongsTo({ name: 'Calc 3' }, 'E E 201 Sec05')).toBe(false)
   })
 })

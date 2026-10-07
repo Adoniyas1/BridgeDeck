@@ -58,6 +58,29 @@ pub struct Course {
     pub books: Vec<Book>,
     #[serde(default)]
     pub archived: bool,
+    /// From `.course.json` in the folder (synced, so both computers agree).
+    #[serde(default)]
+    pub info: CourseInfo,
+}
+
+/// What a course is beyond its folder name: its catalog code and title ("MATH 224", "Calculus 3")
+/// and the Canvas course it's linked to, so Canvas assignments land in it whatever the names.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CourseInfo {
+    pub code: String,
+    pub title: String,
+    pub canvas_id: String,
+    pub canvas_code: String,
+}
+
+const INFO: &str = ".course.json";
+/// The degree plan (which courses are done, being taken, chosen for electives), beside the courses.
+const PLAN: &str = ".degree-plan.json";
+const MAX_PLAN: usize = 256 * 1024;
+
+fn read_info(dir: &Path) -> CourseInfo {
+    fs::read(dir.join(INFO)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -122,7 +145,8 @@ pub fn read_library(root: &Path) -> Result<Library, String> {
             .collect();
         books.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
         let archived = entry.path().join(ARCHIVED).exists();
-        courses.push(Course { name, books, archived });
+        let info = read_info(&entry.path());
+        courses.push(Course { name, books, archived, info });
     }
     courses.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(Library { root: root.to_string_lossy().to_string(), courses })
@@ -448,6 +472,33 @@ pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> 
     }
 }
 
+/// Sets a course's code, title and Canvas course.
+#[tauri::command]
+pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), String> {
+    let short = |s: &str| s.trim().chars().take(120).collect::<String>();
+    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code) };
+    let dir = course_dir(&current_root()?, &name)?;
+    fs::write(dir.join(INFO), serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// The degree plan's saved state (JSON), empty when there's none yet.
+#[tauri::command]
+pub fn study_plan_read() -> Result<String, String> {
+    match fs::read_to_string(current_root()?.join(PLAN)) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn study_plan_write(text: String) -> Result<(), String> {
+    if text.len() > MAX_PLAN || serde_json::from_str::<serde_json::Value>(&text).is_err() {
+        return Err("Not a degree plan".into());
+    }
+    fs::write(current_root()?.join(PLAN), text).map_err(|e| e.to_string())
+}
+
 /// Deletes a course: its folder goes to the Trash (and off the other computer, which syncs it).
 #[tauri::command]
 pub fn study_delete_course(name: String) -> Result<(), String> {
@@ -525,8 +576,8 @@ mod tests {
         let library = Library {
             root: String::new(),
             courses: vec![
-                Course { name: "Math 221".into(), books: vec![book("calc.pdf", "Calculus")], archived: false },
-                Course { name: "Biology".into(), books: vec![book("bio.pdf", "Campbell Biology")], archived: false },
+                Course { name: "Math 221".into(), books: vec![book("calc.pdf", "Calculus")], archived: false, info: CourseInfo::default() },
+                Course { name: "Biology".into(), books: vec![book("bio.pdf", "Campbell Biology")], archived: false, info: CourseInfo::default() },
             ],
         };
         let filler = "Some words about other things. ".repeat(20);

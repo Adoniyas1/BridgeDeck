@@ -13,7 +13,7 @@ import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
-import { courseMatches, dueText, groupAssignments, type Assignment } from './canvas'
+import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { canvasStore } from './canvasStore'
@@ -37,11 +37,12 @@ function Row({ a, now }: { a: Assignment; now: number }) {
 }
 
 /** Everything due, from Canvas and added here: overdue, today, this week, later. */
-export function AssignmentsCard({ course, courses }: { course?: string; courses: string[] }) {
+export function AssignmentsCard({ course, info, courses }: { course?: string; info?: { code: string; canvasCode: string }; courses: string[] }) {
   const all = useAssignments()
   const data = useStore(canvasStore)
   const config = useConfig()
-  const [onlyThis, setOnlyThis] = useState(false)
+  // In a course: its own assignments first (Canvas ones by the linked course or the catalog code).
+  const [onlyThis, setOnlyThis] = useState(true)
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const [forCourse, setForCourse] = useState(course ?? '')
@@ -50,7 +51,7 @@ export function AssignmentsCard({ course, courses }: { course?: string; courses:
   const [showDone, setShowDone] = useState(false)
   const [fromPhoto, setFromPhoto] = useState(false)
   const now = Date.now()
-  const list = useMemo(() => onlyThis && course ? all.filter(a => courseMatches(course, a.course)) : all, [all, onlyThis, course])
+  const list = useMemo(() => onlyThis && course ? all.filter(a => belongsTo({ name: course, code: info?.code, canvasCode: info?.canvasCode }, a.course)) : all, [all, onlyThis, course, info?.code, info?.canvasCode])
   const groups = groupAssignments(list, now)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const connected = useMemo(canvasConnected, [config.canvas])

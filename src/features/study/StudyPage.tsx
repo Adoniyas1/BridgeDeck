@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, BookOpen, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Presentation, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, BookOpen, Link2, Map as MapIcon, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Presentation, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
-import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, type CalEvent, type StudyBook } from '../../lib/bridge'
+import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studySetCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
@@ -17,6 +17,10 @@ import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
+import { DegreePlan } from './DegreePlan'
+import { canvasStore } from './canvasStore'
+import { catalogTitle } from './plans'
+import { courseKey } from './canvas'
 
 export default function StudyPage({ active }: { active: boolean }) {
   const { library, error } = useStore(libraryStore)
@@ -31,6 +35,7 @@ export default function StudyPage({ active }: { active: boolean }) {
     if (current) void indexLibrary(current, () => void refreshLibrary())
   }, 10_000, [active])
   const [showArchived, setShowArchived] = useState(false)
+  const [planOpen, setPlanOpen] = useState(false)
   const all = library?.courses ?? []
   const courses = all.filter(c => !c.archived)
   const archived = all.filter(c => c.archived)
@@ -61,13 +66,14 @@ export default function StudyPage({ active }: { active: boolean }) {
     <aside className="card study-courses">
       <SectionTitle title="Courses" subtitle="Each has its books, notes, checklists and exams" />
       <div className="study-course-list">
-        {courses.map(c => <button key={c.name} className={c.name === course?.name ? 'active' : ''} onClick={() => setSelected(c.name)}>
-          <GraduationCap size={15} /><span>{c.name}</span><small>{c.books.length}</small>
+        {courses.map(c => <button key={c.name} className={c.name === course?.name && !planOpen ? 'active' : ''} title={c.info.title || undefined} onClick={() => { setSelected(c.name); setPlanOpen(false) }}>
+          <GraduationCap size={15} /><span>{c.name}{c.info.title && c.info.title !== c.name ? <small className="study-course-title">{c.info.title}</small> : null}</span><small>{c.books.length}</small>
         </button>)}
       </div>
+      <button className={`ghost study-plan-toggle${planOpen ? ' active' : ''}`} onClick={() => setPlanOpen(v => !v)}><MapIcon size={13} />Degree plan</button>
       {archived.length > 0 && <button className="ghost study-archived-toggle" onClick={() => setShowArchived(v => !v)}><Archive size={13} />{showArchived ? 'Hide' : 'Show'} archived ({archived.length})</button>}
       {showArchived && <div className="study-course-list archived">
-        {archived.map(c => <button key={c.name} className={c.name === course?.name ? 'active' : ''} onClick={() => setSelected(c.name)}>
+        {archived.map(c => <button key={c.name} className={c.name === course?.name && !planOpen ? 'active' : ''} onClick={() => { setSelected(c.name); setPlanOpen(false) }}>
           <Archive size={15} /><span>{c.name}</span><small>{c.books.length}</small>
         </button>)}
       </div>}
@@ -78,7 +84,8 @@ export default function StudyPage({ active }: { active: boolean }) {
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
     </aside>
-    {course ? <CourseView key={course.name} name={course.name} archived={course.archived} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status}
+    {planOpen ? <div className="study-course"><DegreePlan courses={all} onOpen={name => { setSelected(name); setPlanOpen(false) }} /></div>
+      : course ? <CourseView key={course.name} course={course} name={course.name} archived={course.archived} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status}
         onArchive={on => void archive(course.name, on)} onDelete={() => void remove(course.name)} />
       : <div className="study-course"><Card className="study-empty"><GraduationCap size={28} /><h3>Add your first course</h3><p>Then add its textbooks (PDF), and BridgeDeck keeps them on both computers with your notes, chapter checklists and exam dates.</p></Card><AssignmentsCard courses={[]} /><CanvasCard /></div>}
   </div>
@@ -87,11 +94,11 @@ export default function StudyPage({ active }: { active: boolean }) {
 const SLIDES = /\.(pptx?|key|odp)$/i
 const isSlides = (book: StudyBook) => book.kind !== 'pdf' && book.kind !== 'epub'
 
-function CourseView({ name, archived, courses, books, root, status, onStatus, onArchive, onDelete }: { name: string; archived: boolean; courses: string[]; books: StudyBook[]; root: string; status: string; onStatus: (s: string) => void; onArchive: (on: boolean) => void; onDelete: () => void }) {
+function CourseView({ course, name, archived, courses, books, root, status, onStatus, onArchive, onDelete }: { course: StudyCourse; name: string; archived: boolean; courses: string[]; books: StudyBook[]; root: string; status: string; onStatus: (s: string) => void; onArchive: (on: boolean) => void; onDelete: () => void }) {
   const notes = useStore(notesStore)
   const events = useStore(eventsStore)
   const mine = useMemo(() => courseNotes(notes, name), [notes, name])
-  const upcoming = useMemo(() => courseEvents(events, name).slice(0, 8), [events, name])
+  const upcoming = useMemo(() => courseEvents(events, name, Date.now(), course.info.code).slice(0, 8), [events, name, course.info.code])
   const [examTitle, setExamTitle] = useState('Exam')
   const [examDate, setExamDate] = useState(() => dateInput(Date.now() + 14 * 86_400_000))
   const [examTime, setExamTime] = useState('09:00')
@@ -137,12 +144,13 @@ function CourseView({ name, archived, courses, books, root, status, onStatus, on
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return <div className="study-course">
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
-    <Card><SectionTitle title={name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
+    <Card><SectionTitle title={course.info.title && course.info.title !== name ? `${name} · ${course.info.title}` : name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
       action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
         {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
           : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />
       {status && <p className="book-status">{status}</p>}
+      <CourseDetails course={course} onStatus={onStatus} />
       {books.length ? <div className="study-books">{books.map(book => <div key={book.file} className="study-book">
         <button className={`study-book-cover${isSlides(book) ? ' slides' : ''}`} onClick={() => open(book)}>{isSlides(book) ? <Presentation size={26} /> : <BookOpen size={26} />}<span>{book.kind.toUpperCase()}</span></button>
         <div className="grow"><strong title={book.file}>{book.title}</strong><small>{fmtBytes(book.bytes)}</small></div>
@@ -152,7 +160,7 @@ function CourseView({ name, archived, courses, books, root, status, onStatus, on
         </div>
       </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks (PDF, EPUB) and lecture slides (PowerPoint, Keynote); they appear on your other computer too.</p>}
     </Card>
-    <AssignmentsCard course={name} courses={courses} />
+    <AssignmentsCard course={name} info={course.info} courses={courses} />
     <div className="study-tools">
       <FocusCard course={name} />
       <FlashcardsCard course={name} onStatus={onStatus} />
@@ -181,5 +189,29 @@ function CourseView({ name, archived, courses, books, root, status, onStatus, on
         </form>
       </Card>
     </div>
+  </div>
+}
+
+/** The course's catalog code and title, and which Canvas course is it: Canvas assignments, the
+ *  calendar and the degree plan find the course by these, whatever its folder is called. */
+function CourseDetails({ course, onStatus }: { course: StudyCourse; onStatus: (s: string) => void }) {
+  const canvas = useStore(canvasStore)
+  const [code, setCode] = useState(course.info.code)
+  const [title, setTitle] = useState(course.info.title)
+  useEffect(() => { setCode(course.info.code); setTitle(course.info.title) }, [course.info.code, course.info.title])
+  async function save(patch: Partial<CourseInfo>) {
+    const next = { ...course.info, ...patch }
+    if (patch.code !== undefined && next.code && !next.title) next.title = catalogTitle(courseKey(next.code) ?? next.code)
+    try { await studySetCourseInfo(course.name, next); await refreshLibrary() } catch (e) { onStatus(String(e)) }
+  }
+  const linked = canvas.courses.find(c => c.id === course.info.canvasId)
+  return <div className="course-details">
+    <label>Code<input value={code} placeholder="MATH 224" onChange={e => setCode(e.target.value)} onBlur={() => code !== course.info.code && void save({ code: courseKey(code) ?? code.trim() })} /></label>
+    <label>Title<input value={title} placeholder="Calculus 3" onChange={e => setTitle(e.target.value)} onBlur={() => title !== course.info.title && void save({ title: title.trim() })} /></label>
+    <label><span><Link2 size={11} /> Canvas course</span><select value={course.info.canvasId} onChange={e => { const c = canvas.courses.find(x => x.id === e.target.value); void save({ canvasId: c?.id ?? '', canvasCode: c?.code ?? '', ...(c && !course.info.code ? { code: courseKey(c.code) ?? '' } : {}) }) }}>
+      <option value="">{canvas.courses.length ? 'Not linked' : 'Connect Canvas in Settings → Study'}</option>
+      {canvas.courses.map(c => <option key={c.id} value={c.id}>{c.code}{c.name && c.name !== c.code ? ` · ${c.name}` : ''}</option>)}
+      {course.info.canvasId && !linked && <option value={course.info.canvasId}>{course.info.canvasCode || 'Linked course'}</option>}
+    </select></label>
   </div>
 }
