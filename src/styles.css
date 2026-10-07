@@ -1144,3 +1144,8 @@ main.fill .logic{height:auto}
 .mimir-launch__note{font-size:12px}
 .mimir-launch .mimir-log{max-width:100%;text-align:left}
 @media (prefers-reduced-motion:reduce){.mimir-launch__backdrop,.mimir-launch__core i,.mimir-launch__core b{animation-duration:30s}}
+.chat-panel-save{display:inline-flex;align-items:center;gap:6px;max-width:220px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text);border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;white-space:nowrap}
+.chat-panel-save span{overflow:hidden;text-overflow:ellipsis}
+.chat-panel-save:hover:not(:disabled){border-color:var(--accent)}
+.chat-panel-save.done{color:#4fc98a;border-color:#4fc98a66}
+.chat-panel-save.failed{color:#f07178;border-color:#f0717866}
