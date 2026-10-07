@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircuitBoard, FilePlus, FolderOpen, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { Activity, CircuitBoard, FilePlus, FolderOpen, Grid2x2, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
 import { circuitDelete, circuitLoad, circuitSave, circuitsList, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { projectFolder } from '../projects/model'
 import {
-  buildCircuit, chipDef, chipPlan, CHIPS, emptyCircuit, expressions, GRID, minimize, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit,
+  buildCircuit, chipDef, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit,
   show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type FlopState, type GateType, type Level, type Part, type TruthTable,
 } from './model'
 import { levelColor, PartShape } from './Symbols'
@@ -13,11 +13,12 @@ import { levelColor, PartShape } from './Symbols'
 const W = 2400, H = 1600
 const snap = (v: number) => Math.round(v / GRID) * GRID
 type Selection = { kind: 'part' | 'wire'; id: string } | null
-type PaletteItem = { kind: Part['kind']; gate?: GateType; chip?: string; title: string }
+type PaletteItem = { kind: Part['kind']; gate?: GateType; chip?: string; anode?: boolean; title: string }
 
 const INPUTS: PaletteItem[] = [
   { kind: 'switch', title: 'Switch (input)' }, { kind: 'clock', title: 'Clock' }, { kind: 'led', title: 'LED (output)' },
   { kind: 'vcc', title: '+5V (VCC)' }, { kind: 'gnd', title: 'Ground' },
+  { kind: 'seg7', title: '7-segment (lit on 1)' }, { kind: 'seg7', anode: true, title: '7-segment (lit on 0, for a 7447)' },
 ]
 const GATE_ITEMS: PaletteItem[] = (['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF'] as GateType[]).map(gate => ({ kind: 'gate', gate, title: gate }))
 
@@ -32,7 +33,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [running, setRunning] = useState(false)
   const [clock, setClock] = useState(false)
   const [speed, setSpeed] = useState(1)
-  const [panel, setPanel] = useState<'table' | 'design' | 'chips'>('table')
+  const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
   const [file, setFile] = useState({ project: '', name: 'Untitled circuit' })
   const [files, setFiles] = useState<CircuitFile[]>([])
   const [projects, setProjects] = useState<string[]>([])
@@ -99,6 +100,7 @@ export default function LogicPage({ active }: { active: boolean }) {
       if (item.kind === 'chip') part.chip = item.chip
       if (item.kind === 'switch' || item.kind === 'clock' || item.kind === 'led') part.label = nextLabel(c, item.kind)
       if (item.kind === 'switch') part.on = false
+      if (item.kind === 'seg7') part.on = !!item.anode
       return { ...c, parts: [...c.parts, part] }
     })
   }
@@ -219,7 +221,7 @@ export default function LogicPage({ active }: { active: boolean }) {
         {GATE_ITEMS.map(item => <PaletteButton key={item.title} item={item} onAdd={add} />)}
         <h4>74-series chips</h4>
         {CHIPS.map(c => <PaletteButton key={c.part} item={{ kind: 'chip', chip: c.part, title: `${c.part} · ${c.name}` }} onAdd={add} />)}
-        <p className="hint">Click a pin, then another, to wire them. Drag parts to move them; click a switch to flip it; Delete removes what’s selected. Chips need pin 14 to +5V and pin 7 to ground.</p>
+        <p className="hint">Click a pin, then another, to wire them. Drag parts to move them; click a switch to flip it; Delete removes what’s selected. 14-pin chips need pin 14 to +5V and pin 7 to ground; 16-pin chips pin 16 and pin 8. Unconnected chip control inputs count as high, as on real TTL chips.</p>
       </aside>
       <div ref={scroller} className="logic-canvas" onDragOver={e => e.preventDefault()} onDrop={e => {
         e.preventDefault()
@@ -263,7 +265,9 @@ export default function LogicPage({ active }: { active: boolean }) {
       </div>
       <aside className="logic-side">
         <div className="logic-tabs">
-          <button className={panel === 'table' ? 'on' : ''} onClick={() => setPanel('table')}><Table2 size={13} /> Truth table</button>
+          <button className={panel === 'table' ? 'on' : ''} onClick={() => setPanel('table')}><Table2 size={13} /> Table</button>
+          <button className={panel === 'kmap' ? 'on' : ''} onClick={() => setPanel('kmap')}><Grid2x2 size={13} /> K-map</button>
+          <button className={panel === 'timing' ? 'on' : ''} onClick={() => setPanel('timing')}><Activity size={13} /> Timing</button>
           <button className={panel === 'design' ? 'on' : ''} onClick={() => setPanel('design')}><Wand2 size={13} /> Design</button>
           <button className={panel === 'chips' ? 'on' : ''} onClick={() => setPanel('chips')}><CircuitBoard size={13} /> Chips</button>
         </div>
@@ -276,6 +280,9 @@ export default function LogicPage({ active }: { active: boolean }) {
             <button className="ghost" onClick={() => void toNote(`${file.name} – truth table`, tableMarkdown(table, exprs))}><NotebookPen size={13} /> Save as a note</button>
           </>}
         </>}
+        {panel === 'kmap' && (table.error ? <p className="hint">{table.error}</p> : table.sequential ? <p className="hint">Karnaugh maps are for circuits without a clock or flip-flops.</p>
+          : !table.outputs.length || !kmapLayout(table.inputs) ? <p className="hint">A Karnaugh map needs 2 to 4 switches and at least one LED.</p> : <KMapView table={table} />)}
+        {panel === 'timing' && <TimingView circuit={circuit} />}
         {panel === 'design' && <Designer onBuild={c => { if (!dirty || window.confirm('Replace the circuit on the canvas?')) { setCircuit(c); setDirty(true); flops.current = {}; setPanel('table') } }} onNote={toNote} />}
         {panel === 'chips' && plan && <>
           {!plan.chips.length ? <p className="hint">Gates you place are matched to real chips here (chips already on the canvas are wired as drawn).</p> : <>
@@ -341,10 +348,69 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
       <p className="hint">Click an output to change it: 0, 1, or X (doesn’t matter).</p>
       <TableView table={filled} onCell={r => setCells(c => c.map((v, i) => (i === r ? (v === 0 ? 1 : v === 1 ? null : 0) : v)))} />
       <div className="logic-exprs"><strong>Y</strong> = {fromTable}</div>
+      {kmapLayout(vars) && <KMapView table={filled} />}
       <div className="actions">
         <button onClick={() => onBuild(buildCircuit(parseOutputs(`Y = ${fromTable}`)))}><Wand2 size={13} /> Build the circuit</button>
         <button className="ghost" onClick={() => onNote('Truth table', tableMarkdown(filled, { Y: fromTable }))}><NotebookPen size={13} /> Save as a note</button>
       </div>
     </>}
+  </div>
+}
+
+const GROUP_COLORS = ['#f87171', '#60a5fa', '#4ade80', '#facc15', '#c084fc', '#2dd4bf', '#fb923c', '#f472b6']
+
+/** An output's Karnaugh map: 1s, don't-cares (X), and the groups of the simplest sum of products. */
+function KMapView({ table }: { table: TruthTable }) {
+  const [out, setOut] = useState(0)
+  const o = Math.min(out, table.outputs.length - 1)
+  const map = kmapLayout(table.inputs)!
+  const { groups } = kmapGroups(table, o)
+  const bitsOf = (v: number, n: number) => Array.from({ length: n }, (_, i) => (v >> (n - 1 - i)) & 1).join('')
+  return <div className="logic-kmap">
+    {table.outputs.length > 1 && <select value={o} onChange={e => setOut(Number(e.target.value))}>{table.outputs.map((name, i) => <option key={name} value={i}>{name}</option>)}</select>}
+    <table>
+      <thead><tr><th className="corner">{map.rowVars.join('')}\{map.colVars.join('')}</th>{map.cols.map(c => <th key={c}>{bitsOf(c, map.colVars.length)}</th>)}</tr></thead>
+      <tbody>{map.rows.map(r => <tr key={r}><th>{bitsOf(r, map.rowVars.length)}</th>{map.cols.map(c => {
+        const m = map.cell(r, c)
+        const v = table.rows[m]?.out[o]
+        const by = groupsCovering(groups, m)
+        return <td key={c} className={v === 1 ? 'one' : v === null ? 'either' : ''} title={`Row ${m}`}>
+          <span>{v === null ? 'X' : v}</span>
+          <i>{by.map(g => <b key={g} style={{ background: GROUP_COLORS[g % GROUP_COLORS.length] }} />)}</i>
+        </td>
+      })}</tr>)}</tbody>
+    </table>
+    <div className="logic-kmap-terms"><strong>{table.outputs[o]}</strong> = {groups.length ? groups.map((g, i) => <span key={i}>{i > 0 && ' + '}<span className="term" style={{ borderColor: GROUP_COLORS[i % GROUP_COLORS.length] }}>{termOf(table.inputs, g)}</span></span>) : '0'}</div>
+    <p className="hint">Each colour is one group of 1s (it can wrap around the edges); together they give the simplest sum of products. X cells can go either way.</p>
+  </div>
+}
+
+/** Every clock, switch and LED over a number of clock cycles from power-up. */
+function TimingView({ circuit }: { circuit: Circuit }) {
+  const [cycles, setCycles] = useState(8)
+  const t = useMemo(() => timing(circuit, cycles), [circuit, cycles])
+  if (!t.signals.length) return <p className="hint">Add a clock, switches and LEDs: their levels over time show here, step by step.</p>
+  const STEP = 18, ROW = 30, LEFT = 44, HIGH = 6, LOW = 22
+  const width = LEFT + t.steps * STEP + 4
+  const wave = (values: Array<0 | 1 | null>) => {
+    let d = ''
+    values.forEach((v, i) => {
+      const x = LEFT + i * STEP, y = v === 1 ? HIGH : v === 0 ? LOW : (HIGH + LOW) / 2
+      d += i === 0 ? `M${x},${y}` : ` V${y}`
+      d += ` H${x + STEP}`
+    })
+    return d
+  }
+  return <div className="logic-timing">
+    <label className="logic-count">Cycles <select value={cycles} onChange={e => setCycles(Number(e.target.value))}>{[4, 8, 16, 32].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+    <div className="logic-timing-scroll"><svg width={width} height={t.signals.length * ROW + 16}>
+      {Array.from({ length: t.steps / 2 }, (_, i) => <line key={i} x1={LEFT + (2 * i + 1) * STEP} y1={0} x2={LEFT + (2 * i + 1) * STEP} y2={t.signals.length * ROW} className="logic-timing-edge" />)}
+      {t.signals.map((s, r) => <g key={s.name + r} transform={`translate(0,${r * ROW})`}>
+        <text x={0} y={18} className={`logic-timing-name ${s.kind}`}>{s.name}</text>
+        <path d={wave(s.values)} className={`logic-timing-wave ${s.kind}`} fill="none" />
+      </g>)}
+      {Array.from({ length: t.steps / 2 }, (_, i) => <text key={i} x={LEFT + (2 * i + 1) * STEP} y={t.signals.length * ROW + 12} className="logic-timing-tick" textAnchor="middle">{i + 1}</text>)}
+    </svg></div>
+    <p className="hint">From power-up: each cycle is the clock low, then high; dotted lines are rising edges, where flip-flops and counters change. Switches stay as they are on the canvas.</p>
   </div>
 }

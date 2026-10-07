@@ -882,7 +882,7 @@ body.web-full .tabbar, body.web-full .browser-bar, body.web-full .browser-tabs, 
 .backup-restore label{display:inline-flex;align-items:center;gap:4px}
 
 /* Logic tab: circuits on a canvas, truth tables at the side */
-:root{--logic-high:#4ade80;--logic-low:#475569;--logic-unknown:#334155;--logic-short:#ef4444;--logic-led-on:#f87171;--logic-led-off:#3f1d1d}
+:root{--logic-high:#4ade80;--logic-low:#475569;--logic-unknown:#334155;--logic-short:#ef4444;--logic-led-on:#f87171;--logic-led-off:#3f1d1d;--logic-segment-off:#2a1515}
 .logic{display:flex;flex-direction:column;flex:1;min-height:0;height:calc(100vh - 110px)}
 main.fill .logic{height:auto}
 .logic-bar{display:flex;align-items:center;gap:8px;min-height:var(--page-bar-h);padding:6px 12px;border-bottom:1px solid var(--line);box-sizing:border-box}
@@ -937,8 +937,8 @@ main.fill .logic{height:auto}
 .logic-side{overflow-y:auto;border-left:1px solid var(--line);padding:8px 12px;display:flex;flex-direction:column;gap:8px}
 .logic-side h4{margin:6px 0 2px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .logic-side .ghost{display:inline-flex;align-items:center;gap:5px;align-self:flex-start}
-.logic-tabs{display:flex;gap:4px}
-.logic-tabs button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:var(--radius-sm);padding:6px;font-size:12px}
+.logic-tabs{display:flex;gap:4px;flex-wrap:wrap}
+.logic-tabs button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:var(--radius-sm);padding:6px;font-size:12px;white-space:nowrap}
 .logic-tabs button.on{color:var(--text);border-color:var(--accent);background:var(--surface-2)}
 .logic-tabs.small button{font-size:11px;padding:4px}
 .logic-warnings{margin:0;padding:8px 10px 8px 26px;border:1px solid #713f12;background:#1c1408;border-radius:var(--radius-sm);color:#fcd34d;font-size:12px}
@@ -987,3 +987,23 @@ main.fill .logic{height:auto}
 .error-log{max-height:320px;overflow:auto;margin:10px 0 0;padding:10px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--muted)}
 .tab-error{max-width:560px;margin:40px auto;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
 .tab-error svg{color:#f5a454}
+.logic-seg7{fill:#0b0c0e;stroke:var(--line-strong)}
+.logic-segment{stroke:none}
+.logic-kmap table{border-collapse:collapse;margin:8px 0;font-size:13px}
+.logic-kmap th{padding:4px 8px;color:var(--muted);font-weight:500;font-family:ui-monospace,monospace}
+.logic-kmap th.corner{font-size:11px}
+.logic-kmap td{position:relative;width:40px;height:36px;border:1px solid var(--line-strong);text-align:center;font-family:ui-monospace,monospace}
+.logic-kmap td.one{background:rgba(74,222,128,.12);color:var(--text)}
+.logic-kmap td.either{color:#facc15}
+.logic-kmap td i{position:absolute;left:3px;right:3px;bottom:3px;display:flex;gap:2px;justify-content:center}
+.logic-kmap td b{display:block;width:8px;height:4px;border-radius:2px}
+.logic-kmap-terms{font-size:13px;margin:6px 0}
+.logic-kmap-terms .term{border-bottom:2px solid;padding:0 1px}
+.logic-timing-scroll{overflow-x:auto;margin:8px 0}
+.logic-timing-name{font-size:11px;fill:var(--muted);font-family:ui-monospace,monospace}
+.logic-timing-name.out{fill:var(--logic-led-on)}
+.logic-timing-wave{stroke:var(--logic-high);stroke-width:1.6}
+.logic-timing-wave.clock{stroke:#60a5fa}
+.logic-timing-wave.out{stroke:var(--logic-led-on)}
+.logic-timing-edge{stroke:var(--line-strong);stroke-dasharray:2 3}
+.logic-timing-tick{font-size:9px;fill:var(--faint)}

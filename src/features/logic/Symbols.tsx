@@ -1,4 +1,4 @@
-import { chipDef, pinsOf, sizeOf, type Level, type Part } from './model'
+import { chipDef, pinsOf, SEG7_PINS, sizeOf, type Level, type Part } from './model'
 
 export const levelColor = (v: Level | undefined) => (v === 1 ? 'var(--logic-high)' : v === 0 ? 'var(--logic-low)' : 'var(--logic-unknown)')
 
@@ -43,6 +43,28 @@ function ChipShape({ part }: { part: Part }) {
   </>
 }
 
+/** Segment outlines in a 60 × 90 display (a top, then clockwise, g in the middle). */
+const SEGMENT_PATHS: Record<string, string> = {
+  a: 'M18,10 H46 L42,15 H22 Z', b: 'M48,12 V42 L43,38 V17 Z', c: 'M48,48 V78 L43,73 V52 Z', d: 'M18,80 H46 L42,75 H22 Z',
+  e: 'M16,48 V78 L21,73 V52 Z', f: 'M16,12 V42 L21,38 V17 Z', g: 'M18,45 L22,42 H42 L46,45 L42,48 H22 Z',
+}
+
+/** A 7-segment display: a segment lights on 1, or on 0 for a common-anode display (as a 7447 drives). */
+function Seg7Shape({ part, level }: { part: Part; level: (pin: string) => Level | undefined }) {
+  const { w, h } = sizeOf(part)
+  const litOn = part.on ? 0 : 1
+  return <>
+    <rect width={w} height={h} rx={6} className="logic-seg7" />
+    {SEG7_PINS.map(seg => {
+      const v = level(seg)
+      return <path key={seg} d={SEGMENT_PATHS[seg]} className="logic-segment" style={{ fill: v === litOn ? 'var(--logic-led-on)' : v === null || v === undefined ? 'var(--logic-unknown)' : 'var(--logic-segment-off)', filter: v === litOn ? 'drop-shadow(0 0 3px var(--logic-led-on))' : undefined }} />
+    })}
+    {pinsOf(part).map(p => <g key={p.name}><line x1={-10} y1={p.y} x2={0} y2={p.y} className="logic-line" /><text x={3} y={p.y + 3} className="logic-pin-label">{p.name}</text></g>)}
+    <text x={w / 2} y={-6} className="logic-label" textAnchor="middle">{part.label}</text>
+    <text x={w / 2} y={h + 12} className="logic-small" textAnchor="middle">{part.on ? 'common anode' : 'common cathode'}</text>
+  </>
+}
+
 /** One part, drawn at its place, with its pins. */
 export function PartShape({ part, level, selected }: { part: Part; level: (pin: string) => Level | undefined; selected: boolean }) {
   const { w, h } = sizeOf(part)
@@ -51,6 +73,7 @@ export function PartShape({ part, level, selected }: { part: Part; level: (pin: 
   switch (part.kind) {
     case 'gate': body = <GateShape part={part} h={h} />; break
     case 'chip': body = <ChipShape part={part} />; break
+    case 'seg7': body = <Seg7Shape part={part} level={level} />; break
     case 'switch':
       body = <>
         <rect width={w} height={h} rx={8} className={`logic-switch${part.on ? ' on' : ''}`} />
