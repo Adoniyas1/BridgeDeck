@@ -646,6 +646,8 @@ pub fn run() {
             chatgpt::chatgpt_hide,
             chatgpt::chatgpt_new,
             chatgpt::chatgpt_save,
+            chatgpt::chatgpt_attach_image,
+            chatgpt::chatgpt_read,
             browser::browser_show,
             browser::browser_pause,
             models::models_status,

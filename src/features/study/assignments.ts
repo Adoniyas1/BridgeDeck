@@ -91,15 +91,23 @@ export async function toggleDone(a: Assignment) {
 /** Adds an assignment by hand: a checklist item with a due date in Notes → Study → Assignments, so
  *  it's on both computers, in the calendar and reminded like any other. */
 export async function addAssignment(course: string, title: string, due: number | null) {
+  await addAssignments([{ course, title, due }])
+}
+
+/** Several at once (one save), e.g. a homework schedule read from a photo. */
+export async function addAssignments(items: Array<{ course: string; title: string; due: number | null }>) {
+  if (!items.length) return
   let note = assignmentsNote(notesStore.get())
   if (!note) {
     const created = await notesCreate('list', ASSIGNMENTS_FOLDER)
     note = await notesSave({ id: created.id, title: ASSIGNMENTS_TITLE, removed: created.blocks.map(b => b.id) })
   }
-  const last = visible(note).at(-1)
-  const text = course ? `${course}: ${title}` : title
-  const block = { id: newId(), kind: 'todo' as const, text, checked: false, due, pos: between(last?.pos ?? '', ''), updated: Date.now(), by: '', deleted: false }
-  const saved = await notesSave({ id: note.id, blocks: [block] })
+  let pos = visible(note).at(-1)?.pos ?? ''
+  const blocks = items.map(({ course, title, due }) => {
+    pos = between(pos, '')
+    return { id: newId(), kind: 'todo' as const, text: course ? `${course}: ${title}` : title, checked: false, due, pos, updated: Date.now(), by: '', deleted: false }
+  })
+  const saved = await notesSave({ id: note.id, blocks })
   notesStore.set(list => list.some(n => n.id === saved.id) ? list.map(n => n.id === saved.id ? saved : n) : [saved, ...list])
 }
 

@@ -460,6 +460,10 @@ export const chatgptShow = (text: string | null, folder: string | null, x: numbe
 export const chatgptHide = () => native<void>('chatgpt_hide')
 export const chatgptNew = () => native<void>('chatgpt_new')
 export const chatgptSave = () => native<void>('chatgpt_save')
+/** Attaches a photo to the panel's message box (the person sends it). */
+export const chatgptAttachImage = (path: string) => native<void>('chatgpt_attach_image', { path })
+/** Reads the panel's chat back; it arrives as a `chatgpt-chat` event. */
+export const chatgptRead = () => native<void>('chatgpt_read')
 /** What Mimir changed or sent (src-tauri/src/bridgelink/mimir_api.rs). */
 export type MimirActivity = { at: number; action: string; detail: string; ok: boolean; outward: boolean }
 export const mimirActivity = () => native<MimirActivity[]>('mimir_activity')

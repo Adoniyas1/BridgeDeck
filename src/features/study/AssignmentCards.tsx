@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { BookCheck, CalendarClock, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
+import { BookCheck, CalendarClock, Camera, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
 import { examStore } from '../../core/exam'
@@ -14,7 +14,8 @@ import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
 import { courseMatches, dueText, groupAssignments, type Assignment } from './canvas'
-import { addAssignment, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { HomeworkImport } from './HomeworkImport'
 import { canvasStore } from './canvasStore'
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
@@ -47,10 +48,12 @@ export function AssignmentsCard({ course, courses }: { course?: string; courses:
   const [date, setDate] = useState('')
   const [time, setTime] = useState('23:59')
   const [showDone, setShowDone] = useState(false)
+  const [fromPhoto, setFromPhoto] = useState(false)
   const now = Date.now()
   const list = useMemo(() => onlyThis && course ? all.filter(a => courseMatches(course, a.course)) : all, [all, onlyThis, course])
   const groups = groupAssignments(list, now)
-  const connected = !!config.canvas.feed.trim() || !!(config.canvas.base.trim() && config.canvas.token.trim())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const connected = useMemo(canvasConnected, [config.canvas])
   const open = groups.overdue.length + groups.today.length + groups.week.length + groups.later.length + groups.undated.length
 
   async function add() {
@@ -71,9 +74,11 @@ export function AssignmentsCard({ course, courses }: { course?: string; courses:
       action={<div className="actions">
         {course && <button className={onlyThis ? '' : 'secondary'} onClick={() => setOnlyThis(v => !v)}>{onlyThis ? course : 'All courses'}</button>}
         {connected && <button className="secondary" title="Check Canvas now" disabled={data.loading} onClick={() => void refreshCanvas()}><RefreshCw size={14} className={data.loading ? 'spin' : undefined} /></button>}
+        {course && <button className="secondary" title="Add a course’s homework from a photo of the sheet" onClick={() => setFromPhoto(v => !v)}><Camera size={14} />From photo</button>}
         <button className="secondary" title="Add an assignment" onClick={() => setAdding(v => !v)}><Plus size={14} />Add</button>
       </div>} />
     {data.errors.map(e => <p key={e} className="cal-error">{e}</p>)}
+    {fromPhoto && course && <HomeworkImport course={course} onClose={() => setFromPhoto(false)} />}
     {adding && <form className="assignment-add" onSubmit={e => { e.preventDefault(); void add() }}>
       <input autoFocus placeholder="Problem set 4, lab report…" value={title} onChange={e => setTitle(e.target.value)} />
       <input list="assignment-courses" placeholder="Course" value={forCourse} onChange={e => setForCourse(e.target.value)} />
