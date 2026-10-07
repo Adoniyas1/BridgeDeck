@@ -238,6 +238,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
         }
     }
     let (pos, size) = crate::placement::bounds(x, y, w, h);
+    crate::browser::note_shown(LABEL, true);
     if let Some(view) = app.get_webview(LABEL) {
         view.set_position(pos).map_err(|e| e.to_string())?;
         view.set_size(size).map_err(|e| e.to_string())?;
@@ -255,7 +256,9 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
     let window = app.get_window("main").ok_or("BridgeDeck's window isn't open")?;
     let handle = app.clone();
     let new_handle = app.clone();
-    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(URL.parse().map_err(|e| format!("{e}"))?))
+    // After sleeping (browser.rs), the panel opens on the chat it had.
+    let start = crate::browser::take_slept(LABEL).filter(keeps_in_panel).map(Ok).unwrap_or_else(|| URL.parse().map_err(|e| format!("{e}")))?;
+    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(start))
         // Files dropped here go to the page (e.g. attaching a file in ChatGPT), not to BridgeDeck's
         // own drop handler, which queues files for sending to the other computer.
         .disable_drag_drop_handler()
@@ -321,6 +324,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
 /// Hides the ChatGPT panel; the chat stays as it was for next time.
 #[tauri::command]
 pub fn chatgpt_hide(app: AppHandle) -> Result<(), String> {
+    crate::browser::note_shown(LABEL, false);
     if let Some(view) = app.get_webview(LABEL) {
         view.hide().map_err(|e| e.to_string())?;
     }

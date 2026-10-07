@@ -23,7 +23,7 @@ export const defaultConfig: AppConfig = {
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10, feeds: [] },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
-  browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [] },
+  browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [], sleepMinutes: 15 },
   study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'], quietFocus: true },
   canvas: { base: '', feed: '', token: '', remindHours: 24, done: [], added: [] },
   setup: { dismissed: false, notificationsReviewed: false },
@@ -121,6 +121,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       popups: input.browsing?.popups !== false,
       popupSites: cleanSites(input.browsing?.popupSites),
       bookmarks: cleanShortcuts(input.browsing?.bookmarks, 200),
+      sleepMinutes: [0, 5, 15, 30, 60].includes(Number(input.browsing?.sleepMinutes)) ? Number(input.browsing!.sleepMinutes) : 15,
     },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },

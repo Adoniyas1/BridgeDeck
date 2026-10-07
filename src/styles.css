@@ -636,6 +636,10 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .degree-text em{color:var(--faint,var(--muted));font-size:10px;font-style:normal}
 .degree-actions{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px}
 .degree-actions button{font-size:11px;padding:3px 6px;display:inline-flex;align-items:center;gap:3px}
+.speed-meter{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:4px 0 8px}
+.speed-meter i{display:block;height:100%;background:var(--ok)}
+.speed-meter i.warn{background:var(--warn)}
+.speed-meter i.bad{background:var(--bad)}
 .feed-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
 .feed-row>i{width:10px;height:10px;border-radius:50%;flex:none}
 .feed-row small{display:block;color:var(--muted);font-size:11px}
