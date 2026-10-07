@@ -5,11 +5,16 @@ import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
 import { appleStore, CalendarBackground } from './state'
+import { CalendarFeeds } from './FeedSettings'
 const CalendarPage = lazy(() => import('./CalendarPage'))
 
 const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 function CalendarSettings() {
+  return <><CalendarMain /><CalendarFeeds /></>
+}
+
+function CalendarMain() {
   const config = useConfig()
   const [sharing, setSharing] = useState(false)
   useEffect(() => { if (isTauri() && isMac) void calendarAppleShare().then(setSharing).catch(() => undefined) }, [])

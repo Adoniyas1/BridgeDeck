@@ -76,6 +76,26 @@ export async function recognisePage(page: PDFPageProxy) {
   }
 }
 
+/** Reads the text in a photo (notes, a whiteboard) at `url`. */
+export async function recogniseImage(url: string) {
+  const worker = await start()
+  const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+  const scale = Math.min(1, TARGET_WIDTH / bitmap.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bitmap.width * scale)
+  canvas.height = Math.round(bitmap.height * scale)
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('No canvas to draw the photo on')
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  try {
+    const { data } = await worker.recognize(canvas, {}, { text: false, blocks: true })
+    return recognisedText((data.blocks ?? []).flatMap(b => b.paragraphs.flatMap(p => p.lines)))
+  } finally {
+    canvas.width = canvas.height = 0
+  }
+}
+
 /** Frees the recognition engine's memory once a run of indexing is over. */
 export async function stopRecognition() {
   const running = engine

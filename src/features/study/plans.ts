@@ -17,7 +17,8 @@ export type PlanCourse = {
 export type Plan = { id: string; name: string; school: string; total: number; semesters: PlanCourse[][]; notes: string[] }
 
 export type CourseStatus = 'done' | 'taking'
-export type PlanState = { plan: string; status: Record<string, CourseStatus>; chosen: Record<string, string> }
+/** `grades`: final letter grades of finished courses; `next`: courses picked for next semester. */
+export type PlanState = { plan: string; status: Record<string, CourseStatus>; chosen: Record<string, string>; grades: Record<string, string>; next: string[] }
 
 const c = (id: string, code: string, title: string, units: number, extra: Partial<PlanCourse> = {}): PlanCourse => ({ id, code, title, units, ...extra })
 
@@ -94,7 +95,7 @@ const CSULB_EE: Plan = {
 
 export const PLANS: Plan[] = [CSULB_EE]
 
-export const emptyPlanState = (plan = PLANS[0].id): PlanState => ({ plan, status: {}, chosen: {} })
+export const emptyPlanState = (plan = PLANS[0].id): PlanState => ({ plan, status: {}, chosen: {}, grades: {}, next: [] })
 
 export function readPlanState(text: string): PlanState {
   try {
@@ -104,7 +105,10 @@ export function readPlanState(text: string): PlanState {
     for (const [id, s] of Object.entries(raw.status ?? {})) if (s === 'done' || s === 'taking') status[id] = s
     const chosen: Record<string, string> = {}
     for (const [id, v] of Object.entries(raw.chosen ?? {})) if (typeof v === 'string' && v.trim()) chosen[id] = v.trim().slice(0, 60)
-    return { plan, status, chosen }
+    const grades: Record<string, string> = {}
+    for (const [id, v] of Object.entries(raw.grades ?? {})) if (typeof v === 'string' && v in GRADE_POINTS) grades[id] = v
+    const next = Array.isArray(raw.next) ? raw.next.filter((x): x is string => typeof x === 'string').slice(0, 30) : []
+    return { plan, status, chosen, grades, next }
   } catch { return emptyPlanState() }
 }
 
@@ -136,3 +140,66 @@ export function sameCourseTitle(name: string, title: string) {
   }
   return true
 }
+
+// ---- Prerequisites: what can be taken next ----
+
+/** Grade points (CSULB grades have no plus or minus). */
+export const GRADE_POINTS: Record<string, number> = { A: 4, B: 3, C: 2, D: 1, F: 0 }
+
+/** Course codes in a prerequisite line, by requirement: "EE 301/346, 330" → [[EE 301, EE 346],
+ *  [EE 330]]. Corequisites ("Co: …") aren't requirements to start; "60u+" is a unit minimum. */
+export function readPrereqs(text = ''): { groups: string[][]; minUnits: number } {
+  const [pre] = text.split(/\bCo:/i)
+  let subject = ''
+  const groups: string[][] = []
+  for (const part of pre.split(/[,;|]/)) {
+    const codes: string[] = []
+    for (const alt of part.split('/')) {
+      const m = alt.trim().match(/^(?:([A-Z]{2,5})\s*)?(\d{3}[A-Z]?)/)
+      if (!m || (!m[1] && !subject)) continue
+      if (m[1]) subject = m[1]
+      codes.push(`${subject} ${m[2]}`)
+    }
+    if (codes.length) groups.push(codes)
+  }
+  return { groups, minUnits: Number(text.match(/(\d+)u\+/)?.[1] ?? 0) }
+}
+
+/** Every code a plan course stands for: its own (or the chosen one), the "or" course and labs in
+ *  its title ("Electric and Electronic Circuits (+ EE 211L)"). */
+export function codesOf(course: PlanCourse, state: PlanState) {
+  const own = plannedCode(course, state)
+  const more = `${course.or ?? ''} ${course.title}`.match(/[A-Z]{2,5} \d{3}[A-Z]?/g) ?? []
+  return [own, ...more].filter(Boolean)
+}
+
+/** Courses that can be taken next semester: not done or being taken, with every prerequisite
+ *  done or being taken now (prerequisites the plan doesn't list are assumed met). */
+export function eligibleNext(plan: Plan, state: PlanState) {
+  const all = plan.semesters.flatMap((courses, semester) => courses.map(course => ({ course, semester })))
+  const known = new Set(all.flatMap(({ course }) => codesOf(course, state)))
+  const passed = new Set(all.filter(({ course }) => state.status[course.id]).flatMap(({ course }) => codesOf(course, state)))
+  const units = all.filter(({ course }) => state.status[course.id]).reduce((s, { course }) => s + course.units, 0)
+  return all.filter(({ course }) => !state.status[course.id]).map(({ course, semester }) => {
+    const { groups, minUnits } = readPrereqs(course.pre)
+    const missing = groups.filter(g => !g.some(code => passed.has(code) || !known.has(code))).map(g => g.join(' or '))
+    if (units < minUnits) missing.push(`${minUnits} units`)
+    return { course, semester, missing }
+  })
+}
+
+/** GPA over finished courses with a grade, and over the courses that decide declaring the major
+ *  in the College of Engineering (needs 2.5 before 60 units). */
+export function gpa(plan: Plan, state: PlanState, ids?: string[]) {
+  let points = 0, units = 0
+  for (const course of plan.semesters.flat()) {
+    if (ids && !ids.includes(course.id)) continue
+    const grade = state.grades[course.id]
+    if (state.status[course.id] !== 'done' || !grade || !(grade in GRADE_POINTS)) continue
+    points += GRADE_POINTS[grade] * course.units; units += course.units
+  }
+  return units ? { gpa: points / units, units } : null
+}
+
+/** The courses whose GPA decides declaring the major (CSULB COE). */
+export const DECLARE_COURSES = ['math122', 'math123', 'ee186', 'phys151', 'ge1a', 'ge1c']

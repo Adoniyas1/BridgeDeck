@@ -429,9 +429,9 @@ export const OLD_PEER_ERROR = 'needs a newer BridgeDeck to receive files this wa
 export type VaultStatus = { enabled: boolean; path: string; files: number; error: string | null }
 export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultStatus>('vault_settings', { enabled: enabled ?? null, path: path ?? null })
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
-export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp'; bytes: number; indexed: boolean }
+export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -439,6 +439,9 @@ export const studyAddCourse = (name: string) => native<void>('study_add_course',
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
 export const studySetCourseInfo = (name: string, info: CourseInfo) => native<void>('study_set_course_info', { name, info })
+/** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
+export const studyStateRead = (key: 'term' | 'problems') => native<string>('study_state_read', { key })
+export const studyStateWrite = (key: 'term' | 'problems', text: string) => native<void>('study_state_write', { key, text })
 export const studyPlanRead = () => native<string>('study_plan_read')
 export const studyPlanWrite = (text: string) => native<void>('study_plan_write', { text })
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
@@ -553,6 +556,7 @@ export const circuitLoad = (project: string, name: string) => native<string>('ci
 export const circuitSave = (project: string, name: string, circuit: string) => native<void>('circuit_save', { project, name, circuit })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
+export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
 export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
 export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })

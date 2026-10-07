@@ -24,6 +24,8 @@ pub const SCHEME: &str = "bdbook";
 const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub"];
 /// Slides kept with a course and opened in the computer's own app (PDF slides are books).
 const SLIDE_EXTENSIONS: &[&str] = &["pptx", "ppt", "key", "odp"];
+/// Photos of notes and whiteboards kept with a course (shown, and read by text recognition).
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "heic", "webp"];
 /// In a course folder: the course is archived (hidden from the list, files kept). It syncs, so
 /// both computers agree.
 const ARCHIVED: &str = ".archived";
@@ -72,6 +74,9 @@ pub struct CourseInfo {
     pub title: String,
     pub canvas_id: String,
     pub canvas_code: String,
+    /// The rest is kept as the Study tab wrote it: class times ("meetings") and grading.
+    #[serde(flatten)]
+    pub more: serde_json::Map<String, serde_json::Value>,
 }
 
 const INFO: &str = ".course.json";
@@ -114,7 +119,7 @@ fn title_of(file: &str) -> String {
 
 fn book_kind(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    (BOOK_EXTENSIONS.contains(&ext.as_str()) || SLIDE_EXTENSIONS.contains(&ext.as_str())).then_some(ext)
+    (BOOK_EXTENSIONS.contains(&ext.as_str()) || SLIDE_EXTENSIONS.contains(&ext.as_str()) || IMAGE_EXTENSIONS.contains(&ext.as_str())).then_some(ext)
 }
 
 pub fn init(app: &tauri::AppHandle) {
@@ -183,7 +188,7 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut added = Vec::new();
     for path in paths {
-        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF, EPUB or presentation", path.display()))?;
+        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF, EPUB, presentation or photo", path.display()))?;
         let original = path.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("No file name")?;
         let file = free_name(&dir, &clean_name(&original)?);
         let bytes = fs::copy(path, dir.join(&file)).map_err(|e| format!("Couldn't copy {original}: {e}"))?;
@@ -227,9 +232,16 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     use tauri::http::{header, Response, StatusCode};
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
-    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
+    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
     let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
-    let mime = if book_kind(&path).as_deref() == Some("epub") { "application/epub+zip" } else { "application/pdf" };
+    let mime = match book_kind(&path).as_deref() {
+        Some("epub") => "application/epub+zip",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("heic") => "image/heic",
+        Some("webp") => "image/webp",
+        _ => "application/pdf",
+    };
     let total = data.len();
     let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("bytes=")).and_then(|v| v.split_once('-')).and_then(|(a, b)| {
         let start: usize = a.parse().ok()?;
@@ -476,9 +488,40 @@ pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> 
 #[tauri::command]
 pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), String> {
     let short = |s: &str| s.trim().chars().take(120).collect::<String>();
-    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code) };
+    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code), more: info.more };
+    let bytes = serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_PLAN {
+        return Err("Too much to keep for one course".into());
+    }
     let dir = course_dir(&current_root()?, &name)?;
-    fs::write(dir.join(INFO), serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    fs::write(dir.join(INFO), bytes).map_err(|e| e.to_string())
+}
+
+/// Study-wide state kept beside the courses (synced): the semester's dates, homework progress.
+fn state_file(key: &str) -> Result<&'static str, String> {
+    match key {
+        "term" => Ok(".term.json"),
+        "problems" => Ok(".problems.json"),
+        _ => Err("Unknown study state".into()),
+    }
+}
+
+#[tauri::command]
+pub fn study_state_read(key: String) -> Result<String, String> {
+    match fs::read_to_string(current_root()?.join(state_file(&key)?)) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn study_state_write(key: String, text: String) -> Result<(), String> {
+    let file = state_file(&key)?;
+    if text.len() > MAX_PLAN || serde_json::from_str::<serde_json::Value>(&text).is_err() {
+        return Err("Not study state".into());
+    }
+    fs::write(current_root()?.join(file), text).map_err(|e| e.to_string())
 }
 
 /// The degree plan's saved state (JSON), empty when there's none yet.
@@ -540,6 +583,17 @@ pub fn study_search(query: String, course: Option<String>) -> Result<Vec<Hit>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn course_info_keeps_what_the_study_tab_adds() {
+        let text = r#"{"code":"EE 201","title":"Digital Logic Design","canvasId":"7","canvasCode":"E E 201 Sec05","meetings":[{"days":[1,3],"start":"10:00","end":"11:15","room":"ECS 302"}],"grading":{"categories":[]}}"#;
+        let info: CourseInfo = serde_json::from_str(text).unwrap();
+        assert_eq!((info.code.as_str(), info.canvas_id.as_str()), ("EE 201", "7"));
+        assert!(info.more.contains_key("meetings") && info.more.contains_key("grading"));
+        let back: serde_json::Value = serde_json::to_value(&info).unwrap();
+        assert_eq!(back["meetings"][0]["room"], "ECS 302");
+        assert_eq!(back["canvasCode"], "E E 201 Sec05");
+    }
 
     #[test]
     fn courses_and_books_are_listed_added_and_served_only_from_the_library() {

@@ -15,6 +15,9 @@ function load(): Exam | null {
 
 export const examStore = createStore<Exam | null>(load())
 
+/** Until when a focus session (Study) keeps Mail, Messages and AI notifications quiet; 0 when not. */
+export const quietUntilStore = createStore(0)
+
 export function setExam(exam: Exam | null) {
   examStore.set(exam)
   try { if (exam) localStorage.setItem(KEY, JSON.stringify(exam)); else localStorage.removeItem(KEY) } catch { /* kept for this run only */ }

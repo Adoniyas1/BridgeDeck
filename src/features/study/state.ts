@@ -1,6 +1,7 @@
 import type { Card } from 'ts-fsrs'
-import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
+import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyStateRead, studyStateWrite, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
 import { configStore } from '../../core/config'
+import { quietUntilStore } from '../../core/exam'
 import { notify } from '../../core/notify'
 import { createStore } from '../../core/store'
 import { eventsStore } from '../calendar/state'
@@ -8,17 +9,49 @@ import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { flashcardsTitle, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
+import { readTerm, type Term } from './schedule'
+import { readProblems } from './problems'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
+/** The semester's dates and breaks (Study → courses → Semester). */
+export const termStore = createStore<Term | null>(null)
 
-/** Reads the course folders (in the synced folder, so books added on the other computer appear). */
+/** Reads the course folders (in the synced folder, so books added on the other computer appear)
+ *  and the semester's dates. */
 export async function refreshLibrary() {
   if (!isTauri()) return
   try {
     libraryStore.set({ library: await studyLibrary(configStore.get().syncthing.sharedFolderPath), error: '' })
+    const term = readTerm(await studyStateRead('term').catch(() => ''))
+    if (JSON.stringify(term) !== JSON.stringify(termStore.get())) termStore.set(term)
   } catch (e) {
     libraryStore.set(current => ({ ...current, error: String(e) }))
   }
+}
+
+/** Homework problems ticked off, by assignment (study/problems.ts). */
+export const problemsStore = createStore<Record<string, string[]>>({})
+let problemsLoaded = false
+export async function loadProblems() {
+  if (problemsLoaded || !isTauri()) return
+  problemsLoaded = true
+  problemsStore.set(readProblems(await studyStateRead('problems').catch(() => '')))
+}
+let problemsTimer: number | undefined
+export function tickProblem(assignment: string, key: string) {
+  problemsStore.set(all => {
+    const list = all[assignment] ?? []
+    const next = { ...all, [assignment]: list.includes(key) ? list.filter(k => k !== key) : [...list, key] }
+    if (!next[assignment].length) delete next[assignment]
+    return next
+  })
+  window.clearTimeout(problemsTimer)
+  problemsTimer = window.setTimeout(() => { if (isTauri()) void studyStateWrite('problems', JSON.stringify(problemsStore.get())).catch(() => undefined) }, 600)
+}
+
+export async function saveTerm(term: Term | null) {
+  termStore.set(term)
+  await studyStateWrite('term', JSON.stringify(term ?? {}))
 }
 
 // ---- Flashcards ----
@@ -58,6 +91,7 @@ let ticker: number | undefined
 export function startFocus(course: string, minutes: number, breakMinutes = 5) {
   const now = Date.now()
   focusStore.set({ course, kind: 'focus', startedAt: now, endsAt: now + minutes * 60_000, breakMinutes })
+  quietUntilStore.set(configStore.get().study.quietFocus ? now + minutes * 60_000 : 0)
   window.clearInterval(ticker)
   ticker = window.setInterval(tick, 1000)
 }
@@ -67,6 +101,7 @@ export async function stopFocus() {
   const focus = focusStore.get()
   window.clearInterval(ticker)
   focusStore.set(null)
+  quietUntilStore.set(0)
   if (focus?.kind === 'focus' && Date.now() - focus.startedAt >= 5 * 60_000) await logStudy(focus.course, focus.startedAt, Date.now())
 }
 

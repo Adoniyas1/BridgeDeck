@@ -128,6 +128,22 @@ fn strip_guard(bytes: &[u8]) -> &[u8] {
     bytes.strip_prefix(b"while(1);").unwrap_or(bytes)
 }
 
+/// Downloads a calendar someone subscribes to (Outlook's "Publish calendar" ICS link, Google's
+/// secret address, any https or webcal .ics link) for the Calendar tab to show.
+#[tauri::command]
+pub async fn calendar_subscription(url: String) -> Result<String, String> {
+    let url = https(&url.replace("webcal://", "https://"))?;
+    let response = client()?.get(url).send().await.map_err(|e| format!("Couldn’t reach the calendar: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("The calendar answered {}", response.status()));
+    }
+    let text = String::from_utf8_lossy(&body(response, MAX_FEED).await?).into_owned();
+    if !text.contains("BEGIN:VCALENDAR") {
+        return Err("That link isn’t a calendar (.ics). In Outlook: Settings → Calendar → Shared calendars → Publish a calendar → ICS link.".into());
+    }
+    Ok(text)
+}
+
 /// A GET from the Canvas API with the person's access token, or without one with their sign-in in
 /// BridgeDeck's browser. Lists are followed across pages (up to ten) and returned as one array.
 #[tauri::command]

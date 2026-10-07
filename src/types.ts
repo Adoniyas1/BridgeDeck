@@ -52,14 +52,14 @@ export type AppConfig = {
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
   mimir: { enabled: boolean }
   /** Calendar tab: Apple Calendar from a Mac, first day of the week, reminder for new events (minutes). */
-  calendar: { showApple: boolean; weekStart: 0 | 1; defaultReminder: number | null }
+  calendar: { showApple: boolean; weekStart: 0 | 1; defaultReminder: number | null; /** Subscribed calendars (Outlook's published ICS link and the like), shown read-only. */ feeds: CalendarFeed[] }
   /** Morning brief and evening study nudges as notifications ("HH:MM", this computer's time); "while you were away" on Home. */
   brief: { morning: boolean; morningAt: string; evening: boolean; eveningAt: string; away: boolean }
   /** TV tab: the person's own streaming shortcuts, besides the built-in services. */
   tv: { shortcuts: Array<{ name: string; url: string }> }
   /** Study: languages text recognition reads in scanned books (English is always included), and the
    *  sites exam mode keeps closed in the Browser and TV tabs. */
-  study: { ocrLanguages: string[]; examBlock: string[] }
+  study: { ocrLanguages: string[]; examBlock: string[]; /** Mail, Messages and AI notifications wait while a focus session runs. */ quietFocus: boolean }
   /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
    *  the credential store), hours before a due date to remind, and assignments marked done here. */
   canvas: { base: string; feed: string; token: string; remindHours: number; done: string[]; /** Canvas course ids already added to Study (each is added once, so a deleted one stays gone). */ added: string[] }
@@ -430,3 +430,5 @@ export type SyncthingAutoSetupResult = {
 }
 
 export type MailAccount = { id: string; name: string; url: string }
+
+export type CalendarFeed = { id: string; name: string; url: string; color: string }
