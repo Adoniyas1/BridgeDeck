@@ -43,6 +43,8 @@ export const tabsStore = createStore<TabsState>(initialTabs)
 
 export const activateTab = (id: string) => tabsStore.set(state => activateIn(state, id))
 export const closeTab = (id: string) => tabsStore.set(state => closeIn(state, id))
+/** Changes an open tab's title (a web page's title changed) without switching to it. */
+export const retitleTab = (id: string, title: string) => tabsStore.set(state => state.dynamic.some(t => t.id === id && t.title !== title) ? { ...state, dynamic: state.dynamic.map(t => t.id === id ? { ...t, title } : t) } : state)
 
 /** Opens a dynamic tab. Pass a stable `id` (for example `remote:<device>`) to reuse an existing tab. */
 export function openTab(tab: Omit<DynamicTab, 'id'> & { id?: string }): string {

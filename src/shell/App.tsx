@@ -21,7 +21,7 @@ function UnknownTab({ tab }: { tab: DynamicTab }) {
   return <Card><SectionTitle title={tab.title} subtitle={`This build has no view for "${tab.kind}" tabs.`} /><div className="bb-placeholder">Close this tab, or update BridgeDeck.</div></Card>
 }
 
-const FILL_KINDS = new Set(['study-book'])
+const FILL_KINDS = new Set(['study-book', 'web'])
 
 /** Shown for the moment a tab's code is loading (each tab's code loads when first opened). */
 function Loading() {
@@ -41,7 +41,7 @@ export default function App() {
 
   useEffect(() => { void hydrateConfig() }, [])
   // The browser and books use the whole window under the tab bar, with no page margins.
-  const fill = active === 'browser' || active === 'tv' || active === 'logic' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
+  const fill = active === 'browser' || active === 'tv' || active === 'logic' || active === 'spotify' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
 
   return (
     <div className="shell">

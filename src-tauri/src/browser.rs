@@ -326,6 +326,12 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
 }
 
 /// Hides a browser tab's page (its tab is off screen); it keeps its place in history.
+/// Whether a tab's page exists (a page moved into its own BridgeDeck tab keeps its place).
+#[tauri::command]
+pub fn browser_has(app: AppHandle, tab: String) -> Result<bool, String> {
+    Ok(app.get_webview(&label(&tab)?).is_some())
+}
+
 #[tauri::command]
 pub fn browser_hide(app: AppHandle, tab: String) -> Result<(), String> {
     if let Some(view) = app.get_webview(&label(&tab)?) {

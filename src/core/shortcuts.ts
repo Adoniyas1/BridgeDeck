@@ -28,7 +28,8 @@ export const shortcutsHelpStore = createStore(false)
 export const overlayOpen = () => paletteStore.get() || shortcutsHelpStore.get()
 
 /** A Browser command for the Browser tab to carry out (it's on screen when one is sent). */
-export const browserCommandStore = createStore<{ name: 'new-tab' | 'close-tab' | 'address' | 'open'; url?: string; at: number } | null>(null)
+/** `adopt`: a page moved out into its own tab comes back as a Browser tab (`page` is its id). */
+export const browserCommandStore = createStore<{ name: 'new-tab' | 'close-tab' | 'address' | 'open' | 'adopt'; url?: string; page?: string; title?: string; at: number } | null>(null)
 
 /** Opens a web address in the Browser tab (in a new tab unless the current one is empty). */
 export function openInBrowser(url: string) {
