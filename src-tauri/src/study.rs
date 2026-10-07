@@ -22,6 +22,11 @@ use tauri::Manager;
 
 pub const SCHEME: &str = "bdbook";
 const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub"];
+/// Slides kept with a course and opened in the computer's own app (PDF slides are books).
+const SLIDE_EXTENSIONS: &[&str] = &["pptx", "ppt", "key", "odp"];
+/// In a course folder: the course is archived (hidden from the list, files kept). It syncs, so
+/// both computers agree.
+const ARCHIVED: &str = ".archived";
 
 /// The library folder, remembered for the `bdbook` scheme.
 static ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -38,7 +43,7 @@ pub struct Book {
     /// File name inside the course folder.
     pub file: String,
     pub title: String,
-    /// "pdf" or "epub".
+    /// "pdf" or "epub", or a presentation's extension ("pptx", "key"…).
     pub kind: String,
     pub bytes: u64,
     /// Its page text is in the search index ("pdf" only).
@@ -51,6 +56,8 @@ pub struct Book {
 pub struct Course {
     pub name: String,
     pub books: Vec<Book>,
+    #[serde(default)]
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -84,7 +91,7 @@ fn title_of(file: &str) -> String {
 
 fn book_kind(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    BOOK_EXTENSIONS.contains(&ext.as_str()).then_some(ext)
+    (BOOK_EXTENSIONS.contains(&ext.as_str()) || SLIDE_EXTENSIONS.contains(&ext.as_str())).then_some(ext)
 }
 
 pub fn init(app: &tauri::AppHandle) {
@@ -114,7 +121,8 @@ pub fn read_library(root: &Path) -> Result<Library, String> {
             })
             .collect();
         books.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-        courses.push(Course { name, books });
+        let archived = entry.path().join(ARCHIVED).exists();
+        courses.push(Course { name, books, archived });
     }
     courses.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(Library { root: root.to_string_lossy().to_string(), courses })
@@ -151,7 +159,7 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut added = Vec::new();
     for path in paths {
-        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF or EPUB", path.display()))?;
+        let kind = book_kind(path).ok_or_else(|| format!("{} isn't a PDF, EPUB or presentation", path.display()))?;
         let original = path.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("No file name")?;
         let file = free_name(&dir, &clean_name(&original)?);
         let bytes = fs::copy(path, dir.join(&file)).map_err(|e| format!("Couldn't copy {original}: {e}"))?;
@@ -195,7 +203,7 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     use tauri::http::{header, Response, StatusCode};
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
-    let Some(path) = resolve(&root, request.uri().path()) else { return fail(StatusCode::NOT_FOUND) };
+    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
     let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
     let mime = if book_kind(&path).as_deref() == Some("epub") { "application/epub+zip" } else { "application/pdf" };
     let total = data.len();
@@ -417,6 +425,40 @@ pub fn study_add_books(course: String, paths: Vec<String>) -> Result<Vec<Book>, 
     add_books(&root, &course, &paths.into_iter().map(PathBuf::from).collect::<Vec<_>>())
 }
 
+/// The folder of a course in the library (it must be there).
+fn course_dir(root: &Path, name: &str) -> Result<PathBuf, String> {
+    let dir = root.join(clean_name(name)?);
+    if clean_name(name)? != name || !dir.is_dir() {
+        return Err("No such course".into());
+    }
+    Ok(dir)
+}
+
+/// Archives a course (hidden from the list, its files kept) or brings it back.
+#[tauri::command]
+pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> {
+    let marker = course_dir(&current_root()?, &name)?.join(ARCHIVED);
+    if archived {
+        fs::write(marker, "Archived in BridgeDeck's Study tab; delete this file to bring the course back.\n").map_err(|e| e.to_string())
+    } else {
+        match fs::remove_file(marker) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Deletes a course: its folder goes to the Trash (and off the other computer, which syncs it).
+#[tauri::command]
+pub fn study_delete_course(name: String) -> Result<(), String> {
+    let dir = course_dir(&current_root()?, &name)?;
+    trash::delete(&dir).or_else(|_| fs::remove_dir_all(&dir)).map_err(|e| format!("Couldn't delete the course: {e}"))?;
+    if let Some(index) = index_dir() {
+        let _ = fs::remove_dir_all(index.join(clean_name(&name)?));
+    }
+    Ok(())
+}
+
 /// Removes a book from the course (and so from the other computer too).
 #[tauri::command]
 pub fn study_remove_book(course: String, file: String) -> Result<(), String> {
@@ -483,8 +525,8 @@ mod tests {
         let library = Library {
             root: String::new(),
             courses: vec![
-                Course { name: "Math 221".into(), books: vec![book("calc.pdf", "Calculus")] },
-                Course { name: "Biology".into(), books: vec![book("bio.pdf", "Campbell Biology")] },
+                Course { name: "Math 221".into(), books: vec![book("calc.pdf", "Calculus")], archived: false },
+                Course { name: "Biology".into(), books: vec![book("bio.pdf", "Campbell Biology")], archived: false },
             ],
         };
         let filler = "Some words about other things. ".repeat(20);

@@ -194,6 +194,16 @@ export function dueText(due: number | null, now: number) {
   return new Date(due).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` ${time}`
 }
 
+/** The Study course name for a Canvas course: "E E 201 Sec05" → "EE 201", "MATH-221-01 Fall 2026" →
+ *  "MATH 221"; the course's name when its code has no number. */
+export function studyNameFor(course: Pick<CanvasCourse, 'code' | 'name'>) {
+  for (const text of [course.code, course.name]) {
+    const m = text.match(/\b([A-Za-z](?:[A-Za-z&]|\s(?=[A-Za-z]))*)\s*[-_ ]?\s*(\d{3,4}[A-Z]?)\b/)
+    if (m) return `${m[1].replace(/[\s&]+/g, '')} ${m[2]}`
+  }
+  return course.name.trim().slice(0, 60)
+}
+
 /** Whether a Canvas course ("MATH-221-01 Fall 2026") is the Study course ("Math 221"). */
 export function courseMatches(study: string, canvas: string) {
   if (!study || !canvas) return false

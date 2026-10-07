@@ -24,7 +24,7 @@ export const defaultConfig: AppConfig = {
   tv: { shortcuts: [] },
   browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [] },
   study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'] },
-  canvas: { base: '', feed: '', token: '', remindHours: 24, done: [] },
+  canvas: { base: '', feed: '', token: '', remindHours: 24, done: [], added: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
   syncthing: { mode: 'builtin', baseUrl: 'http://127.0.0.1:8384', apiKey: '', autoSetup: true, sharedFolderId: 'bridgedeck-shared', sharedFolderLabel: 'BridgeDeck Shared', sharedFolderPath: '' },
@@ -103,6 +103,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       token: typeof input.canvas?.token === 'string' ? input.canvas.token : '',
       remindHours: Number.isFinite(input.canvas?.remindHours) ? Math.max(0, Math.min(168, Number(input.canvas!.remindHours))) : defaultConfig.canvas.remindHours,
       done: Array.isArray(input.canvas?.done) ? input.canvas.done.filter((d): d is string => typeof d === 'string').slice(-500) : [],
+      added: Array.isArray(input.canvas?.added) ? input.canvas.added.filter((d): d is string => typeof d === 'string').slice(-200) : [],
     },
     browsing: {
       adblock: input.browsing?.adblock !== false,

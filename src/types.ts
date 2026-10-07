@@ -60,7 +60,7 @@ export type AppConfig = {
   study: { ocrLanguages: string[]; examBlock: string[] }
   /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
    *  the credential store), hours before a due date to remind, and assignments marked done here. */
-  canvas: { base: string; feed: string; token: string; remindHours: number; done: string[] }
+  canvas: { base: string; feed: string; token: string; remindHours: number; done: string[]; /** Canvas course ids already added to Study (each is added once, so a deleted one stays gone). */ added: string[] }
   /** Web pages (Browser, TV, ChatGPT): the built-in ad blocker, and the Browser's bookmarks. */
   browsing: {
     adblock: boolean

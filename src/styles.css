@@ -583,6 +583,11 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .study-book{display:flex;align-items:center;gap:12px;padding:10px;border-radius:var(--radius-sm);background:var(--surface-2);border:1px solid var(--line)}
 .study-book-cover{width:52px;height:68px;flex:none;border:1px solid var(--line-strong);border-radius:5px;background:linear-gradient(160deg,var(--surface-3),var(--bg));color:var(--accent);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:0}
 .study-book-cover span{font-size:9px;color:var(--muted);letter-spacing:.06em}
+.study-book-cover.slides{color:var(--warn);width:68px;height:52px;margin:8px 0}
+.study-archived-toggle{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;margin:4px 0 8px;font-size:12px}
+.study-course-list.archived button{opacity:.7}
+.study-course>.notice{display:flex;align-items:center;gap:9px;padding:9px 11px}
+.study-course>.notice span{flex:1}
 .study-book strong{display:block;font-size:13px;line-height:1.3;max-height:2.6em;overflow:hidden}
 .study-book small{color:var(--muted);font-size:11px}
 .study-book-actions{display:flex;flex-direction:column;gap:4px;align-items:flex-end}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Note } from '../../lib/bridge'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, type Assignment } from './canvas'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, studyNameFor, type Assignment } from './canvas'
 
 const FEED = [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Instructure//Canvas//EN',
@@ -110,5 +110,13 @@ describe('assignment list', () => {
     expect(courseMatches('Math 221', 'MATH-221-01 Fall 2026')).toBe(true)
     expect(courseMatches('Math 221', 'MATH 222')).toBe(false)
     expect(courseMatches('Biology', 'Intro Biology')).toBe(true)
+  })
+})
+
+describe('studyNameFor', () => {
+  it('makes short course names from Canvas codes', () => {
+    expect(studyNameFor({ code: 'E E 201 Sec05', name: 'Electric Circuits' })).toBe('EE 201')
+    expect(studyNameFor({ code: 'MATH-221-01 Fall 2026', name: 'Calculus III' })).toBe('MATH 221')
+    expect(studyNameFor({ code: 'Orientation', name: 'New Student Orientation' })).toBe('New Student Orientation')
   })
 })
