@@ -40,6 +40,14 @@ Then open Settings (⚙, top right) and:
    `mimir_windows.ppn`). Without either, wake word is simply disabled and
    push-to-talk (the mic button) still works fully offline via local Whisper.
 
+## ChatGPT section
+
+The **CHATGPT** button opens a separate chat with OpenAI's models using your own
+OpenAI API key (stored in the OS keychain; API use is billed by OpenAI, separately
+from ChatGPT Plus). It is not Mimir's brain: no tools, no self-editing. Chats live
+in `~/.mimir/chatgpt/`, and "Save to Notes" copies one into BridgeDeck's Notes.
+Code: `src/main/chatgpt/`, `src/renderer/ChatGpt.tsx`.
+
 ## Modular brain
 
 Every place in the app that talks to "the model" goes through one interface

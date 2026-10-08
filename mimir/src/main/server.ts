@@ -30,6 +30,9 @@ import type {
   BrainConfig,
   BrainProviderKind,
   BuiltInCapability,
+  ChatGptChat,
+  ChatGptChatSummary,
+  ChatGptConfig,
   PersonaConfig,
   ProjectFileCorpusEntry,
   PythonRunResult,
@@ -52,6 +55,11 @@ import { listSkillSummaries, verifySkillNow } from "./skills/tools.js";
 import { listBuiltInCapabilities } from "./skills/builtins.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
+import { ChatGptSession } from "./chatgpt/session.js";
+import { getChatGptApiKey, loadChatGptConfig, saveChatGptConfig, setChatGptApiKey } from "./chatgpt/config.js";
+import { listChatGptModels } from "./chatgpt/client.js";
+import { deleteChat, listChats, readChat } from "./chatgpt/store.js";
+import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The original install (set by server-entry.mjs): workspace seed and resources stay there even
@@ -152,6 +160,7 @@ function runSemanticSearchInRenderer(query: string, corpus: ProjectFileCorpusEnt
 // --- Session and voice ---------------------------------------------------
 
 let session: AgentSession | null = null;
+const chatgpt = new ChatGptSession({ broadcast });
 let wakeHandle: WakeWordHandle | null = null;
 
 async function startWake(): Promise<void> {
@@ -208,6 +217,24 @@ const invokeHandlers: Record<string, Handler> = {
     await setBrainApiKey(provider, key);
   },
   [IPC.brainListOllamaModels]: (baseUrl?: string): Promise<string[]> => listOllamaModels(baseUrl || undefined),
+  [IPC.chatgptGetConfig]: (): Promise<ChatGptConfig> => loadChatGptConfig(),
+  [IPC.chatgptSetConfig]: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => saveChatGptConfig(patch),
+  [IPC.chatgptSetApiKey]: async (key: string): Promise<ChatGptConfig> => {
+    await setChatGptApiKey(key);
+    return loadChatGptConfig();
+  },
+  [IPC.chatgptListModels]: async (): Promise<string[]> => {
+    const key = await getChatGptApiKey();
+    return key ? listChatGptModels(key) : [];
+  },
+  [IPC.chatgptListChats]: (): Promise<ChatGptChatSummary[]> => listChats(),
+  [IPC.chatgptGetChat]: (id: string): Promise<ChatGptChat | null> => readChat(id),
+  [IPC.chatgptDeleteChat]: (id: string): Promise<void> => {
+    chatgpt.stop(id);
+    return deleteChat(id);
+  },
+  [IPC.chatgptSend]: (chatId: string, text: string, model?: string): Promise<ChatGptChat> => chatgpt.send(chatId, text, model),
+  [IPC.chatgptSaveToNotes]: (id: string): Promise<{ noteId: string }> => chatgpt.saveToNotes(id, bridgeDeckFromEnv()),
   [IPC.voiceGetConfig]: (): Promise<VoiceConfig> => loadVoiceConfig(),
   [IPC.voiceSetConfig]: async (
     patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
@@ -261,6 +288,7 @@ const invokeHandlers: Record<string, Handler> = {
 const sendHandlers: Record<string, Handler> = {
   [IPC.chatSend]: (text: string, attachments?: Attachment[]) => void session?.send(text, attachments),
   [IPC.chatStop]: () => session?.stop(),
+  [IPC.chatgptStop]: (chatId: string) => chatgpt.stop(chatId),
   [IPC.editApprove]: (pendingId: string) => session?.resolveApproval(pendingId, "approved"),
   [IPC.editReject]: (pendingId: string) => session?.resolveApproval(pendingId, "rejected"),
   // Avoid the wake word double-triggering while the user is manually talking.

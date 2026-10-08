@@ -262,6 +262,58 @@ body {
 }
 .quick-controls__action:hover { color: var(--accent); border-color: var(--border-bright); box-shadow: 0 0 16px rgba(110, 231, 255, 0.2); }
 
+.quick-controls__action--wide { grid-column: 1 / -1; }
+.quick-controls__action:disabled { opacity: 0.45; cursor: default; }
+
+/* The ChatGPT section: chats on the left, the open chat on the right. */
+.chatgpt { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 18px 0; gap: 10px; }
+.chatgpt-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.chatgpt-actions .quick-controls__model { width: auto; max-width: 200px; padding: 6px 8px; font-size: 12px; }
+.chatgpt-actions .quick-controls__action { padding: 6px 9px; font-size: 10px; letter-spacing: 0.12em; }
+.chatgpt-setup {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(5, 8, 16, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.chatgpt-setup label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.chatgpt-setup input,
+.chatgpt-setup textarea {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 6px 9px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.chatgpt-body { flex: 1; display: flex; min-height: 0; gap: 12px; }
+.chatgpt-body .chat { padding: 0 0 16px; }
+.chatgpt-list { flex: 0 0 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-bottom: 16px; }
+.chatgpt-list__item { display: flex; align-items: center; border: 1px solid transparent; border-radius: 10px; }
+.chatgpt-list__item--active { border-color: var(--border-bright); background: rgba(110, 231, 255, 0.06); }
+.chatgpt-list__item button {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.chatgpt-list__item button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatgpt-list__delete { color: var(--muted) !important; opacity: 0; }
+.chatgpt-list__item:hover .chatgpt-list__delete { opacity: 1; }
+@media (max-width: 760px) {
+  .chatgpt-list { flex-basis: 110px; }
+}
+
 /* The conversation. */
 .console { display: flex; flex-direction: column; overflow: hidden; }
 .chat { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 14px 18px 16px; }

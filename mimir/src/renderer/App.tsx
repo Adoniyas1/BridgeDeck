@@ -4,6 +4,7 @@ import Chat from "./Chat.js";
 import Settings from "./Settings.js";
 import QuickControls from "./QuickControls.js";
 import SkillTree from "./SkillTree.js";
+import ChatGpt from "./ChatGpt.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
 import type { AutoStopReason } from "./voice/vad.js";
 import { sanitizeSpeech, takeCompleteSentences } from "./voice/speech.js";
@@ -35,6 +36,7 @@ export default function App() {
   const [openMicActive, setOpenMicActive] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [showChatGpt, setShowChatGpt] = useState(false);
 
   const assistantMessageId = useRef<string | null>(null);
   const voiceOrigin = useRef(false);
@@ -364,6 +366,7 @@ export default function App() {
             className="settings-toggle"
             onClick={() => {
               setShowSkills(false);
+              setShowChatGpt(false);
               setShowSettings((s) => !s);
             }}
             aria-label="Open settings"
@@ -398,7 +401,13 @@ export default function App() {
         <QuickControls
           onOpenSkills={() => {
             setShowSettings(false);
+            setShowChatGpt(false);
             setShowSkills((s) => !s);
+          }}
+          onOpenChatGpt={() => {
+            setShowSettings(false);
+            setShowSkills(false);
+            setShowChatGpt((s) => !s);
           }}
           onError={(message) =>
             setMessages((prev) => [...prev, { id: newId(), role: "system", text: `⚠️ ${message}`, createdAt: Date.now() }])
@@ -411,6 +420,8 @@ export default function App() {
           <Settings onClose={() => setShowSettings(false)} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
         ) : showSkills ? (
           <SkillTree onClose={() => setShowSkills(false)} />
+        ) : showChatGpt ? (
+          <ChatGpt onClose={() => setShowChatGpt(false)} />
         ) : (
           <Chat
             messages={messages}
