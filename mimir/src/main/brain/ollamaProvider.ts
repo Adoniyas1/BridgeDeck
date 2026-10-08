@@ -7,6 +7,7 @@ import type {
   ToolCall,
   ToolDef
 } from "./Provider.js";
+import { normalizeBaseUrl } from "./baseUrl.js";
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_BASE_URL = DEFAULT_OLLAMA_BASE_URL;
@@ -17,7 +18,7 @@ const DEFAULT_BASE_URL = DEFAULT_OLLAMA_BASE_URL;
  * reachable at this URL — that's a normal, expected state, not an error. */
 export async function listOllamaModels(baseUrl: string = DEFAULT_OLLAMA_BASE_URL): Promise<string[]> {
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${normalizeBaseUrl(baseUrl) ?? DEFAULT_OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return [];
     const data = (await res.json()) as { models?: Array<{ name?: string }> };
     return (data.models ?? [])
@@ -42,7 +43,7 @@ export class OllamaProvider implements BrainProvider {
 
   constructor(model: string, baseUrl: string = DEFAULT_BASE_URL) {
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = normalizeBaseUrl(baseUrl) ?? DEFAULT_BASE_URL;
     this.toolsSupported = LIKELY_TOOL_CAPABLE.test(model);
   }
 
