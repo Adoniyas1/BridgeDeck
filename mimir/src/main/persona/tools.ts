@@ -88,7 +88,7 @@ export function buildPersonaToolset(opts: PersonaToolsetOptions): Toolset {
     {
       name: "memory_replace",
       description:
-        "Replace the entire MEMORY.md file — your curated long-term memory. Use this whenever you learn something worth remembering. Provide the complete new file content, not a diff; consolidate rather than just appending.",
+        "Replace the entire MEMORY.md file — your curated long-term memory. Use this when the user asks you to remember something, or for a lasting fact about them they'd clearly want kept; never for greetings, small talk, or test phrases like \"hello world\". Provide the complete new file content, not a diff; consolidate rather than just appending.",
       inputSchema: {
         type: "object",
         properties: { markdown: { type: "string" } },

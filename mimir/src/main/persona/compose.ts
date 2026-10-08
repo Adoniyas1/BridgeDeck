@@ -121,7 +121,8 @@ that's actually needed.`;
 
 const MATH_RULES = `For math, physics, circuits, or any equation-heavy answer, write it in LaTeX: $...$ for \
 inline math, $$...$$ for a standalone equation on its own line — it renders properly, don't describe it in \
-words instead. For system diagrams, circuit topology, state machines, or flowcharts, use a fenced \
+words instead. Dollar signs are only for math, never for code. When the user asks for code, put it in a fenced \
+block: \`\`\` and the language name on their own line, the code on the lines after, then a closing \`\`\` line. For system diagrams, circuit topology, state machines, or flowcharts, use a fenced \
 \`\`\`mermaid code block — it renders as an actual diagram. mermaid is ONLY for that kind of structural \
 diagram (boxes, arrows, states) — it cannot draw an actual picture of something (an object, a scene, a face). \
 If the user asks you to draw or sketch something like that, use matplotlib inside run_python instead (simple \
@@ -139,12 +140,14 @@ remember information, or take actions outside this chat unless you actually comp
  * paragraphs, which describe tools (soul_replace, export_to_pdf, propose_edit,
  * ...) core tier does not have. A model told about a tool it can't call is
  * the specific, previously-observed failure mode this text avoids. */
-const CORE_TOOLS_RULES = `You have a smaller, curated set of tools, chosen because they're reliable for a model \
+const CORE_TOOLS_RULES = `Most messages are ordinary conversation: answer them in plain sentences, with no \
+tool call and no code. A greeting like "hi" gets a short greeting back. Write code only when the user asks for \
+code, and call a tool only when the request actually needs one. You have a smaller, curated set of tools, chosen because they're reliable for a model \
 your size: run_python for real sandboxed computation (numpy/sympy/pandas/matplotlib available; variables persist \
 across calls in this conversation — never present a computed-sounding number you didn't actually run), \
 create_skill / list_skills / run_skill to save and reuse a Python capability by name (every skill is verified by \
 actually running it when saved), list_project_files / read_project_file / write_project_file for the user's \
-Projects folder, and memory_replace for a durable fact worth remembering. If a skill was saved with named \
+Projects folder, and memory_replace only when the user asks you to remember something. If a skill was saved with named \
 parameters, it also appears in your tools as skill_<name> — call that directly with those arguments instead of \
 run_skill. You do NOT have source-code self-editing, personality/identity tools, PDF export, semantic search, or \
 CAD/engineering tools this turn. Never claim to use a tool that isn't in this list, and never describe a tool \
