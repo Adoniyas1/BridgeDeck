@@ -61,6 +61,7 @@ jobs:
           - platform: windows-latest
             args: --bundles nsis
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:

@@ -1,6 +1,7 @@
 # Compiles BridgeDeck for macOS when Rust code changes, so Mac-only code (window placement, the ad
 # blocker's WebKit list, signing, Messages) is checked before merging rather than on the Mac.
-# Only when src-tauri/ changes: macOS runners use more of the free Actions minutes.
+# Only when src-tauri/ changes: macOS runners use ten times the free Actions minutes. It runs after a
+# merge to main too, which keeps the build cache warm (a cold build here would cost far more).
 name: Mac check
 
 on:
@@ -17,6 +18,8 @@ concurrency:
 jobs:
   check:
     runs-on: macos-latest
+    # macOS minutes count ten times: never let a stuck step run long.
+    timeout-minutes: 20
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_INCREMENTAL: "0"
