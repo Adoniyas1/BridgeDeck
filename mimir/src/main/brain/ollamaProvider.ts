@@ -177,11 +177,13 @@ export class OllamaProvider implements BrainProvider {
                 input: leaked.input
               }
             };
-          } else {
+          } else if (!isEmptyJsonObject(found.json)) {
             // Doesn't even look like an attempted tool call — legitimate
             // content, show it unaltered rather than silently dropping it.
             yield { type: "text-delta", text: found.json };
           }
+          // A bare "{}" is a small model starting a tool call it never fills in. It is not an answer, so it is
+          // dropped rather than shown to the user as the whole reply.
           contentBuffer = contentBuffer.slice(found.endIndex);
           scanning = false;
         }
@@ -265,6 +267,15 @@ function findBalancedJsonObject(text: string): { json: string; endIndex: number 
     }
   }
   return null;
+}
+
+function isEmptyJsonObject(json: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Only treats a parsed object as a real leaked tool call if its "name"

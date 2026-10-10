@@ -52,6 +52,27 @@ self-editing specifically stays gated to providers that report real
 tool-calling support, so a weak local model degrades to "assistant that
 can't edit itself" rather than a silently unsafe agent.
 
+## Prompt modules
+
+Mimir's system prompt is not one block. It is split into small modules in
+`src/main/prompts/modules.ts` — one per capability, each with the few
+sentences that explain it and the exact tools it brings. `src/main/prompts/loader.ts`
+decides, per message, which modules to send:
+
+- **Required:** only `core` (who Mimir is and the rules for every reply).
+- **Optional:** loaded one at a time when the message needs them (memory,
+  project files, calculations, skills, calendar, …) and while they fit a token
+  budget; a module that matched stays for two more turns. Local (Ollama)
+  models use this; cloud models get every module their tier allows.
+- **Tools travel with their module**, so a model is never told about a tool it
+  does not have, and a message like "hi" sends about 120 tokens instead of the
+  ~3,500 the always-on prompt and tool list used to cost a 3B model.
+
+The chat shows which modules were loaded for the last message, and
+Skills → *What gets loaded* lists every module, when it loads and what it costs.
+Mimir has no soul or identity file; `USER.md`, `MEMORY.md` and `TASKS.md`
+hold only what it learns.
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:

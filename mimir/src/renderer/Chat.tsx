@@ -1,13 +1,15 @@
 import React, { useRef, useState } from "react";
 import MessageContent from "./MessageContent.js";
 import CameraCapture from "./camera/CameraCapture.js";
-import type { ChatMessage, PendingEdit } from "../shared/types.js";
+import type { ChatMessage, LoadedPromptModule, PendingEdit } from "../shared/types.js";
 
 interface ChatProps {
   messages: ChatMessage[];
   pendingEdit: PendingEdit | null;
   busy: boolean;
   openMicEnabled: boolean;
+  /** What was loaded into the model for the latest message. */
+  context: { modules: LoadedPromptModule[]; tokens: number } | null;
   onSend: (text: string, files?: File[]) => void;
   onStop: () => void;
   onApprove: () => void;
@@ -20,6 +22,7 @@ export default function Chat({
   pendingEdit,
   busy,
   openMicEnabled,
+  context,
   onSend,
   onStop,
   onApprove,
@@ -102,6 +105,18 @@ export default function Chat({
           </div>
         )}
       </div>
+
+      {context && context.modules.length > 0 && (
+        <div className="context-chips" title="Prompt modules sent to the model with your last message. See Skills → What gets loaded.">
+          <span>Loaded:</span>
+          {context.modules.map((m) => (
+            <span key={m.id} className={`context-chip context-chip--${m.reason}`}>
+              {m.title}
+            </span>
+          ))}
+          <span className="context-chips__size">~{context.tokens} tokens</span>
+        </div>
+      )}
 
       {stagedFiles.length > 0 && (
         <div className="attachment-chips">
