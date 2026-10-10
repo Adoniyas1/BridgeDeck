@@ -93,6 +93,12 @@ describe("loadPromptModules (lazy)", () => {
     expect(loadedIds({ ...base, userText: "call write_project_file for me" })).toContain("projects");
   });
 
+  it("does not load a module because an ordinary word happens to be a tool name", () => {
+    // self_edit owns a tool called plain "search".
+    const ids = loadedIds({ tier: "full", mode: "lazy", userText: "research and search my notes for the lab report" });
+    expect(ids).not.toContain("self_edit");
+  });
+
   it("keeps a matched module for the next turns, then lets it go", () => {
     const sticky = new Map([["compute", STICKY_TURNS]]);
     const result = loadPromptModules({ ...base, userText: "and now double it", sticky });

@@ -67,8 +67,9 @@ function toolsFor(module: PromptModule, tier: PromptTier): string[] {
 
 function matches(module: PromptModule, userText: string): boolean {
   if (module.triggers.some((trigger) => trigger.test(userText))) return true;
-  // Naming a tool outright always loads the module that owns it.
-  return module.tools.some((tool) => userText.includes(tool));
+  // Naming a tool outright always loads the module that owns it. Only identifier-like names count: a plain
+  // word such as self-edit's "search" would otherwise match "research my notes".
+  return module.tools.some((tool) => tool.includes("_") && new RegExp(`\\b${tool}\\b`).test(userText));
 }
 
 /**
