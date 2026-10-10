@@ -40,7 +40,18 @@ describe("listBuiltInCapabilities", () => {
   it("groups tools into the expected categories", async () => {
     const caps = await listBuiltInCapabilities(workspaceRoot, auditFilePath);
     const categories = new Set(caps.map((c) => c.category));
-    expect(categories).toEqual(new Set(["Memory & Identity", "Projects", "Compute", "Skill-Building", "Mac & CAD", "Engineering Automation"]));
+    expect(categories).toEqual(new Set(["Memory", "Deadlines", "Project files", "Calculations", "Skills", "Engineering tools", "Web research"]));
+  });
+
+  it("never lists a soul or identity tool", async () => {
+    const caps = await listBuiltInCapabilities(workspaceRoot, auditFilePath);
+    expect(caps.map((c) => c.name).filter((n) => /soul|identity/.test(n))).toEqual([]);
+  });
+
+  it("names the prompt module that owns each tool", async () => {
+    const caps = await listBuiltInCapabilities(workspaceRoot, auditFilePath);
+    expect(caps.find((c) => c.name === "run_python")?.module).toBe("compute");
+    for (const cap of caps) expect(cap.module).not.toBe("");
   });
 
   it("degrades gracefully (no throw, no Self-Edit section) when no provider can be resolved", async () => {

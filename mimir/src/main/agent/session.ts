@@ -6,7 +6,8 @@ import { SelfEditTransaction } from "../self-edit/transaction.js";
 import { buildSelfEditToolset, type EditApprovalGate } from "../self-edit/tools.js";
 import { applyCoreEditAndMaybeRestart } from "../self-edit/restart.js";
 import { AuditLog } from "../self-edit/audit.js";
-import { buildComposedSystemPrompt, buildTurnContext } from "../persona/compose.js";
+import { buildTurnContext, composeSystemPrompt } from "../persona/compose.js";
+import { estimateTokens, STICKY_TURNS } from "../prompts/loader.js";
 import { buildPersonaToolset } from "../persona/tools.js";
 import { LOCAL_DAILY_LOG_INJECT_DAYS, LOCAL_MEMORY_INJECT_MAX_CHARS } from "../persona/templates.js";
 import { buildProjectsToolset } from "../projects/tools.js";
@@ -17,7 +18,7 @@ import { buildDynamicSkillTools } from "../skills/dynamicTools.js";
 import { defaultSkillsRoot } from "../skills/paths.js";
 import { buildMacToolset, openWithMac } from "../mac/tools.js";
 import { bridgeDeckFromEnv } from "../bridgedeck/client.js";
-import { BRIDGEDECK_CORE_TOOLS, buildBridgeDeckToolset } from "../bridgedeck/tools.js";
+import { buildBridgeDeckToolset } from "../bridgedeck/tools.js";
 import { skillPacksRoot } from "../skillpacks/packs.js";
 import { buildSkillPacksToolset } from "../skillpacks/tools.js";
 import { buildWebToolset } from "../web/tools.js";
@@ -60,6 +61,8 @@ export class AgentSession {
   private auditLog: AuditLog;
   private activeTurnId = 0;
   private runningTurn = false;
+  /** Prompt modules loaded on recent turns -> follow-up turns they stay loaded for. */
+  private stickyModules = new Map<string, number>();
 
   constructor(private deps: AgentSessionDeps) {
     this.auditLog = new AuditLog(deps.auditFilePath);
@@ -202,47 +205,42 @@ export class AgentSession {
       ...web.handlers,
       ...dynamicSkills.handlers
     };
-    // Every dynamic skill_<name> tool is core-tier eligible regardless of
-    // the fixed CORE_TOOL_NAMES allowlist — a skill the model just taught
-    // itself should be usable right away, on any model, not walled off
-    // until a bigger provider is selected.
-    const isCoreEligible = (name: string) => CORE_TOOL_NAMES.has(name) || name.startsWith("skill_");
-    const defs = tier === "core" ? fullDefs.filter((d) => isCoreEligible(d.name)) : fullDefs;
-    const handlers =
-      tier === "core"
-        ? Object.fromEntries(Object.entries(fullHandlers).filter(([name]) => isCoreEligible(name)))
-        : fullHandlers;
+    // Which prompt modules (and so which tools) this turn gets. Local models get only what the message needs,
+    // one module at a time within a token budget; cloud models get everything their tier allows. See prompts/.
+    const lazy = provider.kind === "ollama";
+    const toolCosts = new Map(fullDefs.map((d) => [d.name, estimateTokens(JSON.stringify(d))]));
+    const composed = await composeSystemPrompt(workspaceRoot, {
+      mode: lazy ? "lazy" : "all",
+      toolTier: tier,
+      userText,
+      sticky: this.stickyModules,
+      availableTools: new Set(fullDefs.map((d) => d.name)),
+      dynamicSkillTools: dynamicSkills.defs.map((d) => d.name),
+      toolCost: (name) => toolCosts.get(name) ?? 0,
+      // Local models spend their small context on the task, not a user dossier.
+      ...(provider.kind === "anthropic"
+        ? {}
+        : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, includeUserProfile: false })
+    });
+    const system = composed.system;
+    // A core-tier turn can only ever offer the curated core tools plus the user's own skills (the composer
+    // already limits core to those); the full tier with nothing to filter offers everything.
+    const allowed = composed.toolNames;
+    const isOffered = (name: string) => (allowed ? allowed.has(name) : true);
+    const defs = fullDefs.filter((d) => isOffered(d.name));
+    const handlers = Object.fromEntries(Object.entries(fullHandlers).filter(([name]) => isOffered(name)));
+    const turnContext = provider.kind === "anthropic" ? await buildTurnContext() : "";
 
-    // buildComposedSystemPrompt() is deliberately stable turn-to-turn (no
-    // timestamp) so it stays a reusable prefix; time-varying context goes
-    // on the user turn instead — see persona/compose.ts.
-    const [system, turnContext] = await Promise.all([
-      buildComposedSystemPrompt(
-        workspaceRoot,
-        provider.kind === "anthropic"
-          ? undefined
-          : tier === "core"
-            ? {
-                memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS,
-                dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS,
-                includeToolInstructions: true,
-                includeSelfEditInstructions: false,
-                includePersonaDocuments: false,
-                toolTier: "core"
-              }
-            : {
-              memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS,
-              dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS,
-              includeToolInstructions: true,
-              includeSelfEditInstructions: selfEditEnabled,
-              // Local models should spend their limited context on the task,
-              // not a personality dossier. The compact base prompt still
-              // identifies Mimir and preserves safe tool behavior.
-              includePersonaDocuments: false
-            }
-      ),
-      provider.kind === "anthropic" ? buildTurnContext() : Promise.resolve("")
-    ]);
+    for (const [id, left] of this.stickyModules) {
+      if (left <= 1) this.stickyModules.delete(id);
+      else this.stickyModules.set(id, left - 1);
+    }
+    for (const m of composed.loaded) if (m.reason === "matched") this.stickyModules.set(m.id, STICKY_TURNS);
+    this.sendStream({
+      type: "context",
+      modules: composed.loaded.map(({ id, title, tokens, reason }) => ({ id, title, tokens, reason })),
+      tokens: estimateTokens(system) + defs.reduce((sum, d) => sum + (toolCosts.get(d.name) ?? 0), 0)
+    });
 
     this.history.push({
       role: "user",
@@ -290,27 +288,6 @@ export class AgentSession {
     }
   }
 }
-
-/** The fixed part of the "core" tier tool set — every model gets at least
- * this, never zero. Deliberately small: the repo has live-tested evidence
- * that offering llama3.2:3b the entire 30-tool surface made it emit
- * tool-call JSON into visible chat instead of using real tool_calls. Kept
- * in sync by hand with CORE_TOOLS_RULES in persona/compose.ts — that
- * prompt text must describe exactly this set, no more, no less. Every
- * parameterized skill's projected skill_<name> tool is core-eligible too,
- * but that's structural (see isCoreEligible below) rather than listed here
- * by name, since the set of skills changes at runtime. */
-const CORE_TOOL_NAMES = new Set([
-  "run_python",
-  "create_skill",
-  "list_skills",
-  "run_skill",
-  "list_project_files",
-  "read_project_file",
-  "write_project_file",
-  "memory_replace",
-  ...BRIDGEDECK_CORE_TOOLS
-]);
 
 /** Two tool tiers, never zero tools. "full" is the complete 30-tool surface
  * plus self-edit — every non-Ollama provider, and an Ollama model whose tag

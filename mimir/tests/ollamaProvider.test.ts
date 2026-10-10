@@ -113,6 +113,21 @@ describe("OllamaProvider — leaked tool-call recovery", () => {
     expect(visibleText).toContain("totally_unknown_thing");
   });
 
+  it("drops a bare {} reply instead of showing it as the answer", async () => {
+    // Observed with llama3.2:3b on a tool-heavy prompt: the whole reply was "{}".
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(fakeStreamingResponse([{ message: { content: "{" } }, { message: { content: "}" } }, { message: {}, done: true }]))
+    );
+
+    const provider = new OllamaProvider("llama3.2:3b");
+    const events = await collectEvents(provider.chat([], TOOLS, { system: "sys" }));
+
+    expect(events.filter((e) => e.type === "text-delta")).toHaveLength(0);
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "end_turn" });
+  });
+
   it("streams ordinary prose immediately, unaffected", async () => {
     vi.stubGlobal(
       "fetch",

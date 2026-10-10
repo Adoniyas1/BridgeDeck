@@ -31,6 +31,14 @@ export interface ChatMessage {
   pendingEdit?: PendingEdit;
 }
 
+/** One prompt module sent to the model this turn, with its estimated size in tokens (prompt text plus tool schemas). */
+export interface LoadedPromptModule {
+  id: string;
+  title: string;
+  tokens: number;
+  reason: "required" | "matched" | "sticky" | "all";
+}
+
 /** Events pushed from main -> renderer over IPC.chatStream during one agent turn. */
 export type ChatStreamEvent =
   | { type: "text-delta"; text: string }
@@ -42,6 +50,8 @@ export type ChatStreamEvent =
    * plot doesn't burn a huge base64 blob out of the model's own context. */
   | { type: "image"; dataUrl: string }
   | { type: "edit-pending"; pending: PendingEdit }
+  /** Which prompt modules were loaded for this turn, sent before the model starts (see src/main/prompts). */
+  | { type: "context"; modules: LoadedPromptModule[]; tokens: number }
   | { type: "turn-done"; fullText: string }
   | { type: "error"; message: string };
 
@@ -142,7 +152,6 @@ export const IPC = {
   editReject: "mimir:edit:reject",
   auditList: "mimir:audit:list",
   auditRevert: "mimir:audit:revert",
-  personaReset: "mimir:persona:reset",
   personaGetConfig: "mimir:persona:get-config",
   personaSetConfig: "mimir:persona:set-config",
   projectsGetRoot: "mimir:projects:get-root",
@@ -150,6 +159,7 @@ export const IPC = {
   skillsGetRoot: "mimir:skills:get-root",
   skillsList: "mimir:skills:list",
   skillsListBuiltIns: "mimir:skills:list-builtins",
+  skillsListModules: "mimir:skills:list-modules",
   skillsVerify: "mimir:skills:verify",
   skillsOpenFolder: "mimir:skills:open-folder",
   /** Main -> renderer: "please run this Python in the sandboxed worker." */
@@ -226,11 +236,29 @@ export interface SkillSummary {
 }
 
 /** A tool the current model has natively — not self-taught, just always
- * there (e.g. memory_replace, run_python). Shown in the Skill Tree
- * alongside self-taught skills for the full picture. See
+ * there (e.g. memory_replace, run_python). Shown in the Skills view next to
+ * the skills Mimir taught itself. `category` is the title of the prompt
+ * module that owns the tool; `module` is that module's id. See
  * src/main/skills/builtins.ts. */
 export interface BuiltInCapability {
   name: string;
   description: string;
   category: string;
+  module: string;
+}
+
+/** One prompt module, for the Skills view. Token figures are estimates of the
+ * prompt text plus the tool schemas it brings, for a small ("core") model and
+ * a larger ("full") one. See src/main/prompts/modules.ts. */
+export interface PromptModuleInfo {
+  id: string;
+  title: string;
+  summary: string;
+  when: string;
+  required: boolean;
+  tiers: Array<"core" | "full">;
+  tools: string[];
+  coreTools: string[];
+  coreTokens: number;
+  fullTokens: number;
 }
