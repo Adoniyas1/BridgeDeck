@@ -27,6 +27,8 @@ export const MODELS = {
 export const DEFAULT_TEAM: TeamConfig = {
   mode: "single",
   engine: "mimir",
+  engineModels: "team",
+  engineCommands: { "claude-code": null, opencode: null },
   roles: {
     head: role(endpoint(MODELS.macHead)),
     checker: role(endpoint(MODELS.macHead)),
@@ -94,6 +96,8 @@ const PROVIDERS = new Set(["anthropic", "ollama", "openai-compatible"]);
 const ENGINES = new Set(["mimir", "claude-code", "opencode"]);
 const TIERS = new Set(["auto", "core", "full"]);
 
+const cleanCommand = (raw: unknown): string | null => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 500) : null);
+
 function cleanEndpoint(raw: unknown, fallback: RoleEndpoint): RoleEndpoint {
   const e = (raw ?? {}) as Partial<RoleEndpoint>;
   return {
@@ -119,6 +123,11 @@ export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): 
   return {
     mode: c.mode === "team" ? "team" : c.mode === "single" ? "single" : base.mode,
     engine: ENGINES.has(String(c.engine)) ? (c.engine as TeamConfig["engine"]) : base.engine,
+    engineModels: c.engineModels === "own" ? "own" : c.engineModels === "team" ? "team" : base.engineModels,
+    engineCommands: {
+      "claude-code": c.engineCommands && "claude-code" in c.engineCommands ? cleanCommand(c.engineCommands["claude-code"]) : base.engineCommands["claude-code"],
+      opencode: c.engineCommands && "opencode" in c.engineCommands ? cleanCommand(c.engineCommands.opencode) : base.engineCommands.opencode
+    },
     roles: {
       head: cleanRole(roles.head, base.roles.head),
       checker: cleanRole(roles.checker, base.roles.checker),

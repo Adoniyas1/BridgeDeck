@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
-import type { BrainProviderKind, BrainRole, RoleConfig, RoleEndpoint, RoleStatus, TeamConfig, TeamPreset, ToolTierChoice } from "../shared/types.js";
+import type { AgentEngine, BrainProviderKind, BrainRole, RoleConfig, RoleEndpoint, RoleStatus, TeamConfig, TeamPreset, ToolTierChoice } from "../shared/types.js";
 
 const ROLE_TEXT: Record<BrainRole, { title: string; job: string }> = {
   head: { title: "Head", job: "Plans the work and writes the answer." },
   executor: { title: "Executor", job: "Makes the tool calls, one step at a time." },
   checker: { title: "Checker", job: "Reviews each result and sends it back if it misses." }
 };
+const ENGINES: Array<{ id: AgentEngine; label: string; hint: string }> = [
+  { id: "mimir", label: "Mimir", hint: "Mimir's own tools and skills, with one model or the team below." },
+  { id: "claude-code", label: "Claude Code", hint: "Claude Code runs headless in the coding folder, with its own tools (Read, Edit, Bash, …)." },
+  { id: "opencode", label: "OpenCode", hint: "OpenCode runs headless in the coding folder, with its own tools." }
+];
 const PROVIDERS: Array<{ id: BrainProviderKind; label: string }> = [
   { id: "openai-compatible", label: "OpenAI-compatible (MLX, llama.cpp, llama-swap)" },
   { id: "ollama", label: "Ollama" },
@@ -58,12 +63,18 @@ export default function TeamSettings() {
   }
 
   const setRole = (which: BrainRole, role: RoleConfig) => void patch({ roles: { ...config.roles, [which]: role } });
-  const shownRoles: BrainRole[] = config.checkerSameAsHead ? ["head", "executor"] : ["head", "executor", "checker"];
+  const external = config.engine !== "mimir";
+  // An outside agent on the team's models uses the Head (its main model) and the Executor (its
+  // small, fast model); Mimir's own team adds the Checker.
+  const showRoles = config.mode === "team" || (external && config.engineModels === "team");
+  const shownRoles: BrainRole[] = external ? ["head", "executor"] : config.checkerSameAsHead ? ["head", "executor"] : ["head", "executor", "checker"];
 
   return (
     <section>
       <h3>Brain team</h3>
-      <div className="team-mode" role="radiogroup" aria-label="Brain mode">
+      <EngineSection config={config} onPatch={(next) => void patch(next)} />
+
+      {!external && <div className="team-mode" role="radiogroup" aria-label="Brain mode">
         <label className="checkbox-row">
           <input type="radio" checked={config.mode === "single"} onChange={() => void patch({ mode: "single" })} />
           One model does everything (the Brain above)
@@ -72,9 +83,9 @@ export default function TeamSettings() {
           <input type="radio" checked={config.mode === "team"} onChange={() => void patch({ mode: "team" })} />
           A team: a Head plans and checks, an Executor does the tool work
         </label>
-      </div>
+      </div>}
 
-      {config.mode === "team" && (
+      {showRoles && (
         <>
           <div className="team-presets">
             {presets.map((p) => (
@@ -92,17 +103,21 @@ export default function TeamSettings() {
           </div>
 
           {shownRoles.map((which) => (
-            <RoleEditor key={which} which={which} role={config.roles[which]} onChange={(r) => setRole(which, r)} />
+            <RoleEditor key={which} which={which} role={config.roles[which]} showTier={!external} onChange={(r) => setRole(which, r)} />
           ))}
 
-          <label className="checkbox-row">
-            <input type="checkbox" checked={config.checkerSameAsHead} onChange={(e) => void patch({ checkerSameAsHead: e.target.checked })} />
-            The Head also checks the work (no extra model to load)
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={config.checkEachStep} onChange={(e) => void patch({ checkEachStep: e.target.checked })} />
-            Check each step as it finishes (off: check all steps together, which swaps models less on a small machine)
-          </label>
+          {!external && (
+            <>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={config.checkerSameAsHead} onChange={(e) => void patch({ checkerSameAsHead: e.target.checked })} />
+                The Head also checks the work (no extra model to load)
+              </label>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={config.checkEachStep} onChange={(e) => void patch({ checkEachStep: e.target.checked })} />
+                Check each step as it finishes (off: check all steps together, which swaps models less on a small machine)
+              </label>
+            </>
+          )}
 
           <div className="key-row">
             <button type="button" className="btn" disabled={checking} onClick={() => void check()}>
@@ -111,7 +126,7 @@ export default function TeamSettings() {
           </div>
           {statuses && (
             <ul className="team-status">
-              {statuses.map((s) => (
+              {statuses.filter((s) => shownRoles.includes(s.role)).map((s) => (
                 <li key={s.role} className={s.reachable ? "ok" : "down"}>
                   <strong>{ROLE_TEXT[s.role].title}</strong>
                   {s.endpoint && <code>{s.endpoint.model}</code>}
@@ -128,17 +143,82 @@ export default function TeamSettings() {
   );
 }
 
-function RoleEditor({ which, role, onChange }: { which: BrainRole; role: RoleConfig; onChange: (role: RoleConfig) => void }) {
+function EngineSection({ config, onPatch }: { config: TeamConfig; onPatch: (next: Partial<TeamConfig>) => void }) {
+  const [check, setCheck] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const engine = config.engine;
+  const savedCommand = engine === "mimir" ? null : config.engineCommands[engine];
+  const [command, setCommand] = useState(savedCommand ?? "");
+  const [shownFor, setShownFor] = useState(engine);
+  if (shownFor !== engine) {
+    // Switched engines: show that engine's saved command and forget the old check.
+    setShownFor(engine);
+    setCommand(savedCommand ?? "");
+    setCheck(null);
+  }
+
+  async function runCheck(which: "claude-code" | "opencode") {
+    setChecking(true);
+    try {
+      setCheck(await window.mimir.team.checkEngine(which));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="team-engine">
+      <div className="team-engine__pick" role="radiogroup" aria-label="Who runs the chat">
+        {ENGINES.map((e) => (
+          <button key={e.id} type="button" role="radio" aria-checked={engine === e.id} className={`team-engine__option${engine === e.id ? " team-engine__option--on" : ""}`} onClick={() => onPatch({ engine: e.id })}>
+            {e.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">{ENGINES.find((e) => e.id === engine)?.hint}</p>
+      {engine !== "mimir" && (
+        <>
+          <label className="checkbox-row">
+            <input type="radio" checked={config.engineModels === "team"} onChange={() => onPatch({ engineModels: "team" })} />
+            Use the team's models below (the PC's when it's on)
+          </label>
+          <label className="checkbox-row">
+            <input type="radio" checked={config.engineModels === "own"} onChange={() => onPatch({ engineModels: "own" })} />
+            {engine === "claude-code" ? "Use Claude's own models (your Claude login)" : "Use OpenCode's own models and logins"}
+          </label>
+          <div className="key-row">
+            <input
+              placeholder={engine === "claude-code" ? "claude" : "opencode"}
+              title="The command, if it isn't on PATH"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              onBlur={() => command.trim() !== (savedCommand ?? "") && onPatch({ engineCommands: { ...config.engineCommands, [engine]: command.trim() || null } })}
+            />
+            <button type="button" className="btn" disabled={checking} onClick={() => void runCheck(engine)}>
+              {checking ? "Checking…" : "Is it installed?"}
+            </button>
+          </div>
+          {check && <p className={`hint ${check.ok ? "ok" : "down"}`}>{check.detail}</p>}
+          <p className="hint">It works in the coding folder (Settings → Coding). Every command, and every file change outside Projects, waits for your Allow in the chat.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RoleEditor({ which, role, showTier, onChange }: { which: BrainRole; role: RoleConfig; showTier: boolean; onChange: (role: RoleConfig) => void }) {
   return (
     <div className="team-role">
       <div className="team-role__head">
         <strong>{ROLE_TEXT[which].title}</strong>
         <span className="hint">{ROLE_TEXT[which].job}</span>
-        <select title="How many tools this model gets" value={role.tier} onChange={(e) => onChange({ ...role, tier: e.target.value as ToolTierChoice })}>
-          <option value="auto">Tools: by model size</option>
-          <option value="core">Tools: small set</option>
-          <option value="full">Tools: all</option>
-        </select>
+        {showTier && (
+          <select title="How many tools this model gets" value={role.tier} onChange={(e) => onChange({ ...role, tier: e.target.value as ToolTierChoice })}>
+            <option value="auto">Tools: by model size</option>
+            <option value="core">Tools: small set</option>
+            <option value="full">Tools: all</option>
+          </select>
+        )}
       </div>
       <EndpointEditor key={endpointKey(role.primary)} label="Try first" endpoint={role.primary} onChange={(primary) => onChange({ ...role, primary })} />
       {role.fallback ? (

@@ -117,6 +117,24 @@ a coding folder set in Settings (Projects by default). `Bash` always asks first;
 for any file outside Projects; reads outside the coding folder and Projects ask too. They load when a
 message is about code, or when a Brain-team plan names the `coding` module.
 
+## Claude Code and OpenCode
+
+Settings → **Brain team** picks who runs the chat: **Mimir**, **Claude Code** or **OpenCode**. The
+outside agents run headless inside Mimir (no terminal or extra window), in the coding folder, with
+their own tools, and keep the conversation going between messages.
+
+- **Models:** the team's Head (main model) and Executor (small, fast model) — the PC's when it
+  answers, this computer's when it doesn't — or the agent's own models and login.
+- **Claude Code** (`claude -p --output-format stream-json`) talks to a small Anthropic-to-OpenAI
+  bridge Mimir starts on 127.0.0.1 (`src/main/engines/anthropicBridge.ts`), so it works with
+  llama-swap, llama.cpp, MLX servers and Ollama without LiteLLM. Its permission prompts go through an
+  MCP tool (`--permission-prompt-tool`) back to Mimir.
+- **OpenCode** runs as `opencode acp` (the Agent Client Protocol over stdio); its permission requests
+  come back the same way. The team's models are passed in as OpenAI-compatible providers.
+- Both ask, with the same **Allow / Deny** card, before every command and every file change outside
+  Projects. Install them with `npm install -g @anthropic-ai/claude-code` / `npm install -g opencode-ai`,
+  or set the command's path in Settings.
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:

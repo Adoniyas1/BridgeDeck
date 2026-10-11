@@ -737,6 +737,13 @@ body {
 .team-preset { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
 .team-preset--active { border-color: var(--border-bright); }
 .team-preset .btn { align-self: flex-start; }
+.team-engine { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.team-engine__pick { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.team-engine__option { padding: 6px 14px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; }
+.team-engine__option + .team-engine__option { border-left: 1px solid var(--border); }
+.team-engine__option--on { background: var(--panel-raised); color: var(--accent); font-weight: 600; }
+.team-engine .hint.ok { color: var(--accent); }
+.team-engine .hint.down { color: var(--danger); }
 .team-role { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
 .team-role__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .team-role__head select { margin-left: auto; }
