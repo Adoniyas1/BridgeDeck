@@ -40,6 +40,7 @@ import { buildCodingToolset } from "../coding/tools.js";
 import { codingRoot } from "../coding/config.js";
 import { EngineRunner } from "../engines/index.js";
 import { engineName } from "../engines/common.js";
+import { TurnLog } from "../logs/turnLog.js";
 import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
@@ -142,7 +143,7 @@ export class AgentSession {
 
     let provider;
     try {
-      provider = await createBrainProvider();
+      provider = await createBrainProvider({ thinking: team.thinking });
     } catch (err) {
       if (turnId !== this.activeTurnId) return;
       this.runningTurn = false;
@@ -260,7 +261,8 @@ export class AgentSession {
 
     // Which prompt modules (and so which tools) this turn gets. Local models get only what the message needs,
     // one module at a time within a token budget; cloud models get everything their tier allows. See prompts/.
-    const lazy = provider.kind === "ollama";
+    // Only cloud models get the whole prompt; a local model's prompt is read token by token before it answers.
+    const lazy = provider.kind !== "anthropic";
     const toolCosts = new Map(fullDefs.map((d) => [d.name, estimateTokens(JSON.stringify(d))]));
     const composed = await composeSystemPrompt(workspaceRoot, {
       mode: lazy ? "lazy" : "all",
@@ -303,12 +305,15 @@ export class AgentSession {
     });
     win.webContents.send(IPC.faceState, "thinking");
 
+    const log = new TurnLog(`one model (${provider.kind})`, userText);
+    log.note(`prompt modules: ${composed.loaded.map((m) => m.id).join(", ") || "none"}`);
+    let turnError = "";
     let assistantText = "";
     for await (const ev of runAgentTurn(this.history, {
-      provider,
+      provider: log.provider(provider, "Brain"),
       system,
       tools: defs,
-      handlers,
+      handlers: log.handlers(handlers),
       effort: brainConfig.effort,
       webSearchEnabled: brainConfig.webSearchEnabled
     })) {
@@ -324,12 +329,14 @@ export class AgentSession {
       } else if (ev.type === "tool-image") {
         this.sendStream({ type: "image", dataUrl: ev.dataUrl });
       } else if (ev.type === "error") {
+        turnError = ev.message;
         this.sendStream({ type: "error", message: ev.message });
       } else if (ev.type === "turn-done") {
         this.sendStream({ type: "turn-done", fullText: assistantText });
       }
     }
 
+    void log.finish(turnError ? { error: turnError } : { reply: assistantText });
     if (turnId !== this.activeTurnId) return;
     this.runningTurn = false;
 
