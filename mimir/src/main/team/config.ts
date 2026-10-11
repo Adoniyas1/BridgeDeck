@@ -49,7 +49,7 @@ export const TEAM_PRESETS: TeamPreset[] = [
   {
     id: "windows-llamacpp",
     title: "This Windows PC (llama.cpp)",
-    description: "Qwen3.5-35B-A3B plans and checks (its experts in system RAM), Qwen3.5-9B makes the tool calls on the GPU, both through llama-swap. Each step is checked as it finishes.",
+    description: "Qwen3.5-35B-A3B plans and checks (part of it in system RAM), Qwen3.5-9B makes the tool calls, both through llama-swap. With 16 GB of RAM they take turns, so steps are checked together at the end.",
     needsPcAddress: false
   },
   {
@@ -67,13 +67,15 @@ export function pcBaseUrl(address: string): string {
   return /:\d+$/.test(withScheme.replace(/^[a-z]+:\/\//i, "")) ? withScheme : `${withScheme}:8080`;
 }
 
-export function presetConfig(id: string, current: TeamConfig, pcAddress?: string): TeamConfig {
+/** `localUrl`: this computer's llama-swap, when it isn't on the default port. */
+export function presetConfig(id: string, current: TeamConfig, pcAddress?: string, localUrl: string = LOCAL_SWAP_URL): TeamConfig {
   const base = { ...current, mode: "team" as const, preset: id, checkerSameAsHead: true };
+  const endpoint = (model: string, baseUrl: string = localUrl): RoleEndpoint => ({ provider: "openai-compatible", model, baseUrl });
   switch (id) {
     case "mac-mlx":
       return { ...base, checkEachStep: false, roles: { head: role(endpoint(MODELS.macHead)), checker: role(endpoint(MODELS.macHead)), executor: role(endpoint(MODELS.macExecutor), null, "core") } };
     case "windows-llamacpp":
-      return { ...base, checkEachStep: true, roles: { head: role(endpoint(MODELS.pcHead)), checker: role(endpoint(MODELS.pcHead)), executor: role(endpoint(MODELS.pcExecutor)) } };
+      return { ...base, checkEachStep: false, roles: { head: role(endpoint(MODELS.pcHead)), checker: role(endpoint(MODELS.pcHead)), executor: role(endpoint(MODELS.pcExecutor)) } };
     case "mac-with-pc": {
       if (!pcAddress?.trim()) throw new Error("Enter the PC's address (for example 192.168.1.20:8080).");
       const pc = pcBaseUrl(pcAddress);
@@ -151,8 +153,8 @@ export async function saveTeamConfig(patch: Partial<TeamConfig>): Promise<TeamCo
   return next;
 }
 
-export async function applyTeamPreset(id: string, pcAddress?: string): Promise<TeamConfig> {
-  const next = presetConfig(id, await loadTeamConfig(), pcAddress);
+export async function applyTeamPreset(id: string, pcAddress?: string, localUrl?: string): Promise<TeamConfig> {
+  const next = presetConfig(id, await loadTeamConfig(), pcAddress, localUrl);
   await writeJsonFile(FILE, next);
   return next;
 }

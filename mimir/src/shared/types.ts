@@ -187,6 +187,53 @@ export interface TeamPreset {
   needsPcAddress: boolean;
 }
 
+/** Which kind of computer the model-server setup is for: a Mac runs MLX models, a PC llama.cpp. */
+export type SetupComputer = "mac" | "pc";
+
+/** One model llama-swap serves: the name the Brain team asks for, where it comes from (a Hugging
+ * Face repo, for GGUF with a :quant tag) and extra server arguments. */
+export interface SetupModel {
+  name: string;
+  source: string;
+  args: string;
+}
+
+export interface SetupConfig {
+  computer: SetupComputer;
+  /** Where llama-swap listens: 127.0.0.1:8080 for this computer only, 0.0.0.0:8080 to serve the Mac. */
+  listen: string;
+  /** Start llama-swap when Mimir starts. */
+  autostart: boolean;
+  /** Keep the Head and Executor loaded together instead of taking turns. */
+  keepBothLoaded: boolean;
+  models: { head: SetupModel; executor: SetupModel };
+}
+
+export type SetupStepState = "done" | "todo" | "error";
+
+/** One step of getting the models running, with whether it's done on this computer. */
+export interface SetupStep {
+  id: string;
+  title: string;
+  detail: string;
+  /** What to run by hand instead (shown with a Copy button), if anything. */
+  command: string | null;
+  /** The button that does it from Mimir, if any. */
+  action: string | null;
+  state: SetupStepState;
+  note: string;
+}
+
+export interface SetupView {
+  config: SetupConfig;
+  steps: SetupStep[];
+  /** The llama-swap config Mimir writes. */
+  yaml: string;
+  configPath: string;
+  swapRunning: boolean;
+  swapLog: string;
+}
+
 /** Which endpoint a role would use right now, and whether it answers. */
 export interface RoleStatus {
   role: BrainRole;
@@ -309,6 +356,9 @@ export const IPC = {
   teamStatus: "mimir:team:status",
   teamListModels: "mimir:team:list-models",
   teamCheckEngine: "mimir:team:check-engine",
+  setupGet: "mimir:setup:get",
+  setupSetConfig: "mimir:setup:set-config",
+  setupRun: "mimir:setup:run",
   voiceGetConfig: "mimir:voice:get-config",
   voiceSetConfig: "mimir:voice:set-config",
   voiceSetApiKey: "mimir:voice:set-api-key",

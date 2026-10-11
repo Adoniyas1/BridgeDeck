@@ -40,10 +40,15 @@ const CALL_TIMEOUT_MS = 120_000;
 const MAX_TOOL_NAME = 64;
 
 /** PATH plus the usual install folders: an app started from the Dock doesn't get the shell's PATH,
- * so Homebrew's npx or uv's uvx would otherwise not be found. */
+ * so Homebrew's npx or uv's uvx would otherwise not be found. Also Mimir's own ~/.mimir/bin, where
+ * the model-server setup puts llama-swap, uv and llama.cpp. */
 export function serverPath(current: string | undefined, home = os.homedir(), platform = process.platform): string {
   const sep = platform === "win32" ? ";" : ":";
-  const extra = platform === "win32" ? [] : ["/opt/homebrew/bin", "/usr/local/bin", path.join(home, ".local", "bin"), path.join(home, ".cargo", "bin")];
+  const join = platform === "win32" ? path.win32.join : path.posix.join;
+  const extra =
+    platform === "win32"
+      ? [join(home, ".mimir", "bin"), join(home, ".mimir", "bin", "llama.cpp"), join(home, ".local", "bin")]
+      : ["/opt/homebrew/bin", "/usr/local/bin", join(home, ".local", "bin"), join(home, ".cargo", "bin"), join(home, ".mimir", "bin"), join(home, ".mimir", "bin", "llama.cpp")];
   const parts = (current ?? "").split(sep).filter(Boolean);
   for (const dir of extra) if (!parts.includes(dir)) parts.push(dir);
   return parts.join(sep);

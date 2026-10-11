@@ -93,8 +93,8 @@ describe("MCP servers", () => {
   }, 30_000);
 
   it("adds the usual install folders to PATH, once", () => {
-    expect(serverPath("/usr/bin:/opt/homebrew/bin", "/Users/me", "darwin")).toBe("/usr/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.cargo/bin");
-    expect(serverPath("C:\\Windows", "C:\\Users\\me", "win32")).toBe("C:\\Windows");
+    expect(serverPath("/usr/bin:/opt/homebrew/bin", "/Users/me", "darwin")).toBe("/usr/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.cargo/bin:/Users/me/.mimir/bin:/Users/me/.mimir/bin/llama.cpp");
+    expect(serverPath("C:\\Windows", "C:\\Users\\me", "win32")).toBe("C:\\Windows;C:\\Users\\me\\.mimir\\bin;C:\\Users\\me\\.mimir\\bin\\llama.cpp;C:\\Users\\me\\.local\\bin");
   });
 
   it("names tools in characters every provider accepts", () => {

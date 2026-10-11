@@ -15,6 +15,8 @@ import {
   type BrainConfig,
   type BrainProviderKind,
   type BuiltInCapability,
+  type SetupConfig,
+  type SetupView,
   type ChatGptChat,
   type ChatGptChatSummary,
   type ChatGptConfig,
@@ -137,6 +139,11 @@ const api = {
     status: (): Promise<RoleStatus[]> => invoke(IPC.teamStatus),
     listModels: (endpoint: RoleEndpoint): Promise<string[]> => invoke(IPC.teamListModels, endpoint),
     checkEngine: (engine: "claude-code" | "opencode"): Promise<{ ok: boolean; detail: string }> => invoke(IPC.teamCheckEngine, engine)
+  },
+  setup: {
+    get: (): Promise<SetupView> => invoke(IPC.setupGet),
+    setConfig: (patch: Partial<SetupConfig>): Promise<SetupView> => invoke(IPC.setupSetConfig, patch),
+    run: (id: string): Promise<{ ok: boolean; message: string; view: SetupView }> => invoke(IPC.setupRun, id)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

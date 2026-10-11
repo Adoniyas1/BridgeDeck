@@ -135,6 +135,24 @@ their own tools, and keep the conversation going between messages.
   Projects. Install them with `npm install -g @anthropic-ai/claude-code` / `npm install -g opencode-ai`,
   or set the command's path in Settings.
 
+## Model servers
+
+Settings → **Model servers** gets the Brain team's models running without a terminal. Mimir
+downloads [llama-swap](https://github.com/mostlygeek/llama-swap) (and uv on a Mac, or llama.cpp's
+CUDA build on Windows) from their GitHub releases into `~/.mimir/bin`, writes
+`~/.mimir/llama-swap.yaml`, runs llama-swap in the background (optionally whenever Mimir starts),
+warms each model up (the first start downloads it), and applies the matching Brain-team preset.
+
+- **Mac (8 GB):** MLX through `mlx_lm.server` — Qwen3.5-9B (`mlx-community/Qwen3.5-9B-OptiQ-4bit`)
+  as Head, Ternary Bonsai 8B (`prism-ml/Ternary-Bonsai-8B-mlx-2bit`) as Executor, one loaded at a
+  time, each unloaded after 10 idle minutes.
+- **Windows PC (RTX 4070 Ti 12 GB, 16 GB RAM):** `llama-server -hf …` — Qwen3.5-35B-A3B
+  (`UD-Q4_K_XL`, part of its experts in RAM with `--n-cpu-moe`) as Head, Qwen3.5-9B (`Q4_K_M`) as
+  Executor. With 16 GB of RAM they take turns; "Keep both models loaded" uses a llama-swap group
+  instead. It listens on `0.0.0.0:8080` so the Mac can use it (allow it through Windows Firewall).
+
+Each model's source and extra server arguments can be changed in the same panel.
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:
