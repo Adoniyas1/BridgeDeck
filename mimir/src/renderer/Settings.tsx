@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import TeamSettings from "./TeamSettings.js";
 import McpSettings from "./McpSettings.js";
 import CodingSettings from "./CodingSettings.js";
+import SetupSettings from "./SetupSettings.js";
 import type { BrainConfig, EffortLevel, PersonaConfig, VoiceConfig } from "../shared/types.js";
 
 const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
@@ -138,6 +139,8 @@ export default function Settings({
       </section>
 
       <TeamSettings />
+
+      <SetupSettings />
 
       <McpSettings />
 

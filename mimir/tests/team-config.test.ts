@@ -46,7 +46,9 @@ describe("team config", () => {
 
     const pc = presetConfig("windows-llamacpp", DEFAULT_TEAM);
     expect(pc.roles.head.primary.model).toBe(MODELS.pcHead);
-    expect(pc.checkEachStep).toBe(true);
+    // 16 GB of RAM: the PC's two models take turns, so steps are checked together.
+    expect(pc.checkEachStep).toBe(false);
+    expect(presetConfig("mac-mlx", DEFAULT_TEAM, undefined, "http://127.0.0.1:9000").roles.executor.primary.baseUrl).toBe("http://127.0.0.1:9000");
 
     const both = presetConfig("mac-with-pc", DEFAULT_TEAM, "192.168.1.20");
     expect(both.roles.head.primary).toEqual({ provider: "openai-compatible", model: MODELS.pcHead, baseUrl: "http://192.168.1.20:8080" });

@@ -39,6 +39,7 @@ import type {
   RoleEndpoint,
   RoleStatus,
   TeamConfig,
+  SetupConfig,
   TeamPreset,
   PersonaConfig,
   ProjectFileCorpusEntry,
@@ -65,6 +66,7 @@ import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { checkEngine } from "./engines/common.js";
+import { autostartSwap, runSetupStep, saveSetupConfig, setupView, swap } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -250,6 +252,18 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.teamApplyPreset]: (id: string, pcAddress?: string): Promise<TeamConfig> => { clearProbeCache(); return applyTeamPreset(id, pcAddress); },
   [IPC.teamStatus]: async (): Promise<RoleStatus[]> => { clearProbeCache(); return teamStatus(await loadTeamConfig()); },
   [IPC.teamListModels]: async (endpoint: RoleEndpoint): Promise<string[]> => (await probeEndpoint(endpoint)).models,
+  [IPC.setupGet]: () => setupView(),
+  [IPC.setupSetConfig]: async (patch: Partial<SetupConfig>) => {
+    await saveSetupConfig(patch);
+    return setupView();
+  },
+  [IPC.setupRun]: async (id: string) => {
+    try {
+      return { ok: true, message: await runSetupStep(id), view: await setupView() };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err), view: await setupView() };
+    }
+  },
   [IPC.teamCheckEngine]: async (engine: "claude-code" | "opencode") => {
     const team = await loadTeamConfig();
     return checkEngine(engine, team.engineCommands[engine] ?? (engine === "claude-code" ? "claude" : "opencode"));
@@ -477,10 +491,12 @@ async function main(): Promise<void> {
   startHeartbeatScheduler(workspaceRoot, auditFilePath);
   startDeadlineNotifier(workspaceRoot);
   await reportHealthy();
+  void autostartSwap();
 
   const shutdown = () => {
     void mcpManager.closeAll();
     session?.closeEngines();
+    swap.stop();
     stopWake();
     stopHeartbeatScheduler();
     stopDeadlineNotifier();
