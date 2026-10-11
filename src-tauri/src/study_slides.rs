@@ -25,6 +25,11 @@ pub fn init(app_data: &Path) {
     }
 }
 
+/// LibreOffice's own settings for BridgeDeck's conversions, kept so it is set up only once.
+fn profile_dir() -> Option<PathBuf> {
+    DIR.lock().ok()?.as_ref().map(|dir| dir.join(".libreoffice-profile"))
+}
+
 fn cache_path(course: &str, file: &str) -> Option<PathBuf> {
     DIR.lock().ok()?.as_ref().map(|dir| dir.join(course).join(format!("{file}.pdf")))
 }
@@ -117,16 +122,26 @@ impl Converter {
     fn run(&self, source: &Path, work: &Path) -> Result<PathBuf, String> {
         match self {
             Converter::LibreOffice(soffice) => {
-                // Its own profile, so a LibreOffice the user has open doesn't swallow the request.
-                let profile = work.join("profile");
-                let mut cmd = command(soffice);
-                cmd.arg(format!("-env:UserInstallation={}", file_url(&profile)))
-                    .args(["--headless", "--norestore", "--nolockcheck", "--convert-to", "pdf", "--outdir"])
-                    .arg(work)
-                    .arg(source);
-                run(cmd)?;
-                let stem = source.file_stem().ok_or("No file name")?;
-                Ok(work.join(stem).with_extension("pdf"))
+                // Its own profile, so a LibreOffice the user has open doesn't swallow the request. It is
+                // kept between conversions: LibreOffice sets a new profile up on its first start, and on
+                // a Mac (no wrapper script to restart it) that start exits with code 81 and converts
+                // nothing. So a run that made no PDF is tried once more.
+                let profile = profile_dir().unwrap_or_else(|| work.join("profile"));
+                let stem = source.file_stem().ok_or("No file name")?.to_string_lossy().to_string();
+                let pdf = work.join(format!("{stem}.pdf"));
+                let mut last = Ok(());
+                for _ in 0..2 {
+                    let mut cmd = command(soffice);
+                    cmd.arg(format!("-env:UserInstallation={}", file_url(&profile)))
+                        .args(["--headless", "--norestore", "--nolockcheck", "--convert-to", "pdf", "--outdir"])
+                        .arg(work)
+                        .arg(source);
+                    last = run(cmd);
+                    if pdf.is_file() {
+                        return Ok(pdf);
+                    }
+                }
+                last.map(|_| pdf)
             }
             Converter::Keynote => {
                 let out = work.join("slides.pdf");
@@ -300,6 +315,28 @@ mod tests {
         assert!(fs::read(&pdf).unwrap().starts_with(b"%PDF"));
         assert_eq!(cached(&deck), Some(pdf.clone()), "kept for next time");
         assert_eq!(ensure_pdf(&deck).unwrap(), pdf, "not converted twice");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    /// A stand-in for LibreOffice on a Mac: its first start only sets up the profile and exits with
+    /// code 81; the next one converts.
+    #[cfg(unix)]
+    #[test]
+    fn libreoffice_is_run_again_when_its_first_start_converts_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!("bd-slides-81-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let fake = base.join("soffice");
+        let marker = base.join("profile-made");
+        fs::write(&fake, format!("#!/bin/sh\nif [ ! -e '{m}' ]; then touch '{m}'; exit 81; fi\nfor last; do :; done\nwhile [ \"$1\" != --outdir ]; do shift; done\nname=$(basename \"$last\"); printf '%%PDF' > \"$2/${{name%.*}}.pdf\"\n", m = marker.display())).unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        let deck = base.join("Lecture 3.2.pptx");
+        fs::write(&deck, b"deck").unwrap();
+        let work = base.join("work");
+        fs::create_dir_all(&work).unwrap();
+        let pdf = Converter::LibreOffice(fake).run(&deck, &work).expect("second start converts");
+        assert_eq!(pdf, work.join("Lecture 3.2.pdf"), "a dot in the name stays");
+        assert!(fs::read(&pdf).unwrap().starts_with(b"%PDF"));
         let _ = fs::remove_dir_all(base);
     }
 
