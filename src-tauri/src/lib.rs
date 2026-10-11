@@ -34,6 +34,7 @@ mod manga;
 mod projects;
 mod skill_packs;
 mod study;
+mod study_slides;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -640,6 +641,7 @@ pub fn run() {
             study::study_state_write,
             study::study_save_index,
             study::study_search,
+            study::study_slides_pdf,
             projects::projects_list,
             projects::projects_add,
             projects::projects_files,

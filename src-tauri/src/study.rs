@@ -22,7 +22,8 @@ use tauri::Manager;
 
 pub const SCHEME: &str = "bdbook";
 const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub"];
-/// Slides kept with a course and opened in the computer's own app (PDF slides are books).
+/// Slides kept with a course: read as the PDF made from them (study_slides.rs), or opened in the
+/// computer's own app. PDF slides are books.
 const SLIDE_EXTENSIONS: &[&str] = &["pptx", "ppt", "key", "odp"];
 /// Photos of notes and whiteboards kept with a course (shown, and read by text recognition).
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "heic", "webp"];
@@ -124,6 +125,7 @@ fn book_kind(path: &Path) -> Option<String> {
 
 pub fn init(app: &tauri::AppHandle) {
     if let (Ok(dir), Ok(mut stored)) = (app.path().app_data_dir(), INDEX_DIR.lock()) {
+        crate::study_slides::init(&dir);
         *stored = Some(dir.join("study-index"));
     }
 }
@@ -232,7 +234,16 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     use tauri::http::{header, Response, StatusCode};
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
-    let Some(path) = resolve(&root, request.uri().path()).filter(|p| book_kind(p).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()))) else { return fail(StatusCode::NOT_FOUND) };
+    let Some(found) = resolve(&root, request.uri().path()) else { return fail(StatusCode::NOT_FOUND) };
+    // A presentation is served as the PDF made from it (study_slides_pdf makes it first).
+    let path = match book_kind(&found) {
+        Some(k) if SLIDE_EXTENSIONS.contains(&k.as_str()) => match crate::study_slides::cached(&found) {
+            Some(pdf) => pdf,
+            None => return fail(StatusCode::NOT_FOUND),
+        },
+        Some(k) if BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) => found,
+        _ => return fail(StatusCode::NOT_FOUND),
+    };
     let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
     let mime = match book_kind(&path).as_deref() {
         Some("epub") => "application/epub+zip",
@@ -562,7 +573,20 @@ pub fn study_remove_book(course: String, file: String) -> Result<(), String> {
     if let Some(dir) = index_dir() {
         let _ = fs::remove_file(index_path(&dir, &course, &file));
     }
+    crate::study_slides::forget(&course, &file);
     Ok(())
+}
+
+/// Makes the PDF the reader shows for a presentation (PowerPoint, Keynote…), unless it has one.
+/// The first time takes a few seconds: an app on this computer does the conversion.
+#[tauri::command]
+pub async fn study_slides_pdf(course: String, file: String) -> Result<(), String> {
+    let root = current_root()?;
+    let path = resolve(&root, &format!("{}/{}", course, file)).ok_or("No such presentation")?;
+    if !book_kind(&path).is_some_and(|k| SLIDE_EXTENSIONS.contains(&k.as_str())) {
+        return Err("Not a presentation".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || crate::study_slides::ensure_pdf(&path).map(|_| ())).await.map_err(|e| e.to_string())?
 }
 
 /// Keeps the page text pdf.js took out of a book, for search.
