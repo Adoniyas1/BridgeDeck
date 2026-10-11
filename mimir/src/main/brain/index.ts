@@ -25,14 +25,14 @@ export { listOllamaModels } from "./ollamaProvider.js";
  * "openai-compatible" into a concrete implementation — swap providers by
  * changing config, never by changing call sites.
  */
-export async function createBrainProvider(): Promise<BrainProvider> {
+export async function createBrainProvider(opts: { thinking?: boolean } = {}): Promise<BrainProvider> {
   const config = await loadBrainConfig();
-  return createProviderFor({ provider: config.provider, model: config.model, baseUrl: config.baseUrl });
+  return createProviderFor({ provider: config.provider, model: config.model, baseUrl: config.baseUrl }, opts);
 }
 
 /** A provider for one endpoint (a provider kind, a model and a server address), with the API key
  * from the keychain. The single model setting and each Brain-team role go through here. */
-export async function createProviderFor(endpoint: { provider: BrainProviderKind; model: string; baseUrl: string | null }): Promise<BrainProvider> {
+export async function createProviderFor(endpoint: { provider: BrainProviderKind; model: string; baseUrl: string | null }, opts: { thinking?: boolean } = {}): Promise<BrainProvider> {
   let provider: BrainProvider;
   switch (endpoint.provider) {
     case "anthropic": {
@@ -46,7 +46,7 @@ export async function createProviderFor(endpoint: { provider: BrainProviderKind;
       break;
     }
     case "ollama": {
-      provider = new OllamaProvider(endpoint.model, endpoint.baseUrl ?? undefined);
+      provider = new OllamaProvider(endpoint.model, endpoint.baseUrl ?? undefined, opts);
       break;
     }
     case "openai-compatible": {
@@ -54,7 +54,7 @@ export async function createProviderFor(endpoint: { provider: BrainProviderKind;
         throw new Error("openai-compatible provider requires a base URL (your VPS/server address).");
       }
       const apiKey = await getBrainApiKey("openai-compatible");
-      provider = new OpenAICompatibleProvider(endpoint.baseUrl, endpoint.model, apiKey);
+      provider = new OpenAICompatibleProvider(endpoint.baseUrl, endpoint.model, apiKey, opts);
       break;
     }
     default: {

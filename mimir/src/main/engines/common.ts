@@ -66,7 +66,7 @@ export async function roleUpstream(team: TeamConfig, role: BrainRole): Promise<U
   }
   const baseUrl = normalizeBaseUrl(e.baseUrl) ?? "http://localhost:11434";
   const apiKey = e.provider === "openai-compatible" ? await getBrainApiKey("openai-compatible").catch(() => null) : null;
-  return { baseUrl, model: e.model, apiKey };
+  return { baseUrl, model: e.model, apiKey, thinking: team.thinking };
 }
 
 /** The role an agent's model name stands for: small/fast models are the Executor. */

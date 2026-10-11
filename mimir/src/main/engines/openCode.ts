@@ -31,7 +31,7 @@ export function openCodeConfig(models: OpenCodeModels | null, editsAllowed: bool
       npm: "@ai-sdk/openai-compatible",
       name,
       options: { baseURL: `${u.baseUrl}/v1`, ...(u.apiKey ? { apiKey: u.apiKey } : {}) },
-      models: { [u.model]: { name: u.model, tool_call: true } }
+      models: { [u.model]: { name: u.model, tool_call: true, ...(u.thinking !== undefined ? { options: { chat_template_kwargs: { enable_thinking: u.thinking } } } : {}) } }
     });
     config.provider = { "mimir-head": provider("Mimir Head", models.head), "mimir-executor": provider("Mimir Executor", models.executor) };
     config.model = `mimir-head/${models.head.model}`;

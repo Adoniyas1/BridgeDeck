@@ -167,6 +167,9 @@ export interface TeamConfig {
   /** For Claude Code and OpenCode: the team's Head and Executor models ("team"), or the agent's
    * own models and login ("own"). */
   engineModels: "team" | "own";
+  /** Let local models think before answering. Off by default: on a small machine a reasoning model
+   * can spend minutes thinking about a one-line answer. */
+  thinking: boolean;
   /** The command for each agent, when it isn't on PATH as `claude` / `opencode`. */
   engineCommands: { "claude-code": string | null; opencode: string | null };
   roles: Record<BrainRole, RoleConfig>;

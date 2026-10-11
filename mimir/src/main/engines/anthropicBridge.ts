@@ -15,6 +15,7 @@ export interface Upstream {
   baseUrl: string;
   model: string;
   apiKey?: string | null;
+  thinking?: boolean;
 }
 
 /** Picks the server and model for the model name Claude Code asked for; throws (with a message
@@ -40,8 +41,9 @@ const text = (value: unknown): string => {
     .join("\n");
 };
 
-/** An Anthropic Messages request as an OpenAI chat completions request. */
-export function toOpenAIRequest(body: Json, model: string): Json {
+/** An Anthropic Messages request as an OpenAI chat completions request. `thinking` (when set) turns
+ * the model's thinking on or off through chat_template_kwargs. */
+export function toOpenAIRequest(body: Json, model: string, thinking?: boolean): Json {
   const messages: OpenAIMessage[] = [];
   const system = text(body.system);
   if (system) messages.push({ role: "system", content: system });
@@ -85,6 +87,7 @@ export function toOpenAIRequest(body: Json, model: string): Json {
     .map((t) => ({ type: "function", function: { name: t.name, description: t.description ?? "", parameters: t.input_schema } }));
 
   const out: Json = { model, messages, stream: true, stream_options: { include_usage: true } };
+  if (thinking !== undefined) out.chat_template_kwargs = { enable_thinking: thinking };
   if (typeof body.max_tokens === "number") out.max_tokens = body.max_tokens;
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p === "number") out.top_p = body.top_p;
@@ -275,7 +278,7 @@ export async function startAnthropicBridge(route: RouteModel, fetchImpl: Fetch =
       reply = await fetchImpl(`${upstream.baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(upstream.apiKey ? { authorization: `Bearer ${upstream.apiKey}` } : {}) },
-        body: JSON.stringify(toOpenAIRequest(body, upstream.model)),
+        body: JSON.stringify(toOpenAIRequest(body, upstream.model, upstream.thinking)),
         signal: abort.signal
       });
     } catch (err) {
