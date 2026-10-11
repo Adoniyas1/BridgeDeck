@@ -7,6 +7,7 @@ import type {
   ToolCall,
   ToolDef
 } from "./Provider.js";
+import { normalizeBaseUrl } from "./baseUrl.js";
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_BASE_URL = DEFAULT_OLLAMA_BASE_URL;
@@ -17,7 +18,7 @@ const DEFAULT_BASE_URL = DEFAULT_OLLAMA_BASE_URL;
  * reachable at this URL — that's a normal, expected state, not an error. */
 export async function listOllamaModels(baseUrl: string = DEFAULT_OLLAMA_BASE_URL): Promise<string[]> {
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${normalizeBaseUrl(baseUrl) ?? DEFAULT_OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return [];
     const data = (await res.json()) as { models?: Array<{ name?: string }> };
     return (data.models ?? [])
@@ -42,7 +43,7 @@ export class OllamaProvider implements BrainProvider {
 
   constructor(model: string, baseUrl: string = DEFAULT_BASE_URL) {
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = normalizeBaseUrl(baseUrl) ?? DEFAULT_BASE_URL;
     this.toolsSupported = LIKELY_TOOL_CAPABLE.test(model);
   }
 
@@ -177,11 +178,13 @@ export class OllamaProvider implements BrainProvider {
                 input: leaked.input
               }
             };
-          } else {
+          } else if (!isEmptyJsonObject(found.json)) {
             // Doesn't even look like an attempted tool call — legitimate
             // content, show it unaltered rather than silently dropping it.
             yield { type: "text-delta", text: found.json };
           }
+          // A bare "{}" is a small model starting a tool call it never fills in. It is not an answer, so it is
+          // dropped rather than shown to the user as the whole reply.
           contentBuffer = contentBuffer.slice(found.endIndex);
           scanning = false;
         }
@@ -265,6 +268,15 @@ function findBalancedJsonObject(text: string): { json: string; endIndex: number 
     }
   }
   return null;
+}
+
+function isEmptyJsonObject(json: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Only treats a parsed object as a real leaked tool call if its "name"

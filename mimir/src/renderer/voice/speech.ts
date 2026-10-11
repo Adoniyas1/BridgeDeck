@@ -1,4 +1,4 @@
-const INTERNAL_OUTPUT_LINE = /^(?:propose_edit|soul_replace|identity_replace|user_replace|memory_replace|daily_log_append|contextual information retrieval and summarization)\b/i;
+const INTERNAL_OUTPUT_LINE = /^(?:propose_edit|user_replace|memory_replace|daily_log_append|contextual information retrieval and summarization)\b/i;
 
 /**
  * Removes internal runtime and tool text only from the voice output. The chat

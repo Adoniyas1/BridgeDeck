@@ -33,6 +33,7 @@ import type {
   ChatGptChat,
   ChatGptChatSummary,
   ChatGptConfig,
+  PromptModuleInfo,
   PersonaConfig,
   ProjectFileCorpusEntry,
   PythonRunResult,
@@ -45,14 +46,13 @@ import { listOllamaModels } from "./brain/ollamaProvider.js";
 import { loadVoiceConfig, saveVoiceConfig, setElevenLabsKey, setPicovoiceKey } from "./voice/config.js";
 import { startWakeWordListener, type WakeWordHandle } from "./voice/wake.js";
 import { speak } from "./voice/tts.js";
-import { resetPersonaToDefaults } from "./persona/reset.js";
 import { loadPersonaConfig, savePersonaConfig } from "./persona/config.js";
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from "./persona/heartbeat.js";
 import { startDeadlineNotifier, stopDeadlineNotifier } from "./persona/deadlines.js";
 import { defaultProjectsRoot } from "./projects/paths.js";
 import { defaultSkillsRoot } from "./skills/paths.js";
 import { listSkillSummaries, verifySkillNow } from "./skills/tools.js";
-import { listBuiltInCapabilities } from "./skills/builtins.js";
+import { listBuiltInCapabilities, listPromptModules } from "./skills/builtins.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -254,12 +254,6 @@ const invokeHandlers: Record<string, Handler> = {
     if (!session) return { ok: false, error: "No active session." };
     return session.revertAudit(auditId);
   },
-  [IPC.personaReset]: async () => {
-    const result = await resetPersonaToDefaults(workspaceRoot, auditFilePath);
-    if (result.status === "applied") return { ok: true };
-    if (result.status === "rejected") return { ok: false, error: result.detail };
-    return { ok: false, error: result.stepOutput };
-  },
   [IPC.personaGetConfig]: (): Promise<PersonaConfig> => loadPersonaConfig(),
   [IPC.personaSetConfig]: (patch: Partial<PersonaConfig>): Promise<PersonaConfig> => savePersonaConfig(patch),
   [IPC.projectsGetRoot]: (): string => defaultProjectsRoot(),
@@ -267,6 +261,7 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.skillsGetRoot]: (): string => defaultSkillsRoot(),
   [IPC.skillsList]: (): Promise<SkillSummary[]> => listSkillSummaries(defaultSkillsRoot()),
   [IPC.skillsListBuiltIns]: (): Promise<BuiltInCapability[]> => listBuiltInCapabilities(workspaceRoot, auditFilePath),
+  [IPC.skillsListModules]: (): Promise<PromptModuleInfo[]> => listPromptModules(workspaceRoot, auditFilePath),
   [IPC.skillsVerify]: (name: string): Promise<SkillSummary | null> => verifySkillNow(defaultSkillsRoot(), name, runPythonInRenderer),
   [IPC.skillsOpenFolder]: () => openFolder(defaultSkillsRoot()),
   // A running skill's Python called one of its declared host capabilities. Re-checked here against

@@ -49,7 +49,29 @@ function renderSegments(text: string): React.ReactNode[] {
 }
 
 // Code is taken out before math, so a "$" inside code stays a dollar sign.
-const CODE_RE = /```[^\n`]*\n?([\s\S]*?)```|`([^`\n]+)`/g;
+// Small local models write sloppy fences, so this is lenient about them:
+// - a doubled opener ("``````python" or "```\n```python") counts as one fence;
+// - code glued onto the opener ("```pythonprint(1)" or "```print(1)```") is
+//   recovered from the info string rather than shown as an empty block;
+// - a fence with no closer runs to the end of the message (also keeps a
+//   streaming reply from flickering between text and code).
+const CODE_RE = /(?:```[ \t]*\n?[ \t]*)*```([^\n`]*)(?:\n([\s\S]*?))?(?:```|$)|`([^`\n]+)`/g;
+
+// Longest first, so "javascript" wins over "java". Single letters (c, r) and
+// short ones like "sh" are left out: as a prefix they'd eat real code.
+const GLUED_LANGUAGES = ["javascript", "typescript", "python", "kotlin", "swift", "shell", "bash", "java", "json", "html", "yaml", "ruby", "rust", "cpp", "css", "sql", "xml", "php", "tsx", "jsx"];
+
+/** The code a fence's info string carries when a model put code there
+ * instead of just a language tag; "" for a plain tag like "python". */
+function codeFromFenceInfo(info: string): string {
+  const trimmed = info.trim();
+  if (!trimmed || /^[\w+#.-]+$/.test(trimmed)) return "";
+  const [first = "", ...rest] = trimmed.split(/\s+/);
+  if (rest.length && /^[\w+#.-]+$/.test(first) && GLUED_LANGUAGES.includes(first.toLowerCase())) return trimmed.slice(first.length).trim();
+  const lower = trimmed.toLowerCase();
+  const glued = GLUED_LANGUAGES.find((lang) => lower.startsWith(lang));
+  return glued ? trimmed.slice(glued.length) : trimmed;
+}
 
 function renderCodeSegments(text: string, keyBase: number): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -58,12 +80,19 @@ function renderCodeSegments(text: string, keyBase: number): React.ReactNode[] {
   let match: RegExpExecArray | null;
   const re = new RegExp(CODE_RE.source, "g");
   while ((match = re.exec(text))) {
+    if (match[0] === "") {
+      re.lastIndex++;
+      continue;
+    }
     if (match.index > lastIndex) {
       nodes.push(...renderMathSegments(text.slice(lastIndex, match.index), key));
       key += 100;
     }
-    if (match[1] !== undefined) nodes.push(<pre key={`code-${key++}`}><code>{match[1].replace(/\n$/, "")}</code></pre>);
-    else nodes.push(<code key={`code-${key++}`}>{match[2]}</code>);
+    if (match[3] !== undefined) nodes.push(<code key={`code-${key++}`}>{match[3]}</code>);
+    else {
+      const code = [codeFromFenceInfo(match[1] ?? ""), match[2] ?? ""].filter(Boolean).join("\n").replace(/\s+$/, "");
+      if (code) nodes.push(<pre key={`code-${key++}`}><code>{code}</code></pre>);
+    }
     lastIndex = re.lastIndex;
   }
   if (lastIndex < text.length) nodes.push(...renderMathSegments(text.slice(lastIndex), key));
@@ -105,8 +134,17 @@ function renderMarkdown(text: string, keyBase: string): React.ReactNode[] {
 }
 
 // Display math ($$...$$) checked before inline ($...$) so a display block
-// isn't misread as two inline delimiters.
-const MATH_RE = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g;
+// isn't misread as two inline delimiters. Inline math follows Pandoc's rule —
+// no space just inside the dollars and no digit right after the closer — so
+// "$5 and $10" stays money.
+const MATH_RE = /\$\$([^$]+?)\$\$|\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g;
+
+/** Text a model wrapped in dollars that is really code, like $print("hi")$:
+ * a double quote, or a call on a 3+ letter name with no backslash (\sin(x)
+ * is math, print(x) is not). KaTeX would set it as italic letters. */
+function looksLikeCode(expr: string): boolean {
+  return expr.includes('"') || /(?<![\\\w])[A-Za-z_]\w{2,}\s*\(/.test(expr);
+}
 
 function renderMathSegments(text: string, keyBase: number): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -115,10 +153,11 @@ function renderMathSegments(text: string, keyBase: number): React.ReactNode[] {
   let match: RegExpExecArray | null;
   MATH_RE.lastIndex = 0;
   while ((match = MATH_RE.exec(text))) {
-    if (match.index > lastIndex) nodes.push(...renderMarkdown(text.slice(lastIndex, match.index), `t${key}`));
     const displayMath = match[1];
     const inlineMath = match[2];
     const expr = displayMath ?? inlineMath ?? "";
+    if (looksLikeCode(expr)) continue;
+    if (match.index > lastIndex) nodes.push(...renderMarkdown(text.slice(lastIndex, match.index), `t${key}`));
     nodes.push(<MathSpan key={`math-${key++}`} expr={expr} display={displayMath !== undefined} />);
     lastIndex = MATH_RE.lastIndex;
   }

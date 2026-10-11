@@ -3,7 +3,7 @@ import Face from "./Face.js";
 import Chat from "./Chat.js";
 import Settings from "./Settings.js";
 import QuickControls from "./QuickControls.js";
-import SkillTree from "./SkillTree.js";
+import Skills from "./Skills.js";
 import ChatGpt from "./ChatGpt.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
 import type { AutoStopReason } from "./voice/vad.js";
@@ -12,7 +12,7 @@ import { OpenMicController } from "./voice/openMic.js";
 import { fileToAttachment } from "./attachments.js";
 import { pythonRuntime } from "./python/pythonRuntime.js";
 import { searchProjectFiles } from "./search/projectSearch.js";
-import type { Attachment, ChatMessage, FaceState, PendingEdit } from "../shared/types.js";
+import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, PendingEdit } from "../shared/types.js";
 
 function newId(): string {
   return crypto.randomUUID();
@@ -37,6 +37,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showChatGpt, setShowChatGpt] = useState(false);
+  const [turnContext, setTurnContext] = useState<{ modules: LoadedPromptModule[]; tokens: number } | null>(null);
 
   const assistantMessageId = useRef<string | null>(null);
   const voiceOrigin = useRef(false);
@@ -76,6 +77,8 @@ export default function App() {
         // model — see the "image" ChatStreamEvent doc comment.
         const id = assistantMessageId.current;
         setMessages((prev) => appendToAssistant(prev, id, `\n![plot](${event.dataUrl})\n`));
+      } else if (event.type === "context") {
+        setTurnContext({ modules: event.modules, tokens: event.tokens });
       } else if (event.type === "edit-pending") {
         setPendingEdit(event.pending);
       } else if (event.type === "error") {
@@ -419,7 +422,7 @@ export default function App() {
         {showSettings ? (
           <Settings onClose={() => setShowSettings(false)} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
         ) : showSkills ? (
-          <SkillTree onClose={() => setShowSkills(false)} />
+          <Skills onClose={() => setShowSkills(false)} lastLoaded={turnContext?.modules ?? []} />
         ) : showChatGpt ? (
           <ChatGpt onClose={() => setShowChatGpt(false)} />
         ) : (
@@ -428,6 +431,7 @@ export default function App() {
             pendingEdit={pendingEdit}
             busy={busy}
             openMicEnabled={openMicActive}
+            context={turnContext}
             onSend={(text, files) => void handleSend(text, false, files)}
             onStop={handleStop}
             onApprove={() => {

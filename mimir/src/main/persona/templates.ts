@@ -1,8 +1,8 @@
 /**
  * Default persona/memory documents, seeded into `<workspace>/persona/` on
- * first run and restorable any time via "Reset personality to defaults".
- * The default establishes Mimir as a capable, warm presence; users can still
- * replace it completely through the persona tools or settings reset flow.
+ * first run. Mimir has no soul or identity file: who it is lives in the one
+ * required prompt module (src/main/prompts/modules.ts), and these files hold
+ * only what it learns — about the user, long-term memory, deadlines.
  */
 
 export interface PersonaTemplate {
@@ -12,20 +12,6 @@ export interface PersonaTemplate {
 }
 
 export const PERSONA_TEMPLATES: PersonaTemplate[] = [
-  {
-    path: "SOUL.md",
-    content: `# Soul
-
-Be clear, capable, and warm. Keep this in the background: focus on the user's task instead of discussing your own personality. Be candid about uncertainty and never claim an action was taken without a successful tool call.
-`
-  },
-  {
-    path: "IDENTITY.md",
-    content: `# Identity
-
-I'm Mimir, a calm desktop assistant. I speak plainly, focus on the work at hand, and use a little warmth or humor only when it fits.
-`
-  },
   {
     path: "USER.md",
     content: `# User
@@ -60,7 +46,6 @@ When reviewing TASKS.md:
 ];
 
 /** Size caps, mirrored from the same reliability pattern in OmniBot's persona.py. */
-export const SOUL_FILE_MAX_BYTES = 32_000;
 export const MEMORY_FILE_MAX_BYTES = 128_000;
 export const PERSONA_MARKDOWN_MAX_BYTES = 64_000;
 export const DAILY_LOG_LINE_MAX_CHARS = 2_000;

@@ -3,12 +3,7 @@ import { existsSync } from "node:fs";
 import type { ToolDef, ToolResult, Toolset } from "../brain/Provider.js";
 import type { SelfEditTransaction } from "../self-edit/transaction.js";
 import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
-import {
-  DAILY_LOG_LINE_MAX_CHARS,
-  MEMORY_FILE_MAX_BYTES,
-  PERSONA_MARKDOWN_MAX_BYTES,
-  SOUL_FILE_MAX_BYTES
-} from "./templates.js";
+import { DAILY_LOG_LINE_MAX_CHARS, MEMORY_FILE_MAX_BYTES, PERSONA_MARKDOWN_MAX_BYTES } from "./templates.js";
 import { dailyLogRelativePath, personaFilePath, personaRelativePath, todayISO } from "./paths.js";
 
 export interface PersonaToolsetOptions {
@@ -17,7 +12,7 @@ export interface PersonaToolsetOptions {
 }
 
 /**
- * Personality/memory tools. All apply instantly (no approval gate, tier
+ * Memory tools (user profile, long-term memory, deadlines, daily log). All apply instantly (no approval gate, tier
  * "persona" has an empty verify pipeline) — memory-forming should never
  * require a click, and every change still lands in the same git-backed
  * audit log as everything else, so it's trivially revertable if it goes
@@ -56,26 +51,6 @@ export function buildPersonaToolset(opts: PersonaToolsetOptions): Toolset {
 
   const defs: ToolDef[] = [
     {
-      name: "soul_replace",
-      description:
-        "Replace the entire SOUL.md file — your core personality, tone, and boundaries. Provide the complete new file content, not a diff.",
-      inputSchema: {
-        type: "object",
-        properties: { markdown: { type: "string" } },
-        required: ["markdown"]
-      }
-    },
-    {
-      name: "identity_replace",
-      description:
-        "Replace the entire IDENTITY.md file — who you are (name, nature, etc). Provide the complete new file content.",
-      inputSchema: {
-        type: "object",
-        properties: { markdown: { type: "string" } },
-        required: ["markdown"]
-      }
-    },
-    {
       name: "user_replace",
       description:
         "Replace the entire USER.md file — what you know about the person you're talking to. Provide the complete new file content.",
@@ -88,7 +63,7 @@ export function buildPersonaToolset(opts: PersonaToolsetOptions): Toolset {
     {
       name: "memory_replace",
       description:
-        "Replace the entire MEMORY.md file — your curated long-term memory. Use this whenever you learn something worth remembering. Provide the complete new file content, not a diff; consolidate rather than just appending.",
+        "Replace the entire MEMORY.md file — your curated long-term memory. Use this when the user asks you to remember something, or for a lasting fact about them they'd clearly want kept; never for greetings, small talk, or test phrases like \"hello world\". Provide the complete new file content, not a diff; consolidate rather than just appending.",
       inputSchema: {
         type: "object",
         properties: { markdown: { type: "string" } },
@@ -120,15 +95,6 @@ export function buildPersonaToolset(opts: PersonaToolsetOptions): Toolset {
   ];
 
   const handlers: Toolset["handlers"] = {
-    soul_replace: async (input) =>
-      replaceFile("SOUL.md", requireString(input, "markdown"), SOUL_FILE_MAX_BYTES, "Update SOUL.md"),
-    identity_replace: async (input) =>
-      replaceFile(
-        "IDENTITY.md",
-        requireString(input, "markdown"),
-        PERSONA_MARKDOWN_MAX_BYTES,
-        "Update IDENTITY.md"
-      ),
     user_replace: async (input) =>
       replaceFile("USER.md", requireString(input, "markdown"), PERSONA_MARKDOWN_MAX_BYTES, "Update USER.md"),
     memory_replace: async (input) =>

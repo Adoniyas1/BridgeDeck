@@ -147,7 +147,7 @@ export default function QuickControls({
       >
         FILES
       </button>
-      <button type="button" className="quick-controls__action" title="View Mimir's skill tree" onClick={onOpenSkills}>
+      <button type="button" className="quick-controls__action" title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
         SKILLS
       </button>
       <button type="button" className="quick-controls__action quick-controls__action--wide" title="Chat with ChatGPT (your OpenAI API key)" onClick={onOpenChatGpt}>

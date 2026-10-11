@@ -14,7 +14,6 @@ export default function Settings({
   const [voice, setVoice] = useState<VoiceConfig | null>(null);
   const [brainKeyInput, setBrainKeyInput] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-  const [confirmingPersonaReset, setConfirmingPersonaReset] = useState(false);
   const [persona, setPersona] = useState<PersonaConfig | null>(null);
   const [locationInput, setLocationInput] = useState("");
 
@@ -55,20 +54,6 @@ export default function Settings({
     setBrainKeyInput("");
     setBrain(await window.mimir.brain.getConfig());
     setStatus("API key saved.");
-  }
-
-  async function resetPersonality() {
-    if (!confirmingPersonaReset) {
-      setConfirmingPersonaReset(true);
-      return;
-    }
-    setConfirmingPersonaReset(false);
-    const result = await window.mimir.persona.reset();
-    setStatus(
-      result.ok
-        ? "Personality reset to defaults. It's revertable from the audit log if you change your mind."
-        : `Reset failed: ${result.error}`
-    );
   }
 
   return (
@@ -168,7 +153,7 @@ export default function Settings({
       </section>
 
       <section>
-        <h3>Personality</h3>
+        <h3>Memory</h3>
 
         <label>
           Location / timezone (optional, injected into every reply's context)
@@ -187,21 +172,6 @@ export default function Settings({
             </button>
           </div>
         </label>
-
-        <div className="key-row">
-          <button
-            type="button"
-            className={confirmingPersonaReset ? "btn btn--reject" : "btn"}
-            onClick={() => void resetPersonality()}
-          >
-            {confirmingPersonaReset ? "Click again to confirm reset" : "Reset personality"}
-          </button>
-          {confirmingPersonaReset && (
-            <button type="button" className="btn btn--reject" onClick={() => setConfirmingPersonaReset(false)}>
-              Cancel
-            </button>
-          )}
-        </div>
 
         <label className="checkbox-row">
           <input
