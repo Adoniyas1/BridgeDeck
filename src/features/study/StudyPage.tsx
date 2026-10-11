@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, BookOpen, Link2, Map as MapIcon, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Presentation, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studySetCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -10,7 +10,7 @@ import { eventsStore, refreshEvents } from '../calendar/state'
 import { dateInput, formatRange, fromInputs } from '../calendar/model'
 import { newId, noteTitle } from '../notes/model'
 import { notesStore, openNoteRequest } from '../notes/state'
-import { courseEvents, courseFolder, courseNotes, fmtBytes } from './model'
+import { courseEvents, courseFolder, courseNotes } from './model'
 import { openBook } from './open'
 import { libraryStore, refreshLibrary } from './state'
 import { indexLibrary } from './indexer'
@@ -21,6 +21,7 @@ import { DegreePlan } from './DegreePlan'
 import { ClassTimes, TermCard } from './ClassTimes'
 import { GradesCard } from './GradesCard'
 import { CoursePhotos, isPhoto } from './CoursePhotos'
+import { CourseFiles, isSlides } from './CourseFiles'
 import { canvasStore } from './canvasStore'
 import { catalogTitle } from './plans'
 import { courseKey } from './canvas'
@@ -96,7 +97,6 @@ export default function StudyPage({ active }: { active: boolean }) {
 }
 
 const SLIDES = /\.(pptx?|key|odp)$/i
-const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].includes(book.kind)
 
 function CourseView({ course, name, archived, courses, books, root, status, onStatus, onArchive, onDelete }: { course: StudyCourse; name: string; archived: boolean; courses: string[]; books: StudyBook[]; root: string; status: string; onStatus: (s: string) => void; onArchive: (on: boolean) => void; onDelete: () => void }) {
   const notes = useStore(notesStore)
@@ -146,7 +146,9 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   books = books.filter(b => !isPhoto(b))
   const readable = books.filter(b => !isSlides(b))
   const slides = books.filter(isSlides)
-  const open = (book: StudyBook) => isSlides(book) ? void openPath(`${root}/${name}/${book.file}`).catch(e => onStatus(String(e))) : openBook(name, book.file, book.title)
+  // Slides open in the reader too (as the PDF made from them); the icon beside them opens their own app.
+  const open = (book: StudyBook) => openBook(name, book.file, book.title)
+  const openExternally = (book: StudyBook) => void openPath(`${root}/${name}/${book.file}`).catch(e => onStatus(String(e)))
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return <div className="study-course">
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
@@ -158,14 +160,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
       {status && <p className="book-status">{status}</p>}
       <CourseDetails course={course} onStatus={onStatus} />
       <ClassTimes course={course} onStatus={onStatus} />
-      {books.length ? <div className="study-books">{books.map(book => <div key={book.file} className="study-book">
-        <button className={`study-book-cover${isSlides(book) ? ' slides' : ''}`} onClick={() => open(book)}>{isSlides(book) ? <Presentation size={26} /> : <BookOpen size={26} />}<span>{book.kind.toUpperCase()}</span></button>
-        <div className="grow"><strong title={book.file}>{book.title}</strong><small>{fmtBytes(book.bytes)}</small></div>
-        <div className="study-book-actions">
-          <button className="ghost" title={isSlides(book) ? 'Opens in PowerPoint, Keynote or your presentation app' : undefined} onClick={() => open(book)}>Open</button>
-          <button className="cal-icon" title="Remove" onClick={() => void removeBook(book.file, book.title)}><Trash2 size={14} /></button>
-        </div>
-      </div>)}</div> : <p className="hint">No books yet. Add the course’s textbooks (PDF, EPUB) and lecture slides (PowerPoint, Keynote); they appear on your other computer too.</p>}
+      <CourseFiles course={course} books={books} onOpen={open} onOpenExternally={openExternally} onRemove={book => void removeBook(book.file, book.title)} onStatus={onStatus} />
     </Card>
     <AssignmentsCard course={name} info={course.info} courses={courses} />
     <GradesCard course={course} onStatus={onStatus} />

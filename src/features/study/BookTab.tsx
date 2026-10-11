@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, ChevronDown, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -12,7 +12,7 @@ import { bookLink, chaptersTitle, courseFolder, currentPath, highlightsByPage, h
 import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
-import { loadBook, pdfjs } from './pdf'
+import { isSlideFile, loadBook, pdfjs } from './pdf'
 import EpubTab from './EpubTab'
 
 const NO_MARKS: string[] = []
@@ -122,6 +122,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const anchor = useRef<{ page: number; frac: number; offset: number } | null>(null)
   const scale = zoom === 'fit' ? (areaWidth > 0 ? Math.min(4, Math.max(0.3, (areaWidth - 24) / size.width)) : 1.3) : zoom
   const isEpub = file.toLowerCase().endsWith('.epub')
+  const slides = isSlideFile(file)
   const [dark, setDark] = useState(() => { try { return localStorage.getItem('bd-pdf-dark') === '1' } catch { return false } })
   useEffect(() => { try { localStorage.setItem('bd-pdf-dark', dark ? '1' : '0') } catch { /* not remembered */ } }, [dark])
   const allNotes = useStore(notesStore)
@@ -311,7 +312,9 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     <div className="book-body">
       {showOutline && <nav className="book-outline">{outline?.length ? <Contents items={outline} page={page} onGo={goTo} /> : <p className="hint">No table of contents in this book.</p>}</nav>}
       <div className={`book-scroll${dark ? ' dark' : ''}`} ref={scroller} onScroll={onScroll}>
-        {error ? <p className="cal-error">{error}</p> : !doc ? <p className="hint">Opening…</p>
+        {error ? <div className="book-error"><p className="cal-error">{error}</p>
+          {slides && <button className="ghost" onClick={() => { const root = libraryStore.get().library?.root; if (root) void openPath(`${root}/${course}/${file}`).catch(e => setStatus(String(e))) }}><ExternalLink size={14} /> Open in your presentation app</button>}</div>
+          : !doc ? <p className="hint">{slides ? 'Getting the slides ready (the first time takes a few seconds)…' : 'Opening…'}</p>
           : Array.from({ length: doc.numPages }, (_, i) => <Page key={i} doc={doc} number={i + 1} scale={scale} size={size} marks={marks.get(i + 1) ?? NO_MARKS} />)}
       </div>
     </div>

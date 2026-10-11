@@ -431,7 +431,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -449,6 +449,8 @@ export const studyRemoveBook = (course: string, file: string) => native<void>('s
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
 export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
 export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })
+/** Makes the PDF the reader shows for a presentation (src-tauri/src/study_slides.rs); the first time takes a few seconds. */
+export const studySlidesPdf = (course: string, file: string) => native<void>('study_slides_pdf', { course, file })
 /** Projects (src-tauri/src/projects.rs): one synced folder per project. */
 export type ProjectInfo = { name: string; files: number; bytes: number; modified: number }
 export type ProjectList = { root: string; projects: ProjectInfo[]; mimirOld: string[]; mimirOldPath: string }
