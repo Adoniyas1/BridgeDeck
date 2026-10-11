@@ -385,6 +385,12 @@ Everything left, combined into one order. One PR each.
    project helper, never the engine running the app. Mimir gets a browser for ordinary websites
    (search, read pages) for research. ChatGPT chats are kept with a "Save to BridgeDeck" button in the panel:
    each becomes a note in the course or project it was started from (else "ChatGPT"); saving again updates it.
+5b+. **ChatGPT section in Mimir (built; asked for 2026-10-08)**: a CHATGPT button under Mimir's quick controls
+   opens chats with OpenAI's models using the user's own API key (its own keychain entry, `chatgpt:openai`),
+   separate from Mimir's brain: no tools, nothing changed on the computer. Chats are kept in `~/.mimir/chatgpt/`,
+   the model list comes from the key's `/v1/models`, optional standing instructions, Stop keeps the partial
+   reply, and "Save to Notes" writes the chat to a note in the "ChatGPT" folder (saving again updates it). The
+   ⌘/Ctrl+J panel stays the way to use a ChatGPT account (API use is billed separately from ChatGPT Plus).
 5c. **Manga tab (built; from the user's manga-reader app, 2026-10-02)**: your own comics, manga and webtoons
    (.cbz/.zip or image folders) in the synced folder, with series details and covers from AniList, a
    scrolling or page-by-page (right-to-left) reader, bookmarks and shared progress, and the free

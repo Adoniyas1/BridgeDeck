@@ -172,7 +172,7 @@ describe("what a small model is sent", () => {
     try {
       const modules = await listPromptModules(root, path.join(root, "audit.json"));
       const core = modules.find((m) => m.id === CORE_MODULE_ID)!;
-      expect(core.coreTokens).toBeLessThan(200);
+      expect(core.coreTokens).toBeLessThan(250);
       // The old always-on core set was ~3,000 tokens of tool schemas plus a ~560-token prompt.
       const everything = modules.reduce((sum, m) => sum + m.coreTokens, 0);
       expect(core.coreTokens).toBeLessThan(everything / 10);

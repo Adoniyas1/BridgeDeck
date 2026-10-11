@@ -7,6 +7,7 @@ import type {
   ToolCall,
   ToolDef
 } from "./Provider.js";
+import { normalizeBaseUrl } from "./baseUrl.js";
 
 /**
  * Talks to any server implementing the OpenAI chat-completions wire format —
@@ -23,7 +24,7 @@ export class OpenAICompatibleProvider implements BrainProvider {
   private toolsSupported = true;
 
   constructor(baseUrl: string, model: string, apiKey: string | null = null) {
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = normalizeBaseUrl(baseUrl) ?? baseUrl;
     this.model = model;
     this.apiKey = apiKey;
   }
@@ -191,7 +192,7 @@ function toOpenAiContentParts(text: string, attachments: Attachment[]): Array<Re
   return parts;
 }
 
-async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

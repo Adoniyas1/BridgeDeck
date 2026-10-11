@@ -110,4 +110,11 @@ describe("system prompt composition", () => {
     expect(composed.system).toContain("run_python");
     expect([...(composed.toolNames ?? [])]).toEqual(["run_python"]);
   });
+
+  it("core tier tells a small model to chat plainly and save memory only on request", async () => {
+    const corePrompt = await buildComposedSystemPrompt(workspaceRoot, { includeToolInstructions: true, toolTier: "core" });
+    expect(corePrompt).toContain("no tool call and no code");
+    expect(corePrompt).toContain("memory_replace only when the user asks you to remember something");
+    expect(corePrompt).toContain("Dollar signs are only for math, never for code");
+  });
 });
