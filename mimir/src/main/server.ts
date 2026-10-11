@@ -64,6 +64,7 @@ import { mcpManager } from "./mcp/manager.js";
 import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/config.js";
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
+import { checkEngine } from "./engines/common.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -249,6 +250,10 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.teamApplyPreset]: (id: string, pcAddress?: string): Promise<TeamConfig> => { clearProbeCache(); return applyTeamPreset(id, pcAddress); },
   [IPC.teamStatus]: async (): Promise<RoleStatus[]> => { clearProbeCache(); return teamStatus(await loadTeamConfig()); },
   [IPC.teamListModels]: async (endpoint: RoleEndpoint): Promise<string[]> => (await probeEndpoint(endpoint)).models,
+  [IPC.teamCheckEngine]: async (engine: "claude-code" | "opencode") => {
+    const team = await loadTeamConfig();
+    return checkEngine(engine, team.engineCommands[engine] ?? (engine === "claude-code" ? "claude" : "opencode"));
+  },
   [IPC.chatgptGetConfig]: (): Promise<ChatGptConfig> => loadChatGptConfig(),
   [IPC.chatgptSetConfig]: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => saveChatGptConfig(patch),
   [IPC.chatgptSetApiKey]: async (key: string): Promise<ChatGptConfig> => {
@@ -475,6 +480,7 @@ async function main(): Promise<void> {
 
   const shutdown = () => {
     void mcpManager.closeAll();
+    session?.closeEngines();
     stopWake();
     stopHeartbeatScheduler();
     stopDeadlineNotifier();

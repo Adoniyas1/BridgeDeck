@@ -135,7 +135,8 @@ const api = {
     presets: (): Promise<TeamPreset[]> => invoke(IPC.teamPresets),
     applyPreset: (id: string, pcAddress?: string): Promise<TeamConfig> => invoke(IPC.teamApplyPreset, id, pcAddress),
     status: (): Promise<RoleStatus[]> => invoke(IPC.teamStatus),
-    listModels: (endpoint: RoleEndpoint): Promise<string[]> => invoke(IPC.teamListModels, endpoint)
+    listModels: (endpoint: RoleEndpoint): Promise<string[]> => invoke(IPC.teamListModels, endpoint),
+    checkEngine: (engine: "claude-code" | "opencode"): Promise<{ ok: boolean; detail: string }> => invoke(IPC.teamCheckEngine, engine)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

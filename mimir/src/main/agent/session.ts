@@ -38,6 +38,8 @@ import { loadMcpConfig } from "../mcp/config.js";
 import { mcpManager } from "../mcp/manager.js";
 import { buildCodingToolset } from "../coding/tools.js";
 import { codingRoot } from "../coding/config.js";
+import { EngineRunner } from "../engines/index.js";
+import { engineName } from "../engines/common.js";
 import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
@@ -75,6 +77,9 @@ export class AgentSession {
   private runningTurn = false;
   /** Prompt modules loaded on recent turns -> follow-up turns they stay loaded for. */
   private stickyModules = new Map<string, number>();
+  /** Claude Code / OpenCode, when one of them runs the chat instead of Mimir's own loop. */
+  private engines = new EngineRunner();
+  private engineAbort: AbortController | null = null;
 
   constructor(private deps: AgentSessionDeps) {
     this.auditLog = new AuditLog(deps.auditFilePath);
@@ -110,6 +115,8 @@ export class AgentSession {
     // this token stops the UI turn immediately and discards any late chunks.
     this.activeTurnId++;
     this.runningTurn = false;
+    this.engineAbort?.abort();
+    this.engineAbort = null;
     // Anything still waiting for the user's OK is a no now.
     for (const resolve of this.pendingApprovals.values()) resolve("rejected");
     this.pendingApprovals.clear();
@@ -127,6 +134,12 @@ export class AgentSession {
     const turnId = ++this.activeTurnId;
     this.runningTurn = true;
 
+    const team = await loadTeamConfig();
+    if (team.engine !== "mimir") {
+      await this.runEngine(team, turnId, userText, attachments);
+      return;
+    }
+
     let provider;
     try {
       provider = await createBrainProvider();
@@ -137,9 +150,8 @@ export class AgentSession {
       return;
     }
     const brainConfig = await loadBrainConfig();
-    const team = await loadTeamConfig();
     // The Brain team (Head, Executor, Checker) runs instead of the single model; see team/graph.ts.
-    const teamMode = team.mode === "team" && team.engine === "mimir";
+    const teamMode = team.mode === "team";
     if (turnId !== this.activeTurnId) return;
 
     const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
@@ -328,6 +340,55 @@ export class AgentSession {
     if (assistantText) {
       this.history.push({ role: "assistant", content: assistantText });
     }
+  }
+
+  /** One turn run by Claude Code or OpenCode (engines/): its own tools do the work in the coding
+   * folder, and anything that needs an OK comes back here as an approval card. */
+  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[]): Promise<void> {
+    const { win } = this.deps;
+    const engine = team.engine as "claude-code" | "opencode";
+    const abort = new AbortController();
+    this.engineAbort = abort;
+    this.history.push({ role: "user", content: userText, attachments });
+    win.webContents.send(IPC.faceState, "thinking");
+    const live = () => turnId === this.activeTurnId;
+    const note = attachments?.length ? `\n\n(${attachments.length} attachment${attachments.length === 1 ? "" : "s"} left out: ${engineName(engine)} gets text only here.)` : "";
+    let reply = "";
+    try {
+      const result = await this.engines.run(team, {
+        prompt: userText,
+        cwd: await codingRoot(),
+        projectsRoot: defaultProjectsRoot(),
+        approve: this.askUser,
+        signal: abort.signal,
+        emit: (ev) => {
+          if (!live()) return;
+          if (ev.type === "text") {
+            reply += ev.text;
+            this.sendStream({ type: "text-delta", text: ev.text });
+          } else if (ev.type === "tool-start") this.sendStream({ type: "tool-start", name: ev.name });
+          else this.sendStream({ type: "tool-end", name: ev.name, isError: ev.isError });
+        }
+      });
+      reply = result.text || reply;
+      if (!live()) return;
+      if (note) this.sendStream({ type: "text-delta", text: note });
+      this.sendStream({ type: "turn-done", fullText: reply + note });
+    } catch (err) {
+      if (live()) this.sendStream({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (reply) this.history.push({ role: "assistant", content: reply });
+      if (live()) {
+        this.runningTurn = false;
+        this.engineAbort = null;
+        win.webContents.send(IPC.faceState, "idle");
+      }
+    }
+  }
+
+  /** Ends Claude Code / OpenCode processes (app shutdown). */
+  closeEngines(): void {
+    this.engines.close();
   }
 
   /** One turn by the Brain team: the Head plans, the Executor does each step with only that step's

@@ -162,7 +162,13 @@ export interface RoleConfig {
 export interface TeamConfig {
   /** "single": one model does everything (the Brain setting). "team": the roles below. */
   mode: "single" | "team";
+  /** Who runs the chat: Mimir itself, or Claude Code / OpenCode headless inside it. */
   engine: AgentEngine;
+  /** For Claude Code and OpenCode: the team's Head and Executor models ("team"), or the agent's
+   * own models and login ("own"). */
+  engineModels: "team" | "own";
+  /** The command for each agent, when it isn't on PATH as `claude` / `opencode`. */
+  engineCommands: { "claude-code": string | null; opencode: string | null };
   roles: Record<BrainRole, RoleConfig>;
   /** The Checker uses the Head's model (no extra model to load). */
   checkerSameAsHead: boolean;
@@ -302,6 +308,7 @@ export const IPC = {
   teamApplyPreset: "mimir:team:apply-preset",
   teamStatus: "mimir:team:status",
   teamListModels: "mimir:team:list-models",
+  teamCheckEngine: "mimir:team:check-engine",
   voiceGetConfig: "mimir:voice:get-config",
   voiceSetConfig: "mimir:voice:set-config",
   voiceSetApiKey: "mimir:voice:set-api-key",
