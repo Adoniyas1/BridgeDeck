@@ -4,6 +4,7 @@ import { OpenAICompatibleProvider } from "./openaiCompatibleProvider.js";
 import { OllamaProvider } from "./ollamaProvider.js";
 import { withReactShim } from "./reactShim.js";
 import { getBrainApiKey, loadBrainConfig } from "./config.js";
+import type { BrainProviderKind } from "../../shared/types.js";
 
 export type {
   BrainProvider,
@@ -26,9 +27,14 @@ export { listOllamaModels } from "./ollamaProvider.js";
  */
 export async function createBrainProvider(): Promise<BrainProvider> {
   const config = await loadBrainConfig();
+  return createProviderFor({ provider: config.provider, model: config.model, baseUrl: config.baseUrl });
+}
 
+/** A provider for one endpoint (a provider kind, a model and a server address), with the API key
+ * from the keychain. The single model setting and each Brain-team role go through here. */
+export async function createProviderFor(endpoint: { provider: BrainProviderKind; model: string; baseUrl: string | null }): Promise<BrainProvider> {
   let provider: BrainProvider;
-  switch (config.provider) {
+  switch (endpoint.provider) {
     case "anthropic": {
       const apiKey = await getBrainApiKey("anthropic");
       if (!apiKey) {
@@ -36,23 +42,23 @@ export async function createBrainProvider(): Promise<BrainProvider> {
           "No Anthropic API key configured. Add one in Settings, or switch to a local/VPS provider."
         );
       }
-      provider = new AnthropicProvider(apiKey, config.model);
+      provider = new AnthropicProvider(apiKey, endpoint.model);
       break;
     }
     case "ollama": {
-      provider = new OllamaProvider(config.model, config.baseUrl ?? undefined);
+      provider = new OllamaProvider(endpoint.model, endpoint.baseUrl ?? undefined);
       break;
     }
     case "openai-compatible": {
-      if (!config.baseUrl) {
+      if (!endpoint.baseUrl) {
         throw new Error("openai-compatible provider requires a base URL (your VPS/server address).");
       }
       const apiKey = await getBrainApiKey("openai-compatible");
-      provider = new OpenAICompatibleProvider(config.baseUrl, config.model, apiKey);
+      provider = new OpenAICompatibleProvider(endpoint.baseUrl, endpoint.model, apiKey);
       break;
     }
     default: {
-      const exhaustive: never = config.provider;
+      const exhaustive: never = endpoint.provider;
       throw new Error(`Unknown brain provider: ${String(exhaustive)}`);
     }
   }
