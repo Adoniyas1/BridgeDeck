@@ -32,6 +32,11 @@ import { readPersonaFile } from "../persona/compose.js";
 import { personaRelativePath } from "../persona/paths.js";
 import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import type { Approver } from "../approvals.js";
+import { loadMcpConfig } from "../mcp/config.js";
+import { mcpManager } from "../mcp/manager.js";
+import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
 import { buildEngineeringWorkflowToolset } from "../engineering/workflow.js";
@@ -77,6 +82,14 @@ export class AgentSession {
     this.deps.win.webContents.send(IPC.chatStream, event);
   }
 
+  /** Asks the user, in the chat, to allow one tool call (see approvals.ts). */
+  readonly askUser: Approver = (request) =>
+    new Promise((resolve) => {
+      const id = randomUUID();
+      this.pendingApprovals.set(id, (decision) => resolve(decision === "approved"));
+      this.sendStream({ type: "approval-pending", approval: { id, ...request } });
+    });
+
   resolveApproval(pendingId: string, decision: "approved" | "rejected"): void {
     const resolve = this.pendingApprovals.get(pendingId);
     if (resolve) {
@@ -95,6 +108,9 @@ export class AgentSession {
     // this token stops the UI turn immediately and discards any late chunks.
     this.activeTurnId++;
     this.runningTurn = false;
+    // Anything still waiting for the user's OK is a no now.
+    for (const resolve of this.pendingApprovals.values()) resolve("rejected");
+    this.pendingApprovals.clear();
     this.deps.win.webContents.send(IPC.faceState, "idle");
     return true;
   }
@@ -199,8 +215,14 @@ export class AgentSession {
     const skillPacks = packsRoot ? buildSkillPacksToolset({ root: packsRoot, runPython }) : { defs: [], handlers: {} };
     // Searching and reading public web pages, for research with any brain.
     const web = buildWebToolset();
-    const fullDefs = [...(selfEdit?.defs ?? []), ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
+    // Tools from the MCP servers turned on in Settings (each server is a prompt module of its own).
+    const mcpServers = (await loadMcpConfig()).servers;
+    await mcpManager.ensure(mcpServers);
+    const mcp = mcpManager.toolset(mcpServers, this.askUser);
+    const extraModules: PromptModule[] = mcp.modules;
+    const fullDefs = [...(selfEdit?.defs ?? []), ...mcp.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
     const fullHandlers = {
+      ...mcp.handlers,
       ...(selfEdit?.handlers ?? {}),
       ...persona.handlers,
       ...projects.handlers,
@@ -215,7 +237,7 @@ export class AgentSession {
       ...dynamicSkills.handlers
     };
     if (teamMode) {
-      await this.runTeam({ team, turnId, userText, attachments, fullDefs, fullHandlers, dynamicSkillTools: dynamicSkills.defs.map((d) => d.name), effort: brainConfig.effort });
+      await this.runTeam({ team, turnId, userText, attachments, fullDefs, fullHandlers, extraModules, dynamicSkillTools: dynamicSkills.defs.map((d) => d.name), effort: brainConfig.effort });
       return;
     }
 
@@ -231,6 +253,7 @@ export class AgentSession {
       availableTools: new Set(fullDefs.map((d) => d.name)),
       dynamicSkillTools: dynamicSkills.defs.map((d) => d.name),
       toolCost: (name) => toolCosts.get(name) ?? 0,
+      extraModules,
       // Local models spend their small context on the task, not a user dossier.
       ...(provider.kind === "anthropic"
         ? {}
@@ -311,10 +334,11 @@ export class AgentSession {
     attachments?: Attachment[];
     fullDefs: ToolDef[];
     fullHandlers: Record<string, (input: Record<string, unknown>) => Promise<ToolResult>>;
+    extraModules: PromptModule[];
     dynamicSkillTools: string[];
     effort: Awaited<ReturnType<typeof loadBrainConfig>>["effort"];
   }): Promise<void> {
-    const { team, turnId, userText, attachments, fullDefs, fullHandlers, dynamicSkillTools, effort } = args;
+    const { team, turnId, userText, attachments, fullDefs, fullHandlers, extraModules, dynamicSkillTools, effort } = args;
     const { win, workspaceRoot } = this.deps;
     const finish = (error?: string) => {
       if (turnId !== this.activeTurnId) return;
@@ -356,6 +380,7 @@ export class AgentSession {
         availableTools: available,
         dynamicSkillTools,
         toolCost: (name) => toolCosts.get(name) ?? 0,
+        extraModules,
         ...(cloud ? {} : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, includeUserProfile: false })
       });
     };
@@ -380,7 +405,7 @@ export class AgentSession {
       else this.stickyModules.set(id, left - 1);
     }
     for (const m of routing.loaded) if (m.reason === "matched") this.stickyModules.set(m.id, STICKY_TURNS);
-    const catalog = PROMPT_MODULES.filter((m) => {
+    const catalog = [...PROMPT_MODULES, ...extraModules].filter((m) => {
       if (m.required || !m.tiers.includes(executorTier)) return false;
       const tools = executorTier === "core" ? m.coreTools : m.tools;
       return tools.length === 0 || tools.some((t) => available.has(t));

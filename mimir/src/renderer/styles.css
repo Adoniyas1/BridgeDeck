@@ -761,3 +761,16 @@ body {
 .team-step--passed .team-step__meta { color: #7be08a; }
 .team-step--failed .team-step__meta { color: var(--danger); }
 .team-step--running .team-step__meta, .team-step--checking .team-step__meta, .team-step--head .team-step__meta { color: var(--accent-2); }
+
+/* MCP tool servers */
+.mcp-server { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
+.mcp-server__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mcp-server__cmd { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-state { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.mcp-state--ready { color: #7be08a; border-color: #7be08a55; }
+.mcp-state--failed { color: var(--danger); border-color: #fb718555; }
+.mcp-state--starting { color: var(--accent-2); }
+.mcp-error pre { margin: 0; max-height: 120px; overflow: auto; padding: 8px; border-radius: 8px; background: #2a0f18; color: var(--danger); font-size: 11px; white-space: pre-wrap; }
+.mcp-custom { display: grid; grid-template-columns: 1fr 1fr 2fr auto; gap: 6px; }
+@media (max-width: 720px) { .mcp-custom { grid-template-columns: 1fr; } }
+.approval-card .edit-card-title::before { content: "⚠ "; color: var(--warning); }

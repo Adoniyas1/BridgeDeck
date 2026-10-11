@@ -1,11 +1,14 @@
 import React, { useRef, useState } from "react";
 import MessageContent from "./MessageContent.js";
 import CameraCapture from "./camera/CameraCapture.js";
-import type { ChatMessage, LoadedPromptModule, PendingEdit, TeamProgress } from "../shared/types.js";
+import type { ChatMessage, LoadedPromptModule, PendingEdit, TeamProgress, ToolApproval } from "../shared/types.js";
 
 interface ChatProps {
   messages: ChatMessage[];
   pendingEdit: PendingEdit | null;
+  /** Tool calls waiting for the user's OK. */
+  approvals: ToolApproval[];
+  onDecide: (id: string, allow: boolean) => void;
   busy: boolean;
   openMicEnabled: boolean;
   /** What was loaded into the model for the latest message. */
@@ -20,6 +23,8 @@ interface ChatProps {
 export default function Chat({
   messages,
   pendingEdit,
+  approvals,
+  onDecide,
   busy,
   openMicEnabled,
   context,
@@ -84,6 +89,21 @@ export default function Chat({
               ) : (
                 ""
               )}
+            </div>
+          </div>
+        ))}
+        {approvals.map((a) => (
+          <div key={a.id} className="edit-card approval-card">
+            <div className="edit-card-title">{a.title}</div>
+            <div className="edit-card-files">{a.tool}</div>
+            {a.detail && <pre className="edit-card-diff">{a.detail}</pre>}
+            <div className="edit-card-actions">
+              <button type="button" onClick={() => onDecide(a.id, true)} className="btn btn--approve">
+                Allow
+              </button>
+              <button type="button" onClick={() => onDecide(a.id, false)} className="btn btn--reject">
+                Deny
+              </button>
             </div>
           </div>
         ))}

@@ -12,7 +12,7 @@ import { OpenMicController } from "./voice/openMic.js";
 import { fileToAttachment } from "./attachments.js";
 import { pythonRuntime } from "./python/pythonRuntime.js";
 import { searchProjectFiles } from "./search/projectSearch.js";
-import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, PendingEdit } from "../shared/types.js";
+import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, PendingEdit, ToolApproval } from "../shared/types.js";
 import { applyTeamEvent } from "./teamProgress.js";
 
 function newId(): string {
@@ -31,6 +31,7 @@ export default function App() {
     }
   ]);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
+  const [approvals, setApprovals] = useState<ToolApproval[]>([]);
   const [faceState, setFaceState] = useState<FaceState>("idle");
   const [busy, setBusy] = useState(false);
   const [, setListening] = useState(false);
@@ -83,6 +84,8 @@ export default function App() {
         setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, team: applyTeamEvent(m.team, event) } : m)));
       } else if (event.type === "context") {
         setTurnContext({ modules: event.modules, tokens: event.tokens });
+      } else if (event.type === "approval-pending") {
+        setApprovals((prev) => [...prev, event.approval]);
       } else if (event.type === "edit-pending") {
         setPendingEdit(event.pending);
       } else if (event.type === "error") {
@@ -93,6 +96,7 @@ export default function App() {
           { id: newId(), role: "system", text: `⚠️ ${event.message}`, createdAt: Date.now() }
         ]);
       } else if (event.type === "turn-done") {
+        setApprovals([]);
         setBusy(false);
         busyRef.current = false;
         assistantMessageId.current = null;
@@ -333,6 +337,7 @@ export default function App() {
 
   function handleStop() {
     window.mimir.chat.stop();
+    setApprovals([]);
     busyRef.current = false;
     voiceOrigin.current = false;
     speechBuffer.current = "";
@@ -433,6 +438,11 @@ export default function App() {
           <Chat
             messages={messages}
             pendingEdit={pendingEdit}
+            approvals={approvals}
+            onDecide={(id, allow) => {
+              window.mimir.approval.decide(id, allow);
+              setApprovals((prev) => prev.filter((a) => a.id !== id));
+            }}
             busy={busy}
             openMicEnabled={openMicActive}
             context={turnContext}

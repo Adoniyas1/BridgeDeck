@@ -33,6 +33,48 @@ export interface ChatMessage {
   team?: TeamProgress;
 }
 
+/** A tool call waiting for the user to allow or deny it (src/main/approvals.ts). */
+export interface ToolApproval {
+  id: string;
+  /** The tool's name as the model called it. */
+  tool: string;
+  /** One line: what it wants to do. */
+  title: string;
+  /** The specifics: the command, the file and the change, the arguments. */
+  detail: string;
+}
+
+/** An MCP server Mimir starts and uses tools from (src/main/mcp). */
+export interface McpServerConfig {
+  /** Short id used in tool names: letters, digits, - and _. */
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+  /** Words in a message that load this server's tools (for local models; cloud models always get them). */
+  keywords: string[];
+  /** Don't ask before tools that change things (only for servers you fully trust). */
+  trusted: boolean;
+}
+
+export interface McpServerStatus {
+  id: string;
+  state: "off" | "starting" | "ready" | "failed";
+  tools: Array<{ name: string; description: string; readOnly: boolean }>;
+  error: string | null;
+}
+
+export interface McpPreset {
+  id: string;
+  name: string;
+  description: string;
+  /** What has to be installed for it to start. */
+  needs: string;
+  server: McpServerConfig;
+}
+
 export type TeamStepStatus = "running" | "checking" | "passed" | "retry" | "failed" | "head";
 
 /** The Brain team's work on one message, shown with the reply. */
@@ -54,6 +96,8 @@ export type ChatStreamEvent =
   /** `step` is the Brain team's step the tool ran in (0-based), when a team is working. */
   | { type: "tool-start"; name: string; step?: number | null }
   | { type: "tool-end"; name: string; isError: boolean; step?: number | null }
+  /** A tool wants to do something that needs the user's OK (a command, a change outside Projects). */
+  | { type: "approval-pending"; approval: ToolApproval }
   /** The Brain team's plan for this message (see src/main/team/graph.ts). */
   | { type: "team-plan"; steps: Array<{ goal: string }> }
   /** A step of the plan changed: who is on it and how it went. */
@@ -245,6 +289,11 @@ export const IPC = {
   /** Queries Ollama's own /api/tags for models actually installed locally,
    * so the model picker can auto-detect rather than requiring free text. */
   brainListOllamaModels: "mimir:brain:list-ollama-models",
+  approvalDecide: "mimir:approval:decide",
+  mcpGetConfig: "mimir:mcp:get-config",
+  mcpSetConfig: "mimir:mcp:set-config",
+  mcpStatus: "mimir:mcp:status",
+  mcpPresets: "mimir:mcp:presets",
   teamGetConfig: "mimir:team:get-config",
   teamSetConfig: "mimir:team:set-config",
   teamPresets: "mimir:team:presets",
