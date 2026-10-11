@@ -20,6 +20,10 @@ import {
   type ChatGptConfig,
   type ChatGptStreamEvent,
   type PromptModuleInfo,
+  type RoleEndpoint,
+  type RoleStatus,
+  type TeamConfig,
+  type TeamPreset,
   type ChatStreamEvent,
   type FaceState,
   type PersonaConfig,
@@ -121,6 +125,14 @@ const api = {
     setConfig: (patch: Partial<Omit<BrainConfig, "hasApiKey">>): Promise<BrainConfig> => invoke(IPC.brainSetConfig, patch),
     setApiKey: (provider: BrainProviderKind, key: string): Promise<void> => invoke(IPC.brainSetApiKey, provider, key),
     listOllamaModels: (baseUrl?: string): Promise<string[]> => invoke(IPC.brainListOllamaModels, baseUrl)
+  },
+  team: {
+    getConfig: (): Promise<TeamConfig> => invoke(IPC.teamGetConfig),
+    setConfig: (patch: Partial<TeamConfig>): Promise<TeamConfig> => invoke(IPC.teamSetConfig, patch),
+    presets: (): Promise<TeamPreset[]> => invoke(IPC.teamPresets),
+    applyPreset: (id: string, pcAddress?: string): Promise<TeamConfig> => invoke(IPC.teamApplyPreset, id, pcAddress),
+    status: (): Promise<RoleStatus[]> => invoke(IPC.teamStatus),
+    listModels: (endpoint: RoleEndpoint): Promise<string[]> => invoke(IPC.teamListModels, endpoint)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

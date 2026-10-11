@@ -34,6 +34,10 @@ import type {
   ChatGptChatSummary,
   ChatGptConfig,
   PromptModuleInfo,
+  RoleEndpoint,
+  RoleStatus,
+  TeamConfig,
+  TeamPreset,
   PersonaConfig,
   ProjectFileCorpusEntry,
   PythonRunResult,
@@ -53,6 +57,8 @@ import { defaultProjectsRoot } from "./projects/paths.js";
 import { defaultSkillsRoot } from "./skills/paths.js";
 import { listSkillSummaries, verifySkillNow } from "./skills/tools.js";
 import { listBuiltInCapabilities, listPromptModules } from "./skills/builtins.js";
+import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
+import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -217,6 +223,12 @@ const invokeHandlers: Record<string, Handler> = {
     await setBrainApiKey(provider, key);
   },
   [IPC.brainListOllamaModels]: (baseUrl?: string): Promise<string[]> => listOllamaModels(baseUrl || undefined),
+  [IPC.teamGetConfig]: (): Promise<TeamConfig> => loadTeamConfig(),
+  [IPC.teamSetConfig]: (patch: Partial<TeamConfig>): Promise<TeamConfig> => { clearProbeCache(); return saveTeamConfig(patch); },
+  [IPC.teamPresets]: (): TeamPreset[] => TEAM_PRESETS,
+  [IPC.teamApplyPreset]: (id: string, pcAddress?: string): Promise<TeamConfig> => { clearProbeCache(); return applyTeamPreset(id, pcAddress); },
+  [IPC.teamStatus]: async (): Promise<RoleStatus[]> => { clearProbeCache(); return teamStatus(await loadTeamConfig()); },
+  [IPC.teamListModels]: async (endpoint: RoleEndpoint): Promise<string[]> => (await probeEndpoint(endpoint)).models,
   [IPC.chatgptGetConfig]: (): Promise<ChatGptConfig> => loadChatGptConfig(),
   [IPC.chatgptSetConfig]: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => saveChatGptConfig(patch),
   [IPC.chatgptSetApiKey]: async (key: string): Promise<ChatGptConfig> => {

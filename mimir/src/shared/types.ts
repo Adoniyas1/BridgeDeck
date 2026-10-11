@@ -75,6 +75,63 @@ export interface PendingEdit {
 
 export type BrainProviderKind = "anthropic" | "openai-compatible" | "ollama";
 
+/** The three jobs in a Brain team: the Head plans and writes the answer, the Executor makes the
+ * tool calls, the Checker reviews each result. See src/main/team. */
+export type BrainRole = "head" | "checker" | "executor";
+
+/** What runs a conversation: Mimir's own team loop, or a coding agent run headless (phase 5). */
+export type AgentEngine = "mimir" | "claude-code" | "opencode";
+
+/** How many tools a role's model gets: "auto" guesses from the model's size. */
+export type ToolTierChoice = "auto" | "core" | "full";
+
+/** One model on one server. */
+export interface RoleEndpoint {
+  provider: BrainProviderKind;
+  model: string;
+  /** Server address for ollama / openai-compatible; ignored for anthropic. */
+  baseUrl: string | null;
+}
+
+export interface RoleConfig {
+  /** Tried first, e.g. the Windows PC's server. */
+  primary: RoleEndpoint;
+  /** Used when the primary can't be reached, e.g. this Mac's own MLX server. */
+  fallback: RoleEndpoint | null;
+  tier: ToolTierChoice;
+}
+
+export interface TeamConfig {
+  /** "single": one model does everything (the Brain setting). "team": the roles below. */
+  mode: "single" | "team";
+  engine: AgentEngine;
+  roles: Record<BrainRole, RoleConfig>;
+  /** The Checker uses the Head's model (no extra model to load). */
+  checkerSameAsHead: boolean;
+  /** Check every step as it finishes (better when models stay loaded), or all steps at the end
+   * (fewer model swaps on a small machine). */
+  checkEachStep: boolean;
+  /** The preset this came from, if any. */
+  preset: string | null;
+}
+
+export interface TeamPreset {
+  id: string;
+  title: string;
+  description: string;
+  /** The preset needs the other computer's address (e.g. "192.168.1.20:8080"). */
+  needsPcAddress: boolean;
+}
+
+/** Which endpoint a role would use right now, and whether it answers. */
+export interface RoleStatus {
+  role: BrainRole;
+  using: "primary" | "fallback" | "none";
+  endpoint: RoleEndpoint | null;
+  reachable: boolean;
+  detail: string;
+}
+
 /** Anthropic's thinking-depth control. Ignored (no-op) for other providers. */
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -174,6 +231,12 @@ export const IPC = {
   /** Queries Ollama's own /api/tags for models actually installed locally,
    * so the model picker can auto-detect rather than requiring free text. */
   brainListOllamaModels: "mimir:brain:list-ollama-models",
+  teamGetConfig: "mimir:team:get-config",
+  teamSetConfig: "mimir:team:set-config",
+  teamPresets: "mimir:team:presets",
+  teamApplyPreset: "mimir:team:apply-preset",
+  teamStatus: "mimir:team:status",
+  teamListModels: "mimir:team:list-models",
   voiceGetConfig: "mimir:voice:get-config",
   voiceSetConfig: "mimir:voice:set-config",
   voiceSetApiKey: "mimir:voice:set-api-key",

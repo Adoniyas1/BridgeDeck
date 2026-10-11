@@ -730,3 +730,22 @@ body {
 .chat-text pre code { background: none; border: 0; padding: 0; }
 .settings input:not([type="checkbox"]), .settings select { border-radius: 9px; }
 .settings .btn, .skills .btn { padding: 7px 14px; font-size: 13px; }
+
+/* Brain team settings */
+.team-mode { display: flex; flex-direction: column; gap: 4px; }
+.team-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.team-preset { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.team-preset--active { border-color: var(--border-bright); }
+.team-preset .btn { align-self: flex-start; }
+.team-role { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
+.team-role__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.team-role__head select { margin-left: auto; }
+.team-endpoint { display: grid; grid-template-columns: 90px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; align-items: center; }
+.team-endpoint__label { font-size: 11px; color: var(--muted); }
+.team-status { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.team-status li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.team-status li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; align-self: center; }
+.team-status li.ok::before { background: #7be08a; }
+.team-tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--warning); }
+.btn--ghost { background: transparent; align-self: flex-start; }
+@media (max-width: 720px) { .team-endpoint { grid-template-columns: 1fr; } }
