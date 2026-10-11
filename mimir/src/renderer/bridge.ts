@@ -15,6 +15,10 @@ import {
   type BrainConfig,
   type BrainProviderKind,
   type BuiltInCapability,
+  type ChatGptChat,
+  type ChatGptChatSummary,
+  type ChatGptConfig,
+  type ChatGptStreamEvent,
   type PromptModuleInfo,
   type ChatStreamEvent,
   type FaceState,
@@ -117,6 +121,19 @@ const api = {
     setConfig: (patch: Partial<Omit<BrainConfig, "hasApiKey">>): Promise<BrainConfig> => invoke(IPC.brainSetConfig, patch),
     setApiKey: (provider: BrainProviderKind, key: string): Promise<void> => invoke(IPC.brainSetApiKey, provider, key),
     listOllamaModels: (baseUrl?: string): Promise<string[]> => invoke(IPC.brainListOllamaModels, baseUrl)
+  },
+  chatgpt: {
+    getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),
+    setConfig: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => invoke(IPC.chatgptSetConfig, patch),
+    setApiKey: (key: string): Promise<ChatGptConfig> => invoke(IPC.chatgptSetApiKey, key),
+    listModels: (): Promise<string[]> => invoke(IPC.chatgptListModels),
+    listChats: (): Promise<ChatGptChatSummary[]> => invoke(IPC.chatgptListChats),
+    getChat: (id: string): Promise<ChatGptChat | null> => invoke(IPC.chatgptGetChat, id),
+    deleteChat: (id: string): Promise<void> => invoke(IPC.chatgptDeleteChat, id),
+    send: (chatId: string, text: string, model?: string): Promise<ChatGptChat> => invoke(IPC.chatgptSend, chatId, text, model),
+    stop: (chatId: string) => send(IPC.chatgptStop, chatId),
+    saveToNotes: (id: string): Promise<{ noteId: string }> => invoke(IPC.chatgptSaveToNotes, id),
+    onStream: (cb: (event: ChatGptStreamEvent) => void) => on(IPC.chatgptStream, cb)
   },
   voice: {
     getConfig: (): Promise<VoiceConfig> => invoke(IPC.voiceGetConfig),

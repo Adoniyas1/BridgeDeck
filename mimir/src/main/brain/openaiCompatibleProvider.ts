@@ -192,7 +192,7 @@ function toOpenAiContentParts(text: string, attachments: Attachment[]): Array<Re
   return parts;
 }
 
-async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
