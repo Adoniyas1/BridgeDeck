@@ -797,3 +797,6 @@ body {
 .mcp-custom { display: grid; grid-template-columns: 1fr 1fr 2fr auto; gap: 6px; }
 @media (max-width: 720px) { .mcp-custom { grid-template-columns: 1fr; } }
 .approval-card .edit-card-title::before { content: "⚠ "; color: var(--warning); }
+.setup-storage { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.setup-storage__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.setup-step__body .hint { white-space: pre-wrap; }

@@ -10,7 +10,7 @@ const FILE = "team.json";
 
 export const ROLES: BrainRole[] = ["head", "checker", "executor"];
 
-/** llama-swap's default address: one server in front of the Mac's MLX or the PC's llama.cpp models. */
+/** llama-swap's default address: one server in front of the Mac's or the PC's llama.cpp models. */
 export const LOCAL_SWAP_URL = "http://127.0.0.1:8080";
 
 const endpoint = (model: string, baseUrl: string = LOCAL_SWAP_URL): RoleEndpoint => ({ provider: "openai-compatible", model, baseUrl });
@@ -43,8 +43,8 @@ export const DEFAULT_TEAM: TeamConfig = {
 export const TEAM_PRESETS: TeamPreset[] = [
   {
     id: "mac-mlx",
-    title: "This Mac (MLX)",
-    description: "Qwen3.5-9B plans and checks, Ternary Bonsai 8B makes the tool calls, both on this Mac through llama-swap. They take turns in memory, so steps are checked together at the end.",
+    title: "This Mac",
+    description: "Qwen3.5-9B (IQ3_XXS) plans and checks, Ternary Bonsai 8B makes the tool calls, both on this Mac through llama-swap and llama.cpp. They take turns in memory, so steps are checked together at the end.",
     needsPcAddress: false
   },
   {
@@ -56,7 +56,7 @@ export const TEAM_PRESETS: TeamPreset[] = [
   {
     id: "mac-with-pc",
     title: "This Mac, using the PC when it's on",
-    description: "Every role runs on the Windows PC's models when the PC answers, and on this Mac's MLX models when it doesn't.",
+    description: "Every role runs on the Windows PC's models when the PC answers, and on this Mac's own models when it doesn't.",
     needsPcAddress: true
   }
 ];

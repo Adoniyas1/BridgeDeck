@@ -4,6 +4,7 @@ import { getBrainApiKey } from "../brain/config.js";
 import { normalizeBaseUrl } from "../brain/baseUrl.js";
 import type { BrainRole, RoleEndpoint, RoleStatus, TeamConfig } from "../../shared/types.js";
 import { roleSettings } from "./config.js";
+import { guardEndpoint } from "../setup/memory.js";
 
 export interface ProbeResult {
   reachable: boolean;
@@ -85,5 +86,7 @@ export async function createRoleProvider(config: TeamConfig, which: BrainRole, f
   if (!status.reachable || !status.endpoint) {
     throw new Error(`The ${which === "head" ? "Head" : which === "checker" ? "Checker" : "Executor"} model can't be reached: ${status.detail}.`);
   }
+  // On the Mac, check there's memory for the model before llama-swap loads it.
+  await guardEndpoint(status.endpoint);
   return { provider: await createProviderFor(status.endpoint, { thinking: config.thinking }), status };
 }
