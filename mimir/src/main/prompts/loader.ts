@@ -44,6 +44,8 @@ export interface PromptLoadOptions {
   toolCost?: (name: string) => number;
   budgetTokens?: number;
   exclude?: readonly string[];
+  /** Modules to load whatever the message says (a team plan's step names them); never cut by the budget. */
+  force?: readonly string[];
 }
 
 export interface PromptLoad {
@@ -82,6 +84,7 @@ export function loadPromptModules(opts: PromptLoadOptions): PromptLoad {
   const userText = opts.userText ?? "";
   const budget = opts.budgetTokens ?? DEFAULT_LAZY_BUDGET_TOKENS;
   const excluded = new Set(opts.exclude ?? []);
+  const forced = new Set(opts.force ?? []);
   const toolCost = opts.toolCost ?? (() => 0);
 
   const loaded: LoadedModule[] = [];
@@ -104,13 +107,14 @@ export function loadPromptModules(opts: PromptLoadOptions): PromptLoad {
     let reason: LoadReason | null = null;
     if (module.required) reason = "required";
     else if (mode === "all") reason = "all";
+    else if (forced.has(module.id)) reason = "matched";
     else if (matches(module, userText)) reason = "matched";
     else if ((opts.sticky?.get(module.id) ?? 0) > 0) reason = "sticky";
     if (!reason) { skipped.push({ ...info, reason: "no match" }); continue; }
 
     const text = textFor(module, tier);
     const cost = estimateTokens(text) + offered.reduce((sum, tool) => sum + toolCost(tool), 0);
-    if (reason !== "required" && mode === "lazy" && optionalUsed + cost > budget) {
+    if (reason !== "required" && !forced.has(module.id) && mode === "lazy" && optionalUsed + cost > budget) {
       skipped.push({ ...info, reason: "over budget" });
       continue;
     }

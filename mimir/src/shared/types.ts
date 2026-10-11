@@ -29,6 +29,15 @@ export interface ChatMessage {
   createdAt: number;
   /** Present when this message represents a self-edit proposal awaiting approval. */
   pendingEdit?: PendingEdit;
+  /** The Brain team's plan and steps for this reply, when a team answered. */
+  team?: TeamProgress;
+}
+
+export type TeamStepStatus = "running" | "checking" | "passed" | "retry" | "failed" | "head";
+
+/** The Brain team's work on one message, shown with the reply. */
+export interface TeamProgress {
+  steps: Array<{ goal: string; status: TeamStepStatus | "waiting"; role: BrainRole | null; model: string | null; note?: string; tools: string[] }>;
 }
 
 /** One prompt module sent to the model this turn, with its estimated size in tokens (prompt text plus tool schemas). */
@@ -42,8 +51,13 @@ export interface LoadedPromptModule {
 /** Events pushed from main -> renderer over IPC.chatStream during one agent turn. */
 export type ChatStreamEvent =
   | { type: "text-delta"; text: string }
-  | { type: "tool-start"; name: string }
-  | { type: "tool-end"; name: string; isError: boolean }
+  /** `step` is the Brain team's step the tool ran in (0-based), when a team is working. */
+  | { type: "tool-start"; name: string; step?: number | null }
+  | { type: "tool-end"; name: string; isError: boolean; step?: number | null }
+  /** The Brain team's plan for this message (see src/main/team/graph.ts). */
+  | { type: "team-plan"; steps: Array<{ goal: string }> }
+  /** A step of the plan changed: who is on it and how it went. */
+  | { type: "team-step"; index: number; status: TeamStepStatus; role: BrainRole; model: string; note?: string }
   /** A tool (currently only run_python, for matplotlib figures) produced an
    * image to show alongside the reply. Bypasses the model entirely — it's
    * shown to the user, not fed back into the conversation as text, so a

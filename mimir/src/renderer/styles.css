@@ -747,5 +747,17 @@ body {
 .team-status li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; align-self: center; }
 .team-status li.ok::before { background: #7be08a; }
 .team-tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--warning); }
-.btn--ghost { background: transparent; align-self: flex-start; }
+.settings .btn.btn--ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); box-shadow: none; align-self: flex-start; padding: 4px 10px; font-size: 12px; }
 @media (max-width: 720px) { .team-endpoint { grid-template-columns: 1fr; } }
+
+/* The Brain team's plan inside a reply */
+.team-card { margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(5, 8, 16, 0.45); font-size: 12px; }
+.team-card summary { cursor: pointer; color: var(--accent); letter-spacing: 0.02em; }
+.team-card ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.team-step { display: flex; flex-direction: column; gap: 1px; }
+.team-step__goal { color: var(--text); }
+.team-step__meta { font-size: 11px; color: var(--muted); }
+.team-step__note { font-size: 11px; color: var(--warning); }
+.team-step--passed .team-step__meta { color: #7be08a; }
+.team-step--failed .team-step__meta { color: var(--danger); }
+.team-step--running .team-step__meta, .team-step--checking .team-step__meta, .team-step--head .team-step__meta { color: var(--accent-2); }

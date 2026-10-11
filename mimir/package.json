@@ -22,13 +22,16 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@huggingface/transformers": "^3.2.1",
+    "@langchain/core": "^1.2.17",
+    "@langchain/langgraph": "^1.4.21",
     "@ricky0123/vad-web": "^0.0.30",
     "katex": "^0.18.3",
     "keytar": "^7.9.0",
     "mermaid": "^11.16.1",
     "pdfkit": "^0.20.2",
     "simple-git": "^3.27.0",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
   },
   "optionalDependencies": {
     "@picovoice/porcupine-node": "^3.0.3",

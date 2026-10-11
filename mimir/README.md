@@ -81,6 +81,23 @@ Skills → *What gets loaded* lists every module, when it loads and what it cost
 Mimir has no soul or identity file; `USER.md`, `MEMORY.md` and `TASKS.md`
 hold only what it learns.
 
+## Brain team
+
+Instead of one model doing everything, Settings → **Brain team** can split the work:
+
+- **Head** plans and writes the reply; **Executor** does the steps with tools; **Checker** reviews
+  each result (by default the Head does this too).
+- A message that needs no tools goes straight to the Head (one call). Otherwise the Head writes a
+  short plan, the Executor runs each step with only that step's prompt modules, and the Checker
+  passes it or sends it back with feedback — twice at most, then the Head does the step itself.
+- With "check each step" off, all steps are reviewed together at the end, so a small machine swaps
+  models a few times per task instead of twice per step.
+- Each role has a server to try first and a fallback, so the Mac can use the Windows PC's models
+  when it's on and its own MLX models when it isn't. Settings are per computer (`~/.mimir/team.json`).
+
+The loop is a [LangGraph.js](https://github.com/langchain-ai/langgraphjs) graph run inside Mimir's own
+process (`src/main/team/graph.ts`); the plan and each step show above the reply in the chat.
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:
