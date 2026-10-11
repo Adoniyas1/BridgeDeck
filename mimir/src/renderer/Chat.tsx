@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import MessageContent from "./MessageContent.js";
 import CameraCapture from "./camera/CameraCapture.js";
-import type { ChatMessage, LoadedPromptModule, PendingEdit } from "../shared/types.js";
+import type { ChatMessage, LoadedPromptModule, PendingEdit, TeamProgress } from "../shared/types.js";
 
 interface ChatProps {
   messages: ChatMessage[];
@@ -71,6 +71,7 @@ export default function Chat({
         {messages.map((m) => (
           <div key={m.id} className={`chat-bubble chat-bubble--${m.role}`}>
             <span className="chat-role">{m.role === "user" ? "You" : m.role === "assistant" ? "Mimir" : "System"}</span>
+            {m.team && <TeamCard team={m.team} />}
             <div className="chat-text">
               {m.text ? (
                 <MessageContent text={m.text} />
@@ -192,5 +193,41 @@ export default function Chat({
         </button>
       </form>
     </div>
+  );
+}
+
+const STEP_LABEL: Record<TeamProgress["steps"][number]["status"], string> = {
+  waiting: "Waiting",
+  running: "Working",
+  checking: "Checking",
+  passed: "Done",
+  retry: "Sent back",
+  failed: "Didn't pass",
+  head: "Head is doing it"
+};
+
+/** The Brain team's plan for this reply: each step, who is on it and how it went. */
+function TeamCard({ team }: { team: TeamProgress }) {
+  const done = team.steps.filter((s) => s.status === "passed").length;
+  const working = team.steps.some((s) => s.status === "running" || s.status === "checking" || s.status === "head");
+  return (
+    <details className="team-card" open={working || undefined}>
+      <summary>
+        Plan · {done}/{team.steps.length} steps done
+      </summary>
+      <ol>
+        {team.steps.map((s, i) => (
+          <li key={i} className={`team-step team-step--${s.status}`}>
+            <span className="team-step__goal">{s.goal}</span>
+            <span className="team-step__meta">
+              {STEP_LABEL[s.status]}
+              {s.model && ` · ${s.model}`}
+              {s.tools.length > 0 && ` · ${[...new Set(s.tools)].join(", ")}`}
+            </span>
+            {s.note && <span className="team-step__note">{s.note}</span>}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }

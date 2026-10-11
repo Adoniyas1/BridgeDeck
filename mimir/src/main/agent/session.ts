@@ -8,6 +8,11 @@ import { applyCoreEditAndMaybeRestart } from "../self-edit/restart.js";
 import { AuditLog } from "../self-edit/audit.js";
 import { buildTurnContext, composeSystemPrompt } from "../persona/compose.js";
 import { estimateTokens, STICKY_TURNS } from "../prompts/loader.js";
+import { PROMPT_MODULES } from "../prompts/modules.js";
+import { loadTeamConfig, roleSettings } from "../team/config.js";
+import { createRoleProvider } from "../team/endpoints.js";
+import { runTeamTurn, type RoleKit, type TeamEvent, type TeamMember } from "../team/graph.js";
+import type { BrainProvider, ToolDef, ToolResult } from "../brain/Provider.js";
 import { buildPersonaToolset } from "../persona/tools.js";
 import { LOCAL_DAILY_LOG_INJECT_DAYS, LOCAL_MEMORY_INJECT_MAX_CHARS } from "../persona/templates.js";
 import { buildProjectsToolset } from "../projects/tools.js";
@@ -114,6 +119,9 @@ export class AgentSession {
       return;
     }
     const brainConfig = await loadBrainConfig();
+    const team = await loadTeamConfig();
+    // The Brain team (Head, Executor, Checker) runs instead of the single model; see team/graph.ts.
+    const teamMode = team.mode === "team" && team.engine === "mimir";
     if (turnId !== this.activeTurnId) return;
 
     const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
@@ -130,7 +138,7 @@ export class AgentSession {
     // only when the request clearly matches it. Larger local/cloud models
     // retain the complete toolset below.
     const tier = resolveToolTier(provider);
-    if (tier === "core" && requiresFullEngineeringTools(userText)) {
+    if (!teamMode && tier === "core" && requiresFullEngineeringTools(userText)) {
       const message = "I cannot execute a full CAD or simulation engineering project with this small local model. Select a larger tool-capable model, then ask again; I will show each project, FreeCAD, and CalculiX tool action as it runs rather than claiming work was completed.";
       this.history.push({ role: "user", content: userText, attachments });
       this.history.push({ role: "assistant", content: message });
@@ -140,7 +148,8 @@ export class AgentSession {
       this.sendStream({ type: "turn-done", fullText: message });
       return;
     }
-    const selfEditEnabled = tier === "full";
+    // In team mode each role gets its own tool level, so the full set is built and each role's prompt picks.
+    const selfEditEnabled = tier === "full" || teamMode;
     const selfEdit = selfEditEnabled
       ? buildSelfEditToolset({
           workspaceRoot,
@@ -205,6 +214,11 @@ export class AgentSession {
       ...web.handlers,
       ...dynamicSkills.handlers
     };
+    if (teamMode) {
+      await this.runTeam({ team, turnId, userText, attachments, fullDefs, fullHandlers, dynamicSkillTools: dynamicSkills.defs.map((d) => d.name), effort: brainConfig.effort });
+      return;
+    }
+
     // Which prompt modules (and so which tools) this turn gets. Local models get only what the message needs,
     // one module at a time within a token budget; cloud models get everything their tier allows. See prompts/.
     const lazy = provider.kind === "ollama";
@@ -286,6 +300,136 @@ export class AgentSession {
     if (assistantText) {
       this.history.push({ role: "assistant", content: assistantText });
     }
+  }
+
+  /** One turn by the Brain team: the Head plans, the Executor does each step with only that step's
+   * tools, the Checker reviews, and the Head writes the reply (team/graph.ts). */
+  private async runTeam(args: {
+    team: Awaited<ReturnType<typeof loadTeamConfig>>;
+    turnId: number;
+    userText: string;
+    attachments?: Attachment[];
+    fullDefs: ToolDef[];
+    fullHandlers: Record<string, (input: Record<string, unknown>) => Promise<ToolResult>>;
+    dynamicSkillTools: string[];
+    effort: Awaited<ReturnType<typeof loadBrainConfig>>["effort"];
+  }): Promise<void> {
+    const { team, turnId, userText, attachments, fullDefs, fullHandlers, dynamicSkillTools, effort } = args;
+    const { win, workspaceRoot } = this.deps;
+    const finish = (error?: string) => {
+      if (turnId !== this.activeTurnId) return;
+      if (error) this.sendStream({ type: "error", message: error });
+      this.runningTurn = false;
+      win.webContents.send(IPC.faceState, "idle");
+    };
+
+    let roles: Record<"head" | "executor" | "checker", { provider: BrainProvider; endpoint: { provider: string; model: string } }>;
+    try {
+      const head = await createRoleProvider(team, "head");
+      const executor = await createRoleProvider(team, "executor");
+      const checker = team.checkerSameAsHead ? head : await createRoleProvider(team, "checker");
+      roles = {
+        head: { provider: head.provider, endpoint: head.status.endpoint! },
+        executor: { provider: executor.provider, endpoint: executor.status.endpoint! },
+        checker: { provider: checker.provider, endpoint: checker.status.endpoint! }
+      };
+    } catch (err) {
+      finish(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    if (turnId !== this.activeTurnId) return;
+
+    const tierOf = (role: "head" | "executor" | "checker") => {
+      const choice = roleSettings(team, role).tier;
+      return choice === "auto" ? resolveToolTier({ kind: roles[role].endpoint.provider, model: roles[role].endpoint.model }) : choice;
+    };
+    const toolCosts = new Map(fullDefs.map((d) => [d.name, estimateTokens(JSON.stringify(d))]));
+    const available = new Set(fullDefs.map((d) => d.name));
+    const compose = (role: "head" | "executor" | "checker", modules: string[] | null, text: string) => {
+      const cloud = roles[role].endpoint.provider === "anthropic";
+      return composeSystemPrompt(workspaceRoot, {
+        mode: cloud ? "all" : "lazy",
+        toolTier: tierOf(role),
+        userText: text,
+        force: modules ?? undefined,
+        sticky: modules ? undefined : this.stickyModules,
+        availableTools: available,
+        dynamicSkillTools,
+        toolCost: (name) => toolCosts.get(name) ?? 0,
+        ...(cloud ? {} : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, includeUserProfile: false })
+      });
+    };
+    const kitFor = async (role: "head" | "executor" | "checker", modules: string[] | null, text: string): Promise<RoleKit> => {
+      const composed = await compose(role, modules, text);
+      const allowed = composed.toolNames;
+      const offered = (name: string) => (allowed ? allowed.has(name) : true);
+      return {
+        system: composed.system,
+        tools: fullDefs.filter((d) => offered(d.name)),
+        handlers: Object.fromEntries(Object.entries(fullHandlers).filter(([name]) => offered(name)))
+      };
+    };
+
+    // Whether the message needs tools at all decides between one Head call and a plan; the same
+    // module loader that trims a single model's prompt answers it.
+    const executorTier = tierOf("executor");
+    const routing = await compose("executor", null, userText);
+    const needsTools = routing.loaded.some((m) => m.reason === "matched" || m.reason === "sticky");
+    for (const [id, left] of this.stickyModules) {
+      if (left <= 1) this.stickyModules.delete(id);
+      else this.stickyModules.set(id, left - 1);
+    }
+    for (const m of routing.loaded) if (m.reason === "matched") this.stickyModules.set(m.id, STICKY_TURNS);
+    const catalog = PROMPT_MODULES.filter((m) => {
+      if (m.required || !m.tiers.includes(executorTier)) return false;
+      const tools = executorTier === "core" ? m.coreTools : m.tools;
+      return tools.length === 0 || tools.some((t) => available.has(t));
+    }).map((m) => ({ id: m.id, summary: m.summary }));
+
+    const member = (role: "head" | "executor" | "checker"): TeamMember => ({ provider: roles[role].provider, model: roles[role].endpoint.model });
+    const history = [...this.history];
+    const message = { role: "user" as const, content: userText, attachments };
+    this.history.push(message);
+    win.webContents.send(IPC.faceState, "thinking");
+
+    let reply = "";
+    const emit = (ev: TeamEvent) => {
+      if (turnId !== this.activeTurnId) return;
+      if (ev.type === "text") {
+        reply += ev.text;
+        this.sendStream({ type: "text-delta", text: ev.text });
+      } else if (ev.type === "plan") this.sendStream({ type: "team-plan", steps: ev.steps });
+      else if (ev.type === "step") this.sendStream({ type: "team-step", index: ev.index, status: ev.status, role: ev.role, model: ev.model, note: ev.note });
+      else if (ev.type === "tool-start") this.sendStream({ type: "tool-start", name: ev.name, step: ev.step });
+      else if (ev.type === "tool-end") this.sendStream({ type: "tool-end", name: ev.name, isError: ev.isError, step: ev.step });
+      else if (ev.type === "image") this.sendStream({ type: "image", dataUrl: ev.dataUrl });
+      else if (ev.type === "error") this.sendStream({ type: "error", message: ev.message });
+    };
+
+    try {
+      await runTeamTurn({
+        head: member("head"),
+        executor: member("executor"),
+        checker: member("checker"),
+        history,
+        message,
+        kitFor,
+        catalog,
+        needsTools,
+        checkEachStep: team.checkEachStep,
+        emit,
+        cancelled: () => turnId !== this.activeTurnId,
+        effort
+      });
+    } catch (err) {
+      finish(`The team couldn't finish: ${err instanceof Error ? err.message : String(err)}`);
+      if (reply) this.history.push({ role: "assistant", content: reply });
+      return;
+    }
+    if (turnId !== this.activeTurnId) return;
+    this.sendStream({ type: "turn-done", fullText: reply });
+    finish();
+    if (reply) this.history.push({ role: "assistant", content: reply });
   }
 }
 

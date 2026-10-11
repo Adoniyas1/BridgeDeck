@@ -13,6 +13,7 @@ import { fileToAttachment } from "./attachments.js";
 import { pythonRuntime } from "./python/pythonRuntime.js";
 import { searchProjectFiles } from "./search/projectSearch.js";
 import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, PendingEdit } from "../shared/types.js";
+import { applyTeamEvent } from "./teamProgress.js";
 
 function newId(): string {
   return crypto.randomUUID();
@@ -77,6 +78,9 @@ export default function App() {
         // model — see the "image" ChatStreamEvent doc comment.
         const id = assistantMessageId.current;
         setMessages((prev) => appendToAssistant(prev, id, `\n![plot](${event.dataUrl})\n`));
+      } else if (event.type === "team-plan" || event.type === "team-step" || ((event.type === "tool-start" || event.type === "tool-end") && event.step != null)) {
+        const id = assistantMessageId.current;
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, team: applyTeamEvent(m.team, event) } : m)));
       } else if (event.type === "context") {
         setTurnContext({ modules: event.modules, tokens: event.tokens });
       } else if (event.type === "edit-pending") {

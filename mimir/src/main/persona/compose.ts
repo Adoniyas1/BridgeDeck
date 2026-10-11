@@ -32,6 +32,8 @@ export interface PersonaPromptOptions {
   budgetTokens?: number;
   /** Module ids to leave out, e.g. "self_edit". */
   exclude?: readonly string[];
+  /** Module ids to load whatever the message says (see PromptLoadOptions.force). */
+  force?: readonly string[];
 }
 
 export interface ComposedPrompt {
@@ -85,7 +87,8 @@ export async function composeSystemPrompt(workspaceRoot: string, options: Person
       dynamicSkillTools: options.dynamicSkillTools,
       toolCost: options.toolCost,
       budgetTokens: options.budgetTokens,
-      exclude: options.exclude
+      exclude: options.exclude,
+      force: options.force
     });
     ({ sections, toolNames, loaded, skipped } = result);
     moduleTokens = result.tokens;
