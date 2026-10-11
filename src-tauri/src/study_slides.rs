@@ -255,8 +255,12 @@ fn file_url(path: &Path) -> String {
 mod tests {
     use super::*;
 
+    /// The tests that point the cache folder somewhere run one at a time.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
     #[test]
     fn a_kept_pdf_is_used_only_while_it_is_newer_than_the_presentation() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let base = std::env::temp_dir().join(format!("bd-slides-test-{}", uuid::Uuid::new_v4()));
         let course = base.join("library").join("EE 201");
         fs::create_dir_all(&course).unwrap();
@@ -277,6 +281,25 @@ mod tests {
 
         forget("EE 201", "Week 1.pptx");
         assert!(!pdf.exists());
+        let _ = fs::remove_dir_all(base);
+    }
+
+    /// Converts a real presentation end to end. Needs a converter on this computer, so it runs only
+    /// when BD_TEST_SLIDES names a presentation: `BD_TEST_SLIDES=deck.pptx cargo test study_slides`.
+    #[test]
+    fn converts_a_real_presentation_when_one_is_given() {
+        let Some(sample) = std::env::var_os("BD_TEST_SLIDES").map(PathBuf::from) else { return };
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("bd-slides-real-{}", uuid::Uuid::new_v4()));
+        let course = base.join("library").join("Physics");
+        fs::create_dir_all(&course).unwrap();
+        let deck = course.join(sample.file_name().unwrap());
+        fs::copy(&sample, &deck).unwrap();
+        init(&base.join("data"));
+        let pdf = ensure_pdf(&deck).expect("converted");
+        assert!(fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+        assert_eq!(cached(&deck), Some(pdf.clone()), "kept for next time");
+        assert_eq!(ensure_pdf(&deck).unwrap(), pdf, "not converted twice");
         let _ = fs::remove_dir_all(base);
     }
 
