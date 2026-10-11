@@ -28,6 +28,7 @@ export const DEFAULT_TEAM: TeamConfig = {
   mode: "single",
   engine: "mimir",
   engineModels: "team",
+  thinking: false,
   engineCommands: { "claude-code": null, opencode: null },
   roles: {
     head: role(endpoint(MODELS.macHead)),
@@ -126,6 +127,7 @@ export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): 
     mode: c.mode === "team" ? "team" : c.mode === "single" ? "single" : base.mode,
     engine: ENGINES.has(String(c.engine)) ? (c.engine as TeamConfig["engine"]) : base.engine,
     engineModels: c.engineModels === "own" ? "own" : c.engineModels === "team" ? "team" : base.engineModels,
+    thinking: typeof c.thinking === "boolean" ? c.thinking : base.thinking,
     engineCommands: {
       "claude-code": c.engineCommands && "claude-code" in c.engineCommands ? cleanCommand(c.engineCommands["claude-code"]) : base.engineCommands["claude-code"],
       opencode: c.engineCommands && "opencode" in c.engineCommands ? cleanCommand(c.engineCommands.opencode) : base.engineCommands.opencode

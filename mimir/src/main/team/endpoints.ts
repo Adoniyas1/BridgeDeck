@@ -85,5 +85,5 @@ export async function createRoleProvider(config: TeamConfig, which: BrainRole, f
   if (!status.reachable || !status.endpoint) {
     throw new Error(`The ${which === "head" ? "Head" : which === "checker" ? "Checker" : "Executor"} model can't be reached: ${status.detail}.`);
   }
-  return { provider: await createProviderFor(status.endpoint), status };
+  return { provider: await createProviderFor(status.endpoint, { thinking: config.thinking }), status };
 }

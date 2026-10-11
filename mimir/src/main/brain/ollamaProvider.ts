@@ -41,7 +41,11 @@ export class OllamaProvider implements BrainProvider {
   private baseUrl: string;
   private toolsSupported: boolean;
 
-  constructor(model: string, baseUrl: string = DEFAULT_BASE_URL) {
+  /** Whether the model may think first (Ollama's `think`); undefined leaves Ollama's default. */
+  private thinking: boolean | undefined;
+
+  constructor(model: string, baseUrl: string = DEFAULT_BASE_URL, opts: { thinking?: boolean } = {}) {
+    this.thinking = opts.thinking;
     this.model = model;
     this.baseUrl = normalizeBaseUrl(baseUrl) ?? DEFAULT_BASE_URL;
     this.toolsSupported = LIKELY_TOOL_CAPABLE.test(model);
@@ -65,6 +69,7 @@ export class OllamaProvider implements BrainProvider {
       stream: true,
       messages: toOllamaMessages(opts.system, messages)
     };
+    if (this.thinking !== undefined) body.think = this.thinking;
     if (tools.length > 0 && this.toolsSupported) {
       body.tools = tools.map((t) => ({
         type: "function",
@@ -121,6 +126,7 @@ export class OllamaProvider implements BrainProvider {
         continue;
       }
 
+      if (chunk.message?.thinking) yield { type: "reasoning-delta", text: chunk.message.thinking };
       if (chunk.message?.content) {
         contentBuffer += chunk.message.content;
         for (;;) {
@@ -338,6 +344,7 @@ function lenientExtractLeakedToolCall(
 interface OllamaChunk {
   message?: {
     content?: string;
+    thinking?: string;
     tool_calls?: Array<{ function: { name: string; arguments?: Record<string, unknown> } }>;
   };
   done?: boolean;

@@ -23,10 +23,16 @@ export class OpenAICompatibleProvider implements BrainProvider {
   /** Best-effort: flips to false the first time the server rejects `tools`. */
   private toolsSupported = true;
 
-  constructor(baseUrl: string, model: string, apiKey: string | null = null) {
+  /** Whether the model may think before answering. Off saves minutes per reply on a small machine;
+   * sent as chat_template_kwargs.enable_thinking, which llama.cpp, vLLM and MLX servers read and
+   * the rest ignore. Undefined leaves the server's default. */
+  private thinking: boolean | undefined;
+
+  constructor(baseUrl: string, model: string, apiKey: string | null = null, opts: { thinking?: boolean } = {}) {
     this.baseUrl = normalizeBaseUrl(baseUrl) ?? baseUrl;
     this.model = model;
     this.apiKey = apiKey;
+    this.thinking = opts.thinking;
   }
 
   supportsTools(): boolean {
@@ -48,6 +54,7 @@ export class OpenAICompatibleProvider implements BrainProvider {
       max_tokens: opts.maxTokens ?? 8192,
       messages: toOpenAiMessages(opts.system, messages)
     };
+    if (this.thinking !== undefined) body.chat_template_kwargs = { enable_thinking: this.thinking };
     if (tools.length > 0 && this.toolsSupported) {
       body.tools = tools.map((t) => ({
         type: "function",
@@ -105,6 +112,8 @@ export class OpenAICompatibleProvider implements BrainProvider {
       if (choice.finish_reason) finishReason = choice.finish_reason;
 
       const delta = choice.delta;
+      const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+      if (reasoning) yield { type: "reasoning-delta", text: reasoning };
       if (delta?.content) {
         yield { type: "text-delta", text: delta.content };
       }
@@ -136,6 +145,8 @@ interface OpenAiChunk {
     finish_reason?: string | null;
     delta?: {
       content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
       tool_calls?: Array<{
         index?: number;
         id?: string;
