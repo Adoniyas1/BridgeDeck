@@ -145,7 +145,7 @@ export default function QuickControls({
       >
         FILES
       </button>
-      <button type="button" className="quick-controls__action" title="View Mimir's skill tree" onClick={onOpenSkills}>
+      <button type="button" className="quick-controls__action" title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
         SKILLS
       </button>
     </div>

@@ -11,7 +11,7 @@ export function personaFilePath(workspaceRoot: string, file: string): string {
   return path.join(personaDir(workspaceRoot), file);
 }
 
-/** Relative-to-workspace-root path for a persona file, e.g. "persona/SOUL.md" —
+/** Relative-to-workspace-root path for a persona file, e.g. "persona/MEMORY.md" —
  * this is the form SelfEditTransaction writes expect. */
 export function personaRelativePath(file: string): string {
   return path.posix.join("persona", file);

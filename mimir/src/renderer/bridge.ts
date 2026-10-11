@@ -15,6 +15,7 @@ import {
   type BrainConfig,
   type BrainProviderKind,
   type BuiltInCapability,
+  type PromptModuleInfo,
   type ChatStreamEvent,
   type FaceState,
   type PersonaConfig,
@@ -137,7 +138,6 @@ const api = {
     revert: (auditId: string): Promise<{ ok: boolean; error?: string }> => invoke(IPC.auditRevert, auditId)
   },
   persona: {
-    reset: (): Promise<{ ok: boolean; error?: string }> => invoke(IPC.personaReset),
     getConfig: (): Promise<PersonaConfig> => invoke(IPC.personaGetConfig),
     setConfig: (patch: Partial<PersonaConfig>): Promise<PersonaConfig> => invoke(IPC.personaSetConfig, patch)
   },
@@ -149,6 +149,7 @@ const api = {
     getRoot: (): Promise<string> => invoke(IPC.skillsGetRoot),
     list: (): Promise<SkillSummary[]> => invoke(IPC.skillsList),
     listBuiltIns: (): Promise<BuiltInCapability[]> => invoke(IPC.skillsListBuiltIns),
+    listModules: (): Promise<PromptModuleInfo[]> => invoke(IPC.skillsListModules),
     verify: (name: string): Promise<SkillSummary | null> => invoke(IPC.skillsVerify, name),
     openFolder: (): Promise<{ ok: boolean; error?: string }> => invoke(IPC.skillsOpenFolder)
   },
