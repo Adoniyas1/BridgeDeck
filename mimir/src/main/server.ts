@@ -61,6 +61,7 @@ import { listSkillSummaries, verifySkillNow } from "./skills/tools.js";
 import { listBuiltInCapabilities, listPromptModules } from "./skills/builtins.js";
 import { loadMcpConfig, mcpPresets, saveMcpConfig, type McpConfig } from "./mcp/config.js";
 import { mcpManager } from "./mcp/manager.js";
+import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/config.js";
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
@@ -227,6 +228,8 @@ const invokeHandlers: Record<string, Handler> = {
     await setBrainApiKey(provider, key);
   },
   [IPC.brainListOllamaModels]: (baseUrl?: string): Promise<string[]> => listOllamaModels(baseUrl || undefined),
+  [IPC.codingGetConfig]: async (): Promise<CodingConfig & { projectsRoot: string }> => ({ ...(await loadCodingConfig()), projectsRoot: defaultProjectsRoot() }),
+  [IPC.codingSetConfig]: (patch: Partial<CodingConfig>): Promise<CodingConfig> => saveCodingConfig(patch),
   [IPC.mcpGetConfig]: (): Promise<McpConfig> => loadMcpConfig(),
   [IPC.mcpSetConfig]: async (config: McpConfig): Promise<McpConfig> => {
     const saved = await saveMcpConfig(config);

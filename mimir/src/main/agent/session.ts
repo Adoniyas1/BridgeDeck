@@ -36,6 +36,8 @@ import { randomUUID } from "node:crypto";
 import type { Approver } from "../approvals.js";
 import { loadMcpConfig } from "../mcp/config.js";
 import { mcpManager } from "../mcp/manager.js";
+import { buildCodingToolset } from "../coding/tools.js";
+import { codingRoot } from "../coding/config.js";
 import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
@@ -220,9 +222,12 @@ export class AgentSession {
     await mcpManager.ensure(mcpServers);
     const mcp = mcpManager.toolset(mcpServers, this.askUser);
     const extraModules: PromptModule[] = mcp.modules;
-    const fullDefs = [...(selfEdit?.defs ?? []), ...mcp.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
+    // Claude-Code-style coding tools in the chosen folder; commands and changes outside Projects ask first.
+    const coding = buildCodingToolset({ root: await codingRoot(), projectsRoot: defaultProjectsRoot(), approve: this.askUser });
+    const fullDefs = [...(selfEdit?.defs ?? []), ...mcp.defs, ...coding.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
     const fullHandlers = {
       ...mcp.handlers,
+      ...coding.handlers,
       ...(selfEdit?.handlers ?? {}),
       ...persona.handlers,
       ...projects.handlers,

@@ -12,6 +12,8 @@ import { buildMacToolset, openWithMac } from "../mac/tools.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { buildEngineeringWorkflowToolset } from "../engineering/workflow.js";
 import { buildWebToolset } from "../web/tools.js";
+import { buildCodingToolset } from "../coding/tools.js";
+import { denyAll } from "../approvals.js";
 import { estimateTokens } from "../prompts/loader.js";
 import { moduleForTool, PROMPT_MODULES } from "../prompts/modules.js";
 import type { ToolDef } from "../brain/Provider.js";
@@ -103,5 +105,6 @@ async function collectToolDefs(workspaceRoot: string, auditFilePath: string): Pr
   const engineering = buildEngineeringToolset({ projectsRoot: defaultProjectsRoot(), runFreeCad: runFreeCadMacro, runCalculiX, runNgspice, runKicadErc, runKicadDrc });
   const workflow = buildEngineeringWorkflowToolset(defaultProjectsRoot());
   const web = buildWebToolset();
-  return [...persona.defs, ...projects.defs, ...compute.defs, ...skillsMeta.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...web.defs];
+  const coding = buildCodingToolset({ root: defaultProjectsRoot(), projectsRoot: defaultProjectsRoot(), approve: denyAll });
+  return [...coding.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skillsMeta.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...web.defs];
 }

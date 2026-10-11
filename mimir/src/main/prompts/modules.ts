@@ -214,6 +214,25 @@ export const PROMPT_MODULES: PromptModule[] = [
     coreTools: ["skill_find", "skill_read", "skill_run_script"]
   },
   {
+    id: "coding",
+    title: "Coding",
+    summary: "Read, search and edit code, and run commands, in your coding folder.",
+    when: "You ask about code, a bug, a build, tests or a terminal command",
+    required: false,
+    tiers: ["core", "full"],
+    triggers: [
+      /\b(code|coding|function|class|bug|debug|compile|build|tests?|script|refactor|implement|stack trace|error message|terminal|shell|command line|npm|pip|cargo|python file)\b/i,
+      /\.(py|ts|tsx|js|jsx|rs|go|java|c|cpp|h|cs|rb|swift|kt|sh|json|ya?ml|toml)\b/i
+    ],
+    text:
+      "For code work in the coding folder: Read shows a file with line numbers; Grep and Glob find things; Edit changes a " +
+      "file by replacing exact text (Read it first and copy old_string exactly; make it unique); Write is for new files; " +
+      "Bash runs a command (the user approves each one). Paths are relative to the coding folder. For work with several " +
+      "steps keep a TodoWrite list. Check your change worked (run the tests or the program) before saying it's done.",
+    tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "TodoWrite"],
+    coreTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"]
+  },
+  {
     id: "self_edit",
     title: "Self-editing",
     summary: "Read and change Mimir's own source code, with your sign-off.",
