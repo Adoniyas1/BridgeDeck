@@ -40,7 +40,7 @@ describe("listBuiltInCapabilities", () => {
   it("groups tools into the expected categories", async () => {
     const caps = await listBuiltInCapabilities(workspaceRoot, auditFilePath);
     const categories = new Set(caps.map((c) => c.category));
-    expect(categories).toEqual(new Set(["Memory", "Deadlines", "Project files", "Calculations", "Skills", "Engineering tools", "Web research"]));
+    expect(categories).toEqual(new Set(["Coding", "Memory", "Deadlines", "Project files", "Calculations", "Skills", "Engineering tools", "Web research"]));
   });
 
   it("never lists a soul or identity tool", async () => {

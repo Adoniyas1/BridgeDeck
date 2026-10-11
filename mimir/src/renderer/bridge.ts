@@ -161,6 +161,10 @@ const api = {
     onWakeTriggered: (cb: () => void) => on(IPC.voiceWakeTriggered, cb),
     onHotkeyTriggered: (cb: () => void) => on(IPC.voiceHotkeyTriggered, cb)
   },
+  coding: {
+    getConfig: (): Promise<{ root: string | null; projectsRoot: string }> => invoke(IPC.codingGetConfig),
+    setConfig: (patch: { root: string | null }): Promise<{ root: string | null }> => invoke(IPC.codingSetConfig, patch)
+  },
   approval: {
     decide: (id: string, allow: boolean) => send(IPC.approvalDecide, id, allow)
   },

@@ -290,6 +290,8 @@ export const IPC = {
    * so the model picker can auto-detect rather than requiring free text. */
   brainListOllamaModels: "mimir:brain:list-ollama-models",
   approvalDecide: "mimir:approval:decide",
+  codingGetConfig: "mimir:coding:get-config",
+  codingSetConfig: "mimir:coding:set-config",
   mcpGetConfig: "mimir:mcp:get-config",
   mcpSetConfig: "mimir:mcp:set-config",
   mcpStatus: "mimir:mcp:status",

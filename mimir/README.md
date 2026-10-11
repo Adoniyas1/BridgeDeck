@@ -109,6 +109,14 @@ Projects), Fetch, Git and Sequential thinking.
 Tools a server marks read-only run straight away; anything else shows an **Allow / Deny** card in the
 chat first, unless the server is marked trusted. Servers are per computer (`~/.mimir/mcp.json`).
 
+## Coding tools
+
+A **Coding** prompt module gives Mimir tools shaped like Claude Code's — `Read` (numbered lines),
+`Write`, `Edit` (exact-text replace), `Glob`, `Grep`, `Bash`, `WebFetch` and `TodoWrite` — working in
+a coding folder set in Settings (Projects by default). `Bash` always asks first; `Write`/`Edit` ask
+for any file outside Projects; reads outside the coding folder and Projects ask too. They load when a
+message is about code, or when a Brain-team plan names the `coding` module.
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:
