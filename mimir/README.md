@@ -138,20 +138,24 @@ their own tools, and keep the conversation going between messages.
 ## Model servers
 
 Settings → **Model servers** gets the Brain team's models running without a terminal. Mimir
-downloads [llama-swap](https://github.com/mostlygeek/llama-swap) (and uv on a Mac, or llama.cpp's
-CUDA build on Windows) from their GitHub releases into `~/.mimir/bin`, writes
-`~/.mimir/llama-swap.yaml`, runs llama-swap in the background (optionally whenever Mimir starts),
-warms each model up (the first start downloads it), and applies the matching Brain-team preset.
+uses [llama-swap](https://github.com/mostlygeek/llama-swap) in front of llama.cpp's `llama-server`,
+writes `~/.mimir/llama-swap.yaml`, runs llama-swap in the background (optionally whenever Mimir
+starts), warms each model up, and applies the matching Brain-team preset. Programs it downloads go
+in `~/.mimir/bin`.
 
-- **Mac (8 GB):** MLX through `mlx_lm.server` — Qwen3.5-9B (`mlx-community/Qwen3.5-9B-OptiQ-4bit`)
-  as Head, Ternary Bonsai 8B (`prism-ml/Ternary-Bonsai-8B-mlx-2bit`) as Executor, one loaded at a
-  time, each unloaded after 10 idle minutes.
+- **Mac (8 GB):** the GGUF files and llama-server already in `~/Bonsai-demo` are used as they are
+  (PrismML's build, which reads Ternary Bonsai's PQ2_0 files; Mimir downloads it if missing).
+  Qwen3.5-9B **IQ3_XXS** is the Head, Ternary Bonsai 8B (PQ2_0) the Executor, one loaded at a time
+  with an 8K context and a 4-bit KV cache, each unloaded after 10 idle minutes. Before a model loads,
+  a **memory guard** checks free memory (vm_stat) and refuses with what to close instead of letting
+  the Mac run out. The old MLX downloads can be deleted under **Disk space**.
 - **Windows PC (RTX 4070 Ti 12 GB, 16 GB RAM):** `llama-server -hf …` — Qwen3.5-35B-A3B
   (`UD-Q4_K_XL`, part of its experts in RAM with `--n-cpu-moe`) as Head, Qwen3.5-9B (`Q4_K_M`) as
   Executor. With 16 GB of RAM they take turns; "Keep both models loaded" uses a llama-swap group
   instead. It listens on `0.0.0.0:8080` so the Mac can use it (allow it through Windows Firewall).
 
-Each model's source and extra server arguments can be changed in the same panel.
+Each model's file or source and its server arguments can be changed in the same panel. Every chat
+turn is logged to `~/.mimir/logs/<date>.md` (model calls, timings, prompt sizes, tools, errors).
 
 ## How self-editing works
 

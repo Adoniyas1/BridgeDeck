@@ -190,19 +190,24 @@ export interface TeamPreset {
   needsPcAddress: boolean;
 }
 
-/** Which kind of computer the model-server setup is for: a Mac runs MLX models, a PC llama.cpp. */
+/** Which kind of computer the model-server setup is for: the 8 GB Mac or the Windows PC (both run llama.cpp). */
 export type SetupComputer = "mac" | "pc";
 
 /** One model llama-swap serves: the name the Brain team asks for, where it comes from (a Hugging
  * Face repo, for GGUF with a :quant tag) and extra server arguments. */
 export interface SetupModel {
   name: string;
+  /** A .gguf file on this computer, or a Hugging Face repo with a quant tag (repo:quant). */
   source: string;
   args: string;
 }
 
 export interface SetupConfig {
+  /** 2: the Mac runs GGUF models with llama.cpp (version 1 used MLX, which ran out of memory on 8 GB). */
+  version: number;
   computer: SetupComputer;
+  /** The llama-server to use, when not the one Mimir finds (Bonsai-demo's, ~/.mimir/bin, PATH). */
+  serverPath: string | null;
   /** Where llama-swap listens: 127.0.0.1:8080 for this computer only, 0.0.0.0:8080 to serve the Mac. */
   listen: string;
   /** Start llama-swap when Mimir starts. */
@@ -227,8 +232,24 @@ export interface SetupStep {
   note: string;
 }
 
+/** Something taking up disk space that Settings can show and (when deletable) remove. */
+export interface StorageItem {
+  id: string;
+  label: string;
+  path: string;
+  bytes: number;
+  deletable: boolean;
+  hint: string;
+}
+
 export interface SetupView {
   config: SetupConfig;
+  /** Models (.gguf) and llama-server builds already on this computer. */
+  found: { models: Array<{ path: string; bytes: number }>; servers: string[] };
+  /** The llama-server Mimir will use, if any. */
+  server: string | null;
+  memory: { availableBytes: number; totalBytes: number };
+  storage: StorageItem[];
   steps: SetupStep[];
   /** The llama-swap config Mimir writes. */
   yaml: string;

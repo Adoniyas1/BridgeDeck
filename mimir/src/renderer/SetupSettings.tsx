@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import type { SetupConfig, SetupModel, SetupStep, SetupView } from "../shared/types.js";
+import type { SetupConfig, SetupModel, SetupView, StorageItem } from "../shared/types.js";
 
 const ROLE_TEXT = { head: "Head", executor: "Executor" } as const;
+const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
 
 /** Settings → Model servers: the steps to get llama-swap and the team's models running on this
  * computer, each with a check and a button (src/main/setup). */
@@ -22,15 +23,19 @@ export default function SetupSettings() {
     setView(await window.mimir.setup.setConfig(next));
   }
 
-  async function run(step: SetupStep) {
-    setBusy(step.id);
+  async function run(id: string) {
+    setBusy(id);
     try {
-      const result = await window.mimir.setup.run(step.id);
+      const result = await window.mimir.setup.run(id);
       setView(result.view);
-      setNotes((n) => ({ ...n, [step.id]: { ok: result.ok, text: result.message } }));
+      setNotes((n) => ({ ...n, [id]: { ok: result.ok, text: result.message } }));
     } finally {
       setBusy(null);
     }
+  }
+
+  function free(item: StorageItem) {
+    if (window.confirm(`Delete ${item.label} (${gb(item.bytes)})?\n\n${item.path}`)) void run(`free:${item.id}`);
   }
 
   const setModel = (role: "head" | "executor", model: SetupModel) => void patch({ models: { ...config.models, [role]: model } });
@@ -39,20 +44,21 @@ export default function SetupSettings() {
     <section>
       <h3>Model servers</h3>
       <p className="hint">
-        Gets the Brain team's models running here without a terminal: llama-swap in front of {mac ? "MLX (Apple silicon)" : "llama.cpp on the NVIDIA card"}.
-        Programs go in ~/.mimir/bin.
+        Gets the Brain team's models running here without a terminal: llama-swap in front of llama.cpp{mac ? " on the Mac's GPU" : " on the NVIDIA card"}.
+        Programs Mimir downloads go in ~/.mimir/bin. {gb(view.memory.availableBytes)} of {gb(view.memory.totalBytes)} memory free right now.
       </p>
       <div className="team-engine__pick" role="radiogroup" aria-label="This computer">
         {(["mac", "pc"] as const).map((c) => (
           <button key={c} type="button" role="radio" aria-checked={config.computer === c} className={`team-engine__option${config.computer === c ? " team-engine__option--on" : ""}`} onClick={() => void patch({ computer: c })}>
-            {c === "mac" ? "Mac (MLX)" : "Windows PC (llama.cpp)"}
+            {c === "mac" ? "Mac" : "Windows PC"}
           </button>
         ))}
       </div>
 
       {(["head", "executor"] as const).map((role) => (
-        <ModelRow key={`${config.computer}-${role}-${config.models[role].source}-${config.models[role].args}`} label={ROLE_TEXT[role]} model={config.models[role]} showArgs={!mac} onChange={(m) => setModel(role, m)} />
+        <ModelRow key={`${config.computer}-${role}-${config.models[role].source}-${config.models[role].args}`} label={ROLE_TEXT[role]} model={config.models[role]} found={view.found.models.map((m) => m.path)} onChange={(m) => setModel(role, m)} />
       ))}
+      <ServerRow key={config.serverPath ?? ""} saved={config.serverPath} using={view.server} found={view.found.servers} onChange={(serverPath) => void patch({ serverPath })} />
 
       <label className="checkbox-row">
         <input type="checkbox" checked={config.keepBothLoaded} onChange={(e) => void patch({ keepBothLoaded: e.target.checked })} />
@@ -71,7 +77,7 @@ export default function SetupSettings() {
               <div className="setup-step__head">
                 <strong>{step.title}</strong>
                 {step.action && (
-                  <button type="button" className="btn" disabled={busy !== null} onClick={() => void run(step)}>
+                  <button type="button" className="btn" disabled={busy !== null} onClick={() => void run(step.id)}>
                     {busy === step.id ? "Working…" : step.action}
                   </button>
                 )}
@@ -84,6 +90,26 @@ export default function SetupSettings() {
           </li>
         ))}
       </ol>
+
+      {view.storage.length > 0 && (
+        <div className="setup-storage">
+          <strong>Disk space</strong>
+          {view.storage.map((item) => (
+            <div key={item.id} className="setup-storage__row">
+              <span>
+                {item.label} · {gb(item.bytes)}
+                <span className="hint"> {item.hint}</span>
+              </span>
+              {item.deletable && (
+                <button type="button" className="btn btn--ghost" disabled={busy !== null} onClick={() => free(item)}>
+                  {busy === `free:${item.id}` ? "Deleting…" : "Delete"}
+                </button>
+              )}
+              {notes[`free:${item.id}`] && <span className="hint">{notes[`free:${item.id}`]!.text}</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
       <details className="setup-details">
         <summary>llama-swap config ({view.configPath})</summary>
@@ -99,7 +125,7 @@ export default function SetupSettings() {
   );
 }
 
-function ModelRow({ label, model, showArgs, onChange }: { label: string; model: SetupModel; showArgs: boolean; onChange: (m: SetupModel) => void }) {
+function ModelRow({ label, model, found, onChange }: { label: string; model: SetupModel; found: string[]; onChange: (m: SetupModel) => void }) {
   // Remounted (by key) when the saved model changes, so these start from what's saved.
   const [source, setSource] = useState(model.source);
   const [args, setArgs] = useState(model.args);
@@ -109,8 +135,35 @@ function ModelRow({ label, model, showArgs, onChange }: { label: string; model: 
       <span className="team-endpoint__label">
         {label} <code>{model.name}</code>
       </span>
-      <input title="Hugging Face repo (GGUF: repo:quant)" value={source} onChange={(e) => setSource(e.target.value)} onBlur={save} />
-      {showArgs && <input title="Extra llama-server arguments" placeholder="extra arguments" value={args} onChange={(e) => setArgs(e.target.value)} onBlur={save} />}
+      <input list={`found-${label}`} title="A .gguf file on this computer, or a Hugging Face repo:quant" value={source} onChange={(e) => setSource(e.target.value)} onBlur={save} />
+      <datalist id={`found-${label}`}>
+        {found.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+      <input title="llama-server arguments" placeholder="extra arguments" value={args} onChange={(e) => setArgs(e.target.value)} onBlur={save} />
+    </div>
+  );
+}
+
+function ServerRow({ saved, using, found, onChange }: { saved: string | null; using: string | null; found: string[]; onChange: (p: string | null) => void }) {
+  const [value, setValue] = useState(saved ?? "");
+  return (
+    <div className="team-endpoint setup-model">
+      <span className="team-endpoint__label">llama-server</span>
+      <input
+        list="found-servers"
+        placeholder={using ?? "found automatically"}
+        title="Leave empty to use Bonsai-demo's build, Mimir's, or one on PATH"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => value.trim() !== (saved ?? "") && onChange(value.trim() || null)}
+      />
+      <datalist id="found-servers">
+        {found.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
     </div>
   );
 }

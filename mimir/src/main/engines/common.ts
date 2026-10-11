@@ -7,6 +7,7 @@ import { preview, type Approver } from "../approvals.js";
 import { getBrainApiKey } from "../brain/config.js";
 import { normalizeBaseUrl } from "../brain/baseUrl.js";
 import { resolveRole } from "../team/endpoints.js";
+import { guardEndpoint } from "../setup/memory.js";
 import type { BrainRole, TeamConfig } from "../../shared/types.js";
 import type { Upstream } from "./anthropicBridge.js";
 
@@ -61,6 +62,7 @@ export async function roleUpstream(team: TeamConfig, role: BrainRole): Promise<U
   const label = role === "head" ? "Head" : role === "executor" ? "Executor" : "Checker";
   if (!status.reachable || !status.endpoint) throw new Error(`The ${label} model can't be reached: ${status.detail}.`);
   const e = status.endpoint;
+  await guardEndpoint(e);
   if (e.provider === "anthropic") {
     throw new Error(`The ${label} is set to Anthropic. Choose “its own models” for this agent to use your Anthropic login, or point the ${label} at a local server.`);
   }

@@ -41,6 +41,7 @@ import { codingRoot } from "../coding/config.js";
 import { EngineRunner } from "../engines/index.js";
 import { engineName } from "../engines/common.js";
 import { TurnLog } from "../logs/turnLog.js";
+import { guardEndpoint } from "../setup/memory.js";
 import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
@@ -143,6 +144,8 @@ export class AgentSession {
 
     let provider;
     try {
+      // On the Mac, check there's memory for a model on its own llama-swap before it loads.
+      await guardEndpoint(await loadBrainConfig());
       provider = await createBrainProvider({ thinking: team.thinking });
     } catch (err) {
       if (turnId !== this.activeTurnId) return;
@@ -360,15 +363,22 @@ export class AgentSession {
     win.webContents.send(IPC.faceState, "thinking");
     const live = () => turnId === this.activeTurnId;
     const note = attachments?.length ? `\n\n(${attachments.length} attachment${attachments.length === 1 ? "" : "s"} left out: ${engineName(engine)} gets text only here.)` : "";
+    const log = new TurnLog(`${engineName(engine)} (${team.engineModels === "team" ? "team's models" : "its own models"})`, userText);
     let reply = "";
     try {
       const result = await this.engines.run(team, {
         prompt: userText,
         cwd: await codingRoot(),
         projectsRoot: defaultProjectsRoot(),
-        approve: this.askUser,
+        approve: async (request) => {
+          const allowed = await this.askUser(request);
+          log.note(`asked: ${request.title} → ${allowed ? "allowed" : "denied"}`);
+          return allowed;
+        },
         signal: abort.signal,
         emit: (ev) => {
+          if (ev.type === "tool-start") log.note(`tool ${ev.name} started`);
+          else if (ev.type === "tool-end") log.note(`tool ${ev.name} ${ev.isError ? "failed" : "finished"}`);
           if (!live()) return;
           if (ev.type === "text") {
             reply += ev.text;
@@ -378,11 +388,14 @@ export class AgentSession {
         }
       });
       reply = result.text || reply;
+      void log.finish({ reply });
       if (!live()) return;
       if (note) this.sendStream({ type: "text-delta", text: note });
       this.sendStream({ type: "turn-done", fullText: reply + note });
     } catch (err) {
-      if (live()) this.sendStream({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      void log.finish({ error: message });
+      if (live()) this.sendStream({ type: "error", message });
     } finally {
       if (reply) this.history.push({ role: "assistant", content: reply });
       if (live()) {
@@ -411,9 +424,12 @@ export class AgentSession {
     dynamicSkillTools: string[];
     effort: Awaited<ReturnType<typeof loadBrainConfig>>["effort"];
   }): Promise<void> {
-    const { team, turnId, userText, attachments, fullDefs, fullHandlers, extraModules, dynamicSkillTools, effort } = args;
+    const { team, turnId, userText, attachments, fullDefs, extraModules, dynamicSkillTools, effort } = args;
     const { win, workspaceRoot } = this.deps;
+    const log = new TurnLog("Brain team", userText);
+    const fullHandlers = log.handlers(args.fullHandlers);
     const finish = (error?: string) => {
+      if (error) void log.finish({ error });
       if (turnId !== this.activeTurnId) return;
       if (error) this.sendStream({ type: "error", message: error });
       this.runningTurn = false;
@@ -484,7 +500,8 @@ export class AgentSession {
       return tools.length === 0 || tools.some((t) => available.has(t));
     }).map((m) => ({ id: m.id, summary: m.summary }));
 
-    const member = (role: "head" | "executor" | "checker"): TeamMember => ({ provider: roles[role].provider, model: roles[role].endpoint.model });
+    const label = { head: "Head", executor: "Executor", checker: "Checker" } as const;
+    const member = (role: "head" | "executor" | "checker"): TeamMember => ({ provider: log.provider(roles[role].provider, label[role]), model: roles[role].endpoint.model });
     const history = [...this.history];
     const message = { role: "user" as const, content: userText, attachments };
     this.history.push(message);
@@ -496,8 +513,13 @@ export class AgentSession {
       if (ev.type === "text") {
         reply += ev.text;
         this.sendStream({ type: "text-delta", text: ev.text });
-      } else if (ev.type === "plan") this.sendStream({ type: "team-plan", steps: ev.steps });
-      else if (ev.type === "step") this.sendStream({ type: "team-step", index: ev.index, status: ev.status, role: ev.role, model: ev.model, note: ev.note });
+      } else if (ev.type === "plan") {
+        log.note(`plan: ${ev.steps.map((step, i) => `${i + 1}. ${step.goal}`).join(" ")}`);
+        this.sendStream({ type: "team-plan", steps: ev.steps });
+      } else if (ev.type === "step") {
+        log.note(`step ${ev.index + 1} ${ev.status} (${ev.role}, ${ev.model})${ev.note ? `: ${ev.note}` : ""}`);
+        this.sendStream({ type: "team-step", index: ev.index, status: ev.status, role: ev.role, model: ev.model, note: ev.note });
+      }
       else if (ev.type === "tool-start") this.sendStream({ type: "tool-start", name: ev.name, step: ev.step });
       else if (ev.type === "tool-end") this.sendStream({ type: "tool-end", name: ev.name, isError: ev.isError, step: ev.step });
       else if (ev.type === "image") this.sendStream({ type: "image", dataUrl: ev.dataUrl });
@@ -524,6 +546,7 @@ export class AgentSession {
       if (reply) this.history.push({ role: "assistant", content: reply });
       return;
     }
+    void log.finish({ reply });
     if (turnId !== this.activeTurnId) return;
     this.sendStream({ type: "turn-done", fullText: reply });
     finish();

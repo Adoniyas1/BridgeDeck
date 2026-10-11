@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync, readdirSync } from "node:fs";
-import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -10,8 +10,9 @@ import { MIMIR_HOME, readJsonFile, writeJsonFile } from "../config/store.js";
 import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
-import type { SetupConfig, SetupStep, SetupView } from "../../shared/types.js";
-import { cleanSetupConfig, localSwapUrl, mergeSetupConfig, pickAssets, releaseTool, swapYaml, type ReleaseTool } from "./plan.js";
+import type { SetupConfig, SetupStep, SetupView, StorageItem } from "../../shared/types.js";
+import { cleanSetupConfig, isLocalModel, localSwapUrl, mergeSetupConfig, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { availableMemory, checkRoom } from "./memory.js";
 
 /**
  * Settings → Model servers: gets llama-swap and the team's models running on this computer
@@ -25,7 +26,16 @@ export const BIN_DIR = path.join(MIMIR_HOME, "bin");
 export const SWAP_CONFIG = path.join(MIMIR_HOME, "llama-swap.yaml");
 
 export async function loadSetupConfig(): Promise<SetupConfig> {
-  return cleanSetupConfig(await readJsonFile<unknown>(FILE, {}));
+  const raw = await readJsonFile<unknown>(FILE, {});
+  const config = cleanSetupConfig(raw);
+  // First run on a Mac (or the old MLX setup): use models already on this Mac when there are some.
+  if ((raw as { version?: number }).version !== SETUP_VERSION && config.computer === "mac") {
+    const picked = pickModels(await findLocal());
+    if (picked.head) config.models.head.source = picked.head;
+    if (picked.executor) config.models.executor.source = picked.executor;
+    await writeJsonFile(FILE, config);
+  }
+  return config;
 }
 
 export async function saveSetupConfig(patch: Partial<SetupConfig>): Promise<SetupConfig> {
@@ -42,8 +52,91 @@ export function findCommand(name: string, env: NodeJS.ProcessEnv = process.env):
   return null;
 }
 
-/** The server program llama-swap starts for each model. */
-const serverCommand = (config: SetupConfig) => (config.computer === "mac" ? "mlx_lm.server" : "llama-server");
+/** Where to look for models and llama.cpp builds already on this computer. */
+const SEARCH_ROOTS = ["Bonsai-demo", "models", path.join(".mimir", "models"), "Downloads", "llama.cpp"];
+
+/** .gguf models and llama-server programs under the usual folders (Bonsai-demo first). */
+export async function findLocal(home = os.homedir()): Promise<{ models: Array<{ path: string; bytes: number }>; servers: string[] }> {
+  const models: Array<{ path: string; bytes: number }> = [];
+  const servers: string[] = [];
+  let budget = 20_000;
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 5 || budget <= 0) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (--budget <= 0) return;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!/^(node_modules|\.git|\.venv|venv|__pycache__)$/.test(e.name)) await walk(full, depth + 1);
+      } else if (/\.gguf$/i.test(e.name) && !/mmproj/i.test(e.name)) {
+        try {
+          models.push({ path: full, bytes: (await lstat(full)).size });
+        } catch {
+          /* gone */
+        }
+      } else if (e.name === "llama-server" || e.name === "llama-server.exe") servers.push(full);
+    }
+  };
+  for (const root of SEARCH_ROOTS) await walk(path.join(home, root), 0);
+  return { models, servers };
+}
+
+/** The models to use from what's on this computer: Ternary Bonsai 8B as Executor, Qwen3.5-9B as
+ * Head (IQ3_XXS scored best in your benchmark, then IQ2_M). */
+export function pickModels(found: { models: Array<{ path: string }> }): { head: string | null; executor: string | null } {
+  const names = found.models.map((m) => m.path);
+  const base = (p: string) => path.basename(p);
+  const executor = names.filter((p) => /bonsai/i.test(base(p)) && /8b/i.test(p)).sort((a, b) => Number(/PQ2/i.test(base(b))) - Number(/PQ2/i.test(base(a))))[0] ?? null;
+  const rank = (p: string) => (/IQ3_XXS/i.test(p) ? 0 : /IQ2_M/i.test(p) ? 1 : /Q3/i.test(p) ? 2 : /Q4/i.test(p) ? 3 : 4);
+  const head = names.filter((p) => /qwen3[._-]?5.*9b/i.test(base(p))).sort((a, b) => rank(base(a)) - rank(base(b)))[0] ?? null;
+  return { head, executor };
+}
+
+/** The llama-server to run: the one chosen in Settings, else Bonsai-demo's build (it reads PQ2_0
+ * files), else Mimir's own or one on PATH. */
+async function findServer(config: SetupConfig): Promise<string | null> {
+  if (config.serverPath && existsSync(config.serverPath)) return config.serverPath;
+  const local = (await findLocal()).servers;
+  const bonsai = local.find((s) => s.includes(`Bonsai-demo${path.sep}bin`)) ?? local.find((s) => s.includes("Bonsai-demo"));
+  return bonsai ?? findCommand("llama-server") ?? local[0] ?? null;
+}
+
+/** Things that take up space for local models: the MLX downloads from the old Mac setup (which can
+ * go), and Ollama's models (shown, removed with `ollama rm`). */
+export async function storageItems(home = os.homedir(), env: NodeJS.ProcessEnv = process.env): Promise<StorageItem[]> {
+  const hub = env.HF_HUB_CACHE || path.join(env.HF_HOME || path.join(home, ".cache", "huggingface"), "hub");
+  const candidates: Array<Omit<StorageItem, "bytes">> = [
+    { id: "mlx-qwen", label: "MLX Qwen3.5-9B 4-bit (old Mac setup)", path: path.join(hub, "models--mlx-community--Qwen3.5-9B-OptiQ-4bit"), deletable: true, hint: "Not used any more: the Mac now runs your GGUF files." },
+    { id: "mlx-bonsai", label: "MLX Ternary Bonsai 8B (old Mac setup)", path: path.join(hub, "models--prism-ml--Ternary-Bonsai-8B-mlx-2bit"), deletable: true, hint: "A second copy of Bonsai; the GGUF one is used now." },
+    { id: "mlx-lm", label: "mlx-lm and its Python (old Mac setup)", path: path.join(home, ".local", "share", "uv", "tools", "mlx-lm"), deletable: true, hint: "Only the MLX setup used it." },
+    { id: "ollama", label: "Ollama models", path: path.join(home, ".ollama", "models"), deletable: false, hint: "Remove one with “ollama rm <name>” (see “ollama list”)." }
+  ];
+  const out: StorageItem[] = [];
+  for (const c of candidates) {
+    const bytes = await diskUsage(c.path);
+    if (bytes > 0) out.push({ ...c, bytes });
+  }
+  return out;
+}
+
+/** Bytes used under a folder, not following links (Hugging Face's cache links into its own blobs). */
+async function diskUsage(target: string): Promise<number> {
+  let info;
+  try {
+    info = await lstat(target);
+  } catch {
+    return 0;
+  }
+  if (!info.isDirectory()) return info.isSymbolicLink() ? 0 : info.size;
+  let total = 0;
+  for (const name of await readdir(target).catch(() => [] as string[])) total += await diskUsage(path.join(target, name));
+  return total;
+}
 
 async function listFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -111,6 +204,7 @@ export async function installRelease(tool: ReleaseTool, fetchImpl: Fetch = fetch
 
 /** Whether a model's files are already downloaded (Hugging Face's cache, or llama.cpp's). */
 export function modelCached(source: string, env: NodeJS.ProcessEnv = process.env, home = os.homedir(), platform = process.platform): boolean {
+  if (isLocalModel(source)) return existsSync(source.replace(/^~(?=\/)/, home));
   const [repo] = source.split(":");
   const [org, name] = (repo ?? "").split("/");
   if (!org || !name) return false;
@@ -195,59 +289,56 @@ async function fileText(file: string): Promise<string | null> {
 export async function setupView(): Promise<SetupView> {
   const config = await loadSetupConfig();
   const mac = config.computer === "mac";
-  const server = findCommand(serverCommand(config));
-  const yaml = swapYaml(config, server ?? serverCommand(config));
+  const found = await findLocal();
+  const server = await findServer(config);
+  const yaml = swapYaml(config, server ?? "llama-server");
   const written = await fileText(SWAP_CONFIG);
   const up = await answers(localSwapUrl(config));
   const team = await loadTeamConfig();
   const preset = mac ? "mac-mlx" : "windows-llamacpp";
   const step = (s: Omit<SetupStep, "note"> & { note?: string }): SetupStep => ({ note: "", ...s });
   const has = (name: string) => findCommand(name) !== null;
-  const cached = (["head", "executor"] as const).filter((r) => modelCached(config.models[r].source));
+  const ready = (["head", "executor"] as const).filter((r) => modelCached(config.models[r].source));
 
   const steps: SetupStep[] = [
     step({
+      id: "llama.cpp",
+      title: mac ? "llama.cpp (Bonsai's build)" : "llama.cpp (CUDA)",
+      detail: mac
+        ? "llama-server runs the models on the Mac's GPU. PrismML's build reads Ternary Bonsai's PQ2_0 files; Mimir uses the one in ~/Bonsai-demo when it's there."
+        : "llama-server for the NVIDIA card: Mimir gets the CUDA build and its runtime from llama.cpp's releases. Needs a current NVIDIA driver.",
+      command: mac ? "cd ~/Bonsai-demo && ./setup.sh" : "winget install llama.cpp   (Vulkan build: works, a bit slower)",
+      action: process.platform === "darwin" || process.platform === "win32" ? (server ? "Update" : "Install") : null,
+      state: server ? "done" : "todo",
+      note: server ? `Using ${server}` : ""
+    }),
+    step({
+      id: "models",
+      title: "Models",
+      detail: mac
+        ? "Qwen3.5-9B IQ3_XXS plans and checks; Ternary Bonsai 8B (PQ2_0) does the tool steps. Files already on this Mac are used as they are, nothing is copied."
+        : "Downloaded the first time each one starts.",
+      command: null,
+      action: "Look again",
+      state: ready.length === 2 ? "done" : "todo",
+      note: (["head", "executor"] as const).map((r) => `${config.models[r].name}: ${modelCached(config.models[r].source) ? config.models[r].source : `${config.models[r].source} (downloaded on first start)`}`).join("\n")
+    }),
+    step({
       id: "llama-swap",
       title: "llama-swap",
-      detail: "One address (port 8080) for both models; it starts each model's server when the team asks for it.",
+      detail: "One address (port 8080) for both models; it starts each model's server when the team asks for it, one at a time.",
       command: mac ? "brew tap mostlygeek/llama-swap && brew install llama-swap" : "Download llama-swap from github.com/mostlygeek/llama-swap/releases",
       action: has("llama-swap") ? "Update" : "Install",
       state: has("llama-swap") ? "done" : "todo"
-    })
-  ];
-  if (mac) {
-    steps.push(
-      step({ id: "uv", title: "uv", detail: "Installs Python tools without touching the system Python.", command: "brew install uv", action: has("uv") ? null : "Install", state: has("uv") ? "done" : "todo" }),
-      step({
-        id: "mlx-lm",
-        title: "MLX (mlx-lm)",
-        detail: "Apple's model runtime for Apple silicon; mlx_lm.server serves a model over the OpenAI API.",
-        command: "uv tool install --upgrade mlx-lm",
-        action: has("mlx_lm.server") ? "Update" : "Install",
-        state: has("mlx_lm.server") ? "done" : "todo"
-      })
-    );
-  } else {
-    steps.push(
-      step({
-        id: "llama.cpp",
-        title: "llama.cpp (CUDA)",
-        detail: "llama-server for the NVIDIA card: Mimir gets the CUDA build and its runtime from llama.cpp's releases. Needs a current NVIDIA driver.",
-        command: "winget install llama.cpp   (Vulkan build: works, a bit slower)",
-        action: process.platform === "win32" ? (has("llama-server") ? "Update" : "Install") : null,
-        state: has("llama-server") ? "done" : "todo"
-      })
-    );
-  }
-  steps.push(
+    }),
     step({
       id: "config",
       title: "Model list",
-      detail: `Writes ${SWAP_CONFIG} with the two models below${config.keepBothLoaded ? ", kept loaded together" : ", taking turns in memory"}.`,
+      detail: `Writes ${SWAP_CONFIG} with the two models${config.keepBothLoaded ? ", kept loaded together" : ", taking turns in memory"}.`,
       command: null,
       action: written === yaml ? "Write again" : "Write it",
       state: written === yaml ? "done" : written ? "error" : "todo",
-      note: written && written !== yaml ? "The file is out of date with these settings." : ""
+      note: written && written !== yaml ? "The file is out of date with these settings (it may still list the old MLX models). Write it again before starting." : ""
     }),
     step({
       id: "start",
@@ -262,60 +353,79 @@ export async function setupView(): Promise<SetupView> {
     }),
     step({
       id: "warm-up",
-      title: "Download and load the models",
-      detail: `The first start downloads each model (${mac ? "about 2–5 GB each" : "about 20 GB for the Head, 6 GB for the Executor"}), then loads it. This sends each one a one-word message.${mac ? " On an 8 GB Mac, quit big apps first; if a model won't load, `sudo sysctl iogpu.wired_limit_mb=6144` lets the GPU use more memory (until restart)." : ""}`,
+      title: "Load the models once",
+      detail: `Loads each model and sends it a one-word message${mac ? "" : " (the first start downloads it: about 20 GB for the Head, 6 GB for the Executor)"}. Before each load Mimir checks there's enough free memory and stops instead of letting the computer run out.`,
       command: null,
       action: up ? "Warm up" : null,
-      state: cached.length === 2 ? "done" : "todo",
-      note: cached.length === 1 ? `${config.models[cached[0]!].name} is downloaded.` : ""
+      state: "todo"
     }),
     step({
       id: "team",
       title: "Use them for the Brain team",
-      detail: `Applies the “${mac ? "This Mac (MLX)" : "This Windows PC (llama.cpp)"}” preset. To use the PC from the Mac, choose “This Mac, using the PC when it's on” in Brain team instead.`,
+      detail: `Applies the “${mac ? "This Mac" : "This Windows PC (llama.cpp)"}” preset. To use the PC from the Mac, choose “This Mac, using the PC when it's on” in Brain team instead.`,
       command: null,
       action: team.preset === preset || team.preset === "mac-with-pc" ? null : "Use them",
       state: team.preset === preset || team.preset === "mac-with-pc" ? "done" : "todo"
     })
-  );
-  return { config, steps, yaml, configPath: SWAP_CONFIG, swapRunning: swap.running, swapLog: swap.output };
+  ];
+  return {
+    config,
+    found,
+    server,
+    memory: { availableBytes: await availableMemory(), totalBytes: os.totalmem() },
+    storage: await storageItems(),
+    steps,
+    yaml,
+    configPath: SWAP_CONFIG,
+    swapRunning: swap.running,
+    swapLog: swap.output
+  };
 }
 
 /** Does one step's action. Returns what happened, for the step's note. */
 export async function runSetupStep(id: string): Promise<string> {
   const config = await loadSetupConfig();
+  if (id.startsWith("free:")) {
+    const item = (await storageItems()).find((s) => `free:${s.id}` === id);
+    if (!item || !item.deletable) throw new Error("That can't be removed from here.");
+    await rm(item.path, { recursive: true, force: true });
+    return `Removed ${item.label} (${(item.bytes / 1024 ** 3).toFixed(1)} GB).`;
+  }
   switch (id) {
     case "llama-swap":
-    case "uv":
     case "llama.cpp": {
       const tool = releaseTool(id);
       if (!tool) throw new Error(`Mimir can't install ${id} on this computer; use the command shown.`);
       // A running program can't be replaced (on Windows); start it again afterwards.
-      const wasRunning = swap.running && id !== "uv";
+      const wasRunning = swap.running;
       if (wasRunning) swap.stop();
       const message = await installRelease(tool);
       if (wasRunning) swap.start(config);
       return message;
     }
-    case "mlx-lm": {
-      const uv = findCommand("uv");
-      if (!uv) throw new Error("Install uv first.");
-      const { code, output } = await run(uv, ["tool", "install", "--upgrade", "mlx-lm"]);
-      if (code !== 0) throw new Error(`uv couldn't install mlx-lm: ${output.trim().slice(-500)}`);
-      return output.trim().split("\n").slice(-2).join("\n") || "Installed mlx-lm.";
+    case "models": {
+      const picked = pickModels(await findLocal());
+      const models = { head: { ...config.models.head }, executor: { ...config.models.executor } };
+      if (config.computer === "mac") {
+        if (picked.head) models.head.source = picked.head;
+        if (picked.executor) models.executor.source = picked.executor;
+      }
+      await saveSetupConfig({ models });
+      return picked.head || picked.executor ? `Found ${[picked.head, picked.executor].filter(Boolean).map((p) => path.basename(p!)).join(" and ")}.` : "No models found in ~/Bonsai-demo, ~/models or ~/Downloads; they'll download on first start.";
     }
     case "config": {
-      const server = findCommand(serverCommand(config));
+      const server = await findServer(config);
       await mkdir(path.dirname(SWAP_CONFIG), { recursive: true });
-      await writeFile(SWAP_CONFIG, swapYaml(config, server ?? serverCommand(config)), "utf-8");
-      return server ? `Wrote ${SWAP_CONFIG}.` : `Wrote ${SWAP_CONFIG}, but ${serverCommand(config)} isn't installed yet.`;
+      await writeFile(SWAP_CONFIG, swapYaml(config, server ?? "llama-server"), "utf-8");
+      return server ? `Wrote ${SWAP_CONFIG}.` : `Wrote ${SWAP_CONFIG}, but llama-server isn't installed yet.`;
     }
     case "start": {
       if (swap.running) {
         swap.stop();
         return "Stopped llama-swap.";
       }
-      if (!existsSync(SWAP_CONFIG)) await runSetupStep("config");
+      // Always start from a config that matches these settings (an old one may list MLX models).
+      await runSetupStep("config");
       swap.start(config);
       const url = localSwapUrl(config);
       for (let i = 0; i < 20 && swap.running; i++) {
@@ -332,10 +442,11 @@ export async function runSetupStep(id: string): Promise<string> {
       const done: string[] = [];
       for (const role of ["executor", "head"] as const) {
         const name = config.models[role].name;
+        if (config.computer === "mac") await checkRoom(config, name);
         const res = await fetch(`${url}/v1/chat/completions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ model: name, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4 }),
+          body: JSON.stringify({ model: name, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4, chat_template_kwargs: { enable_thinking: false } }),
           signal: AbortSignal.timeout(45 * 60_000)
         });
         if (!res.ok) throw new Error(`${name} didn't load (${res.status}): ${(await res.text()).slice(0, 400)}`);
@@ -357,6 +468,8 @@ export async function runSetupStep(id: string): Promise<string> {
 export async function autostartSwap(): Promise<void> {
   const config = await loadSetupConfig();
   if (!config.autostart || !existsSync(SWAP_CONFIG) || !findCommand("llama-swap")) return;
+  // Never start an out-of-date list (an old one may still name the MLX models that ran out of memory).
+  if ((await fileText(SWAP_CONFIG)) !== swapYaml(config, (await findServer(config)) ?? "llama-server")) return;
   if (await answers(localSwapUrl(config))) return;
   try {
     swap.start(config);

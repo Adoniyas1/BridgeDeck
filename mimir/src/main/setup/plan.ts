@@ -5,7 +5,10 @@ import { MODELS } from "../team/config.js";
  * What the model servers look like on each computer, as data: the default models, the llama-swap
  * config, and the GitHub release files Mimir installs. No I/O here (see setup/index.ts).
  *
- * Mac (8 GB): MLX models through mlx_lm.server, one loaded at a time (llama-swap swaps them).
+ * Mac (8 GB): small GGUF models through llama.cpp's llama-server (PrismML's build, which also
+ * reads Ternary Bonsai's PQ2_0 files), one loaded at a time, a short context and a 4-bit KV cache,
+ * the same settings that ran fast in the terminal. MLX's 4-bit 9B used to be the default here; it
+ * needed 5–6 GB and ran the Mac out of memory.
  * PC (RTX 4070 Ti 12 GB, 16 GB RAM): llama.cpp's llama-server. Qwen3.5-35B-A3B's experts don't all
  * fit in VRAM, so some sit in system RAM (--n-cpu-moe); with only 16 GB of RAM it can't stay loaded
  * next to the 9B, so by default they take turns too.
@@ -13,10 +16,14 @@ import { MODELS } from "../team/config.js";
 
 const model = (name: string, source: string, args: string): SetupModel => ({ name, source, args });
 
+/** Settings that keep a model small in memory on the 8 GB Mac: 8K context, 4-bit KV cache. */
+export const MAC_ARGS = "-c 8192 -ngl 99 -fa on -ctk q4_0 -ctv q4_0 --jinja";
+export const SETUP_VERSION = 2;
+
 export const DEFAULT_MODELS: Record<SetupComputer, { head: SetupModel; executor: SetupModel }> = {
   mac: {
-    head: model(MODELS.macHead, "mlx-community/Qwen3.5-9B-OptiQ-4bit", ""),
-    executor: model(MODELS.macExecutor, "prism-ml/Ternary-Bonsai-8B-mlx-2bit", "")
+    head: model(MODELS.macHead, "unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS", MAC_ARGS),
+    executor: model(MODELS.macExecutor, "prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0", MAC_ARGS)
   },
   pc: {
     head: model(MODELS.pcHead, "unsloth/Qwen3.5-35B-A3B-GGUF:UD-Q4_K_XL", "-c 32768 -ngl 99 --n-cpu-moe 24 --jinja"),
@@ -26,7 +33,9 @@ export const DEFAULT_MODELS: Record<SetupComputer, { head: SetupModel; executor:
 
 export function defaultSetup(computer: SetupComputer): SetupConfig {
   return {
+    version: SETUP_VERSION,
     computer,
+    serverPath: null,
     listen: computer === "mac" ? "127.0.0.1:8080" : "0.0.0.0:8080",
     autostart: false,
     keepBothLoaded: false,
@@ -43,7 +52,7 @@ const cleanModel = (raw: unknown, fallback: SetupModel): SetupModel => {
   const source = text(m.source, fallback.source, 300);
   return {
     name: /^[\w.:-]+$/.test(name) ? name : fallback.name,
-    source: /^[\w.-]+\/[\w.-]+(:[\w.-]+)?$/.test(source) ? source : fallback.source,
+    source: isLocalModel(source) || /^[\w.-]+\/[\w.-]+(:[\w.-]+)?$/.test(source) ? source : fallback.source,
     args: text(m.args, fallback.args, 500).replace(/[\r\n]+/g, " ")
   };
 };
@@ -52,10 +61,14 @@ export function cleanSetupConfig(raw: unknown, platform: NodeJS.Platform = proce
   const c = (raw ?? {}) as Partial<SetupConfig>;
   const computer = c.computer === "mac" || c.computer === "pc" ? c.computer : computerFor(platform);
   const base = defaultSetup(computer);
-  // Switching computer kind starts from that kind's models.
-  const models = c.computer === computer ? c.models : undefined;
+  // Switching computer kind starts from that kind's models, and so does a Mac config from before
+  // version 2 (its MLX models are what ran out of memory).
+  const current = c.version === SETUP_VERSION || computer === "pc";
+  const models = c.computer === computer && current ? c.models : undefined;
   return {
+    version: SETUP_VERSION,
     computer,
+    serverPath: typeof c.serverPath === "string" && c.serverPath.trim() ? c.serverPath.trim().slice(0, 500) : null,
     listen: typeof c.listen === "string" && /^[\w.[\]:-]+:\d{2,5}$/.test(c.listen.trim()) ? c.listen.trim() : base.listen,
     autostart: typeof c.autostart === "boolean" ? c.autostart : base.autostart,
     keepBothLoaded: typeof c.keepBothLoaded === "boolean" ? c.keepBothLoaded : base.keepBothLoaded,
@@ -73,6 +86,19 @@ export function mergeSetupConfig(current: SetupConfig, patch: Partial<SetupConfi
   return cleanSetupConfig({ ...current, ...patch, models: { ...current.models, ...(patch.models ?? {}) } });
 }
 
+/** A .gguf file on this computer (rather than a Hugging Face repo). */
+export function isLocalModel(source: string): boolean {
+  return /^(\/|~\/|[A-Za-z]:[\\/]).+\.gguf$/i.test(source);
+}
+
+/** About how much memory a model needs loaded: its file, plus room for the context and the
+ * server. `fileBytes` is the file's size when it's on this computer. */
+export function memoryNeeded(source: string, fileBytes: number | null): number {
+  const GB = 1024 ** 3;
+  const file = fileBytes ?? (/35b|30b/i.test(source) ? 20 : /PQ2|Bonsai/i.test(source) ? 2.3 : /IQ2|Q2/i.test(source) ? 3.3 : /IQ3|Q3/i.test(source) ? 3.8 : /9b|8b/i.test(source) ? 5.5 : 4) * GB;
+  return file + 0.8 * GB;
+}
+
 /** The port llama-swap listens on, and the address to reach it from this computer. */
 export function localSwapUrl(config: SetupConfig): string {
   const port = config.listen.split(":").pop();
@@ -88,8 +114,8 @@ export function cmdPath(p: string): string {
 
 const q = (s: string) => JSON.stringify(s);
 
-/** The llama-swap config for this computer. `server` is the mlx_lm.server (Mac) or llama-server
- * (PC) to run. */
+/** The llama-swap config for this computer. `server` is the llama-server to run; a model on this
+ * computer is loaded with -m, one from Hugging Face with -hf (downloaded on first use). */
 export function swapYaml(config: SetupConfig, server: string): string {
   const lines = [
     "# Written by Mimir (Settings → Model servers). Change the models there; edits here are replaced.",
@@ -99,12 +125,9 @@ export function swapYaml(config: SetupConfig, server: string): string {
   ];
   for (const role of ["head", "executor"] as const) {
     const m = config.models[role];
-    const cmd =
-      config.computer === "mac"
-        ? `${cmdPath(server)} --model ${m.source} --host 127.0.0.1 --port \${PORT}`
-        : `${cmdPath(server)} -hf ${m.source} --host 127.0.0.1 --port \${PORT}`;
+    const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}` : `-hf ${m.source}`;
+    const cmd = `${cmdPath(server)} ${from} --host 127.0.0.1 --port \${PORT}`;
     lines.push(`  ${q(m.name)}:`, `    cmd: ${q(m.args ? `${cmd} ${m.args}` : cmd)}`);
-    if (config.computer === "mac") lines.push(`    checkEndpoint: "/v1/models"`);
     // On the 8 GB Mac an idle model gives its memory back after 10 minutes.
     if (config.computer === "mac") lines.push("    ttl: 600");
   }
@@ -134,6 +157,10 @@ export function releaseTool(id: ReleaseTool["id"], platform: NodeJS.Platform = p
   if (id === "uv") {
     const target = platform === "darwin" ? `${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin` : platform === "win32" ? "x86_64-pc-windows-msvc" : `${arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`;
     return { id, repo: "astral-sh/uv", assets: [[new RegExp(`^uv-${target}\\.(tar\\.gz|zip)$`)]], files: ["uv", "uvx", "uv.exe", "uvx.exe"], subdir: null };
+  }
+  if (platform === "darwin") {
+    // PrismML's build (the one Bonsai-demo downloads): stock llama.cpp can't read PQ2_0 files.
+    return { id, repo: "PrismML-Eng/llama.cpp", assets: [[arch === "arm64" ? /-bin-macos-arm64\.(tar\.gz|zip)$/ : /-bin-macos-x64\.(tar\.gz|zip)$/]], files: null, subdir: "llama.cpp" };
   }
   if (platform !== "win32") return null;
   // The CUDA build and its runtime DLLs: CUDA 12 runs on more drivers than 13.
