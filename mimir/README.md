@@ -98,6 +98,17 @@ Instead of one model doing everything, Settings → **Brain team** can split the
 The loop is a [LangGraph.js](https://github.com/langchain-ai/langgraphjs) graph run inside Mimir's own
 process (`src/main/team/graph.ts`); the plan and each step show above the reply in the chat.
 
+## Tool servers (MCP)
+
+Settings → **Tool servers (MCP)** adds any [Model Context Protocol](https://github.com/modelcontextprotocol/servers)
+server (stdio). Mimir starts it, lists its tools and offers them like its own, named
+`mcp_<server>_<tool>`. Each server is a prompt module: its tools load when a message mentions the
+server or one of its keywords, or when a Brain-team plan names it. Presets: Filesystem (limited to
+Projects), Fetch, Git and Sequential thinking.
+
+Tools a server marks read-only run straight away; anything else shows an **Allow / Deny** card in the
+chat first, unless the server is marked trusted. Servers are per computer (`~/.mimir/mcp.json`).
+
 ## How self-editing works
 
 Read `src/main/self-edit/transaction.ts` for the details — the short version:

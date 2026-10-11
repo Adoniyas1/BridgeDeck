@@ -44,6 +44,8 @@ export interface PromptLoadOptions {
   toolCost?: (name: string) => number;
   budgetTokens?: number;
   exclude?: readonly string[];
+  /** Modules that exist only at runtime (one per connected MCP server), considered after the built-in ones. */
+  extraModules?: readonly PromptModule[];
   /** Modules to load whatever the message says (a team plan's step names them); never cut by the budget. */
   force?: readonly string[];
 }
@@ -94,7 +96,7 @@ export function loadPromptModules(opts: PromptLoadOptions): PromptLoad {
   let used = 0;
   let optionalUsed = 0;
 
-  for (const module of PROMPT_MODULES) {
+  for (const module of [...PROMPT_MODULES, ...(opts.extraModules ?? [])]) {
     const info = { id: module.id, title: module.title };
     if (excluded.has(module.id)) { skipped.push({ ...info, reason: "excluded" }); continue; }
     if (!module.tiers.includes(tier)) { skipped.push({ ...info, reason: "tier" }); continue; }

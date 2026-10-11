@@ -20,6 +20,9 @@ import {
   type ChatGptConfig,
   type ChatGptStreamEvent,
   type PromptModuleInfo,
+  type McpPreset,
+  type McpServerConfig,
+  type McpServerStatus,
   type RoleEndpoint,
   type RoleStatus,
   type TeamConfig,
@@ -157,6 +160,15 @@ const api = {
     pushToTalkStop: () => send(IPC.voicePushToTalkStop),
     onWakeTriggered: (cb: () => void) => on(IPC.voiceWakeTriggered, cb),
     onHotkeyTriggered: (cb: () => void) => on(IPC.voiceHotkeyTriggered, cb)
+  },
+  approval: {
+    decide: (id: string, allow: boolean) => send(IPC.approvalDecide, id, allow)
+  },
+  mcp: {
+    getConfig: (): Promise<{ servers: McpServerConfig[] }> => invoke(IPC.mcpGetConfig),
+    setConfig: (config: { servers: McpServerConfig[] }): Promise<{ servers: McpServerConfig[] }> => invoke(IPC.mcpSetConfig, config),
+    status: (retryId?: string): Promise<McpServerStatus[]> => invoke(IPC.mcpStatus, retryId),
+    presets: (): Promise<McpPreset[]> => invoke(IPC.mcpPresets)
   },
   edit: {
     approve: (pendingId: string) => send(IPC.editApprove, pendingId),

@@ -34,6 +34,8 @@ import type {
   ChatGptChatSummary,
   ChatGptConfig,
   PromptModuleInfo,
+  McpPreset,
+  McpServerStatus,
   RoleEndpoint,
   RoleStatus,
   TeamConfig,
@@ -57,6 +59,8 @@ import { defaultProjectsRoot } from "./projects/paths.js";
 import { defaultSkillsRoot } from "./skills/paths.js";
 import { listSkillSummaries, verifySkillNow } from "./skills/tools.js";
 import { listBuiltInCapabilities, listPromptModules } from "./skills/builtins.js";
+import { loadMcpConfig, mcpPresets, saveMcpConfig, type McpConfig } from "./mcp/config.js";
+import { mcpManager } from "./mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
@@ -223,6 +227,19 @@ const invokeHandlers: Record<string, Handler> = {
     await setBrainApiKey(provider, key);
   },
   [IPC.brainListOllamaModels]: (baseUrl?: string): Promise<string[]> => listOllamaModels(baseUrl || undefined),
+  [IPC.mcpGetConfig]: (): Promise<McpConfig> => loadMcpConfig(),
+  [IPC.mcpSetConfig]: async (config: McpConfig): Promise<McpConfig> => {
+    const saved = await saveMcpConfig(config);
+    void mcpManager.ensure(saved.servers);
+    return saved;
+  },
+  [IPC.mcpStatus]: async (retryId?: string): Promise<McpServerStatus[]> => {
+    const { servers } = await loadMcpConfig();
+    if (retryId) mcpManager.retry(retryId);
+    await mcpManager.ensure(servers);
+    return mcpManager.status(servers);
+  },
+  [IPC.mcpPresets]: (): McpPreset[] => mcpPresets(defaultProjectsRoot()),
   [IPC.teamGetConfig]: (): Promise<TeamConfig> => loadTeamConfig(),
   [IPC.teamSetConfig]: (patch: Partial<TeamConfig>): Promise<TeamConfig> => { clearProbeCache(); return saveTeamConfig(patch); },
   [IPC.teamPresets]: (): TeamPreset[] => TEAM_PRESETS,
@@ -293,6 +310,7 @@ const invokeHandlers: Record<string, Handler> = {
 
 /** Fire-and-forget channels (Electron's ipcMain.on). */
 const sendHandlers: Record<string, Handler> = {
+  [IPC.approvalDecide]: (id: string, allow: boolean) => session?.resolveApproval(id, allow ? "approved" : "rejected"),
   [IPC.chatSend]: (text: string, attachments?: Attachment[]) => void session?.send(text, attachments),
   [IPC.chatStop]: () => session?.stop(),
   [IPC.chatgptStop]: (chatId: string) => chatgpt.stop(chatId),
@@ -453,6 +471,7 @@ async function main(): Promise<void> {
   await reportHealthy();
 
   const shutdown = () => {
+    void mcpManager.closeAll();
     stopWake();
     stopHeartbeatScheduler();
     stopDeadlineNotifier();

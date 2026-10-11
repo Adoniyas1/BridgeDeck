@@ -24,6 +24,7 @@
     "@huggingface/transformers": "^3.2.1",
     "@langchain/core": "^1.2.17",
     "@langchain/langgraph": "^1.4.21",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@ricky0123/vad-web": "^0.0.30",
     "katex": "^0.18.3",
     "keytar": "^7.9.0",

@@ -32,6 +32,8 @@ export interface PersonaPromptOptions {
   budgetTokens?: number;
   /** Module ids to leave out, e.g. "self_edit". */
   exclude?: readonly string[];
+  /** Runtime modules, e.g. one per MCP server (see PromptLoadOptions.extraModules). */
+  extraModules?: PromptLoadOptions["extraModules"];
   /** Module ids to load whatever the message says (see PromptLoadOptions.force). */
   force?: readonly string[];
 }
@@ -88,7 +90,8 @@ export async function composeSystemPrompt(workspaceRoot: string, options: Person
       toolCost: options.toolCost,
       budgetTokens: options.budgetTokens,
       exclude: options.exclude,
-      force: options.force
+      force: options.force,
+      extraModules: options.extraModules
     });
     ({ sections, toolNames, loaded, skipped } = result);
     moduleTokens = result.tokens;
