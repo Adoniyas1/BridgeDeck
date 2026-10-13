@@ -1485,3 +1485,11 @@ main .notice .update-banner__go:disabled{opacity:.4}
 .settings-stack input[type=time],.settings-stack input[type=date],.settings-stack input[type=number],.settings-stack input[type=color]{width:auto;flex:0 0 auto}
 /* Long paths and links wrap inside their card instead of running past it. */
 .card p,.card small,.card .hint{overflow-wrap:anywhere}
+/* Logic designer: design rules (NAND only, inputs per gate) */
+.logic-rules{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2)}
+.logic-rules__row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.logic-rules label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.logic-rules select{height:28px;border:1px solid var(--line-strong);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;padding:0 6px}
+/* Drop-downs: dark like the rest (some engines draw them white, hiding the light text). */
+main select,.tabbar select{background-color:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);border-radius:7px;color-scheme:dark}
+main select option{background:var(--surface-2);color:var(--text)}

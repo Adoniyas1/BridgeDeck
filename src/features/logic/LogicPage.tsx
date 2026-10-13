@@ -5,7 +5,7 @@ import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { projectFolder } from '../projects/model'
 import {
-  buildCircuit, chipDef, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit,
+  buildCircuit, buildWithRules, chipDef, designSummary, posExpressions, type DesignRules, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit,
   show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type FlopState, type GateType, type Level, type Part, type TruthTable,
 } from './model'
 import { levelColor, PartShape } from './Symbols'
@@ -337,6 +337,7 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
   const [text, setText] = useState("Y = A·B + C'")
   const [count, setCount] = useState(3)
   const [cells, setCells] = useState<Level[]>(() => Array(8).fill(0))
+  const [rules, setRules] = useState<DesignRules>({ gates: 'any', maxInputs: 2 })
   const parsed = useMemo(() => { try { return { outputs: parseOutputs(text), error: '' } } catch (e) { return { outputs: [], error: errorText(e, 'Can’t read that') } } }, [text])
   const exprTable = useMemo(() => (parsed.outputs.length ? tableOf(parsed.outputs) : null), [parsed])
   const vars = 'ABCDEF'.slice(0, count).split('')
@@ -353,8 +354,9 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
       {parsed.error ? <p className="error-text">{parsed.error}</p> : exprTable && <>
         <div className="logic-exprs">{parsed.outputs.map(o => <div key={o.name}><strong>{o.name}</strong> = {show(o.expr)}{(() => { const s = expressions(exprTable)[o.name]; return s && literals(s) < literals(show(o.expr)) ? <span className="hint"> · simpler: {s}</span> : null })()}</div>)}</div>
         <TableView table={exprTable} />
+        <RulesBar table={exprTable} rules={rules} onRules={setRules} />
         <div className="actions">
-          <button onClick={() => onBuild(buildCircuit(parsed.outputs))}><Wand2 size={13} /> Build the circuit</button>
+          <button onClick={() => onBuild(rules.gates === 'any' ? buildCircuit(parsed.outputs) : buildWithRules(exprTable, rules))}><Wand2 size={13} /> Build the circuit</button>
           <button className="ghost" onClick={() => onNote('Truth table', tableMarkdown(exprTable, Object.fromEntries(parsed.outputs.map(o => [o.name, show(o.expr)]))))}><NotebookPen size={13} /> Save as a note</button>
         </div>
       </>}
@@ -364,11 +366,43 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
       <TableView table={filled} onCell={r => setCells(c => c.map((v, i) => (i === r ? (v === 0 ? 1 : v === 1 ? null : 0) : v)))} />
       <div className="logic-exprs"><strong>Y</strong> = {fromTable}</div>
       {kmapLayout(vars) && <KMapView table={filled} />}
+      <RulesBar table={filled} rules={rules} onRules={setRules} />
       <div className="actions">
-        <button onClick={() => onBuild(buildCircuit(parseOutputs(`Y = ${fromTable}`)))}><Wand2 size={13} /> Build the circuit</button>
+        <button onClick={() => onBuild(rules.gates === 'any' ? buildCircuit(parseOutputs(`Y = ${fromTable}`)) : buildWithRules(filled, rules))}><Wand2 size={13} /> Build the circuit</button>
         <button className="ghost" onClick={() => onNote('Truth table', tableMarkdown(filled, { Y: fromTable }))}><NotebookPen size={13} /> Save as a note</button>
       </div>
     </>}
+  </div>
+}
+
+/** Design rules (like a lab's "NAND gates only"): which gates, how many inputs each, both simplified
+ *  forms, and what the circuit will take before it's built. */
+function RulesBar({ table, rules, onRules }: { table: TruthTable; rules: DesignRules; onRules: (r: DesignRules) => void }) {
+  const sop = useMemo(() => expressions(table), [table])
+  const pos = useMemo(() => posExpressions(table), [table])
+  const summary = useMemo(() => designSummary(buildWithRules(table, rules)), [table, rules])
+  const chips = Object.entries(summary.chips).map(([part, n]) => `${n}× ${part} (${chipDef(part)?.name ?? ''})`).join(', ')
+  return <div className="logic-rules">
+    <div className="logic-rules__row">
+      <label>Build with <select value={rules.gates} onChange={e => onRules({ ...rules, gates: e.target.value as DesignRules['gates'] })}>
+        <option value="any">Any gates (AND, OR, NOT…)</option>
+        <option value="nand">NAND gates only</option>
+        <option value="nor">NOR gates only</option>
+      </select></label>
+      {rules.gates !== 'any' && <label>Inputs per gate <select value={rules.maxInputs} onChange={e => onRules({ ...rules, maxInputs: Number(e.target.value) as DesignRules['maxInputs'] })}>
+        <option value={2}>2 (7400 / 7402)</option>
+        <option value={3}>up to 3 (adds 7410 / 7427)</option>
+        <option value={4}>up to 4 (adds 7420)</option>
+      </select></label>}
+    </div>
+    {table.outputs.map(name => <div key={name} className="logic-exprs">
+      <div><strong>{name}</strong> (SOP) = {sop[name]}</div>
+      <div><strong>{name}</strong> (POS) = {pos[name]}</div>
+    </div>)}
+    <p className="hint">
+      {rules.gates === 'nand' ? 'NAND–NAND from the sum of products; complemented inputs use a NAND with its inputs tied as an inverter. ' : rules.gates === 'nor' ? 'NOR–NOR from the product of sums; complemented inputs use a NOR with its inputs tied as an inverter. ' : ''}
+      {summary.gates} gate{summary.gates === 1 ? '' : 's'}{summary.inverters ? ` (${summary.inverters} as inverter${summary.inverters === 1 ? '' : 's'})` : ''}{chips ? ` · chips: ${chips}` : ''}
+    </p>
   </div>
 }
 

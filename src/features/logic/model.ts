@@ -707,6 +707,147 @@ export function buildCircuit(outputs: Array<{ name: string; expr: Expr }>): Circ
   return { version: 1, parts, wires }
 }
 
+// ---- Designing under constraints (NAND only, NOR only, inputs per gate) ----
+
+/** Which gates a design may use: any (AND, OR, NOT…), NAND only (from the sum of products) or NOR
+ *  only (from the product of sums). Inverters are the same gate with its inputs tied together. */
+export type GateSet = 'any' | 'nand' | 'nor'
+export type DesignRules = { gates: GateSet; maxInputs: 2 | 3 | 4 }
+
+/** A group of 0s as a sum term, e.g. (A + C'): each variable where the group is 1 is complemented. */
+export function sumOf(vars: string[], p: Implicant) {
+  const n = vars.length
+  const lits = vars.map((v, i) => {
+    const bit = 1 << (n - 1 - i)
+    return p.mask & bit ? '' : p.value & bit ? `${v}'` : v
+  }).filter(Boolean)
+  return lits.length > 1 ? `(${lits.join(' + ')})` : lits[0] ?? '0'
+}
+
+/** The smallest product of sums for an output: the groups of its 0s (don't-cares either way). */
+export function minimizePOS(vars: string[], minterms: number[], dontCares: number[] = []): string {
+  const ones = new Set([...minterms, ...dontCares])
+  const zeros = Array.from({ length: 2 ** vars.length }, (_, i) => i).filter(i => !ones.has(i))
+  if (!zeros.length) return '1'
+  const groups = implicants(vars.length, zeros, dontCares)
+  return groups.length === 1 && groups[0].mask === 2 ** vars.length - 1 ? '0' : groups.map(p => sumOf(vars, p)).join('·')
+}
+
+/** Each output's simplest product of sums. */
+export function posExpressions(table: TruthTable): Record<string, string> {
+  const out: Record<string, string> = {}
+  table.outputs.forEach((name, o) => {
+    const ones: number[] = [], either: number[] = []
+    table.rows.forEach((row, i) => { if (row.out[o] === 1) ones.push(i); else if (row.out[o] === null) either.push(i) })
+    out[name] = minimizePOS(table.inputs, ones, either)
+  })
+  return out
+}
+
+/** A circuit for a truth table using only NAND gates (two levels from the sum of products) or only
+ *  NOR gates (two levels from the product of sums), no gate wider than `maxInputs`. Wider ones become
+ *  trees, and a complemented input or a one-literal term uses the gate as an inverter. */
+export function buildWithRules(table: TruthTable, rules: DesignRules): Circuit {
+  if (rules.gates === 'any') return buildCircuit(Object.entries(expressions(table)).map(([name, text]) => ({ name, expr: parse(text) })))
+  const type: GateType = rules.gates === 'nand' ? 'NAND' : 'NOR'
+  const k = rules.maxInputs
+  const vars = table.inputs
+  const n = vars.length
+  const parts: Part[] = []
+  const wires: Wire[] = []
+  const depthOf = new Map<string, number>()
+  const columns: number[] = []
+  const wire = (a: string, b: string) => wires.push({ id: newId('w'), a, b })
+  const source = vars.map((name, i) => {
+    const p: Part = { id: newId('s'), kind: 'switch', x: 40, y: 40 + i * 70, label: name, on: false }
+    parts.push(p)
+    const pin = pinRef(p, 'out')
+    depthOf.set(pin, 0)
+    return pin
+  })
+  const gate = (ins: string[]): string => {
+    const depth = Math.max(...ins.map(i => depthOf.get(i) ?? 0)) + 1
+    columns[depth] = (columns[depth] ?? 0) + 1
+    const g: Part = { id: newId('g'), kind: 'gate', gate: type, inputs: ins.length, x: 160 + depth * 110, y: 30 + (columns[depth] - 1) * 80 }
+    parts.push(g)
+    ins.forEach((pin, i) => wire(pin, pinRef(g, `in${i}`)))
+    const out = pinRef(g, 'out')
+    depthOf.set(out, depth)
+    return out
+  }
+  // The gate with its inputs tied: an inverter (one per signal, shared).
+  const inverted = new Map<string, string>()
+  const invert = (pin: string) => { if (!inverted.has(pin)) { const out = gate([pin, pin]); inverted.set(pin, out); inverted.set(out, pin) } return inverted.get(pin)! }
+  // NAND (or NOR) of any number of signals with at most k inputs per gate: groups are combined
+  // (AND for NAND, OR for NOR: the gate, then an inverter) and the gate applied to the results.
+  const tree = (pins: string[]): string => {
+    if (pins.length === 1) return invert(pins[0])
+    if (pins.length <= k) return gate(pins)
+    const size = Math.ceil(pins.length / Math.ceil(pins.length / k))
+    const joined: string[] = []
+    for (let i = 0; i < pins.length; i += size) { const chunk = pins.slice(i, i + size); joined.push(chunk.length === 1 ? chunk[0] : invert(tree(chunk))) }
+    return tree(joined)
+  }
+  const literal = (i: number, negated: boolean) => (negated ? invert(source[i]) : source[i])
+  const constants: Partial<Record<0 | 1, string>> = {}
+  const constant = (v: 0 | 1) => {
+    if (!constants[v]) {
+      const p: Part = v ? { id: newId('v'), kind: 'vcc', x: 40, y: 40 + n * 70 } : { id: newId('g'), kind: 'gnd', x: 40, y: 110 + n * 70 }
+      parts.push(p)
+      constants[v] = pinRef(p, 'out')
+      depthOf.set(constants[v]!, 0)
+    }
+    return constants[v]!
+  }
+  const firstLevel = new Map<string, string>()
+  const results = table.outputs.map((name, o) => {
+    const ones: number[] = [], either: number[] = [], zeros: number[] = []
+    table.rows.forEach((row, i) => { if (row.out[o] === 1) ones.push(i); else if (row.out[o] === null) either.push(i); else zeros.push(i) })
+    // NAND: the groups of 1s (product terms); NOR: the groups of 0s (sum terms).
+    const groups = type === 'NAND' ? implicants(n, ones, either) : implicants(n, zeros, either)
+    const full = groups.length === 1 && groups[0].mask === 2 ** n - 1
+    if (!groups.length) return { name, pin: constant(type === 'NAND' ? 0 : 1) }
+    if (full) return { name, pin: constant(type === 'NAND' ? 1 : 0) }
+    const levelOne = groups.map(p => {
+      const lits = vars.flatMap((_, i) => {
+        const bit = 1 << (n - 1 - i)
+        if (p.mask & bit) return []
+        // In a product term a 0 bit is complemented; in a sum term (from 0s) a 1 bit is.
+        const negated = type === 'NAND' ? !(p.value & bit) : !!(p.value & bit)
+        return [{ i, negated }]
+      })
+      const key = lits.map(l => `${l.i}${l.negated ? "'" : ''}`).join(',')
+      if (!firstLevel.has(key)) {
+        // One literal: the gate of it is just its complement (no gate for an already complemented input).
+        firstLevel.set(key, lits.length === 1 ? literal(lits[0].i, !lits[0].negated) : tree(lits.map(l => literal(l.i, l.negated))))
+      }
+      return firstLevel.get(key)!
+    })
+    return { name, pin: tree(levelOne) }
+  })
+  const right = 160 + (Math.max(0, ...depthOf.values()) + 1) * 110
+  results.forEach(({ name, pin }, i) => {
+    const led: Part = { id: newId('l'), kind: 'led', x: right, y: 40 + i * 70, label: name }
+    parts.push(led)
+    wire(pin, pinRef(led, 'in'))
+  })
+  return { version: 1, parts, wires }
+}
+
+/** What a design uses: gates by type, how many are inverters (inputs tied together), and chips. */
+export function designSummary(c: Circuit) {
+  const gates = c.parts.filter(p => p.kind === 'gate')
+  const source = (p: Part, pin: string) => c.wires.find(w => w.b === pinRef(p, pin) || w.a === pinRef(p, pin))
+  const otherEnd = (p: Part, pin: string) => { const w = source(p, pin); return w ? (w.b === pinRef(p, pin) ? w.a : w.b) : null }
+  const inverters = gates.filter(g => (g.inputs ?? 2) === 2 && otherEnd(g, 'in0') !== null && otherEnd(g, 'in0') === otherEnd(g, 'in1')).length
+  const byType: Record<string, number> = {}
+  for (const g of gates) { const key = g.gate === 'NOT' || g.gate === 'BUF' ? g.gate : `${g.inputs ?? 2}-input ${g.gate}`; byType[key] = (byType[key] ?? 0) + 1 }
+  const plan = chipPlan(c)
+  const chips: Record<string, number> = {}
+  for (const ch of plan.chips) chips[ch.part] = (chips[ch.part] ?? 0) + 1
+  return { gates: gates.length, inverters, byType, chips }
+}
+
 // ---- Putting gates on chips ----
 
 export type ChipUse = { ref: string; part: string; name: string; slots: Array<{ gate: string; pins: number[]; out: number } | null> }
