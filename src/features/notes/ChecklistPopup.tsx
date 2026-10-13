@@ -53,8 +53,11 @@ export function ChecklistPopup() {
   function add() {
     const text = draft.replace(/\s+/g, ' ').trim()
     if (!note || !text) return
+    // After the last open item (on a project board that's To do or Doing, not Done), else at the end.
     const blocks = visible(note)
-    const pos = between(blocks.at(-1)?.pos ?? '', '')
+    const lastOpen = [...blocks].reverse().find(b => b.kind === 'todo' && !b.checked)
+    const after = lastOpen ? blocks.findIndex(b => b.id === lastOpen.id) : blocks.length - 1
+    const pos = between(blocks[after]?.pos ?? '', blocks[after + 1]?.pos ?? '')
     setDraft('')
     run(save({ id: note.id, blocks: [{ id: newId(), kind: 'todo', text, checked: false, due: null, pos, updated: 0, by: '', deleted: false }] }))
   }
@@ -73,7 +76,7 @@ export function ChecklistPopup() {
   }
 
   return <div className="quick-checklist" ref={box}>
-    <button className={open ? 'icon-button active' : 'icon-button'} onClick={() => setOpen(o => !o)} title={note ? `${noteTitle(note)} (${left} left)` : 'Checklist'} aria-label="Checklist" aria-expanded={open}>
+    <button className={open ? 'icon-button active' : 'icon-button'} onClick={() => setOpen(o => !o)} title={open ? undefined : note ? `${noteTitle(note)} (${left} left)` : 'Checklist'} aria-label="Checklist" aria-expanded={open}>
       <ListChecks size={15} />{left > 0 && <em className="quick-checklist__count">{left > 99 ? '99+' : left}</em>}
     </button>
     {open && <div className="quick-checklist__popup" role="dialog" aria-label="Checklist">
