@@ -655,12 +655,18 @@ export async function runSetupStep(id: string): Promise<string> {
 /** At startup: run llama-swap when asked to and nothing answers on its port yet. */
 export async function autostartSwap(): Promise<void> {
   const config = await loadSetupConfig();
+  // Only once llama-swap has been set up here (the config step has run at least once).
   if (!config.autostart || !existsSync(SWAP_CONFIG) || !findCommand("llama-swap")) return;
-  // Never start an out-of-date list (an old one may still name the MLX models that ran out of memory).
-  if ((await fileText(SWAP_CONFIG)) !== swapYaml(config, (await findServer(config)) ?? "llama-server")) return;
-  if (await answers(localSwapUrl(config))) return;
+  const url = localSwapUrl(config);
+  if (await answers(url)) {
+    const serving = await servedModels(url);
+    if (setupRoles(config).every((r) => serving.includes(config.models[r]!.name))) return;
+  }
+  // Nothing running, or an old llama-swap (left from an earlier Mimir) serving another model list:
+  // the start step writes the list for these settings, closes the old one and starts this one.
   try {
-    swap.start(config);
+    await runSetupStep("start");
+    clearProbeCache();
   } catch {
     /* shown in Settings → Model servers */
   }
