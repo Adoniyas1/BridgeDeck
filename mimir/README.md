@@ -93,7 +93,7 @@ Instead of one model doing everything, Settings → **Brain team** can split the
 - With "check each step" off, all steps are reviewed together at the end, so a small machine swaps
   models a few times per task instead of twice per step.
 - Each role has a server to try first and a fallback, so the Mac can use the Windows PC's models
-  when it's on and its own MLX models when it isn't. Settings are per computer (`~/.mimir/team.json`).
+  when it's on and its own (llama.cpp through llama-swap) when it isn't. Settings are per computer (`~/.mimir/team.json`).
 
 The loop is a [LangGraph.js](https://github.com/langchain-ai/langgraphjs) graph run inside Mimir's own
 process (`src/main/team/graph.ts`); the plan and each step show above the reply in the chat.
