@@ -10,7 +10,9 @@ describe('breadboard layout', () => {
     expect(b.chips.map(ch => [ch.ref, ch.part, ch.col])).toEqual([['U1', '7400', 3], ['U2', '7400', 13]])
     expect(b.inputs).toEqual(['A', 'B', 'C'])
     expect(b.outputs).toEqual(['Y'])
-    expect(b.steps[0]).toContain('pin 1 in f3, pin 14 in e3')
+    expect(b.steps[0].text).toContain('pin 1 in f3')
+    expect(b.steps.filter(st => st.jumper !== undefined)).toHaveLength(b.jumpers.length)
+    expect(b.cols).toBeLessThan(63)
   })
 
   it('wires power to the rail on the same side, same column', () => {
@@ -44,6 +46,7 @@ describe('breadboard layout', () => {
     expect(clash[1].col).toBeGreaterThanOrEqual(clash[0].col + 8)
     // Off the edge: kept on the board.
     expect(breadboard(majority(), { U2: 99 }).chips[1].col).toBe(63 - 7 + 1)
+    expect(breadboard(majority(), { U2: 99 }).cols).toBe(63)
   })
 
   it('names spots the way a lab sheet does', () => {

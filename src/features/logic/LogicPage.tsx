@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CircuitBoard, FilePlus, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { Activity, CircuitBoard, FilePlus, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
 import { circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
@@ -10,8 +10,9 @@ import {
 } from './model'
 import { levelColor, PartShape } from './Symbols'
 import Breadboard from './Breadboard'
+import { CircuitMenu } from './Preview'
 
-const W = 2400, H = 1600
+const W = 4000, H = 3000
 const snap = (v: number) => Math.round(v / GRID) * GRID
 type Selection = { kind: 'part' | 'wire'; id: string } | null
 type PaletteItem = { kind: Part['kind']; gate?: GateType; chip?: string; anode?: boolean; title: string }
@@ -44,6 +45,11 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [message, setMessage] = useState('')
   const [dirty, setDirty] = useState(false)
   const [versions, setVersions] = useState<number[]>([])
+  /** Open or Versions, whichever is showing (one at a time). */
+  const [menu, setMenu] = useState<'open' | 'versions' | null>(null)
+  /** The canvas: how far it's zoomed, and a drag on empty space moving the view. */
+  const [zoom, setZoom] = useState(1)
+  const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
   const svg = useRef<SVGSVGElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number; moved: boolean } | null>(null)
@@ -176,8 +182,45 @@ export default function LogicPage({ active }: { active: boolean }) {
 
   const point = (e: { clientX: number; clientY: number }) => {
     const r = svg.current!.getBoundingClientRect()
-    return { x: e.clientX - r.left, y: e.clientY - r.top }
+    return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom }
   }
+
+  /** Zooms keeping the point under `at` (window coordinates; the view's middle by default) still. */
+  function zoomTo(next: number, at?: { clientX: number; clientY: number }) {
+    const box = scroller.current
+    const z = Math.min(2.5, Math.max(0.3, Math.round(next * 100) / 100))
+    if (!box || z === zoom) return
+    const r = box.getBoundingClientRect()
+    const cx = at ? at.clientX - r.left : r.width / 2, cy = at ? at.clientY - r.top : r.height / 2
+    const wx = (box.scrollLeft + cx) / zoom, wy = (box.scrollTop + cy) / zoom
+    setZoom(z)
+    requestAnimationFrame(() => { box.scrollLeft = wx * z - cx; box.scrollTop = wy * z - cy })
+  }
+
+  /** Zooms and scrolls so the whole circuit is in view. */
+  function fit() {
+    const box = scroller.current
+    if (!box || !circuit.parts.length) return
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const p of circuit.parts) { const { w, h } = sizeOf(p); x0 = Math.min(x0, p.x - 30); y0 = Math.min(y0, p.y - 40); x1 = Math.max(x1, p.x + w + 40); y1 = Math.max(y1, p.y + h + 40) }
+    const z = Math.min(2, Math.max(0.3, Math.min(box.clientWidth / (x1 - x0), box.clientHeight / (y1 - y0))))
+    setZoom(z)
+    requestAnimationFrame(() => { box.scrollLeft = x0 * z - (box.clientWidth - (x1 - x0) * z) / 2; box.scrollTop = y0 * z - (box.clientHeight - (y1 - y0) * z) / 2 })
+  }
+
+  // Pinch (or ⌘/Ctrl + scroll) zooms the canvas; plain scrolling moves it. (A native listener, so
+  // the page itself doesn't zoom.)
+  useEffect(() => {
+    const box = scroller.current
+    if (!box) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      zoomTo(zoom * Math.exp(-e.deltaY / 300), e)
+    }
+    box.addEventListener('wheel', onWheel, { passive: false })
+    return () => box.removeEventListener('wheel', onWheel)
+  })
 
   function pinDown(e: React.PointerEvent, ref: string) {
     e.stopPropagation()
@@ -194,6 +237,13 @@ export default function LogicPage({ active }: { active: boolean }) {
   }
 
   function move(e: React.PointerEvent) {
+    const pn = pan.current, box = scroller.current
+    if (pn && box) {
+      const dx = e.clientX - pn.x, dy = e.clientY - pn.y
+      if (Math.abs(dx) + Math.abs(dy) > 3) pn.moved = true
+      if (pn.moved) { box.scrollLeft = pn.left - dx; box.scrollTop = pn.top - dy }
+      return
+    }
     const p = point(e)
     if (pending) setMouse(p)
     const b = bend.current
@@ -214,6 +264,10 @@ export default function LogicPage({ active }: { active: boolean }) {
   }
 
   function up() {
+    const pn = pan.current
+    pan.current = null
+    // A click on empty space (not a drag to move the view) lets go of the wire being drawn and the selection.
+    if (pn && !pn.moved) { setPending(null); setSelection(null) }
     bend.current = null
     const d = drag.current
     drag.current = null
@@ -273,29 +327,11 @@ export default function LogicPage({ active }: { active: boolean }) {
         {projects.map(p => <option key={p} value={p}>{p}</option>)}
       </select>
       <button className="ghost" onClick={() => void save()} disabled={!isTauri()}><Save size={14} /> Save{dirty ? ' •' : ''}</button>
-      <details className="logic-open">
-        <summary className="ghost"><FolderOpen size={14} /> Open</summary>
-        <div className="logic-files">
-          {files.length ? files.map(f => <div key={`${f.project}/${f.name}`} className="logic-file">
-            <button onClick={() => void open(f)}><span>{f.name}</span><small>{f.project || 'No project'}</small></button>
-            <button className="ghost" title="Delete" onClick={() => { if (window.confirm(`Delete ${f.name}?`)) void run(async () => { await circuitDelete(f.project, f.name); refreshFiles() }) }}><Trash2 size={12} /></button>
-          </div>) : <p className="hint">No saved circuits yet.</p>}
-        </div>
-      </details>
-      <details className="logic-open" onToggle={e => { if ((e.target as HTMLDetailsElement).open && isTauri()) void circuitVersions(file.project, file.name.trim()).then(setVersions).catch(() => setVersions([])) }}>
-        <summary className="ghost" title="Earlier saved versions of this circuit"><History size={14} /> Versions</summary>
-        <div className="logic-files">
-          {versions.length ? versions.map(at => <div key={at} className="logic-file">
-            <button onClick={() => void run(async () => {
-              if (dirty && !window.confirm('Open an earlier version? Changes to the circuit on screen aren’t saved.')) return
-              setCircuit(readCircuit(await circuitVersionLoad(file.project, file.name.trim(), at)))
-              setDirty(true)
-              flops.current = {}
-              setMessage(`Opened the version saved before ${new Date(at).toLocaleString()}. Save to keep it (the current one stays in Versions).`)
-            })}><span>{new Date(at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span><small>replaced then</small></button>
-          </div>) : <p className="hint">No earlier versions. Each save keeps the one it replaces.</p>}
-        </div>
-      </details>
+      <button className={`ghost logic-menu-toggle${menu === 'open' ? ' active' : ''}`} onClick={() => { refreshFiles(); setMenu(m => (m === 'open' ? null : 'open')) }}><FolderOpen size={14} /> Open</button>
+      <button className={`ghost logic-menu-toggle${menu === 'versions' ? ' active' : ''}`} title={menu ? undefined : 'Earlier saved versions of this circuit'} onClick={() => {
+        if (menu !== 'versions' && isTauri()) void circuitVersions(file.project, file.name.trim()).then(setVersions).catch(() => setVersions([]))
+        setMenu(m => (m === 'versions' ? null : 'versions'))
+      }}><History size={14} /> Versions</button>
       <button className="ghost" onClick={fresh}><FilePlus size={14} /> New</button>
       <div className="logic-view" role="tablist" aria-label="View">
         <button role="tab" aria-selected={view === 'schematic'} className={view === 'schematic' ? 'on' : ''} onClick={() => setView('schematic')}>Schematic</button>
@@ -309,6 +345,17 @@ export default function LogicPage({ active }: { active: boolean }) {
       <button className="ghost" disabled={!running} onClick={() => setClock(c => !c)} title="One clock edge">Step</button>
     </div>
     {message && <p className="hint logic-message">{message}</p>}
+    {menu && <CircuitMenu mode={menu} files={files} versions={versions} file={file} onClose={() => setMenu(null)}
+      loadFile={f => circuitLoad(f.project, f.name)} loadVersion={at => circuitVersionLoad(file.project, file.name.trim(), at)}
+      onOpenFile={f => { setMenu(null); void open(f) }}
+      onOpenVersion={at => { setMenu(null); void run(async () => {
+        if (dirty && !window.confirm('Open an earlier version? Changes to the circuit on screen aren’t saved.')) return
+        setCircuit(readCircuit(await circuitVersionLoad(file.project, file.name.trim(), at)))
+        setDirty(true)
+        flops.current = {}
+        setMessage(`Opened the version saved before ${new Date(at).toLocaleString()}. Save to keep it (the current one stays in Versions).`)
+      }) }}
+      onDelete={f => { if (window.confirm(`Delete ${f.name}?`)) void run(async () => { await circuitDelete(f.project, f.name); refreshFiles() }) }} />}
     <div className="logic-main">
       <aside className="logic-palette">
         <h4>Inputs and outputs</h4>
@@ -324,11 +371,17 @@ export default function LogicPage({ active }: { active: boolean }) {
         onPlace={(ref, col) => change(c => ({ ...c, board: { ...(c.board ?? {}), [ref]: col } }))}
         onFlip={label => change(c => ({ ...c, parts: c.parts.map(p => (p.kind === 'switch' && p.label === label ? { ...p, on: !p.on } : p)) }))}
         onJumpers={next => change(c => ({ ...c, jumpers: next.length ? next : undefined }))} /></div> :
-      <div ref={scroller} className="logic-canvas" onDragOver={e => e.preventDefault()} onDrop={e => {
+      <div className="logic-stage"><div ref={scroller} className="logic-canvas" onDragOver={e => e.preventDefault()} onDrop={e => {
         e.preventDefault()
         try { const item = JSON.parse(e.dataTransfer.getData('application/x-logic')) as PaletteItem; add(item, point(e)) } catch { /* not a part */ }
       }}>
-        <svg ref={svg} width={W} height={H} onPointerMove={move} onPointerUp={up} onPointerDown={() => { setPending(null); setSelection(null) }}>
+        <svg ref={svg} width={W * zoom} height={H * zoom} viewBox={`0 0 ${W} ${H}`} onPointerMove={move} onPointerUp={up}
+          onPointerDown={e => {
+            const box = scroller.current
+            if (!box || e.button !== 0) return
+            pan.current = { x: e.clientX, y: e.clientY, left: box.scrollLeft, top: box.scrollTop, moved: false }
+            ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+          }}>
           <defs><pattern id="logic-grid" width={20} height={20} patternUnits="userSpaceOnUse"><circle cx={1} cy={1} r={1} className="logic-dot" /></pattern></defs>
           <rect width={W} height={H} fill="url(#logic-grid)" />
           {circuit.wires.map(w => {
@@ -385,7 +438,7 @@ export default function LogicPage({ active }: { active: boolean }) {
             const from = part && pinPoint(part, pending.slice(part.id.length + 1))
             return from ? <path d={`M${from.x},${from.y} L${mouse.x},${mouse.y}`} className="logic-wire pending" /> : null
           })()}
-        </svg>
+        </svg></div>
         {selection && (() => {
           const wire = selection.kind === 'wire' ? circuit.wires.find(w => w.id === selection.id) : null
           const shape: WireShape = wire?.shape ?? 'auto'
@@ -400,6 +453,12 @@ export default function LogicPage({ active }: { active: boolean }) {
             <button onClick={() => remove(selection)} title="Delete (Delete key)"><Trash2 size={13} /></button>
           </div>
         })()}
+        <div className="logic-zoom" onPointerDown={e => e.stopPropagation()}>
+          <button onClick={() => zoomTo(zoom / 1.2)} title="Zoom out (⌘/Ctrl + scroll, or pinch)"><ZoomOut size={14} /></button>
+          <button className="logic-zoom__level" onClick={() => zoomTo(1)} title="Back to 100%">{Math.round(zoom * 100)}%</button>
+          <button onClick={() => zoomTo(zoom * 1.2)} title="Zoom in"><ZoomIn size={14} /></button>
+          <button onClick={fit} title="Fit the whole circuit in view"><Maximize size={14} /></button>
+        </div>
         {!circuit.parts.length && <div className="logic-empty"><CircuitBoard size={28} /><p>Add switches, gates or chips from the left, then wire their pins. Or build one from an expression or a truth table on the right.</p></div>}
       </div>}
       <aside className="logic-side">

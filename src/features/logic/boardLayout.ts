@@ -14,7 +14,10 @@ export type Rail = 'top+' | 'top-' | 'bottom+' | 'bottom-'
 export type Spot = { kind: 'hole'; col: number; row: Row } | { kind: 'rail'; col: number; rail: Rail } | { kind: 'switch' | 'led'; label: string }
 export type Jumper = { net: string; a: Spot; b: Spot; color: string }
 export type BoardChip = { ref: string; part: string; name: string; pins: number; col: number }
-export type Board = { cols: number; chips: BoardChip[]; inputs: string[]; outputs: string[]; jumpers: Jumper[]; steps: string[]; notes: string[]; plan: ChipPlan }
+/** One thing to do while building it: put a chip in, or place a jumper (its index in `jumpers`). */
+export type BoardStep = { text: string; chip?: string; jumper?: number }
+/** `cols`: the columns shown, the full board's or as many as the circuit uses (with room to spare). */
+export type Board = { cols: number; chips: BoardChip[]; inputs: string[]; outputs: string[]; jumpers: Jumper[]; steps: BoardStep[]; notes: string[]; plan: ChipPlan }
 
 /** Where each chip goes: column of pin 1 by chip (moved by hand), kept with the circuit. */
 export type BoardPlacement = Record<string, number>
@@ -43,7 +46,8 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
     chips.push({ ref: ch.ref, part: ch.part, name: ch.name, pins, col })
     next = Math.max(next, col + wide + 3)
   }
-  const cols = Math.max(BOARD_COLS, ...chips.map(ch => ch.col + ch.pins / 2 + 2))
+  // Only the part of the board in use (and a little more), so the LEDs sit next to the chips.
+  const cols = Math.min(BOARD_COLS, Math.max(24, ...chips.map(ch => ch.col + ch.pins / 2 + 4)))
   // Pin 1 bottom left (notch on the left): pins 1…n/2 in row f, the rest back along row e.
   const pinSpot = (ref: string, pin: number) => chipPinHole(chips, ref, pin)
   // Each strip of five holes has the chip leg in its row nearest the channel; jumpers take the others.
@@ -60,8 +64,8 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
   type End = { spot: () => Spot; x: number; label: string }
   const inputs = new Set<string>(), outputs = new Set<string>()
   const jumpers: Jumper[] = []
-  const steps: string[] = chips.map(ch => `Put ${ch.ref} (${ch.part}, ${ch.name}) across the middle channel with its notch to the left: pin 1 in f${ch.col}, pin ${ch.pins} in e${ch.col}.`)
-  steps.push('Connect the power supply: +5 V to the + rails and ground to the − rails, top and bottom.')
+  const steps: BoardStep[] = chips.map(ch => ({ text: `Put ${ch.ref} (${ch.part}) across the middle, notch left: pin 1 in f${ch.col}.`, chip: ch.ref }))
+  steps.push({ text: 'Power supply: +5 V to both + rails, ground to both − rails.' })
 
   plan.connections.forEach((conn, i) => {
     const ends: End[] = []
@@ -87,7 +91,7 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
         const rail: Rail = `${top ? 'top' : 'bottom'}${conn.net === '+5V' ? '+' : '-'}`
         const b: Spot = { kind: 'rail', col: a.col, rail }
         jumpers.push({ net: conn.net, a, b, color })
-        steps.push(`${conn.net === '+5V' ? '+5 V' : 'Ground'}: ${e.label} — ${spotName(a)} to the ${spotName(b)}.`)
+        steps.push({ text: `${conn.net === '+5V' ? '+5 V' : 'Ground'}: ${spotName(a)} → ${b.rail.endsWith('+') ? '+' : '−'} rail (${e.label})`, jumper: jumpers.length - 1 })
       }
       return
     }
@@ -96,10 +100,10 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
     for (let k = 1; k < sorted.length; k++) {
       const a = sorted[k - 1].spot(), b = sorted[k].spot()
       jumpers.push({ net: conn.net, a, b, color })
-      steps.push(`${conn.net}: ${sorted[k - 1].label} — ${spotName(a)} to ${spotName(b)} (${sorted[k].label}).`)
+      steps.push({ text: `${conn.net}: ${spotName(a)} → ${spotName(b)} (${sorted[k - 1].label} to ${sorted[k].label})`, jumper: jumpers.length - 1 })
     }
   })
-  for (const led of outputs) steps.push(`LED ${led}: through a 330 Ω resistor to ground (the trainer's LEDs have one built in).`)
+  for (const led of outputs) steps.push({ text: `LED ${led}: through a 330 Ω resistor to ground (the trainer’s LEDs have one built in).` })
   return { cols, chips, inputs: [...inputs].sort(), outputs: [...outputs].sort(), jumpers, steps, notes, plan }
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, Eraser, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Copy, Eraser, ListOrdered, Trash2 } from 'lucide-react'
 import { breadboard, checkWiring, parseSpot, ROWS_BOTTOM, ROWS_TOP, spotKey, spotName, stripOf, type Board, type Rail, type Spot } from './boardLayout'
 import { newId, type BoardWire, type Circuit, type Level } from './model'
 
@@ -45,6 +45,10 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
   const [picked, setPicked] = useState<string | null>(null)
   const [color, setColor] = useState(COLORS[2])
   const [ghost, setGhost] = useState(false)
+  /** Guide: the step being shown (its wire or chip picked out on the board), and the full list. */
+  const [stepAt, setStepAt] = useState<number | null>(null)
+  const [allSteps, setAllSteps] = useState(false)
+  const current = stepAt === null ? null : board.steps[Math.min(stepAt, board.steps.length - 1)]
   const build = mode === 'build'
   const width = LEFT + board.cols * P + RIGHT
 
@@ -60,6 +64,21 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
     return () => window.removeEventListener('keydown', onKey)
   }, [build, picked, mine, onJumpers])
 
+  // Guide: ← and → go through the steps.
+  useEffect(() => {
+    if (build || !board.steps.length) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return
+      if (e.key === 'ArrowRight') setStepAt(s => (s === null ? 0 : Math.min(board.steps.length - 1, s + 1)))
+      else if (e.key === 'ArrowLeft') setStepAt(s => (s === null ? null : Math.max(0, s - 1)))
+      else if (e.key === 'Escape') setStepAt(null)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [build, board.steps.length])
+
   const ioY = (list: string[], label: string) => 86 + list.indexOf(label) * 44
   const at = (s: Spot): { x: number; y: number } =>
     s.kind === 'hole' ? { x: xOf(s.col), y: Y[s.row] }
@@ -70,8 +89,9 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
     const r = svg.current?.getBoundingClientRect()
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) }
   }
+  // Jumpers lie nearly flat, as on a real board: a slight bow, enough to tell crossing wires apart.
   const jumperPath = (a: { x: number; y: number }, b: { x: number; y: number }) => {
-    const bow = Math.min(60, 10 + Math.hypot(b.x - a.x, b.y - a.y) / 6)
+    const bow = Math.min(26, 5 + Math.hypot(b.x - a.x, b.y - a.y) / 9)
     return `M${a.x},${a.y} Q${(a.x + b.x) / 2},${Math.min(a.y, b.y) - bow} ${b.x},${b.y}`
   }
 
@@ -167,7 +187,7 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
           const col = drag?.ref === ch.ref ? drag.col : ch.col
           const half = ch.pins / 2
           const x0 = xOf(col) - 7, x1 = xOf(col + half - 1) + 7
-          return <g key={ch.ref} className={`bb-chip${drag?.ref === ch.ref ? ' dragging' : ''}`}
+          return <g key={ch.ref} className={`bb-chip${drag?.ref === ch.ref ? ' dragging' : ''}${current?.chip === ch.ref ? ' picked' : ''}`}
             onPointerDown={e => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); setDrag({ ref: ch.ref, dx: local(e).x - xOf(col), col }) }}>
             {Array.from({ length: half }, (_, i) => <g key={i}><rect x={xOf(col + i) - 2.5} y={Y.e - 2} width={5} height={8} className="bb-leg" /><rect x={xOf(col + i) - 2.5} y={Y.f - 6} width={5} height={8} className="bb-leg" /></g>)}
             <rect x={x0} y={Y.e + 4} width={x1 - x0} height={Y.f - Y.e - 8} rx={3} className="bb-chip-body" />
@@ -181,11 +201,12 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
         {/* The guide's jumpers: a bowed wire per connection, red for +5 V, black for ground. */}
         {!drag && (!build || ghost) && board.jumpers.map((j, i) => {
           const d = jumperPath(at(j.a), at(j.b))
-          const dim = !build && hover && hover !== j.net
-          return <g key={i} className={`bb-jumper${build ? ' ghost' : ''}`} opacity={build ? 0.22 : dim ? 0.15 : 1} onPointerEnter={() => setHover(j.net)} onPointerLeave={() => setHover(null)}>
-            <path d={d} stroke="#0008" strokeWidth={5} fill="none" strokeLinecap="round" />
+          const picked = !build && current?.jumper === i
+          const dim = !build && (current ? current.jumper !== i : hover && hover !== j.net)
+          return <g key={i} className={`bb-jumper${build ? ' ghost' : ''}${picked ? ' picked' : ''}`} opacity={build ? 0.22 : dim ? 0.12 : 1} onPointerEnter={() => setHover(j.net)} onPointerLeave={() => setHover(null)}>
+            <path d={d} stroke={picked ? '#fff' : '#0008'} strokeWidth={picked ? 7 : 5} fill="none" strokeLinecap="round" />
             <path d={d} stroke={j.color} strokeWidth={3} fill="none" strokeLinecap="round" />
-            <circle cx={at(j.a).x} cy={at(j.a).y} r={2.5} fill={j.color} /><circle cx={at(j.b).x} cy={at(j.b).y} r={2.5} fill={j.color} />
+            <circle cx={at(j.a).x} cy={at(j.a).y} r={picked ? 4 : 2.5} fill={j.color} /><circle cx={at(j.b).x} cy={at(j.b).y} r={picked ? 4 : 2.5} fill={j.color} />
             <title>{j.net}: {spotName(j.a)} → {spotName(j.b)}</title>
           </g>
         })}
@@ -222,10 +243,18 @@ export default function Breadboard({ circuit, levels, onPlace, onFlip, onJumpers
             {check.problems.length > 10 && <p className="hint">And {check.problems.length - 10} more.</p>}
           </>}
       </div>
-      : <details className="bb-steps" open>
-        <summary>How to wire it ({board.steps.length} steps)</summary>
-        <ol>{board.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+      : <div className="bb-guide">
+        <div className="bb-stepper">
+          <button className="ghost" disabled={stepAt === 0} onClick={() => setStepAt(s => (s === null ? 0 : Math.max(0, s - 1)))} title="Previous step"><ChevronLeft size={14} /></button>
+          {current
+            ? <span><strong>Step {Math.min(stepAt!, board.steps.length - 1) + 1} of {board.steps.length}</strong> {current.text}</span>
+            : <span><strong>{board.steps.length} steps</strong> to build it. Press → to go through them one at a time, each wire picked out on the board.</span>}
+          <button className="ghost" disabled={stepAt !== null && stepAt >= board.steps.length - 1} onClick={() => setStepAt(s => (s === null ? 0 : Math.min(board.steps.length - 1, s + 1)))} title="Next step"><ChevronRight size={14} /></button>
+          {current && <button className="ghost" onClick={() => setStepAt(null)}>Show all wires</button>}
+          <button className={`ghost${allSteps ? ' active' : ''}`} onClick={() => setAllSteps(v => !v)} title="The list of steps"><ListOrdered size={14} /> List</button>
+        </div>
+        {allSteps && <ol className="bb-steps">{board.steps.map((s, i) => <li key={i} className={stepAt === i ? 'on' : undefined} onClick={() => setStepAt(i)} onPointerEnter={() => setStepAt(i)}>{s.text}</li>)}</ol>}
         {board.notes.map(n => <p key={n} className="hint">{n}</p>)}
-      </details>}
+      </div>}
   </div>
 }
