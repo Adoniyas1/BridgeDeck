@@ -79,6 +79,7 @@ import { deleteChat, listChats, readChat } from "./chatgpt/store.js";
 import { deleteMimirChat, historyFromChat, listMimirChats, readMimirChat, writeMimirChat } from "./chats/store.js";
 import { readMemoryFiles, writeMemoryFiles } from "./persona/memoryFiles.js";
 import { SelfEditTransaction } from "./self-edit/transaction.js";
+import { loadNaturalVoice } from "./voice/natural.js";
 import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -224,7 +225,7 @@ const invokeHandlers: Record<string, Handler> = {
     const cfg = await loadVoiceConfig();
     broadcast(IPC.faceState, "speaking");
     try {
-      await speak(text, { provider: cfg.ttsProvider, voiceId: cfg.elevenLabsVoiceId, systemVoice: cfg.systemVoice });
+      await speak(text, { provider: cfg.ttsProvider, voiceId: cfg.elevenLabsVoiceId, systemVoice: cfg.systemVoice, naturalVoice: cfg.naturalVoice });
     } catch (err) {
       console.warn("[mimir] TTS failed:", err instanceof Error ? err.message : err);
     } finally {
@@ -306,13 +307,21 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.chatgptSaveToNotes]: (id: string): Promise<{ noteId: string }> => chatgpt.saveToNotes(id, bridgeDeckFromEnv()),
   [IPC.voiceGetConfig]: (): Promise<VoiceConfig> => loadVoiceConfig(),
   [IPC.voiceSetConfig]: async (
-    patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
+    patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "naturalVoice" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
   ): Promise<VoiceConfig> => {
     const next = await saveVoiceConfig(patch);
     // React to a live toggle of the wake word without requiring a restart.
     if (next.wakeWordEnabled) await startWake();
     else stopWake();
     return next;
+  },
+  [IPC.voicePrepare]: async (): Promise<VoiceConfig> => {
+    try {
+      await loadNaturalVoice();
+    } catch {
+      /* the error is in the config's naturalVoiceError */
+    }
+    return loadVoiceConfig();
   },
   [IPC.voiceSetApiKey]: async (kind: "picovoice" | "elevenlabs", key: string): Promise<void> => {
     if (kind === "picovoice") await setPicovoiceKey(key);
@@ -506,6 +515,8 @@ async function main(): Promise<void> {
 
   const voiceConfig = await loadVoiceConfig();
   if (voiceConfig.wakeWordEnabled) await startWake();
+  // Hands-free voice on: have the natural voice ready for the first reply instead of the system one.
+  if (voiceConfig.ttsProvider === "natural" && (voiceConfig.wakeWordEnabled || voiceConfig.openMicEnabled)) void loadNaturalVoice().catch(() => undefined);
   startHeartbeatScheduler(workspaceRoot, auditFilePath);
   startDeadlineNotifier(workspaceRoot);
   await reportHealthy();

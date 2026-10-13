@@ -358,7 +358,14 @@ export interface VoiceConfig {
   /** Hands-free local speech start/end detection. Off by default. */
   openMicEnabled: boolean;
   hasPicovoiceKey: boolean;
-  ttsProvider: "system" | "elevenlabs";
+  /** natural: a neural voice on this computer (Kokoro); system: the OS voice; elevenlabs: ElevenLabs' API. */
+  ttsProvider: "natural" | "system" | "elevenlabs";
+  /** The Kokoro voice, one of `naturalVoices`. */
+  naturalVoice: string;
+  naturalVoices: Array<{ id: string; label: string }>;
+  /** Whether the natural voice's model is loaded (it downloads once, about 90 MB). */
+  naturalVoiceState: "not-loaded" | "loading" | "ready" | "failed";
+  naturalVoiceError: string | null;
   hasElevenLabsKey: boolean;
   elevenLabsVoiceId: string;
   /** macOS `say` voice name; ignored by non-system TTS providers. */
@@ -424,6 +431,8 @@ export const IPC = {
   voiceGetConfig: "mimir:voice:get-config",
   voiceSetConfig: "mimir:voice:set-config",
   voiceSetApiKey: "mimir:voice:set-api-key",
+  /** Loads the natural voice's model now (downloading it the first time); resolves with the voice config. */
+  voicePrepare: "mimir:voice:prepare",
   voicePushToTalkStart: "mimir:voice:ptt-start",
   voicePushToTalkStop: "mimir:voice:ptt-stop",
   voiceWakeTriggered: "mimir:voice:wake-triggered",

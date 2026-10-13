@@ -175,9 +175,10 @@ const api = {
   voice: {
     getConfig: (): Promise<VoiceConfig> => invoke(IPC.voiceGetConfig),
     setConfig: (
-      patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
+      patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "naturalVoice" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
     ): Promise<VoiceConfig> => invoke(IPC.voiceSetConfig, patch),
     setApiKey: (kind: "picovoice" | "elevenlabs", key: string): Promise<void> => invoke(IPC.voiceSetApiKey, kind, key),
+    prepare: (): Promise<VoiceConfig> => invoke(IPC.voicePrepare),
     pushToTalkStart: () => send(IPC.voicePushToTalkStart),
     pushToTalkStop: () => send(IPC.voicePushToTalkStop),
     onWakeTriggered: (cb: () => void) => on(IPC.voiceWakeTriggered, cb),

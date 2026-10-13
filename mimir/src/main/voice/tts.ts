@@ -3,11 +3,14 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_ELEVENLABS_VOICE_ID, getElevenLabsKey, loadVoiceConfig } from "./config.js";
+import { DEFAULT_NATURAL_VOICE, speakNatural } from "./natural.js";
 
 export interface SpeakOptions {
-  provider: "system" | "elevenlabs";
+  provider: "natural" | "system" | "elevenlabs";
   voiceId?: string; // ElevenLabs voice id, ignored for system TTS
   systemVoice?: string;
+  /** Kokoro voice for the natural provider (natural.ts). */
+  naturalVoice?: string;
 }
 
 /**
@@ -19,6 +22,14 @@ export interface SpeakOptions {
  */
 export async function speak(text: string, opts: SpeakOptions): Promise<void> {
   if (!text.trim()) return;
+  if (opts.provider === "natural") {
+    try {
+      // The first time, the model is still downloading: the system voice says this one.
+      if (await speakNatural(text, opts.naturalVoice ?? DEFAULT_NATURAL_VOICE, playAudioFile)) return;
+    } catch (err) {
+      console.warn("[mimir] Natural voice failed — falling back to system TTS:", err instanceof Error ? err.message : err);
+    }
+  }
   if (opts.provider === "elevenlabs") {
     const key = await getElevenLabsKey();
     if (key) {
