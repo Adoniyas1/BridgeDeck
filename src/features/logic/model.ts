@@ -16,9 +16,15 @@ export type Part = {
   label?: string
   /** A switch's position; for a 7-segment display, common anode (a segment lights on 0, as from a 7447). */
   on?: boolean
+  /** Turned clockwise by this many degrees (pins turn with it). */
+  rot?: Rotation
 }
+export type Rotation = 0 | 90 | 180 | 270
+/** How a wire is drawn: auto (right angles, routed for you), straight, or curved; `via` are bend
+ *  points the user placed (the wire goes through them in order). */
+export type WireShape = 'auto' | 'straight' | 'curved'
 /** A wire between two pins, written "partId:pin". */
-export type Wire = { id: string; a: string; b: string }
+export type Wire = { id: string; a: string; b: string; shape?: WireShape; via?: Array<{ x: number; y: number }> }
 export type Circuit = { version: 1; parts: Part[]; wires: Wire[] }
 
 export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF']
@@ -199,10 +205,94 @@ export const SEG7_PINS = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
 
 export const pinRef = (part: Part, pin: string) => `${part.id}:${pin}`
 
+/** A point on a part (relative to its top-left corner) after the part is turned, about its middle. */
+export function turned(part: Part, x: number, y: number): { x: number; y: number } {
+  const { w, h } = sizeOf(part)
+  const cx = w / 2, cy = h / 2, dx = x - cx, dy = y - cy
+  switch (part.rot ?? 0) {
+    case 90: return { x: cx - dy, y: cy + dx }
+    case 180: return { x: cx - dx, y: cy - dy }
+    case 270: return { x: cx + dy, y: cy - dx }
+    default: return { x, y }
+  }
+}
+
+/** A part's pins where they are once it's turned (relative to its top-left corner). */
+export function placedPins(part: Part): PinDef[] {
+  return pinsOf(part).map(p => ({ ...p, ...turned(part, p.x, p.y) }))
+}
+
 /** Where a pin is on the canvas. */
 export function pinPoint(part: Part, pin: string): { x: number; y: number } | null {
   const def = pinsOf(part).find(p => p.name === pin)
-  return def ? { x: part.x + def.x, y: part.y + def.y } : null
+  if (!def) return null
+  const t = turned(part, def.x, def.y)
+  return { x: part.x + t.x, y: part.y + t.y }
+}
+
+/** The way a pin points out of its part (unit step), so wires leave it in that direction. */
+export function pinFacing(part: Part, pin: string): { x: number; y: number } {
+  const def = pinsOf(part).find(p => p.name === pin)
+  if (!def) return { x: 1, y: 0 }
+  const { w, h } = sizeOf(part)
+  const base = def.x < 0 ? { x: -1, y: 0 } : def.x > w ? { x: 1, y: 0 } : def.y < 0 ? { x: 0, y: -1 } : def.y > h ? { x: 0, y: 1 } : { x: 1, y: 0 }
+  const r = part.rot ?? 0
+  const t = r === 90 ? { x: -base.y, y: base.x } : r === 180 ? { x: -base.x, y: -base.y } : r === 270 ? { x: base.y, y: -base.x } : base
+  return { x: t.x + 0, y: t.y + 0 } // + 0 turns -0 into 0
+}
+
+export const rotateBy90 = (r: Rotation | undefined): Rotation => (((r ?? 0) + 90) % 360) as Rotation
+
+/** The SVG path of a wire from `from` to `to` (each with the way its pin points). `lane` spreads the
+ *  vertical runs of different signals so they don't sit on top of each other. */
+export function wirePath(wire: Wire, from: { x: number; y: number; fx: number; fy: number }, to: { x: number; y: number; fx: number; fy: number }, lane = 0): string {
+  const pts = [{ x: from.x, y: from.y }, ...(wire.via ?? []), { x: to.x, y: to.y }]
+  const shape = wire.shape ?? 'auto'
+  if (shape === 'curved') {
+    if (pts.length === 2) {
+      // Leaves each pin the way it points, then bends round.
+      const k = Math.max(30, Math.hypot(to.x - from.x, to.y - from.y) / 2.5)
+      return `M${from.x},${from.y} C${from.x + from.fx * k},${from.y + from.fy * k} ${to.x + to.fx * k},${to.y + to.fy * k} ${to.x},${to.y}`
+    }
+    // A smooth curve through the bend points (Catmull–Rom as cubic Béziers).
+    let d = `M${pts[0].x},${pts[0].y}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2
+      d += ` C${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`
+    }
+    return d
+  }
+  if (shape === 'straight' || pts.length > 2) {
+    if (shape === 'straight') return pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ')
+    // Auto through bend points: right angles between each pair (across, then up or down).
+    let d = `M${pts[0].x},${pts[0].y}`
+    for (let i = 1; i < pts.length; i++) d += ` H${pts[i].x} V${pts[i].y}`
+    return d
+  }
+  // Auto: out of the pin, across in a lane, then into the other pin.
+  if (from.fx !== 0 && to.fx !== 0) {
+    const room = to.x - from.x
+    const mid = room >= 30 ? Math.min(to.x - 10, from.x + 10 + lane * (room > 70 ? 8 : 4)) : Math.round((from.x + to.x) / 2 / GRID) * GRID
+    return `M${from.x},${from.y} H${mid} V${to.y} H${to.x}`
+  }
+  if (from.fy !== 0 && to.fy !== 0) {
+    const mid = Math.round((from.y + to.y) / 2 / GRID) * GRID + lane * 4
+    return `M${from.x},${from.y} V${mid} H${to.x} V${to.y}`
+  }
+  // One pin across, one up or down: a single corner.
+  return from.fx !== 0 ? `M${from.x},${from.y} H${to.x} V${to.y}` : `M${from.x},${from.y} V${to.y} H${to.x}`
+}
+
+/** Where a new bend point goes in a wire's list: the place that adds the least length. */
+export function bendIndex(wire: Wire, from: { x: number; y: number }, to: { x: number; y: number }, at: { x: number; y: number }): number {
+  const pts = [from, ...(wire.via ?? []), to]
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+  let best = 0, cost = Infinity
+  for (let i = 0; i < pts.length - 1; i++) {
+    const c = dist(pts[i], at) + dist(at, pts[i + 1]) - dist(pts[i], pts[i + 1])
+    if (c < cost) { cost = c; best = i }
+  }
+  return best
 }
 
 // ---- Simulation ----
@@ -941,6 +1031,11 @@ export function readCircuit(text: string): Circuit {
   const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip', 'seg7'].includes(p.kind)) : []
   const ids = new Set(parts.map(p => p.id))
   const wires: Wire[] = Array.isArray(raw?.wires) ? raw.wires.filter((w: Wire) => typeof w?.a === 'string' && typeof w.b === 'string' && ids.has(w.a.split(':')[0]) && ids.has(w.b.split(':')[0])) : []
+  for (const p of parts) if (p.rot !== undefined && ![0, 90, 180, 270].includes(p.rot)) delete p.rot
+  for (const w of wires) {
+    if (w.shape !== undefined && !['auto', 'straight', 'curved'].includes(w.shape)) delete w.shape
+    if (w.via !== undefined) w.via = Array.isArray(w.via) ? w.via.filter(v => typeof v?.x === 'number' && typeof v.y === 'number').map(v => ({ x: v.x, y: v.y })) : undefined
+  }
   return { version: 1, parts, wires }
 }
 

@@ -1493,3 +1493,11 @@ main .notice .update-banner__go:disabled{opacity:.4}
 /* Drop-downs: dark like the rest (some engines draw them white, hiding the light text). */
 main select,.tabbar select{background-color:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);border-radius:7px;color-scheme:dark}
 main select option{background:var(--surface-2);color:var(--text)}
+/* Logic canvas: bend points and the bar for what's selected */
+.logic-bend{fill:var(--bg);stroke:var(--accent);stroke-width:2;cursor:move}
+.logic-selbar{position:absolute;top:8px;left:8px;z-index:5;display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:4px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);box-shadow:var(--shadow-pop);font-size:12px;max-width:calc(100% - 16px)}
+.logic-selbar>span{color:var(--muted);padding:0 6px}
+.logic-selbar small{color:var(--faint);padding:0 6px}
+main .logic-selbar button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:0;background:transparent;color:var(--text);font-size:12px}
+main .logic-selbar button:hover{background:var(--surface-3)}
+main .logic-selbar button.on{background:var(--surface-3);color:var(--accent)}

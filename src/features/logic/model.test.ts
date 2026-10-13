@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCircuit, buildWithRules, chipPlan, designSummary, minimizePOS, posExpressions, groupsCovering, kmapGroups, kmapLayout, termOf, timing, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
+import { bendIndex, pinFacing, rotateBy90, wirePath, pinPoint, buildCircuit, buildWithRules, chipPlan, designSummary, minimizePOS, posExpressions, groupsCovering, kmapGroups, kmapLayout, termOf, timing, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
 
 const sw = (id: string, label: string, on = false): Part => ({ id, kind: 'switch', x: 0, y: 0, label, on })
 const led = (id: string, label: string): Part => ({ id, kind: 'led', x: 0, y: 0, label })
@@ -265,5 +265,45 @@ describe('designing with rules (EE 201 voting box)', () => {
     const always = tableOf(parseOutputs("Y = A + A'"))
     expect(outputs(buildWithRules(always, { gates: 'nand', maxInputs: 2 }))).toEqual([1, 1])
     expect(outputs(buildWithRules(always, { gates: 'nor', maxInputs: 2 }))).toEqual([1, 1])
+  })
+})
+
+describe('rotating parts and shaping wires', () => {
+  const g = (rot?: Part['rot']): Part => ({ id: 'g', kind: 'gate', x: 100, y: 100, gate: 'AND', inputs: 2, rot })
+
+  it('turns pins with the part, about its middle', () => {
+    // A 2-input AND is 60×40: its output at (70, 20); turned 90° it points down from the middle.
+    expect(pinPoint(g(), 'out')).toEqual({ x: 170, y: 120 })
+    expect(pinPoint(g(90), 'out')).toEqual({ x: 130, y: 160 })
+    expect(pinPoint(g(180), 'out')).toEqual({ x: 90, y: 120 })
+    expect(pinFacing(g(), 'out')).toEqual({ x: 1, y: 0 })
+    expect(pinFacing(g(90), 'out')).toEqual({ x: 0, y: 1 })
+    expect(pinFacing(g(180), 'in0')).toEqual({ x: 1, y: 0 })
+    expect(rotateBy90(270)).toBe(0)
+  })
+
+  it('rotating a gate changes the drawing, not the logic', () => {
+    const turnedAdder: Circuit = { ...halfAdder, parts: halfAdder.parts.map(p => (p.kind === 'gate' ? { ...p, rot: 90 } : p)) }
+    expect(truthTable(turnedAdder).rows).toEqual(truthTable(halfAdder).rows)
+  })
+
+  it('draws wires straight, curved, at right angles, and through bend points', () => {
+    const from = { x: 0, y: 0, fx: 1, fy: 0 }, to = { x: 100, y: 50, fx: -1, fy: 0 }
+    const w = { id: 'w', a: 'x:out', b: 'y:in0' }
+    expect(wirePath({ ...w, shape: 'straight' }, from, to)).toBe('M0,0 L100,50')
+    expect(wirePath({ ...w, shape: 'curved' }, from, to)).toMatch(/^M0,0 C/)
+    expect(wirePath(w, from, to)).toMatch(/^M0,0 H\d+ V50 H100$/)
+    expect(wirePath({ ...w, via: [{ x: 50, y: 80 }] }, from, to)).toBe('M0,0 H50 V80 H100 V50')
+    expect(wirePath({ ...w, shape: 'straight', via: [{ x: 50, y: 80 }] }, from, to)).toBe('M0,0 L50,80 L100,50')
+    // A new bend goes into the stretch it's nearest to.
+    expect(bendIndex({ ...w, via: [{ x: 50, y: 0 }] }, from, to, { x: 90, y: 30 })).toBe(1)
+  })
+
+  it('keeps rotation, wire shapes and bends when saved, and drops nonsense', () => {
+    const saved = JSON.stringify({ parts: [{ ...sw('a', 'A'), rot: 90 }, { ...led('l', 'Y'), rot: 45 }], wires: [{ id: 'w', a: 'a:out', b: 'l:in', shape: 'curved', via: [{ x: 1, y: 2 }, { x: 'bad' }] }, { id: 'v', a: 'a:out', b: 'l:in', shape: 'zigzag' }] })
+    const c = readCircuit(saved)
+    expect(c.parts.map(p => p.rot)).toEqual([90, undefined])
+    expect(c.wires[0]).toMatchObject({ shape: 'curved', via: [{ x: 1, y: 2 }] })
+    expect(c.wires[1].shape).toBeUndefined()
   })
 })
