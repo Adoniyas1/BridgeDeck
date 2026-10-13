@@ -35,6 +35,21 @@ export class OpenAICompatibleProvider implements BrainProvider {
     this.thinking = opts.thinking;
   }
 
+  /** A failed request in words: llama-swap's "no router" means the model name isn't one it serves. */
+  private async explain(status: number, text: string): Promise<string> {
+    if (status === 404 && /no router|model.*not found/i.test(text)) {
+      let served: string[] = [];
+      try {
+        const res = await fetch(`${this.baseUrl}/v1/models`, { signal: AbortSignal.timeout(2000) });
+        served = ((await res.json()) as { data?: Array<{ id?: string }> }).data?.map((m) => m.id ?? "").filter(Boolean) ?? [];
+      } catch {
+        /* list unavailable */
+      }
+      return `${this.baseUrl} doesn't serve a model called “${this.model}”${served.length ? ` (it has ${served.join(", ")})` : ""}. Open Settings → Model servers and press Use them, or pick one of those models in Brain team.`;
+    }
+    return `HTTP ${status}: ${text.slice(0, 500)}`;
+  }
+
   supportsTools(): boolean {
     return this.toolsSupported;
   }
@@ -85,7 +100,7 @@ export class OpenAICompatibleProvider implements BrainProvider {
         // caller retry without them (agent loop treats this as no-tools).
         this.toolsSupported = false;
       }
-      yield { type: "error", message: `HTTP ${res.status}: ${text.slice(0, 500)}` };
+      yield { type: "error", message: await this.explain(res.status, text) };
       yield { type: "done", stopReason: "error" };
       return;
     }
