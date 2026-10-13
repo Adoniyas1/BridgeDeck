@@ -22,7 +22,7 @@ if (pkg.dependencies?.['@tauri-apps/plugin-dialog']) ok('Tauri dialog dependency
 
 // `tauri build` refuses to run when the Rust crate and the npm packages are on different minor
 // releases (a new Rust plugin can pull a newer tauri crate into Cargo.lock).
-const lockedVersion = (text, name) => text.match(new RegExp(`name = "${name}"\\nversion = "([^"]+)"`))?.[1]
+const lockedVersion = (text, name) => text.match(new RegExp(`name = "${name}"\\r?\\nversion = "([^"]+)"`))?.[1]
 const minor = version => version?.split('.').slice(0, 2).join('.')
 const cargoLock = readFileSync(join(root, 'src-tauri/Cargo.lock'), 'utf8')
 const npmLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
