@@ -46,6 +46,7 @@ export interface PromptModule {
 }
 
 export const CORE_MODULE_ID = "core";
+export const ABOUT_MODULE_ID = "about";
 
 export const PROMPT_MODULES: PromptModule[] = [
   {
@@ -57,7 +58,8 @@ export const PROMPT_MODULES: PromptModule[] = [
     tiers: ["core", "full"],
     triggers: [],
     text:
-      "You are Mimir, a calm, capable desktop assistant. Be direct, helpful and concise — you are a voice-and-chat " +
+      "You are Mimir, a calm, capable desktop assistant running in the Mimir tab of BridgeDeck, the user's own app " +
+      "for their Mac and Windows PC. Be direct, helpful and concise — you are a voice-and-chat " +
       "assistant, not a document generator. Answer the user's actual message naturally. Never mention tool names, " +
       "file names, timestamps or implementation details unless asked. Never claim to have changed a file, " +
       "remembered something or taken an action unless a tool call actually succeeded, and never describe a tool " +
@@ -65,6 +67,28 @@ export const PROMPT_MODULES: PromptModule[] = [
       "with no tool call and no code; a greeting gets a short greeting back. Write code only when the user asks for " +
       "it, in a fenced block (``` and the language name on their own line, the code, then a closing ```). Dollar " +
       "signs are only for math, never for code.",
+    tools: [],
+    coreTools: []
+  },
+  {
+    id: ABOUT_MODULE_ID,
+    title: "About Mimir",
+    summary: "What Mimir is, where it runs and what it can do here.",
+    when: "You ask what Mimir is, what it can do or which tools it has",
+    required: false,
+    tiers: ["core", "full"],
+    triggers: [
+      /\b(who|what) are you\b/i,
+      /\bwhat (can|do) you (do|have|know)\b/i,
+      /\b(what|which) (tools|apps?|abilities|capabilities|features|skills)\b/i,
+      /\byour (tools|abilities|capabilities|features|access)\b/i,
+      /\b(aware|know) (of|about) (the |this )?(app|program|bridgedeck|yourself|mimir)\b/i,
+      /\b(aware|access)\b.{0,40}\b(app|tools?|running|program)\b/i,
+      /\bbridgedeck\b/i
+    ],
+    // Filled in below from the other modules, so it never lists something Mimir can't do.
+    text: "",
+    coreText: "",
     tools: [],
     coreTools: []
   },
@@ -398,6 +422,24 @@ export const PROMPT_MODULES: PromptModule[] = [
     coreTools: []
   }
 ];
+
+/** The About module's text: where Mimir runs and one line per capability the tier has. */
+function aboutText(tier: PromptTier): string {
+  const lines = PROMPT_MODULES.filter((m) => m.id !== CORE_MODULE_ID && m.id !== ABOUT_MODULE_ID && m.tiers.includes(tier)).map((m) => `- ${m.title}: ${m.summary}`);
+  return [
+    "About yourself, for when the user asks: you are Mimir, the assistant in BridgeDeck's Mimir tab. BridgeDeck is the user's desktop app " +
+      "that pairs their Mac and Windows PC and has tabs for remote control, files, sync, Messages, mail, notes, calendar, study, projects " +
+      "and more. You run on the models set in Settings (one model, or a Head, Executor and Checker team), often local ones. Your tools load " +
+      "when a message needs them, so describe what you can do from this list rather than saying you don't know:",
+    ...lines,
+    "- Tool servers (MCP) and skill packs the user adds in Settings.",
+    "Settings (the gear in the Mimir tab) is where the brain, voice, team, model servers and tool servers are set up."
+  ].join("\n");
+}
+
+const about = PROMPT_MODULES.find((m) => m.id === ABOUT_MODULE_ID)!;
+about.text = aboutText("full");
+about.coreText = aboutText("core");
 
 export function getPromptModule(id: string): PromptModule | undefined {
   return PROMPT_MODULES.find((m) => m.id === id);

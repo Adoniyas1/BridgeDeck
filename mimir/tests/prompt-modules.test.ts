@@ -13,6 +13,20 @@ import { SelfEditTransaction } from "../src/main/self-edit/transaction.js";
 const loadedIds = (opts: Parameters<typeof loadPromptModules>[0]) => loadPromptModules(opts).loaded.map((m) => m.id);
 
 describe("prompt modules", () => {
+  it("tells Mimir where it runs and what it can do when asked", () => {
+    for (const q of ["how aware are you of the app you are running in", "what tools are you aware of you having accss to", "what can you do?", "who are you"]) {
+      const load = loadPromptModules({ tier: "core", mode: "lazy", userText: q });
+      expect(load.loaded.map((m) => m.id), q).toContain("about");
+      expect(load.sections.join("\n")).toMatch(/BridgeDeck/);
+      expect(load.sections.join("\n")).toMatch(/- BridgeDeck notes: /);
+      expect(load.toolNames!.size).toBe(0);
+    }
+    expect(loadedIds({ tier: "core", mode: "lazy", userText: "hi" })).toEqual([CORE_MODULE_ID]);
+    // The core tier's list leaves out what only larger models have.
+    const core = loadPromptModules({ tier: "core", mode: "lazy", userText: "what can you do" }).sections.join("\n");
+    expect(core).not.toMatch(/- Self-edit|- Web/);
+  });
+
   it("makes only the core module required", () => {
     expect(PROMPT_MODULES.filter((m) => m.required).map((m) => m.id)).toEqual([CORE_MODULE_ID]);
   });
