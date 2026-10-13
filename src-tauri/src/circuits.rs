@@ -12,7 +12,7 @@ const MAX_BYTES: usize = 5 * 1024 * 1024;
 const HISTORY: &str = ".history";
 const KEEP_VERSIONS: usize = 40;
 
-fn shared(app: &AppHandle) -> PathBuf {
+pub(crate) fn shared(app: &AppHandle) -> PathBuf {
     let shared = crate::shared_folder(app);
     if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) }
 }

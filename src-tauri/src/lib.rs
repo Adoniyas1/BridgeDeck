@@ -20,6 +20,7 @@ mod extensions;
 mod backups;
 mod canvas;
 mod circuits;
+mod code;
 mod errorlog;
 mod python;
 mod spotify;
@@ -705,6 +706,12 @@ pub fn run() {
             circuits::circuit_delete,
             circuits::circuit_versions,
             circuits::circuit_version_load,
+            code::code_languages,
+            code::code_run,
+            code::code_files,
+            code::code_load,
+            code::code_save,
+            code::code_delete,
             backups::backup_now,
             backups::backup_restore,
             manga::manga_library,

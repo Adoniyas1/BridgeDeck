@@ -62,7 +62,7 @@ pub struct PythonRun {
 /// The command that starts Python 3 here, and its version, once found.
 static FOUND: Mutex<Option<(Vec<String>, String)>> = Mutex::new(None);
 
-fn command(program: &[String]) -> Command {
+pub(crate) fn command(program: &[String]) -> Command {
     let mut command = Command::new(&program[0]);
     command.args(&program[1..]);
     #[cfg(windows)]
@@ -103,7 +103,7 @@ pub fn find() -> Option<(Vec<String>, String)> {
     None
 }
 
-fn read_capped(mut from: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
+pub(crate) fn read_capped(mut from: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = (&mut from).take(MAX_OUTPUT as u64 + 1).read_to_end(&mut bytes);
