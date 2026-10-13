@@ -488,7 +488,12 @@ export class AgentSession {
     // module loader that trims a single model's prompt answers it.
     const executorTier = tierOf("executor");
     const routing = await compose("executor", null, userText);
-    const needsTools = routing.loaded.some((m) => m.reason === "matched" || m.reason === "sticky");
+    // Only a module that brings tools needs the plan; one that's just text (About, maths notation) doesn't.
+    const bringsTools = (id: string) => {
+      const m = [...PROMPT_MODULES, ...extraModules].find((x) => x.id === id);
+      return !!m && (executorTier === "core" ? m.coreTools : m.tools).length > 0;
+    };
+    const needsTools = routing.loaded.some((m) => (m.reason === "matched" || m.reason === "sticky") && bringsTools(m.id));
     for (const [id, left] of this.stickyModules) {
       if (left <= 1) this.stickyModules.delete(id);
       else this.stickyModules.set(id, left - 1);
