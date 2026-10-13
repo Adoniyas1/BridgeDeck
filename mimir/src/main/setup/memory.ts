@@ -58,17 +58,18 @@ async function ollamaHolding(): Promise<string[]> {
 /** Throws a clear error when `name` (one of the setup's models) won't fit right now. Models this
  * llama-swap already has loaded count as free when they'd be swapped out for this one. */
 export async function checkRoom(config: SetupConfig, name: string, deps = { available: availableMemory, running: runningModels, ollama: ollamaHolding }): Promise<void> {
-  const role = (["head", "executor"] as const).find((r) => config.models[r].name === name);
+  const roles = (["head", "executor", "checker"] as const).filter((r) => config.models[r]);
+  const role = roles.find((r) => config.models[r]!.name === name);
   if (!role) return;
   const running = await deps.running(config);
   if (running.includes(name)) return;
-  const model = config.models[role];
+  const model = config.models[role]!;
   const need = memoryNeeded(model.source, fileSize(model.source));
   const reclaim = config.keepBothLoaded
     ? 0
     : running.reduce((sum, other) => {
-        const r = (["head", "executor"] as const).find((x) => config.models[x].name === other);
-        return r ? sum + memoryNeeded(config.models[r].source, fileSize(config.models[r].source)) : sum;
+        const r = roles.find((x) => config.models[x]!.name === other);
+        return r ? sum + memoryNeeded(config.models[r]!.source, fileSize(config.models[r]!.source)) : sum;
       }, 0);
   const available = (await deps.available()) + reclaim;
   if (available >= need + MARGIN) return;

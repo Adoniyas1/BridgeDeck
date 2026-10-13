@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
+import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
-import { findLocal, installRelease, modelCached, pickModels, storageItems } from "../src/main/setup/index.js";
+import { findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems } from "../src/main/setup/index.js";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -29,8 +29,10 @@ describe("model server plan", () => {
     expect(defaultSetup("mac").models.head.source).toBe("unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS");
 
     const pc = swapYaml({ ...defaultSetup("pc"), keepBothLoaded: true }, "C:\\Users\\Jo Smith\\.mimir\\bin\\llama.cpp\\llama-server.exe");
-    expect(pc).toContain(`cmd: "'C:/Users/Jo Smith/.mimir/bin/llama.cpp/llama-server.exe' -hf unsloth/Qwen3.5-35B-A3B-GGUF:UD-Q4_K_XL --host 127.0.0.1 --port \${PORT} -c 32768 -ngl 99 --n-cpu-moe 24 --jinja"`);
-    expect(pc).toContain('groups:\n  "team":\n    swap: false\n    exclusive: true\n    members:\n      - "qwen3.5-35b-a3b"\n      - "qwen3.5-9b"');
+    expect(pc).toContain(`"bonsai-2-27b":\n    cmd: "'C:/Users/Jo Smith/.mimir/bin/llama.cpp/llama-server.exe' -hf prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0 --host 127.0.0.1 --port \${PORT} -c 16384 -ngl 99 -fa on -ctk q4_0 -ctv q4_0 --jinja"`);
+    expect(pc).toContain("-hf prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0");
+    expect(pc).toContain('"qwen3.5-9b":\n    cmd: "\'C:/Users/Jo Smith/.mimir/bin/llama.cpp/llama-server.exe\' -hf unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS');
+    expect(pc).toContain('groups:\n  "team":\n    swap: false\n    exclusive: true\n    members:\n      - "bonsai-2-27b"\n      - "bonsai-8b"\n      - "qwen3.5-9b"');
     expect(cmdPath("/usr/bin/llama-server")).toBe("/usr/bin/llama-server");
   });
 
@@ -42,7 +44,7 @@ describe("model server plan", () => {
     const local = "/Users/me/models/Qwen3.5-9B-UD-IQ3_XXS.gguf";
     const kept = cleanSetupConfig({ ...defaultSetup("mac"), models: { ...defaultSetup("mac").models, head: { name: "qwen3.5-9b", source: local, args: "-c 4096" } } }, "darwin");
     expect(kept.models.head).toEqual({ name: "qwen3.5-9b", source: local, args: "-c 4096" });
-    const messy = cleanSetupConfig({ version: 2, computer: "mac", listen: "nope", models: { head: { name: "x y", source: "not a repo; rm -rf /", args: "a\nb" } } }, "darwin");
+    const messy = cleanSetupConfig({ version: 3, computer: "mac", listen: "nope", models: { head: { name: "x y", source: "not a repo; rm -rf /", args: "a\nb" } } }, "darwin");
     expect(messy.listen).toBe("127.0.0.1:8080");
     expect(messy.models.head).toEqual({ ...defaultSetup("mac").models.head, args: "a b" });
     expect(localSwapUrl(defaultSetup("pc"))).toBe("http://127.0.0.1:8080");
@@ -178,4 +180,51 @@ describe("setup I/O", () => {
       ["ollama", 1000, false]
     ]);
   });
+
+  it("finds Windows models and llama.cpp where Windows tools put them, and picks the PC's three", async () => {
+    const home = await tempDir();
+    const extra = await tempDir();
+    // llama.cpp's -hf download cache
+    const llamaCache = path.join(home, "AppData", "Local", "llama.cpp");
+    await mkdir(llamaCache, { recursive: true });
+    await writeFile(path.join(llamaCache, "prism-ml_Ternary-Bonsai-2-27B-gguf_Ternary-Bonsai-2-27B-PQ2_0.gguf"), "x");
+    await writeFile(path.join(llamaCache, "prism-ml_Ternary-Bonsai-2-27B-gguf_mmproj-Ternary-Bonsai-2-27B-f16.gguf"), "x");
+    // the Hugging Face cache: snapshots link to blobs
+    const repo = path.join(home, ".cache", "huggingface", "hub", "models--unsloth--Qwen3.5-9B-GGUF");
+    await mkdir(path.join(repo, "blobs"), { recursive: true });
+    await mkdir(path.join(repo, "snapshots", "abc"), { recursive: true });
+    await writeFile(path.join(repo, "blobs", "1234"), Buffer.alloc(5000));
+    await symlink(path.join(repo, "blobs", "1234"), path.join(repo, "snapshots", "abc", "Qwen3.5-9B-UD-IQ3_XXS.gguf"));
+    // a folder added in Settings
+    await writeFile(path.join(extra, "Ternary-Bonsai-8B-PQ2_0.gguf"), "x");
+    // winget's llama.cpp (stock) and Mimir's PrismML build
+    const winget = path.join(home, "AppData", "Local", "Microsoft", "WinGet", "Packages", "ggml.llamacpp_abc");
+    await mkdir(winget, { recursive: true });
+    await writeFile(path.join(winget, "llama-server.exe"), "");
+    const prism = path.join(home, ".mimir", "bin", "llama.cpp");
+    await mkdir(prism, { recursive: true });
+    await writeFile(path.join(prism, "llama-server.exe"), "");
+
+    const found = await findLocal(home, [extra], {});
+    expect(found.models.map((m) => path.basename(m.path)).sort()).toEqual(["Qwen3.5-9B-UD-IQ3_XXS.gguf", "Ternary-Bonsai-2-27B-PQ2_0.gguf", "Ternary-Bonsai-8B-PQ2_0.gguf"].map((n, i) => (i === 1 ? "prism-ml_Ternary-Bonsai-2-27B-gguf_" + n : n)).sort());
+    expect(found.models.find((m) => m.path.includes("Qwen"))!.bytes).toBe(5000);
+    expect(found.servers.sort()).toEqual([path.join(prism, "llama-server.exe"), path.join(winget, "llama-server.exe")].sort());
+    expect(found.servers.filter(isPrismBuild)).toEqual([path.join(prism, "llama-server.exe")]);
+
+    const picked = pickModels(found, "pc");
+    expect(path.basename(picked.head!)).toBe("prism-ml_Ternary-Bonsai-2-27B-gguf_Ternary-Bonsai-2-27B-PQ2_0.gguf");
+    expect(path.basename(picked.executor!)).toBe("Ternary-Bonsai-8B-PQ2_0.gguf");
+    expect(path.basename(picked.checker!)).toBe("Qwen3.5-9B-UD-IQ3_XXS.gguf");
+    expect(pickModels(found, "mac").checker).toBeNull();
+  });
+
+  it("gives the PC a Checker model of its own and Bonsai's llama.cpp build", () => {
+    const pc = cleanSetupConfig({}, "win32");
+    expect(pc.models.checker).toEqual({ name: "qwen3.5-9b", source: "unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS", args: PC_ARGS });
+    expect(pc.models.head.source).toBe("prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0");
+    expect(cleanSetupConfig({ ...pc, models: { ...pc.models, checker: null } }, "win32").models.checker).toBeNull();
+    expect(cleanSetupConfig({ ...pc, modelDirs: ["  D:\\AI  ", 3, ""] }, "win32").modelDirs).toEqual(["D:\\AI"]);
+    expect(releaseTool("llama.cpp", "win32", "x64")!.repo).toBe("PrismML-Eng/llama.cpp");
+  });
 });
+

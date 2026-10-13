@@ -20,8 +20,9 @@ const role = (primary: RoleEndpoint, fallback: RoleEndpoint | null = null, tier:
 export const MODELS = {
   macHead: "qwen3.5-9b",
   macExecutor: "bonsai-8b",
-  pcHead: "qwen3.5-35b-a3b",
-  pcExecutor: "qwen3.5-9b"
+  pcHead: "bonsai-2-27b",
+  pcExecutor: "bonsai-8b",
+  pcChecker: "qwen3.5-9b"
 } as const;
 
 export const DEFAULT_TEAM: TeamConfig = {
@@ -50,7 +51,7 @@ export const TEAM_PRESETS: TeamPreset[] = [
   {
     id: "windows-llamacpp",
     title: "This Windows PC (llama.cpp)",
-    description: "Qwen3.5-35B-A3B plans and checks (part of it in system RAM), Qwen3.5-9B makes the tool calls, both through llama-swap. With 16 GB of RAM they take turns, so steps are checked together at the end.",
+    description: "Ternary Bonsai 2 27B plans and writes, Ternary Bonsai 8B makes the tool calls, Qwen3.5-9B (IQ3_XXS) checks each step, all through llama-swap and PrismML's llama.cpp on the GPU. They take turns, so steps are checked together at the end.",
     needsPcAddress: false
   },
   {
@@ -76,16 +77,17 @@ export function presetConfig(id: string, current: TeamConfig, pcAddress?: string
     case "mac-mlx":
       return { ...base, checkEachStep: false, roles: { head: role(endpoint(MODELS.macHead)), checker: role(endpoint(MODELS.macHead)), executor: role(endpoint(MODELS.macExecutor), null, "core") } };
     case "windows-llamacpp":
-      return { ...base, checkEachStep: false, roles: { head: role(endpoint(MODELS.pcHead)), checker: role(endpoint(MODELS.pcHead)), executor: role(endpoint(MODELS.pcExecutor)) } };
+      return { ...base, checkerSameAsHead: false, checkEachStep: false, roles: { head: role(endpoint(MODELS.pcHead)), checker: role(endpoint(MODELS.pcChecker)), executor: role(endpoint(MODELS.pcExecutor)) } };
     case "mac-with-pc": {
       if (!pcAddress?.trim()) throw new Error("Enter the PC's address (for example 192.168.1.20:8080).");
       const pc = pcBaseUrl(pcAddress);
       return {
         ...base,
+        checkerSameAsHead: false,
         checkEachStep: false,
         roles: {
           head: role(endpoint(MODELS.pcHead, pc), endpoint(MODELS.macHead)),
-          checker: role(endpoint(MODELS.pcHead, pc), endpoint(MODELS.macHead)),
+          checker: role(endpoint(MODELS.pcChecker, pc), endpoint(MODELS.macHead)),
           executor: role(endpoint(MODELS.pcExecutor, pc), endpoint(MODELS.macExecutor), "core")
         }
       };
