@@ -15,6 +15,8 @@ export interface AgentLoopOptions {
 
 export type AgentStreamEvent =
   | { type: "text"; text: string }
+  /** The model's thinking before or between its words, for the chat to show folded (never fed back). */
+  | { type: "thinking"; text: string }
   | { type: "tool-start"; name: string }
   | { type: "tool-end"; name: string; isError: boolean }
   /** A tool result carried images (see ToolResult.images) — shown to the
@@ -55,6 +57,8 @@ export async function* runAgentTurn(
       if (ev.type === "text-delta") {
         assistantText += ev.text;
         yield { type: "text", text: ev.text };
+      } else if (ev.type === "reasoning-delta") {
+        yield { type: "thinking", text: ev.text };
       } else if (ev.type === "tool-call") {
         toolCalls.push(ev.call);
       } else if (ev.type === "error") {

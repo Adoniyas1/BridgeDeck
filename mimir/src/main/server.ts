@@ -27,6 +27,9 @@ import { reportHealthy } from "./health.js";
 import { IPC } from "../shared/types.js";
 import type {
   Attachment,
+  MemoryFiles,
+  MimirChat,
+  MimirChatSummary,
   BrainConfig,
   BrainProviderKind,
   BuiltInCapability,
@@ -73,6 +76,9 @@ import { ChatGptSession } from "./chatgpt/session.js";
 import { getChatGptApiKey, loadChatGptConfig, saveChatGptConfig, setChatGptApiKey } from "./chatgpt/config.js";
 import { listChatGptModels } from "./chatgpt/client.js";
 import { deleteChat, listChats, readChat } from "./chatgpt/store.js";
+import { deleteMimirChat, historyFromChat, listMimirChats, readMimirChat, writeMimirChat } from "./chats/store.js";
+import { readMemoryFiles, writeMemoryFiles } from "./persona/memoryFiles.js";
+import { SelfEditTransaction } from "./self-edit/transaction.js";
 import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -278,6 +284,18 @@ const invokeHandlers: Record<string, Handler> = {
     const key = await getChatGptApiKey();
     return key ? listChatGptModels(key) : [];
   },
+  [IPC.chatsList]: (): Promise<MimirChatSummary[]> => listMimirChats(),
+  [IPC.chatsGet]: (id: string): Promise<MimirChat | null> => readMimirChat(id),
+  [IPC.chatsSave]: (chat: unknown): Promise<MimirChat | null> => writeMimirChat(chat),
+  [IPC.chatsDelete]: (id: string): Promise<void> => deleteMimirChat(id),
+  [IPC.chatsOpen]: async (id: string | null): Promise<MimirChat | null> => {
+    const chat = id ? await readMimirChat(id) : null;
+    session?.openConversation(chat ? historyFromChat(chat) : []);
+    return chat;
+  },
+  [IPC.memoryGet]: (): Promise<MemoryFiles> => readMemoryFiles(workspaceRoot),
+  [IPC.memorySet]: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> =>
+    writeMemoryFiles(workspaceRoot, new SelfEditTransaction(workspaceRoot, auditFilePath), { memory: patch?.memory, user: patch?.user }),
   [IPC.chatgptListChats]: (): Promise<ChatGptChatSummary[]> => listChats(),
   [IPC.chatgptGetChat]: (id: string): Promise<ChatGptChat | null> => readChat(id),
   [IPC.chatgptDeleteChat]: (id: string): Promise<void> => {

@@ -5,6 +5,7 @@ import Settings from "./Settings.js";
 import QuickControls from "./QuickControls.js";
 import Skills from "./Skills.js";
 import ChatGpt from "./ChatGpt.js";
+import Memory from "./Memory.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
 import type { AutoStopReason } from "./voice/vad.js";
 import { sanitizeSpeech, takeCompleteSentences } from "./voice/speech.js";
@@ -12,7 +13,7 @@ import { OpenMicController } from "./voice/openMic.js";
 import { fileToAttachment } from "./attachments.js";
 import { pythonRuntime } from "./python/pythonRuntime.js";
 import { searchProjectFiles } from "./search/projectSearch.js";
-import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, PendingEdit, ToolApproval } from "../shared/types.js";
+import type { Attachment, ChatMessage, FaceState, LoadedPromptModule, MimirChat, PendingEdit, ToolApproval } from "../shared/types.js";
 import { applyTeamEvent } from "./teamProgress.js";
 
 function newId(): string {
@@ -21,15 +22,22 @@ function newId(): string {
 
 const OPEN_MIC_ECHO_GUARD_MS = 1_500;
 
+const greeting = (): ChatMessage => ({
+  id: newId(),
+  role: "assistant",
+  text: "I'm Mimir. Ask me anything, or tell me to change how I work — I can edit my own code.",
+  createdAt: Date.now()
+});
+
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: newId(),
-      role: "assistant",
-      text: "I'm Mimir. Ask me anything, or tell me to change how I work — I can edit my own code.",
-      createdAt: Date.now()
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [greeting()]);
+  // The conversation on screen, saved to ~/.mimir/chats after each reply.
+  const [chatId, setChatId] = useState<string>(() => newId());
+  const chatCreated = useRef(Date.now());
+  /** Something changed since the last save (a message was sent). */
+  const unsaved = useRef(false);
+  const [thinkingOn, setThinkingOn] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
   const [approvals, setApprovals] = useState<ToolApproval[]>([]);
   const [faceState, setFaceState] = useState<FaceState>("idle");
@@ -52,6 +60,55 @@ export default function App() {
   const openMic = useRef<OpenMicController | null>(null);
   const speechBuffer = useRef("");
   const speechQueue = useRef<Promise<void>>(Promise.resolve());
+  /** When the current reply started thinking, to show "Thought for 4s". */
+  const thinkingStarted = useRef<number | null>(null);
+
+  // Pick up the last conversation where it was left (Mimir continues it from the saved messages).
+  useEffect(() => {
+    void window.mimir.chats.list().then(async (chats) => {
+      const latest = chats[0] ? await window.mimir.chats.open(chats[0].id) : null;
+      if (latest && !unsaved.current) showChat(latest);
+    });
+    void window.mimir.team.getConfig().then((team) => setThinkingOn(team.thinking));
+  }, []);
+
+  // Save once a reply is finished (not on every streamed word).
+  useEffect(() => {
+    if (busy || !unsaved.current) return;
+    unsaved.current = false;
+    void window.mimir.chats.save({ id: chatId, title: "", messages, createdAt: chatCreated.current, updatedAt: Date.now() });
+  }, [busy, messages, chatId]);
+
+  function showChat(chat: MimirChat) {
+    setChatId(chat.id);
+    chatCreated.current = chat.createdAt;
+    setMessages(chat.messages.length ? chat.messages : [greeting()]);
+    setTurnContext(null);
+    setPendingEdit(null);
+  }
+
+  async function openChat(id: string | null) {
+    if (busyRef.current) handleStop();
+    const chat = await window.mimir.chats.open(id);
+    if (chat) showChat(chat);
+    else {
+      setChatId(newId());
+      chatCreated.current = Date.now();
+      setMessages([greeting()]);
+      setTurnContext(null);
+      setPendingEdit(null);
+    }
+    unsaved.current = false;
+    setShowSettings(false);
+    setShowSkills(false);
+    setShowChatGpt(false);
+    setShowMemory(false);
+  }
+
+  async function toggleThinking() {
+    const team = await window.mimir.team.setConfig({ thinking: !thinkingOn });
+    setThinkingOn(team.thinking);
+  }
 
   useEffect(() => {
     // Only warm the (memory-heavy, WASM) Whisper model eagerly if wake word
@@ -68,12 +125,22 @@ export default function App() {
       if (event.type === "text-delta") {
         // The id is read now: a "turn-done" right behind this would clear it before React applies the update.
         const id = assistantMessageId.current;
-        setMessages((prev) => appendToAssistant(prev, id, event.text));
+        const started = thinkingStarted.current;
+        thinkingStarted.current = null;
+        setMessages((prev) => {
+          const next = appendToAssistant(prev, id, event.text);
+          // The reply has started: the thinking before it is done.
+          return started === null ? next : next.map((m) => (m.id === id && m.thinkingMs === undefined ? { ...m, thinkingMs: Date.now() - started } : m));
+        });
         if (voiceOrigin.current) {
           const { chunks, remainder } = takeCompleteSentences(speechBuffer.current + event.text);
           speechBuffer.current = remainder;
           for (const chunk of chunks) enqueueSpeech(chunk);
         }
+      } else if (event.type === "thinking-delta") {
+        const id = assistantMessageId.current;
+        if (thinkingStarted.current === null) thinkingStarted.current = Date.now();
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, thinking: (m.thinking ?? "") + event.text, thinkingMs: undefined } : m)));
       } else if (event.type === "image") {
         // Shown directly in the assistant's bubble, never sent back to the
         // model — see the "image" ChatStreamEvent doc comment.
@@ -96,6 +163,7 @@ export default function App() {
           { id: newId(), role: "system", text: `⚠️ ${event.message}`, createdAt: Date.now() }
         ]);
       } else if (event.type === "turn-done") {
+        thinkingStarted.current = null;
         setApprovals([]);
         setBusy(false);
         busyRef.current = false;
@@ -195,6 +263,8 @@ export default function App() {
 
     voiceOrigin.current = viaVoice;
     speechBuffer.current = "";
+    thinkingStarted.current = null;
+    unsaved.current = true;
     busyRef.current = true;
     setPendingEdit(null);
     setBusy(true);
@@ -379,6 +449,7 @@ export default function App() {
             onClick={() => {
               setShowSkills(false);
               setShowChatGpt(false);
+              setShowMemory(false);
               setShowSettings((s) => !s);
             }}
             aria-label="Open settings"
@@ -414,11 +485,13 @@ export default function App() {
           onOpenSkills={() => {
             setShowSettings(false);
             setShowChatGpt(false);
+            setShowMemory(false);
             setShowSkills((s) => !s);
           }}
           onOpenChatGpt={() => {
             setShowSettings(false);
             setShowSkills(false);
+            setShowMemory(false);
             setShowChatGpt((s) => !s);
           }}
           onError={(message) =>
@@ -434,9 +507,17 @@ export default function App() {
           <Skills onClose={() => setShowSkills(false)} lastLoaded={turnContext?.modules ?? []} />
         ) : showChatGpt ? (
           <ChatGpt onClose={() => setShowChatGpt(false)} />
+        ) : showMemory ? (
+          <Memory onClose={() => setShowMemory(false)} />
         ) : (
           <Chat
             messages={messages}
+            chatId={chatId}
+            onNewChat={() => void openChat(null)}
+            onOpenChat={(id) => void openChat(id)}
+            onOpenMemory={() => setShowMemory(true)}
+            thinkingOn={thinkingOn}
+            onToggleThinking={() => void toggleThinking()}
             pendingEdit={pendingEdit}
             approvals={approvals}
             onDecide={(id, allow) => {

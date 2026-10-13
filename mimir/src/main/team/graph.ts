@@ -45,6 +45,8 @@ export interface RoleKit {
 
 export type TeamEvent =
   | { type: "text"; text: string }
+  /** The Head's thinking while it plans or writes the reply. */
+  | { type: "thinking"; text: string }
   | { type: "plan"; steps: Array<{ goal: string }> }
   | { type: "step"; index: number; status: "running" | "checking" | "passed" | "retry" | "failed" | "head"; role: BrainRole; model: string; note?: string }
   | { type: "tool-start"; name: string; step: number | null }
@@ -101,11 +103,12 @@ export async function runTeamTurn(deps: TeamDeps): Promise<{ reply: string; step
   };
 
   /** A plain call (no tools) whose whole reply is wanted, not streamed to the user. */
-  async function ask(member: TeamMember, system: string, messages: BrainMessage[]): Promise<string> {
+  async function ask(member: TeamMember, system: string, messages: BrainMessage[], showThinking = false): Promise<string> {
     let text = "";
     for await (const ev of member.provider.chat(messages, [], { system, effort: deps.effort })) {
       check();
       if (ev.type === "text-delta") text += ev.text;
+      else if (ev.type === "reasoning-delta" && showThinking) deps.emit({ type: "thinking", text: ev.text });
       else if (ev.type === "error") throw new Error(ev.message);
     }
     return text;
@@ -122,6 +125,8 @@ export async function runTeamTurn(deps: TeamDeps): Promise<{ reply: string; step
       if (ev.type === "text") {
         finalText += ev.text;
         if (toUser) deps.emit({ type: "text", text: ev.text });
+      } else if (ev.type === "thinking") {
+        if (toUser) deps.emit({ type: "thinking", text: ev.text });
       } else if (ev.type === "tool-start") {
         finalText = "";
         deps.emit({ type: "tool-start", name: ev.name, step });
@@ -175,7 +180,7 @@ export async function runTeamTurn(deps: TeamDeps): Promise<{ reply: string; step
       return { reply };
     })
     .addNode("plan", async () => {
-      const raw = await ask(deps.head, planSystem(deps.catalog, maxSteps), [...deps.history, deps.message]);
+      const raw = await ask(deps.head, planSystem(deps.catalog, maxSteps), [...deps.history, deps.message], true);
       const steps = parsePlan(raw, new Set(deps.catalog.map((c) => c.id)), maxSteps);
       if (!steps.length) return { path: "direct" as const, steps: [] };
       deps.emit({ type: "plan", steps: steps.map((s) => ({ goal: s.goal })) });

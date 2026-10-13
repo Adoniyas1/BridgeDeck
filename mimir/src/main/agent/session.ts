@@ -14,7 +14,7 @@ import { createRoleProvider } from "../team/endpoints.js";
 import { runTeamTurn, type RoleKit, type TeamEvent, type TeamMember } from "../team/graph.js";
 import type { BrainProvider, ToolDef, ToolResult } from "../brain/Provider.js";
 import { buildPersonaToolset } from "../persona/tools.js";
-import { LOCAL_DAILY_LOG_INJECT_DAYS, LOCAL_MEMORY_INJECT_MAX_CHARS } from "../persona/templates.js";
+import { LOCAL_DAILY_LOG_INJECT_DAYS, LOCAL_MEMORY_INJECT_MAX_CHARS, LOCAL_USER_INJECT_MAX_CHARS } from "../persona/templates.js";
 import { buildProjectsToolset } from "../projects/tools.js";
 import { defaultProjectsRoot } from "../projects/paths.js";
 import { buildComputeToolset } from "../compute/tools.js";
@@ -276,10 +276,10 @@ export class AgentSession {
       dynamicSkillTools: dynamicSkills.defs.map((d) => d.name),
       toolCost: (name) => toolCosts.get(name) ?? 0,
       extraModules,
-      // Local models spend their small context on the task, not a user dossier.
+      // Local models spend their small context on the task: a short memory tail and the start of USER.md.
       ...(provider.kind === "anthropic"
         ? {}
-        : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, includeUserProfile: false })
+        : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, userMaxChars: LOCAL_USER_INJECT_MAX_CHARS })
     });
     const system = composed.system;
     // A core-tier turn can only ever offer the curated core tools plus the user's own skills (the composer
@@ -324,6 +324,8 @@ export class AgentSession {
       if (ev.type === "text") {
         assistantText += ev.text;
         this.sendStream({ type: "text-delta", text: ev.text });
+      } else if (ev.type === "thinking") {
+        this.sendStream({ type: "thinking-delta", text: ev.text });
       } else if (ev.type === "tool-start") {
         win.webContents.send(IPC.faceState, "thinking");
         this.sendStream({ type: "tool-start", name: ev.name });
@@ -406,6 +408,15 @@ export class AgentSession {
     }
   }
 
+  /** Continues a saved chat, or starts a new one for an empty history: those messages become the
+   * conversation the model sees from the next message on. */
+  openConversation(history: BrainMessage[]): void {
+    this.stop();
+    this.history = [...history];
+    this.stickyModules.clear();
+    this.engines.reset();
+  }
+
   /** Ends Claude Code / OpenCode processes (app shutdown). */
   closeEngines(): void {
     this.engines.close();
@@ -470,7 +481,7 @@ export class AgentSession {
         dynamicSkillTools,
         toolCost: (name) => toolCosts.get(name) ?? 0,
         extraModules,
-        ...(cloud ? {} : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, includeUserProfile: false })
+        ...(cloud ? {} : { memoryMaxChars: LOCAL_MEMORY_INJECT_MAX_CHARS, dailyLogDays: LOCAL_DAILY_LOG_INJECT_DAYS, userMaxChars: LOCAL_USER_INJECT_MAX_CHARS })
       });
     };
     const kitFor = async (role: "head" | "executor" | "checker", modules: string[] | null, text: string): Promise<RoleKit> => {
@@ -518,6 +529,8 @@ export class AgentSession {
       if (ev.type === "text") {
         reply += ev.text;
         this.sendStream({ type: "text-delta", text: ev.text });
+      } else if (ev.type === "thinking") {
+        this.sendStream({ type: "thinking-delta", text: ev.text });
       } else if (ev.type === "plan") {
         log.note(`plan: ${ev.steps.map((step, i) => `${i + 1}. ${step.goal}`).join(" ")}`);
         this.sendStream({ type: "team-plan", steps: ev.steps });

@@ -75,7 +75,8 @@ export class AnthropicProvider implements BrainProvider {
         system,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-        thinking: { type: "adaptive" },
+        // "summarized" streams a summary of the thinking, which the chat shows folded above the reply.
+        thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: opts.effort ?? "high" },
         ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {})
       });
@@ -94,6 +95,8 @@ export class AnthropicProvider implements BrainProvider {
         } else if (event.type === "content_block_delta") {
           if (event.delta.type === "text_delta") {
             yield { type: "text-delta", text: event.delta.text };
+          } else if (event.delta.type === "thinking_delta") {
+            yield { type: "reasoning-delta", text: event.delta.thinking };
           } else if (event.delta.type === "input_json_delta") {
             const pending = pendingToolBlocks.get(event.index);
             if (pending) pending.inputJson += event.delta.partial_json;

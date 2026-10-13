@@ -19,6 +19,9 @@ import {
   type SetupView,
   type ChatGptChat,
   type ChatGptChatSummary,
+  type MemoryFiles,
+  type MimirChat,
+  type MimirChatSummary,
   type ChatGptConfig,
   type ChatGptStreamEvent,
   type PromptModuleInfo,
@@ -144,6 +147,17 @@ const api = {
     get: (): Promise<SetupView> => invoke(IPC.setupGet),
     setConfig: (patch: Partial<SetupConfig>): Promise<SetupView> => invoke(IPC.setupSetConfig, patch),
     run: (id: string): Promise<{ ok: boolean; message: string; view: SetupView }> => invoke(IPC.setupRun, id)
+  },
+  chats: {
+    list: (): Promise<MimirChatSummary[]> => invoke(IPC.chatsList),
+    get: (id: string): Promise<MimirChat | null> => invoke(IPC.chatsGet, id),
+    save: (chat: MimirChat): Promise<MimirChat | null> => invoke(IPC.chatsSave, chat),
+    remove: (id: string): Promise<void> => invoke(IPC.chatsDelete, id),
+    open: (id: string | null): Promise<MimirChat | null> => invoke(IPC.chatsOpen, id)
+  },
+  memory: {
+    get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),
+    set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

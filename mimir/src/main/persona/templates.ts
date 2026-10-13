@@ -56,5 +56,7 @@ export const MEMORY_INJECT_MAX_CHARS = 12_000;
 export const DAILY_LOG_INJECT_DAYS = 3;
 /** Smaller local models stay responsive with a compact long-term-memory tail. */
 export const LOCAL_MEMORY_INJECT_MAX_CHARS = 2_000;
+/** Local models get the start of USER.md: the user's name and a few preferences, not a dossier. */
+export const LOCAL_USER_INJECT_MAX_CHARS = 1_200;
 /** Daily logs add little value to local chat compared with their prompt cost. */
 export const LOCAL_DAILY_LOG_INJECT_DAYS = 0;

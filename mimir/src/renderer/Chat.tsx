@@ -1,10 +1,18 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import MessageContent from "./MessageContent.js";
 import CameraCapture from "./camera/CameraCapture.js";
-import type { ChatMessage, LoadedPromptModule, PendingEdit, TeamProgress, ToolApproval } from "../shared/types.js";
+import type { ChatMessage, LoadedPromptModule, MimirChatSummary, PendingEdit, TeamProgress, ToolApproval } from "../shared/types.js";
 
 interface ChatProps {
   messages: ChatMessage[];
+  /** The conversation on screen (saved in ~/.mimir/chats). */
+  chatId: string;
+  onNewChat: () => void;
+  onOpenChat: (id: string) => void;
+  onOpenMemory: () => void;
+  /** Whether local models think before answering (Brain team setting). */
+  thinkingOn: boolean;
+  onToggleThinking: () => void;
   pendingEdit: PendingEdit | null;
   /** Tool calls waiting for the user's OK. */
   approvals: ToolApproval[];
@@ -22,6 +30,12 @@ interface ChatProps {
 
 export default function Chat({
   messages,
+  chatId,
+  onNewChat,
+  onOpenChat,
+  onOpenMemory,
+  thinkingOn,
+  onToggleThinking,
   pendingEdit,
   approvals,
   onDecide,
@@ -37,6 +51,18 @@ export default function Chat({
   const [draft, setDraft] = useState("");
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [showCamera, setShowCamera] = useState(false);
+  const [history, setHistory] = useState<MimirChatSummary[] | null>(null);
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")?.id;
+
+  async function toggleHistory() {
+    setHistory(history ? null : await window.mimir.chats.list());
+  }
+
+  async function removeChat(id: string) {
+    await window.mimir.chats.remove(id);
+    if (id === chatId) onNewChat();
+    setHistory(await window.mimir.chats.list());
+  }
   const fileInput = useRef<HTMLInputElement>(null);
 
   function submit(e: React.FormEvent) {
@@ -70,17 +96,68 @@ export default function Chat({
       )}
       <div className="chat-console-heading">
         <span>Conversation</span>
-        <span className={busy ? "chat-state chat-state--busy" : "chat-state"}>{busy ? "Working" : "Ready"}</span>
+        <span className="chat-heading-actions">
+          <button
+            type="button"
+            className={`chat-chip${thinkingOn ? " chat-chip--on" : ""}`}
+            onClick={onToggleThinking}
+            title="Let local models think before answering, and show their thinking above each reply (slower). Claude always thinks; its thinking shows either way."
+          >
+            Thinking {thinkingOn ? "on" : "off"}
+          </button>
+          <button type="button" className="chat-chip" onClick={onOpenMemory} title="What Mimir remembers about you">
+            Memory
+          </button>
+          <button type="button" className={`chat-chip${history ? " chat-chip--on" : ""}`} onClick={() => void toggleHistory()} title="Saved chats">
+            History
+          </button>
+          <button
+            type="button"
+            className="chat-chip"
+            onClick={() => {
+              setHistory(null);
+              onNewChat();
+            }}
+            title="Start a new chat (this one stays in History)"
+          >
+            New
+          </button>
+          <span className={busy ? "chat-state chat-state--busy" : "chat-state"}>{busy ? "Working" : "Ready"}</span>
+        </span>
       </div>
+      {history && (
+        <nav className="chat-history" aria-label="Saved chats">
+          {history.length === 0 && <p className="hint">No saved chats yet. Each chat is saved after Mimir replies.</p>}
+          {history.map((c) => (
+            <div key={c.id} className={`chat-history__item${c.id === chatId ? " chat-history__item--active" : ""}`}>
+              <button
+                type="button"
+                className="chat-history__open"
+                onClick={() => {
+                  setHistory(null);
+                  onOpenChat(c.id);
+                }}
+              >
+                <span>{c.title}</span>
+                <small>{new Date(c.updatedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small>
+              </button>
+              <button type="button" className="chat-history__delete" onClick={() => void removeChat(c.id)} aria-label={`Delete ${c.title}`} title="Delete">
+                ×
+              </button>
+            </div>
+          ))}
+        </nav>
+      )}
       <div className="chat-messages">
         {messages.map((m) => (
           <div key={m.id} className={`chat-bubble chat-bubble--${m.role}`}>
             <span className="chat-role">{m.role === "user" ? "You" : m.role === "assistant" ? "Mimir" : "System"}</span>
+            {m.thinking && <Thinking text={m.thinking} ms={m.thinkingMs} live={busy && m.id === lastAssistant && !m.text} />}
             {m.team && <TeamCard team={m.team} />}
             <div className="chat-text">
               {m.text ? (
                 <MessageContent text={m.text} />
-              ) : busy && m.role === "assistant" ? (
+              ) : busy && m.role === "assistant" && !m.thinking ? (
                 <span className="typing" aria-label="Mimir is thinking">
                   <i />
                   <i />
@@ -213,6 +290,31 @@ export default function Chat({
         </button>
       </form>
     </div>
+  );
+}
+
+/** The model's thinking before its reply: open while it thinks, folded once the reply starts. */
+function Thinking({ text, ms, live }: { text: string; ms?: number; live: boolean }) {
+  const [open, setOpen] = useState(live);
+  const [wasLive, setWasLive] = useState(live);
+  // Opens while thinking streams in, folds itself when the answer begins (the user can open it again).
+  if (live !== wasLive) {
+    setWasLive(live);
+    setOpen(live);
+  }
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (live) end.current?.scrollIntoView({ block: "nearest" });
+  }, [text, live]);
+  const label = live ? "Thinking…" : ms !== undefined ? `Thought for ${Math.max(1, Math.round(ms / 1000))}s` : "Thoughts";
+  return (
+    <details className={`thinking${live ? " thinking--live" : ""}`} open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary>{label}</summary>
+      <div className="thinking__text">
+        {text.trim()}
+        <div ref={end} />
+      </div>
+    </details>
   );
 }
 
