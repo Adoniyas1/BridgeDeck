@@ -425,7 +425,9 @@ export async function setupView(): Promise<SetupView> {
   const up = await answers(localSwapUrl(config));
   // What a running llama-swap serves, against what these settings list (an old one may still run).
   const serving = up ? await servedModels(localSwapUrl(config)) : [];
-  const stale = up && setupRoles(config).some((r) => !serving.includes(config.models[r]!.name));
+  // Stale: it serves other models, or Mimir's llama-swap runs a list written before the settings
+  // changed (another llama-server, other files or arguments).
+  const stale = up && (setupRoles(config).some((r) => !serving.includes(config.models[r]!.name)) || (swap.running && written !== null && written !== yaml));
   const wrongKind = (config.computer === "mac") !== (process.platform === "darwin");
   const team = await loadTeamConfig();
   const teamInUse = team.preset === "mac-with-pc" || teamUsesSetup(team, config);
@@ -444,7 +446,7 @@ export async function setupView(): Promise<SetupView> {
         ? "llama-server runs the models on the Mac's GPU. PrismML's build reads Ternary Bonsai's PQ2_0 files; Mimir uses the one in ~/Bonsai-demo when it's there."
         : "llama-server for the NVIDIA card. Bonsai's PQ2_0 files need PrismML's build of llama.cpp: Install gets its CUDA version and runtime into ~/.mimir/bin. Needs a current NVIDIA driver.",
       command: mac ? "cd ~/Bonsai-demo && ./setup.sh" : "Or set the path of a llama-server.exe from PrismML's build below",
-      action: process.platform === "darwin" || process.platform === "win32" ? (server ? "Update" : "Install") : null,
+      action: process.platform === "darwin" || process.platform === "win32" ? (!server ? "Install" : needsPrism && !isPrismBuild(server) ? "Install Bonsai's build" : "Update") : null,
       state: server ? (needsPrism && !isPrismBuild(server) ? "error" : "done") : "todo",
       note: server
         ? needsPrism && !isPrismBuild(server)
@@ -490,7 +492,9 @@ export async function setupView(): Promise<SetupView> {
       action: stale ? "Restart" : swap.running ? "Stop" : up ? null : "Start",
       state: stale ? "error" : up ? "done" : "todo",
       note: stale
-        ? `The llama-swap running now serves ${serving.join(", ") || "nothing"}, an old model list. Restart loads the one above${swap.running ? "" : " (it closes the llama-swap that's running now)"}.`
+        ? setupRoles(config).some((r) => !serving.includes(config.models[r]!.name))
+          ? `The llama-swap running now serves ${serving.join(", ") || "nothing"}, an old model list. Restart loads the one above${swap.running ? "" : " (it closes the llama-swap that's running now)"}.`
+          : "These settings changed since llama-swap started (llama-server, model files or arguments). Restart to use them."
         : up && !swap.running
           ? "Something is already answering on this port (llama-swap started elsewhere?)."
           : ""
@@ -545,8 +549,10 @@ export async function runSetupStep(id: string): Promise<string> {
       const wasRunning = swap.running;
       if (wasRunning) swap.stop();
       const message = await installRelease(tool);
+      // The model list names the llama-server to run: write it again so the new build is used.
+      await runSetupStep("config");
       if (wasRunning) swap.start(config);
-      return message;
+      return `${message} The model list now uses ${(await findServer(config)) ?? "llama-server"}.`;
     }
     case "models": {
       const found = await findLocal(os.homedir(), config.modelDirs);
@@ -568,7 +574,10 @@ export async function runSetupStep(id: string): Promise<string> {
     case "start": {
       const url0 = localSwapUrl(config);
       const running = (await answers(url0)) ? await servedModels(url0) : null;
-      const outdated = running !== null && setupRoles(config).some((r) => !running.includes(config.models[r]!.name));
+      const outdated =
+        running !== null &&
+        (setupRoles(config).some((r) => !running.includes(config.models[r]!.name)) ||
+          (swap.running && (await fileText(SWAP_CONFIG)) !== swapYaml(config, (await findServer(config)) ?? "llama-server")));
       if (outdated) {
         // Restart: stop Mimir's llama-swap, or close one started some other way.
         if (swap.running) swap.stop();
