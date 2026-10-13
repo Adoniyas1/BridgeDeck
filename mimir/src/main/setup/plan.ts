@@ -134,6 +134,7 @@ export function swapYaml(config: SetupConfig, server: string): string {
   const lines = [
     "# Written by Mimir (Settings → Model servers). Change the models there; edits here are replaced.",
     "healthCheckTimeout: 1800 # the first start downloads the model",
+    'logToStdout: "both" # pass each model server\'s own output on, so a failed load shows why',
     "startPort: 10001",
     "models:"
   ];
