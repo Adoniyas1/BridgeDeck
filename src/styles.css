@@ -1600,3 +1600,45 @@ main .logic-view button.on{background:var(--surface-3);color:var(--text)}
 .code-stderr{color:#ffb3b3;background:color-mix(in srgb,var(--bad) 10%,var(--bg));white-space:pre;overflow-x:auto;word-break:normal}
 .code-jump{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .code-jump button{padding:2px 8px;font-size:12px;border-radius:6px}
+.bb-guide{display:flex;flex-direction:column;gap:8px}
+.bb-stepper{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}
+.bb-stepper>span{flex:1;min-width:240px}
+.bb-stepper strong{margin-right:6px}
+.bb-stepper button{display:inline-flex;align-items:center;gap:5px}
+ol.bb-steps{margin:0;padding:6px 6px 6px 28px;max-height:180px;overflow:auto;columns:2 320px;column-gap:24px;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:var(--radius-sm)}
+ol.bb-steps li{padding:2px 4px;border-radius:4px;cursor:pointer;break-inside:avoid}
+ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--text)}
+.bb-chip.picked .bb-chip-body{stroke:#fff;stroke-width:2}
+/* Logic: the canvas frame, moving and zooming it */
+.logic-stage{position:relative;min-width:0;min-height:0;display:flex}
+.logic-stage>.logic-canvas{flex:1;min-width:0}
+.logic-canvas svg{cursor:grab}
+.logic-canvas svg:active{cursor:grabbing}
+.logic-canvas svg .logic-part,.logic-canvas svg .logic-pin,.logic-canvas svg .logic-joint{cursor:pointer}
+.logic-zoom{position:absolute;right:14px;bottom:14px;z-index:6;display:flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);box-shadow:var(--shadow-pop)}
+.logic-zoom button{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 6px;border:0;border-radius:7px;background:transparent;color:var(--text);font-size:12px;cursor:pointer}
+.logic-zoom button:hover{background:var(--surface-3)}
+.logic-zoom__level{min-width:48px!important;font-variant-numeric:tabular-nums}
+/* Logic: Open and Versions */
+.logic{position:relative}
+.logic-menu{position:absolute;top:calc(var(--page-bar-h) + 4px);left:220px;z-index:30;display:flex;max-width:calc(100% - 240px);max-height:440px;border:1px solid var(--line-strong);border-radius:12px;background:var(--surface);box-shadow:0 16px 48px rgba(0,0,0,.45);overflow:hidden}
+.logic-menu__list{display:flex;flex-direction:column;width:300px;flex:none;border-right:1px solid var(--line);min-height:0}
+.logic-menu__head{display:flex;align-items:center;gap:6px;padding:10px 12px;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
+.logic-menu__head button{margin-left:auto;display:inline-flex;padding:4px}
+.logic-menu__search{margin:8px 10px 0;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font:inherit;font-size:12.5px}
+.logic-menu__items{flex:1;overflow:auto;padding:6px;display:flex;flex-direction:column;gap:2px}
+.logic-menu__items .hint{padding:8px}
+.logic-menu__item{display:flex;align-items:center;border-radius:8px}
+.logic-menu__item.on{background:var(--surface-2)}
+.logic-menu__item>button:first-child{flex:1;min-width:0;height:auto;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 10px;border:0;background:none;color:var(--text);text-align:left;cursor:pointer}
+.logic-menu__item>button:first-child>span{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.logic-menu__item em{font-style:normal;font-size:10.5px;padding:1px 6px;border-radius:99px;background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent)}
+.logic-menu__item small{color:var(--muted);font-size:11.5px;line-height:1.3}
+.logic-menu__delete{opacity:0;padding:5px;margin-right:4px}
+.logic-menu__item:hover .logic-menu__delete{opacity:1}
+.logic-menu__preview{width:360px;min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px;background:#0b0f15}
+.logic-preview{width:100%;height:auto;flex:1;min-height:180px;border-radius:8px;background:#0b0f15}
+.logic-preview.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.logic-preview-joint{fill:var(--logic-unknown)}
+.logic-menu__summary{margin:0;font-size:12px;color:var(--muted)}
+.logic-menu__preview>button{align-self:flex-start}
