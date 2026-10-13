@@ -42,7 +42,7 @@ export default function Memory({ onClose }: { onClose: () => void }) {
         <h2>Memory</h2>
         <div className="chatgpt-actions">
           <button type="button" className="quick-controls__action" onClick={() => void save()} disabled={!changed || saving}>
-            {saving ? "SAVING…" : "SAVE"}
+            {saving ? "Saving…" : "Save"}
           </button>
           <button type="button" className="btn" onClick={onClose}>
             Close

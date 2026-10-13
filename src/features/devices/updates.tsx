@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { KeyRound, RefreshCw } from 'lucide-react'
 import { isTauri, upgradeCheck, upgradeInfo, upgradeRelease, upgradeSelf, upgradeSetupSigning, type UpdateCheck, type UpgradeInfo } from '../../lib/bridge'
-import { configStore, setConfig, useConfig } from '../../core/config'
 import { notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
 import { errorText } from '../../core/util'
-import { Card, SectionTitle, Toggle } from '../../ui'
+import { Card, SectionTitle } from '../../ui'
 import { hostStore } from '../remote/state'
 
 type Updates = UpdateCheck & { checking: boolean; checkedAt: number; error?: string; installing: boolean; progress?: UpgradeInfo }
@@ -83,39 +82,51 @@ export async function followUpdate() {
   if (wasInstalling && state === 'succeeded' && message) notify('updates', 'BridgeDeck', message)
 }
 
-/** Checks GitHub at start-up and every six hours; announces new changes once; installs them when
- *  automatic updates are on and nobody is controlling this computer. */
+/** Checks GitHub at start-up and every six hours and announces a new version once. Nothing installs
+ *  on its own: the banner (UpdateBanner) and Settings → Updates offer it, and you choose when. */
 export function UpdatesBackground() {
   const updates = useStore(updatesStore)
-  const auto = useStore(configStore).updates.auto
-  const controlled = useStore(hostStore).sessions.length > 0
   usePeriodicRefresh(checkForUpdates, CHECK_EVERY, [])
   // Follow a running update every few seconds (and look once at start-up, to show how the last one went).
   useEffect(() => { void followUpdate() }, [])
   usePeriodicRefresh(async () => { if (updatesStore.get().installing) await followUpdate() }, 3000, [])
 
   useEffect(() => {
-    const pending = releaseReady(updates) ? 1 : updates.behind
-    if (!pending || updates.installing) return
-    const installNow = auto && !controlled
-    const what = releaseReady(updates) ? `Version ${updates.release!.version} is ready.` : `${updates.behind} new change${updates.behind === 1 ? '' : 's'}${updates.latest ? `: ${updates.latest}` : ''}.`
-    const key = releaseReady(updates) ? 1_000_000 + updates.release!.version.split('.').reduce((n, p) => n * 1000 + (Number(p) || 0), 0) : updates.behind
-    if (key > announced) {
-      announced = key
-      notify('updates', installNow ? 'Updating BridgeDeck' : 'BridgeDeck update available', `${what}${installNow ? ' BridgeDeck restarts when it’s done.' : ' Update from Settings.'}`)
-    }
-    if (!installNow) return
-    void upgradeInfo().then(info => {
-      // A failed update isn't retried on its own for a day (the Home tab still offers it).
-      const failedRecently = info?.status.state === 'failed' && Date.now() - info.status.updatedAt < 24 * 60 * 60_000
-      if (info && info.status.state !== 'running' && !failedRecently) void installUpdate()
-    }).catch(() => undefined)
-  }, [updates.behind, updates.release?.version, updates.installing, auto, controlled])
+    const key = pendingKey(updates)
+    if (!key || updates.installing || key <= announced) return
+    announced = key
+    notify('updates', 'BridgeDeck update available', `${pendingText(updates)} Open BridgeDeck to update.`)
+  }, [updates])
   return null
 }
 
+/** Something to install: a number that grows with each newer version (0 for nothing). */
+function pendingKey(u: Updates) {
+  if (releaseReady(u)) return 1_000_000 + u.release!.version.split('.').reduce((n, p) => n * 1000 + (Number(p) || 0), 0)
+  return u.behind
+}
+const pendingText = (u: Updates) => releaseReady(u) ? `Version ${u.release!.version} is ready.` : `${u.behind} new change${u.behind === 1 ? '' : 's'}${u.latest ? `: ${u.latest}` : ''}.`
+
+const DISMISSED_KEY = 'bridgedeck.updateDismissed'
+const readDismissed = () => { try { return Number(localStorage.getItem(DISMISSED_KEY)) || 0 } catch { return 0 } }
+
+/** The banner at the top when there's an update: Update now, or close it until a newer one comes. */
+export function UpdateBanner() {
+  const updates = useStore(updatesStore)
+  const controlled = useStore(hostStore).sessions.length > 0
+  const [dismissed, setDismissed] = useState(readDismissed)
+  const key = pendingKey(updates)
+  if (!key || (key <= dismissed && !updates.installing)) return null
+  const close = () => { setDismissed(key); try { localStorage.setItem(DISMISSED_KEY, String(key)) } catch { /* this run only */ } }
+  return <div className="notice update-banner">
+    <RefreshCw size={15} />
+    <span>{updates.installing ? `Updating BridgeDeck${updates.progress?.status.message ? `: ${updates.progress.status.message}` : ''}… it restarts when it’s done.` : `BridgeDeck update available. ${pendingText(updates)}`}</span>
+    {!updates.installing && <button className="update-banner__go" disabled={controlled} title={controlled ? 'Not while this computer is being controlled' : 'Install it now; BridgeDeck restarts'} onClick={() => void installUpdate()}>Update now</button>}
+    {!updates.installing && <button title="Not now (shows again for a newer version)" aria-label="Close" onClick={close}>×</button>}
+  </div>
+}
+
 export function UpdatesCard() {
-  const config = useConfig()
   const updates = useStore(updatesStore)
   const signing = useStore(signingStore)
   const [settingUp, setSettingUp] = useState(false)
@@ -127,7 +138,7 @@ export function UpdatesCard() {
     : updates.behind ? `${updates.behind} new change${updates.behind === 1 ? '' : 's'} on ${updates.upstream}${updates.latest ? ` · ${updates.latest}` : ''}`
     : when ? `Up to date (checked ${when})` : 'Checks GitHub every six hours'
   return <Card><SectionTitle title="Updates" subtitle={subtitle} />
-    <Toggle checked={config.updates.auto} onChange={auto => setConfig(c => ({ ...c, updates: { auto } }))} label="Install updates automatically (BridgeDeck installs the new version and restarts; never while this computer is being controlled)" />
+    <p className="hint">Updates never install on their own: a banner offers each new version, and you choose when.</p>
     <div className="actions">
       <button className="secondary" disabled={updates.checking} onClick={() => void checkForUpdates()}><RefreshCw size={16}/>{updates.checking ? 'Checking…' : 'Check now'}</button>
       {(release || updates.behind > 0 || updates.progress?.status.state === 'failed') && <button disabled={updates.installing} onClick={() => void installUpdate()}>{updates.installing ? 'Updating…' : updates.progress?.status.state === 'failed' ? 'Try again' : release ? `Install version ${release.version}` : 'Update now'}</button>}

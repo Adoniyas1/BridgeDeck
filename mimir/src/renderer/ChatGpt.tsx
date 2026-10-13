@@ -145,13 +145,13 @@ export default function ChatGpt({ onClose }: { onClose: () => void }) {
             </select>
           )}
           <button type="button" className="quick-controls__action" onClick={() => openChat(null)} disabled={busy}>
-            NEW
+            New
           </button>
           <button type="button" className="quick-controls__action" onClick={() => void saveToNotes()} disabled={!chat || busy}>
-            SAVE TO NOTES
+            Save to Notes
           </button>
           <button type="button" className="quick-controls__action" onClick={() => setShowSetup((s) => !s)}>
-            KEY
+            API key
           </button>
           <button type="button" className="btn" onClick={onClose}>
             Close
