@@ -73,7 +73,7 @@ export async function resolveRole(config: TeamConfig, which: BrainRole, fetchImp
 
 function withModel(probe: ProbeResult, endpoint: RoleEndpoint): string {
   if (!probe.models.length || probe.models.includes(endpoint.model)) return probe.detail;
-  return `${probe.detail}, but it doesn't list "${endpoint.model}" (it has ${probe.models.slice(0, 6).join(", ")}${probe.models.length > 6 ? ", …" : ""})`;
+  return `${probe.detail}, but it doesn't list "${endpoint.model}" (it has ${probe.models.slice(0, 6).join(", ")}${probe.models.length > 6 ? ", …" : ""}). If that's this computer's llama-swap, press Restart under Settings → Model servers to load the current model list`;
 }
 
 export async function teamStatus(config: TeamConfig, fetchImpl: Fetch = fetch): Promise<RoleStatus[]> {
