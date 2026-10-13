@@ -66,7 +66,7 @@ import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { checkEngine } from "./engines/common.js";
-import { autostartSwap, runSetupStep, saveSetupConfig, setupView, swap } from "./setup/index.js";
+import { autostartSwap, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -491,6 +491,7 @@ async function main(): Promise<void> {
   startHeartbeatScheduler(workspaceRoot, auditFilePath);
   startDeadlineNotifier(workspaceRoot);
   await reportHealthy();
+  void syncTeamWithSetup().catch(() => false);
   void autostartSwap();
 
   const shutdown = () => {

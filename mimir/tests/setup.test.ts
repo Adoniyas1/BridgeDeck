@@ -6,7 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
-import { findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems } from "../src/main/setup/index.js";
+import { findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup } from "../src/main/setup/index.js";
+import { DEFAULT_TEAM, presetConfig } from "../src/main/team/config.js";
+import { OpenAICompatibleProvider } from "../src/main/brain/openaiCompatibleProvider.js";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -225,6 +227,30 @@ describe("setup I/O", () => {
     expect(cleanSetupConfig({ ...pc, models: { ...pc.models, checker: null } }, "win32").models.checker).toBeNull();
     expect(cleanSetupConfig({ ...pc, modelDirs: ["  D:\\AI  ", 3, ""] }, "win32").modelDirs).toEqual(["D:\\AI"]);
     expect(releaseTool("llama.cpp", "win32", "x64")!.repo).toBe("PrismML-Eng/llama.cpp");
+  });
+
+  it("notices when the Brain team asks llama-swap for models it no longer serves", () => {
+    const setup = cleanSetupConfig({}, "win32");
+    const old = presetConfig("windows-llamacpp", DEFAULT_TEAM);
+    old.roles.head.primary.model = "qwen3.5-35b-a3b"; // the PC's Head before the update
+    expect(teamUsesSetup(old, setup)).toBe(false);
+    expect(teamUsesSetup(presetConfig("windows-llamacpp", DEFAULT_TEAM), setup)).toBe(true);
+    expect(teamUsesSetup(presetConfig("windows-llamacpp", DEFAULT_TEAM, undefined, "http://127.0.0.1:9999"), setup)).toBe(false);
+  });
+
+  it("says which models llama-swap has when asked for one it doesn't serve", async () => {
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      if (req.url === "/v1/models") return res.end(JSON.stringify({ data: [{ id: "bonsai-2-27b" }, { id: "bonsai-8b" }] }));
+      res.writeHead(404).end(JSON.stringify({ src: "llama-swap", error: { message: "no router for requested model", code: "not_found" } }));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as { port: number };
+    const provider = new OpenAICompatibleProvider(`http://127.0.0.1:${port}`, "qwen3.5-35b-a3b");
+    const events = [];
+    for await (const ev of provider.chat([{ role: "user", content: "hi" }], [], { system: "" })) events.push(ev);
+    server.close();
+    expect(events[0]).toEqual({ type: "error", message: `http://127.0.0.1:${port} doesn't serve a model called “qwen3.5-35b-a3b” (it has bonsai-2-27b, bonsai-8b). Open Settings → Model servers and press Use them, or pick one of those models in Brain team.` });
   });
 });
 

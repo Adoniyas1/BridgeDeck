@@ -10,7 +10,7 @@ import { MIMIR_HOME, readJsonFile, writeJsonFile } from "../config/store.js";
 import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
-import type { SetupConfig, SetupStep, SetupView, StorageItem } from "../../shared/types.js";
+import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from "../../shared/types.js";
 import { cleanSetupConfig, isLocalModel, localSwapUrl, mergeSetupConfig, setupRoles, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 
@@ -29,12 +29,38 @@ export const SWAP_CONFIG = path.join(MIMIR_HOME, "llama-swap.yaml");
 export async function loadSetupConfig(): Promise<SetupConfig> {
   const raw = await readJsonFile<unknown>(FILE, {});
   const config = cleanSetupConfig(raw);
-  // First run (or an older setup): use models already on this computer when there are some.
+  // First run (or an older setup): use models already on this computer when there are some, and
+  // move a Brain team that used this setup's old model names to the new ones.
   if ((raw as { version?: number }).version !== SETUP_VERSION) {
     applyPicks(config, pickModels(await findLocal(os.homedir(), config.modelDirs), config.computer));
     await writeJsonFile(FILE, config);
   }
+  await syncTeamWithSetup(config);
   return config;
+}
+
+/** A Brain team still on this setup's preset follows its model names when they change (a preset
+ * the user edited is no longer that preset, so it's left alone). Runs at startup and whenever the
+ * setup is read, so an update can't leave the team asking llama-swap for models it doesn't have. */
+export async function syncTeamWithSetup(config?: SetupConfig): Promise<boolean> {
+  const setup = config ?? cleanSetupConfig(await readJsonFile<unknown>(FILE, {}));
+  const team = await loadTeamConfig();
+  const preset = setup.computer === "mac" ? "mac-mlx" : "windows-llamacpp";
+  if (team.preset !== preset || teamUsesSetup(team, setup)) return false;
+  await applyTeamPreset(preset, undefined, localSwapUrl(setup));
+  clearProbeCache();
+  return true;
+}
+
+/** Whether the Brain team asks this computer's llama-swap for exactly the models it serves. */
+export function teamUsesSetup(team: TeamConfig, config: SetupConfig): boolean {
+  const served = new Set(setupRoles(config).map((r) => config.models[r]!.name));
+  const url = localSwapUrl(config);
+  const roles = team.checkerSameAsHead ? (["head", "executor"] as const) : (["head", "executor", "checker"] as const);
+  return roles.every((r) => {
+    const e = team.roles[r].primary;
+    return served.has(e.model) && (e.baseUrl ?? "").replace("localhost", "127.0.0.1").replace(/\/+$/, "") === url;
+  });
 }
 
 /** Puts the models found on this computer into the settings. */
@@ -348,6 +374,7 @@ export async function setupView(): Promise<SetupView> {
   const written = await fileText(SWAP_CONFIG);
   const up = await answers(localSwapUrl(config));
   const team = await loadTeamConfig();
+  const teamInUse = team.preset === "mac-with-pc" || teamUsesSetup(team, config);
   const preset = mac ? "mac-mlx" : "windows-llamacpp";
   const step = (s: Omit<SetupStep, "note"> & { note?: string }): SetupStep => ({ note: "", ...s });
   const has = (name: string) => findCommand(name) !== null;
@@ -423,8 +450,9 @@ export async function setupView(): Promise<SetupView> {
       title: "Use them for the Brain team",
       detail: `Applies the “${mac ? "This Mac" : "This Windows PC (llama.cpp)"}” preset. To use the PC from the Mac, choose “This Mac, using the PC when it's on” in Brain team instead.`,
       command: null,
-      action: team.preset === preset || team.preset === "mac-with-pc" ? null : "Use them",
-      state: team.preset === preset || team.preset === "mac-with-pc" ? "done" : "todo"
+      action: teamInUse ? null : "Use them",
+      state: teamInUse ? "done" : team.preset === preset ? "error" : "todo",
+      note: !teamInUse && team.preset === preset ? "The Brain team still asks for models llama-swap doesn't have (from before these settings changed). Press Use them." : ""
     })
   ];
   return {

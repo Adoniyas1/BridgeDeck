@@ -88,7 +88,7 @@ export class OllamaProvider implements BrainProvider {
       const msg = err instanceof Error ? err.message : String(err);
       yield {
         type: "error",
-        message: `Could not reach Ollama at ${this.baseUrl} (is \`ollama serve\` running?): ${msg}`
+        message: `Could not reach Ollama at ${this.baseUrl} (is \`ollama serve\` running?): ${msg}. If you run your models with llama-swap instead, turn on the Brain team in Settings, or set the Brain to OpenAI-compatible at 127.0.0.1:8080.`
       };
       yield { type: "done", stopReason: "error" };
       return;
