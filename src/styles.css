@@ -1334,3 +1334,142 @@ main.fill .logic{height:auto}
 .chat-panel-save:hover:not(:disabled){border-color:var(--accent)}
 .chat-panel-save.done{color:#4fc98a;border-color:#4fc98a66}
 .chat-panel-save.failed{color:#f07178;border-color:#f0717866}
+
+/* ============================================================
+   v1.0 design: calm graphite. Softer surfaces without boxes in
+   boxes, pill tabs grouped by area, floating menus, switches for
+   on/off settings, more room around content. Overrides the
+   layers above through the same tokens where it can.
+   ============================================================ */
+:root{
+  --bg:#0f1012; --surface:#16171a; --surface-2:#1c1d21; --surface-3:#24252a;
+  --line:rgba(255,255,255,.06); --line-strong:rgba(255,255,255,.1);
+  --text:#f1f1f3; --muted:#a2a5ad; --faint:#6c6f77;
+  --accent:#8fb0ff; --accent-strong:#6f96ff;
+  --radius:14px; --radius-sm:9px;
+  --shadow-pop:0 12px 32px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.3);
+  --tabbar-h:52px;
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+body{font-size:13.5px;line-height:1.45}
+h1,h2,h3{letter-spacing:-.012em}
+
+/* Bar: search and checklist on the left, area tabs, then actions. */
+.tabbar{gap:14px;padding:0 12px 0 16px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(18px);border-bottom:1px solid var(--line)}
+.tabbar-lead{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.tabbar .brand-mark{width:12px;height:12px;margin-right:4px;background:linear-gradient(135deg,var(--accent),#d6e2ff)}
+.search-pill{display:flex;align-items:center;gap:8px;height:32px;width:200px;padding:0 8px 0 11px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--faint);font-size:12.5px;transition:border-color .12s,color .12s}
+.search-pill:hover{border-color:var(--line-strong);color:var(--muted)}
+.search-pill span{flex:1;text-align:left}
+.search-pill kbd{font:inherit;font-size:11px;color:var(--faint);padding:1px 6px;border-radius:6px;background:var(--surface-3)}
+.tab-strip{align-items:center;gap:2px}
+.tab-group{position:relative;display:flex;align-items:center;flex:0 0 auto}
+.tab{height:32px;padding:0 12px;border:0;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--muted)}
+.tab:hover{background:var(--surface-2);color:var(--text)}
+.tab.active{background:var(--surface-3);color:var(--text);border:0}
+.tab.active::after{display:none}
+.tab.dynamic{padding-right:6px}
+.tab.pinned svg{color:var(--accent)}
+.tab-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:-2px}
+.tab-badge{background:var(--accent-strong);min-width:16px;height:16px;font-size:9.5px}
+.tab-divider{height:16px;margin:0 6px;background:var(--line-strong)}
+/* The group names stay: with seven of them there's room (only very narrow windows show icons alone). */
+@media(max-width:1600px){.tab-strip .tab-group .tab:not(.dynamic) span{display:inline}.tab-strip .tab-group .tab:not(.dynamic){padding:0 12px}}
+@media(max-width:1180px){.search-pill{width:auto}.search-pill span,.search-pill kbd{display:none}}
+@media(max-width:980px){.tab-strip .tab-group .tab:not(.dynamic) span{display:none}.tab-strip .tab-group .tab:not(.dynamic){padding:0 10px}}
+
+/* Plain buttons on pages get the quiet button look (no raw white boxes). */
+main button:not([class]){display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);font-size:12.5px;font-weight:500}
+main button:not([class]):hover:not(:disabled){background:var(--surface-3)}
+main .notice button:not([class]){height:auto;padding:0 2px;border:0;background:transparent;color:var(--faint);font-size:18px}
+main .notice button:not([class]):hover{background:transparent;color:var(--text)}
+main button.secondary{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;flex:0 0 auto}
+main button.secondary:hover:not(:disabled){background:var(--surface-2)}
+
+/* A group's pages, while the pointer is over it. */
+.tab-menu{position:fixed;z-index:40;min-width:200px;padding:5px;border:1px solid var(--line-strong);border-radius:12px;background:var(--surface-2);box-shadow:var(--shadow-pop);animation:menu-in .12s ease-out}
+.tab-menu::before{content:"";position:absolute;left:0;right:0;top:-8px;height:8px}
+.tab-menu__item{display:flex;align-items:center;border-radius:8px}
+.tab-menu__item:hover,.tab-menu__item.active{background:var(--surface-3)}
+.tab-menu__item>button:first-child{flex:1;display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border:0;background:transparent;color:var(--text);font-size:13px;text-align:left}
+.tab-menu__item>button:first-child svg{color:var(--muted)}
+.tab-menu__item.active>button:first-child svg{color:var(--accent)}
+.tab-menu__pin{display:grid;place-items:center;width:28px;height:28px;margin-right:3px;border:0;border-radius:6px;background:transparent;color:var(--faint);opacity:0;transition:opacity .1s}
+.tab-menu__item:hover .tab-menu__pin,.tab-menu__pin:focus-visible{opacity:1}
+.tab-menu__pin:hover{color:var(--text);background:var(--surface)}
+@keyframes menu-in{from{opacity:0;transform:translateY(-3px)}}
+
+/* The checklist by Search: a popup like a browser extension's. */
+.quick-checklist{position:relative}
+.quick-checklist .icon-button{position:relative;border-radius:999px;width:32px;height:32px}
+.quick-checklist__count{position:absolute;top:-3px;right:-4px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent-strong);color:#fff;font-size:9px;font-style:normal;font-weight:600;display:grid;place-items:center}
+.quick-checklist__popup{position:absolute;top:calc(100% + 8px);left:-60px;z-index:45;width:330px;max-height:min(520px,calc(100vh - 80px));display:flex;flex-direction:column;border:1px solid var(--line-strong);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-pop);overflow:hidden;animation:menu-in .12s ease-out}
+.quick-checklist__popup header{display:flex;align-items:center;gap:6px;padding:10px 10px 8px 12px;border-bottom:1px solid var(--line)}
+.quick-checklist__popup header select{flex:1;min-width:0;height:30px;border:0;border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit;font-weight:600;padding:0 8px}
+.quick-checklist__popup header .icon-button{width:28px;height:28px;border:0}
+.quick-checklist__popup ul{list-style:none;margin:0;padding:6px 6px;overflow:auto;flex:1}
+.quick-checklist__popup li label{display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
+.quick-checklist__popup li label:hover{background:var(--surface-2)}
+.quick-checklist__popup li input{margin-top:2px;accent-color:var(--accent-strong)}
+.quick-checklist__popup li.done span{color:var(--faint);text-decoration:line-through}
+.quick-checklist__popup .empty{color:var(--faint);padding:14px 12px;font-size:12.5px}
+.quick-checklist__popup form{padding:8px 10px 10px;border-top:1px solid var(--line)}
+.quick-checklist__popup form input{width:100%;height:32px;padding:0 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.quick-checklist__popup form input:focus{outline:0;border-color:var(--accent)}
+
+/* Page area */
+main{padding:28px 40px 56px}
+main>.notice,.tab-panel{max-width:1160px}
+.page-section{font-size:15px;font-weight:600;margin:28px 2px 12px;color:var(--text)}
+
+/* Surfaces: one level of card, no hairline boxes inside it */
+.card{border-radius:var(--radius);padding:20px 22px;border:1px solid var(--line);background:var(--surface)}
+.section-title{margin-bottom:16px}
+.section-title h2{font-size:14px;font-weight:600}
+.section-title p{color:var(--faint);font-size:12.5px;margin-top:4px;line-height:1.5}
+.hero-grid,.two-col,.machine-cards,.services-grid,.remote-hero,.folder-grid{gap:14px;margin-bottom:14px}
+.settings-stack{gap:14px}
+.machine-row,.service-row,.spec-grid>div,.remote-id,.transfer-target,.remote-note,.pairing-summary,.pair-peer,.pair-request,
+.device-discovery-list>div,.recent-transfer-list>div,.incoming-files>div,.transfer-list>div:not(.bb-placeholder),.matrix-message,.bb-chat-list button{background:var(--surface-2);border-radius:10px}
+
+/* Buttons */
+button.ghost,.actions button,.empty-state button,.composer button,.remote-actions button,.send-primary{border-radius:var(--radius-sm);height:32px;padding:0 12px;font-weight:500;background:var(--surface-2);border-color:var(--line-strong)}
+button.ghost:hover:not(:disabled),.actions button:hover:not(:disabled),.remote-actions button:hover:not(:disabled){background:var(--surface-3);border-color:var(--line-strong)}
+.actions button:first-child:not(.secondary),.send-primary{background:var(--text);color:var(--bg);border-color:transparent}
+.actions{gap:8px}
+.icon-button{border-radius:var(--radius-sm);border-color:transparent}
+.icon-button:hover{background:var(--surface-2)}
+.danger{border-radius:var(--radius-sm)}
+
+/* Inputs */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),select,textarea{font:inherit}
+.settings-stack input,.settings-block input,.settings-stack>.card>label input,.settings-stack select,.settings-stack textarea{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px}
+.settings-stack label,.settings-block label,.settings-stack>.card>label{color:var(--muted);font-size:12.5px}
+
+/* On/off settings are switches */
+.toggle-row{gap:10px!important;padding:6px 0;color:var(--text)!important;font-size:13px}
+.toggle-row input{appearance:none;-webkit-appearance:none;position:relative;flex:0 0 auto;width:32px!important;height:19px;border-radius:999px;background:var(--surface-3);border:1px solid var(--line-strong)!important;cursor:pointer;transition:background .15s}
+.toggle-row input::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+.toggle-row input:checked{background:var(--accent-strong);border-color:transparent!important}
+.toggle-row input:checked::after{transform:translateX(13px);background:#fff}
+.toggle-row input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Status */
+.status-pill{font-size:12px}
+.notice{border-radius:10px;border-left-width:1px;border-color:var(--line-strong);background:var(--surface)}
+
+/* Settings: sections down the left, one shown at a time */
+.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:36px;align-items:start}
+.settings-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:1px;max-height:calc(100vh - var(--tabbar-h) - 56px);overflow:auto;padding-bottom:16px}
+.settings-search{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:12px;padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--faint)}
+.settings-search:focus-within{border-color:var(--accent)}
+.settings-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:inherit}
+.settings-nav__group{margin:14px 10px 4px;font-size:11px;font-weight:600;color:var(--faint);letter-spacing:.02em}
+.settings-nav__item{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:13px;text-align:left}
+.settings-nav__item:hover{background:var(--surface);color:var(--text)}
+.settings-nav__item.active{background:var(--surface-2);color:var(--text)}
+.settings-nav__item.active svg{color:var(--accent)}
+.settings-nav__item.dim{opacity:.4}
+.settings-content{min-width:0;display:flex;flex-direction:column;gap:26px}
+.settings-section__title{font-size:20px;font-weight:600;margin:2px 0 16px}
+@media(max-width:860px){.settings-layout{grid-template-columns:1fr;gap:16px}.settings-nav{position:static;max-height:none;flex-direction:row;flex-wrap:wrap;gap:4px}.settings-nav>div{display:contents}.settings-nav__group{display:none}.settings-search{width:100%}.settings-nav__item{width:auto}}

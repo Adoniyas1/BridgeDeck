@@ -3,6 +3,7 @@ import { Files } from 'lucide-react'
 import type { FeatureManifest } from '../features'
 import FilesSettings from './FilesSettings'
 import { FilesBackground } from './state'
-const FilesPage = lazy(() => import('./FilesPage'))
+// Sending files and the synced folders, on one page.
+const FilesPage = lazy(() => import('./FilesAndSync'))
 
 export const files: FeatureManifest = { id: 'files', title: 'Files', icon: Files, Page: FilesPage, Background: FilesBackground, Settings: FilesSettings, settingsOrder: 30 }

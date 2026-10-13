@@ -26,7 +26,9 @@ export const MOD = onMac ? '⌘' : 'Ctrl'
  *  since they sit above BridgeDeck's own window contents. */
 export const paletteStore = createStore(false)
 export const shortcutsHelpStore = createStore(false)
-export const overlayOpen = () => paletteStore.get() || shortcutsHelpStore.get()
+/** A tab's sub-tab menu or the checklist popup is open over the page. */
+export const tabMenuStore = createStore(false)
+export const overlayOpen = () => paletteStore.get() || shortcutsHelpStore.get() || tabMenuStore.get()
 
 /** A Browser command for the Browser tab to carry out (it's on screen when one is sent). */
 /** `adopt`: a page moved out into its own tab comes back as a Browser tab (`page` is its id). */
@@ -44,7 +46,8 @@ export const codeRequestStore = createStore(0)
 export function useOverlayOpen() {
   const palette = useStore(paletteStore)
   const help = useStore(shortcutsHelpStore)
-  return palette || help
+  const menu = useStore(tabMenuStore)
+  return palette || help || menu
 }
 
 /** The shortcut a key press is, if any (⌘ on a Mac, Ctrl elsewhere; never with Alt). */

@@ -19,7 +19,12 @@ export type TabsState = {
 
 export const initialTabs: TabsState = { active: 'home', dynamic: [], history: ['home'] }
 
-export function activateIn(state: TabsState, id: string): TabsState {
+/** Pages merged into another: Remote is part of Computers, Sync part of Files. Opening the old id
+ *  (a link, a notification, the palette) opens the page it's in now. */
+export const TAB_ALIASES: Record<string, string> = { remote: 'computers', sync: 'files' }
+
+export function activateIn(state: TabsState, requested: string): TabsState {
+  const id = TAB_ALIASES[requested] ?? requested
   if (state.active === id) return state
   return { ...state, active: id, history: [id, ...state.history.filter(entry => entry !== id)] }
 }
