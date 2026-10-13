@@ -1483,3 +1483,5 @@ main .notice .update-banner__go{height:28px;padding:0 12px;border:0;border-radiu
 main .notice .update-banner__go:disabled{opacity:.4}
 /* Small inputs (times, dates, numbers, colours) keep their size instead of filling the row. */
 .settings-stack input[type=time],.settings-stack input[type=date],.settings-stack input[type=number],.settings-stack input[type=color]{width:auto;flex:0 0 auto}
+/* Long paths and links wrap inside their card instead of running past it. */
+.card p,.card small,.card .hint{overflow-wrap:anywhere}
