@@ -348,6 +348,56 @@ class SwapProcess {
 
 export const swap = new SwapProcess();
 
+/** The model names a running llama-swap lists. */
+async function servedModels(url: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(2000) });
+    return (((await res.json()) as { data?: Array<{ id?: string }> }).data ?? []).map((m) => m.id ?? "").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** A plain reading of the usual reasons a model server quits while loading. */
+export function explainLoadFailure(output: string, source: string): string {
+  if (/invalid ggml type|unknown (model )?type|unsupported.*type|failed to read gguf/i.test(output) && /PQ2|bonsai/i.test(source)) {
+    return "This llama-server can't read Bonsai's PQ2_0 files: that needs PrismML's build of llama.cpp. Press Install on the llama.cpp step (or point llama-server at Bonsai-demo's).\n\n";
+  }
+  if (/out of memory|cudaMalloc failed|failed to allocate|CUDA error: out of memory/i.test(output)) {
+    return "The GPU ran out of memory loading it: lower -c (context) in its arguments, or close other programs using the GPU.\n\n";
+  }
+  if (/error: (invalid argument|unknown argument)|unrecognized|invalid value/i.test(output)) {
+    return "This llama-server doesn't understand one of the arguments (an older build?). Update llama.cpp, or remove that argument from the model's settings.\n\n";
+  }
+  if (/no such file|failed to open|cannot find/i.test(output)) {
+    return "The model file wasn't found where the settings say: press Look again on the Models step.\n\n";
+  }
+  return "";
+}
+
+/** Closes a llama-swap Mimir didn't start (one left from before, or started by hand). */
+async function stopOtherSwap(): Promise<void> {
+  if (process.platform === "win32") await run("taskkill", ["/IM", "llama-swap.exe", "/T", "/F"], { timeoutMs: 15_000 });
+  else await run("pkill", ["-x", "llama-swap"], { timeoutMs: 15_000 });
+}
+
+/** Why a model's server quit while loading: the end of llama-swap's output (which carries the
+ * server's own), or, when that has nothing, the server's output from starting it once directly. */
+async function whyServerExited(config: SetupConfig, role: "head" | "executor" | "checker"): Promise<string> {
+  // Drop llama-swap's request log and health checks; keep what the servers said.
+  const noise = /"(GET|POST) \/|GPU monitoring|listening on http|Health check passed|recording partial metrics/;
+  const tail = (text: string) => text.trim().split(/\r?\n/).filter((l) => l.trim() && !noise.test(l)).slice(-20).join("\n");
+  const fromSwap = tail(swap.output);
+  if (fromSwap && /llama|error|failed|gguf|cuda/i.test(fromSwap)) return fromSwap;
+  const server = await findServer(config);
+  const model = config.models[role];
+  if (!server || !model) return fromSwap;
+  const source = isLocalModel(model.source) ? ["-m", model.source] : ["-hf", model.source];
+  const args = [...source, "--host", "127.0.0.1", "--port", "18765", ...(model.args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [])];
+  const { output } = await run(server, args, { timeoutMs: 25_000 });
+  return tail(output) || fromSwap;
+}
+
 async function answers(url: string, timeoutMs = 1500): Promise<boolean> {
   try {
     return (await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(timeoutMs) })).ok;
@@ -373,6 +423,10 @@ export async function setupView(): Promise<SetupView> {
   const yaml = swapYaml(config, server ?? "llama-server");
   const written = await fileText(SWAP_CONFIG);
   const up = await answers(localSwapUrl(config));
+  // What a running llama-swap serves, against what these settings list (an old one may still run).
+  const serving = up ? await servedModels(localSwapUrl(config)) : [];
+  const stale = up && setupRoles(config).some((r) => !serving.includes(config.models[r]!.name));
+  const wrongKind = (config.computer === "mac") !== (process.platform === "darwin");
   const team = await loadTeamConfig();
   const teamInUse = team.preset === "mac-with-pc" || teamUsesSetup(team, config);
   const preset = mac ? "mac-mlx" : "windows-llamacpp";
@@ -406,8 +460,8 @@ export async function setupView(): Promise<SetupView> {
         : "Ternary Bonsai 2 27B plans and writes, Ternary Bonsai 8B does the tool steps, Qwen3.5-9B IQ3_XXS checks them. Files already on this PC are used as they are; anything missing downloads the first time it starts. Add a folder below if yours are somewhere else.",
       command: null,
       action: "Look again",
-      state: ready.length === roles.length ? "done" : "todo",
-      note: roles.map((r) => `${ROLE_NAMES[r]} · ${config.models[r]!.name}: ${modelCached(config.models[r]!.source) ? config.models[r]!.source : `${config.models[r]!.source} (not found on this computer; downloaded on first start)`}`).join("\n")
+      state: wrongKind ? "error" : ready.length === roles.length ? "done" : "todo",
+      note: (wrongKind ? `These settings are for ${mac ? "a Mac" : "the Windows PC"}, but this computer is ${process.platform === "darwin" ? "a Mac" : "not a Mac"}: pick “${process.platform === "darwin" ? "Mac" : "Windows PC"}” at the top.\n` : "") + roles.map((r) => `${ROLE_NAMES[r]} · ${config.models[r]!.name}: ${modelCached(config.models[r]!.source) ? config.models[r]!.source : `${config.models[r]!.source} (not found on this computer; downloaded on first start)`}`).join("\n")
     }),
     step({
       id: "llama-swap",
@@ -433,9 +487,13 @@ export async function setupView(): Promise<SetupView> {
         ? "Mimir runs it in the background; it listens on this Mac only."
         : `Mimir runs it in the background on ${config.listen}. Listening on 0.0.0.0 lets the Mac reach it (allow it through Windows Firewall on private networks); anyone on your network can use it too.`,
       command: `llama-swap --config "${SWAP_CONFIG}" --listen ${config.listen}`,
-      action: swap.running ? "Stop" : up ? null : "Start",
-      state: up ? "done" : "todo",
-      note: up && !swap.running ? "Something is already answering on this port (llama-swap started elsewhere?)." : ""
+      action: stale ? "Restart" : swap.running ? "Stop" : up ? null : "Start",
+      state: stale ? "error" : up ? "done" : "todo",
+      note: stale
+        ? `The llama-swap running now serves ${serving.join(", ") || "nothing"}, an old model list. Restart loads the one above${swap.running ? "" : " (it closes the llama-swap that's running now)"}.`
+        : up && !swap.running
+          ? "Something is already answering on this port (llama-swap started elsewhere?)."
+          : ""
     }),
     step({
       id: "warm-up",
@@ -508,7 +566,15 @@ export async function runSetupStep(id: string): Promise<string> {
       return server ? `Wrote ${SWAP_CONFIG}.` : `Wrote ${SWAP_CONFIG}, but llama-server isn't installed yet.`;
     }
     case "start": {
-      if (swap.running) {
+      const url0 = localSwapUrl(config);
+      const running = (await answers(url0)) ? await servedModels(url0) : null;
+      const outdated = running !== null && setupRoles(config).some((r) => !running.includes(config.models[r]!.name));
+      if (outdated) {
+        // Restart: stop Mimir's llama-swap, or close one started some other way.
+        if (swap.running) swap.stop();
+        else await stopOtherSwap();
+        for (let i = 0; i < 20 && (await answers(url0)); i++) await new Promise((r) => setTimeout(r, 500));
+      } else if (swap.running) {
         swap.stop();
         return "Stopped llama-swap.";
       }
@@ -537,7 +603,11 @@ export async function runSetupStep(id: string): Promise<string> {
           body: JSON.stringify({ model: name, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4, chat_template_kwargs: { enable_thinking: false } }),
           signal: AbortSignal.timeout(45 * 60_000)
         });
-        if (!res.ok) throw new Error(`${name} didn't load (${res.status}): ${(await res.text()).slice(0, 400)}`);
+        if (!res.ok) {
+          const body = (await res.text()).slice(0, 400);
+          const why = /exited prematurely|exited|upstream/i.test(body) ? await whyServerExited(config, role) : "";
+          throw new Error(`${name} didn't load (${res.status}): ${body}${why ? `\n\n${explainLoadFailure(why, config.models[role]!.source)}What llama-server said:\n${why}` : ""}`);
+        }
         done.push(name);
       }
       return `Loaded ${done.join(" and ")}.`;

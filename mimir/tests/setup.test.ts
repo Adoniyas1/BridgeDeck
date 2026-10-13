@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
-import { findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup } from "../src/main/setup/index.js";
+import { explainLoadFailure, findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup } from "../src/main/setup/index.js";
 import { DEFAULT_TEAM, presetConfig } from "../src/main/team/config.js";
 import { OpenAICompatibleProvider } from "../src/main/brain/openaiCompatibleProvider.js";
 
@@ -251,6 +251,13 @@ describe("setup I/O", () => {
     for await (const ev of provider.chat([{ role: "user", content: "hi" }], [], { system: "" })) events.push(ev);
     server.close();
     expect(events[0]).toEqual({ type: "error", message: `http://127.0.0.1:${port} doesn't serve a model called “qwen3.5-35b-a3b” (it has bonsai-2-27b, bonsai-8b). Open Settings → Model servers and press Use them, or pick one of those models in Brain team.` });
+  });
+
+  it("explains the usual reasons a model server quits while loading", () => {
+    expect(explainLoadFailure("gguf_init_from_file_impl: tensor 'blk.0.attn_q.weight' has invalid ggml type 42 (NONE)", "prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0")).toMatch(/PrismML's build/);
+    expect(explainLoadFailure("ggml_backend_cuda_buffer_type_alloc_buffer: allocating 9000 MiB on device 0: cudaMalloc failed: out of memory", "x.gguf")).toMatch(/ran out of memory/);
+    expect(explainLoadFailure("error: invalid argument: -fa", "x.gguf")).toMatch(/doesn't understand one of the arguments/);
+    expect(explainLoadFailure("all good", "x.gguf")).toBe("");
   });
 });
 
