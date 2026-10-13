@@ -11,6 +11,7 @@ import { useStore } from '../core/store'
 import { closeTab, openTab, tabsStore, type DynamicTab } from '../core/tabs'
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
+import { UpdateBanner } from '../features/devices/updates'
 import SettingsPage from './SettingsPage'
 import TabBar from './TabBar'
 
@@ -58,6 +59,7 @@ export default function App() {
       {hydrated && <><Palette /><ShortcutsHelp /></>}
       <div className="shell-body">
       <main className={fill ? 'fill' : undefined}>
+        {hydrated && <UpdateBanner />}
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
         {sourceUpdate?.rebuildNeeded && String(sourceUpdate.newestSourceAt) !== hiddenSourceAt && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span><button title="Hide until the source changes again" onClick={() => hideSourceUpdate(String(sourceUpdate.newestSourceAt))}>×</button></div>}
 
