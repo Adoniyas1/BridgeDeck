@@ -5,7 +5,7 @@ import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { projectFolder } from '../projects/model'
 import {
-  buildCircuit, buildWithRules, chipDef, designSummary, posExpressions, type DesignRules, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit, placedPins, pinFacing, wirePath, bendIndex, rotateBy90, sizeOf, type Wire, type WireShape,
+  asChips, buildCircuit, buildWithRules, chipDef, designSummary, posExpressions, type DesignRules, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit, removePart, splitWire, placedPins, pinFacing, wirePath, bendIndex, rotateBy90, sizeOf, type Wire, type WireShape,
   show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type FlopState, type GateType, type Level, type Part, type TruthTable,
 } from './model'
 import { levelColor, PartShape } from './Symbols'
@@ -20,6 +20,7 @@ const INPUTS: PaletteItem[] = [
   { kind: 'switch', title: 'Switch (input)' }, { kind: 'clock', title: 'Clock' }, { kind: 'led', title: 'LED (output)' },
   { kind: 'vcc', title: '+5V (VCC)' }, { kind: 'gnd', title: 'Ground' },
   { kind: 'seg7', title: '7-segment (lit on 1)' }, { kind: 'seg7', anode: true, title: '7-segment (lit on 0, for a 7447)' },
+  { kind: 'joint', title: 'Joint (wires branch here)' },
 ]
 const GATE_ITEMS: PaletteItem[] = (['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF'] as GateType[]).map(gate => ({ kind: 'gate', gate, title: gate }))
 
@@ -97,6 +98,24 @@ export default function LogicPage({ active }: { active: boolean }) {
     change(c => ({ ...c, wires: c.wires.map(w => (w.id === id ? patch(w) : w)) }))
   }
 
+  /** The way a wire leaves a joint: towards its other end, or (when a wire made earlier already
+   *  leaves that way) at a right angle, so a branch doesn't run along the wire it came off. */
+  function jointFacing(w: Wire, ref: string, at: { x: number; y: number }, next: { x: number; y: number }) {
+    const toward = (q: { x: number; y: number }) => Math.abs(q.x - at.x) >= Math.abs(q.y - at.y) ? { x: Math.sign(q.x - at.x) || 1, y: 0 } : { x: 0, y: Math.sign(q.y - at.y) || 1 }
+    const mine = toward(next)
+    const before = circuit.wires.slice(0, circuit.wires.indexOf(w)).filter(x => x.a === ref || x.b === ref)
+    const taken = before.some(x => {
+      const other = x.a === ref ? x.b : x.a
+      const part = circuit.parts.find(p => other.startsWith(`${p.id}:`))
+      const q = (x.a === ref ? x.via?.[0] : x.via?.[x.via.length - 1]) ?? (part && pinPoint(part, other.slice(part.id.length + 1)))
+      if (!q) return false
+      const t = toward(q)
+      return t.x === mine.x && t.y === mine.y
+    })
+    if (!taken) return mine
+    return mine.x !== 0 ? { x: 0, y: Math.sign(next.y - at.y) || 1 } : { x: Math.sign(next.x - at.x) || 1, y: 0 }
+  }
+
   /** Where a wire's ends are, with the way each pin points. */
   function ends(w: Wire) {
     const pa = circuit.parts.find(p => w.a.startsWith(`${p.id}:`)), pb = circuit.parts.find(p => w.b.startsWith(`${p.id}:`))
@@ -104,7 +123,8 @@ export default function LogicPage({ active }: { active: boolean }) {
     const na = w.a.slice(pa.id.length + 1), nb = w.b.slice(pb.id.length + 1)
     const a = pinPoint(pa, na), b = pinPoint(pb, nb)
     if (!a || !b) return null
-    const fa = pinFacing(pa, na), fb = pinFacing(pb, nb)
+    const fa = pa.kind === 'joint' ? jointFacing(w, w.a, a, w.via?.[0] ?? b) : pinFacing(pa, na)
+    const fb = pb.kind === 'joint' ? jointFacing(w, w.b, b, w.via?.[w.via.length - 1] ?? a) : pinFacing(pb, nb)
     const aOut = pinsOf(pa).find(p => p.name === na)?.dir === 'out'
     const A = { ...a, fx: fa.x, fy: fa.y }, B = { ...b, fx: fb.x, fy: fb.y }
     // Bend points run from end a to end b. Without any, the wire is drawn from its output pin, so the
@@ -114,10 +134,27 @@ export default function LogicPage({ active }: { active: boolean }) {
   }
 
   function remove(sel: NonNullable<Selection>) {
-    change(c => sel.kind === 'wire'
-      ? { ...c, wires: c.wires.filter(w => w.id !== sel.id) }
-      : { ...c, parts: c.parts.filter(p => p.id !== sel.id), wires: c.wires.filter(w => !w.a.startsWith(`${sel.id}:`) && !w.b.startsWith(`${sel.id}:`)) })
+    change(c => sel.kind === 'wire' ? { ...c, wires: c.wires.filter(w => w.id !== sel.id) } : removePart(c, sel.id))
     setSelection(null)
+    setPending(null)
+  }
+
+  /** Joins two pins with a wire (unless they already are). */
+  const connect = (c: Circuit, a: string, b: string): Circuit =>
+    a === b || c.wires.some(w => (w.a === a && w.b === b) || (w.a === b && w.b === a)) ? c : { ...c, wires: [...c.wires, { id: newId('w'), a, b }] }
+
+  /** A joint on a wire where it was clicked: the wire being drawn ends there, or (with nothing being
+   *  drawn) a new wire starts from it, branching the signal. */
+  function jointOn(w: Wire, at: { x: number; y: number }) {
+    const e = ends(w)
+    if (!e) return
+    const { circuit: next, joint } = splitWire(circuit, w.id, e.A, e.B, { x: snap(at.x), y: snap(at.y) })
+    if (!joint) return
+    const ref = pinRef(joint, 'p')
+    change(() => (pending ? connect(next, pending, ref) : next))
+    setPending(pending ? null : ref)
+    setMouse(at)
+    setSelection({ kind: 'part', id: joint.id })
   }
 
   /** A new part, near the middle of what's on screen (or where it was dropped). */
@@ -145,9 +182,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   function pinDown(e: React.PointerEvent, ref: string) {
     e.stopPropagation()
     if (!pending) { setPending(ref); setMouse(point(e)); return }
-    if (pending !== ref) {
-      change(c => c.wires.some(w => (w.a === pending && w.b === ref) || (w.a === ref && w.b === pending)) ? c : { ...c, wires: [...c.wires, { id: newId('w'), a: pending, b: ref }] })
-    }
+    change(c => connect(c, pending, ref))
     setPending(null)
   }
 
@@ -184,8 +219,12 @@ export default function LogicPage({ active }: { active: boolean }) {
     drag.current = null
     if (!d || d.moved) return
     const part = circuit.parts.find(p => p.id === d.id)
-    // A click: a switch flips; anything else is selected.
+    // A click: a switch flips; a joint starts or ends a wire; anything else is selected.
     if (part?.kind === 'switch') change(c => ({ ...c, parts: c.parts.map(p => (p.id === part.id ? { ...p, on: !p.on } : p)) }))
+    if (part?.kind === 'joint') {
+      const ref = pinRef(part, 'p')
+      if (pending && pending !== ref) { change(c => connect(c, pending, ref)); setPending(null) } else setPending(pending ? null : ref)
+    }
     setSelection({ kind: 'part', id: d.id })
   }
 
@@ -278,12 +317,13 @@ export default function LogicPage({ active }: { active: boolean }) {
         {GATE_ITEMS.map(item => <PaletteButton key={item.title} item={item} onAdd={add} />)}
         <h4>74-series chips</h4>
         {CHIPS.map(c => <PaletteButton key={c.part} item={{ kind: 'chip', chip: c.part, title: `${c.part} · ${c.name}` }} onAdd={add} />)}
-        <p className="hint">Click a pin, then another, to wire them. Drag parts to move them; R rotates the selected part; double-click a wire to bend it, and pick its shape above the canvas; click a switch to flip it; Delete removes what’s selected. 14-pin chips need pin 14 to +5V and pin 7 to ground; 16-pin chips pin 16 and pin 8. Unconnected chip control inputs count as high, as on real TTL chips.</p>
+        <p className="hint">Click a pin, then another, to wire them. Drag parts to move them; R rotates the selected part; double-click a wire to bend it, and pick its shape above the canvas; Option/Alt-click a wire (or click one while drawing a wire) to put a joint there and branch from it; click a switch to flip it; Delete removes what’s selected. 14-pin chips need pin 14 to +5V and pin 7 to ground; 16-pin chips pin 16 and pin 8. Unconnected chip control inputs count as high, as on real TTL chips.</p>
       </aside>
       {view === 'breadboard' ? <div className="logic-canvas logic-canvas--board"><Breadboard circuit={circuit}
         levels={Object.fromEntries(circuit.parts.flatMap(p => p.label && (p.kind === 'switch' || p.kind === 'clock' || p.kind === 'led') ? [[p.label, sim.pins[pinRef(p, p.kind === 'led' ? 'in' : 'out')]]] : []))}
         onPlace={(ref, col) => change(c => ({ ...c, board: { ...(c.board ?? {}), [ref]: col } }))}
-        onFlip={label => change(c => ({ ...c, parts: c.parts.map(p => (p.kind === 'switch' && p.label === label ? { ...p, on: !p.on } : p)) }))} /></div> :
+        onFlip={label => change(c => ({ ...c, parts: c.parts.map(p => (p.kind === 'switch' && p.label === label ? { ...p, on: !p.on } : p)) }))}
+        onJumpers={next => change(c => ({ ...c, jumpers: next.length ? next : undefined }))} /></div> :
       <div ref={scroller} className="logic-canvas" onDragOver={e => e.preventDefault()} onDrop={e => {
         e.preventDefault()
         try { const item = JSON.parse(e.dataTransfer.getData('application/x-logic')) as PaletteItem; add(item, point(e)) } catch { /* not a part */ }
@@ -298,7 +338,12 @@ export default function LogicPage({ active }: { active: boolean }) {
             const d = wirePath(w, e.from, e.to, circuit.parts.indexOf(e.src) % 6)
             const short = sim.shorts.includes(w.id)
             const sel = selection?.kind === 'wire' && selection.id === w.id
-            return <g key={w.id} onPointerDown={ev => { ev.stopPropagation(); setSelection({ kind: 'wire', id: w.id }) }}
+            return <g key={w.id} onPointerDown={ev => {
+              ev.stopPropagation()
+              // Option/Alt-click, or a click while drawing a wire: a joint there, to branch from.
+              if (ev.altKey || pending) jointOn(w, point(ev))
+              else setSelection({ kind: 'wire', id: w.id })
+            }}
               onDoubleClick={ev => {
                 // Double-click a wire: a bend point there, to drag it somewhere else.
                 ev.stopPropagation()
@@ -316,7 +361,16 @@ export default function LogicPage({ active }: { active: boolean }) {
                 <title>Drag to move; double-click to remove</title></rect>)}
             </g>
           })}
-          {circuit.parts.map(part => <g key={part.id} onPointerDown={e => partDown(e, part)}>
+          {circuit.parts.map(part => part.kind === 'joint' ? (() => {
+            const ref = pinRef(part, 'p')
+            const n = circuit.wires.filter(w => w.a === ref || w.b === ref).length
+            const sel = selection?.kind === 'part' && selection.id === part.id
+            return <g key={part.id} className={`logic-joint${sel ? ' selected' : ''}${pending === ref ? ' pending' : ''}`} onPointerDown={e => partDown(e, part)}>
+              <circle cx={part.x} cy={part.y} r={9} className="logic-joint-hit" />
+              <circle cx={part.x} cy={part.y} r={n >= 3 ? 5 : 4} style={{ fill: levelColor(sim.pins[ref]) }} />
+              <title>Joint: click to start or end a wire here; drag to move; Delete removes it</title>
+            </g>
+          })() : <g key={part.id} onPointerDown={e => partDown(e, part)}>
             {(() => { const { w, h } = sizeOf(part); return <g transform={part.rot ? `rotate(${part.rot} ${part.x + w / 2} ${part.y + h / 2})` : undefined}>
               <PartShape part={part} level={level(part)} selected={selection?.kind === 'part' && selection.id === part.id} />
             </g> })()}
@@ -336,7 +390,7 @@ export default function LogicPage({ active }: { active: boolean }) {
           const wire = selection.kind === 'wire' ? circuit.wires.find(w => w.id === selection.id) : null
           const shape: WireShape = wire?.shape ?? 'auto'
           return <div className="logic-selbar" onPointerDown={e => e.stopPropagation()}>
-            {selection.kind === 'part' && <button onClick={() => rotate(selection.id)} title="Rotate a quarter turn (R)"><RotateCw size={13} /> Rotate</button>}
+            {selection.kind === 'part' && circuit.parts.find(p => p.id === selection.id)?.kind !== 'joint' && <button onClick={() => rotate(selection.id)} title="Rotate a quarter turn (R)"><RotateCw size={13} /> Rotate</button>}
             {wire && <>
               <span title="Double-click the wire to add a bend, then drag it to reroute; double-click a bend to remove it">Wire</span>
               {([['auto', 'Right angles', CornerDownRight], ['straight', 'Straight', Minus], ['curved', 'Curved', Spline]] as const).map(([value, title, Icon]) =>
@@ -408,6 +462,9 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
   const [count, setCount] = useState(3)
   const [cells, setCells] = useState<Level[]>(() => Array(8).fill(0))
   const [rules, setRules] = useState<DesignRules>({ gates: 'any', maxInputs: 2 })
+  /** Built from gate symbols, or from the ICs (74-series chips) wired pin by pin. */
+  const [form, setForm] = useState<'gates' | 'chips'>('gates')
+  const make = (c: Circuit) => (form === 'chips' ? asChips(c) : c)
   const parsed = useMemo(() => { try { return { outputs: parseOutputs(text), error: '' } } catch (e) { return { outputs: [], error: errorText(e, 'Can’t read that') } } }, [text])
   const exprTable = useMemo(() => (parsed.outputs.length ? tableOf(parsed.outputs) : null), [parsed])
   const vars = 'ABCDEF'.slice(0, count).split('')
@@ -424,9 +481,9 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
       {parsed.error ? <p className="error-text">{parsed.error}</p> : exprTable && <>
         <div className="logic-exprs">{parsed.outputs.map(o => <div key={o.name}><strong>{o.name}</strong> = {show(o.expr)}{(() => { const s = expressions(exprTable)[o.name]; return s && literals(s) < literals(show(o.expr)) ? <span className="hint"> · simpler: {s}</span> : null })()}</div>)}</div>
         <TableView table={exprTable} />
-        <RulesBar table={exprTable} rules={rules} onRules={setRules} />
+        <RulesBar table={exprTable} rules={rules} onRules={setRules} form={form} onForm={setForm} />
         <div className="actions">
-          <button onClick={() => onBuild(rules.gates === 'any' ? buildCircuit(parsed.outputs) : buildWithRules(exprTable, rules))}><Wand2 size={13} /> Build the circuit</button>
+          <button onClick={() => onBuild(make(rules.gates === 'any' ? buildCircuit(parsed.outputs) : buildWithRules(exprTable, rules)))}><Wand2 size={13} /> Build the circuit</button>
           <button className="ghost" onClick={() => onNote('Truth table', tableMarkdown(exprTable, Object.fromEntries(parsed.outputs.map(o => [o.name, show(o.expr)]))))}><NotebookPen size={13} /> Save as a note</button>
         </div>
       </>}
@@ -436,9 +493,9 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
       <TableView table={filled} onCell={r => setCells(c => c.map((v, i) => (i === r ? (v === 0 ? 1 : v === 1 ? null : 0) : v)))} />
       <div className="logic-exprs"><strong>Y</strong> = {fromTable}</div>
       {kmapLayout(vars) && <KMapView table={filled} />}
-      <RulesBar table={filled} rules={rules} onRules={setRules} />
+      <RulesBar table={filled} rules={rules} onRules={setRules} form={form} onForm={setForm} />
       <div className="actions">
-        <button onClick={() => onBuild(rules.gates === 'any' ? buildCircuit(parseOutputs(`Y = ${fromTable}`)) : buildWithRules(filled, rules))}><Wand2 size={13} /> Build the circuit</button>
+        <button onClick={() => onBuild(make(rules.gates === 'any' ? buildCircuit(parseOutputs(`Y = ${fromTable}`)) : buildWithRules(filled, rules)))}><Wand2 size={13} /> Build the circuit</button>
         <button className="ghost" onClick={() => onNote('Truth table', tableMarkdown(filled, { Y: fromTable }))}><NotebookPen size={13} /> Save as a note</button>
       </div>
     </>}
@@ -447,12 +504,16 @@ function Designer({ onBuild, onNote }: { onBuild: (c: Circuit) => void; onNote: 
 
 /** Design rules (like a lab's "NAND gates only"): which gates, how many inputs each, both simplified
  *  forms, and what the circuit will take before it's built. */
-function RulesBar({ table, rules, onRules }: { table: TruthTable; rules: DesignRules; onRules: (r: DesignRules) => void }) {
+function RulesBar({ table, rules, onRules, form, onForm }: { table: TruthTable; rules: DesignRules; onRules: (r: DesignRules) => void; form: 'gates' | 'chips'; onForm: (f: 'gates' | 'chips') => void }) {
   const sop = useMemo(() => expressions(table), [table])
   const pos = useMemo(() => posExpressions(table), [table])
   const summary = useMemo(() => designSummary(buildWithRules(table, rules)), [table, rules])
   const chips = Object.entries(summary.chips).map(([part, n]) => `${n}× ${part} (${chipDef(part)?.name ?? ''})`).join(', ')
   return <div className="logic-rules">
+    <div className="logic-view logic-rules__form" role="tablist" aria-label="Build as">
+      <button role="tab" aria-selected={form === 'gates'} className={form === 'gates' ? 'on' : ''} onClick={() => onForm('gates')}>Logic gates</button>
+      <button role="tab" aria-selected={form === 'chips'} className={form === 'chips' ? 'on' : ''} onClick={() => onForm('chips')}>ICs (74-series chips)</button>
+    </div>
     <div className="logic-rules__row">
       <label>Build with <select value={rules.gates} onChange={e => onRules({ ...rules, gates: e.target.value as DesignRules['gates'] })}>
         <option value="any">Any gates (AND, OR, NOT…)</option>
@@ -473,6 +534,7 @@ function RulesBar({ table, rules, onRules }: { table: TruthTable; rules: DesignR
       {rules.gates === 'nand' ? 'NAND–NAND from the sum of products; complemented inputs use a NAND with its inputs tied as an inverter. ' : rules.gates === 'nor' ? 'NOR–NOR from the product of sums; complemented inputs use a NOR with its inputs tied as an inverter. ' : ''}
       {summary.gates} gate{summary.gates === 1 ? '' : 's'}{summary.inverters ? ` (${summary.inverters} as inverter${summary.inverters === 1 ? '' : 's'})` : ''}{chips ? ` · chips: ${chips}` : ''}
     </p>
+    {form === 'chips' && <p className="hint">Built as ICs: the chips go on the canvas with each pin wired, +5V and ground included (pin 14 and pin 7 on 14-pin chips), and spare gates’ inputs tied to ground.</p>}
   </div>
 }
 

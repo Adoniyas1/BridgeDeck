@@ -1,6 +1,6 @@
 /** The circuit on a breadboard: its chips across the middle channel, power from the rails, and a
  *  jumper for each connection, as you'd build it on the lab bench (from chipPlan). */
-import { chipDef, chipPlan, type ChipPlan, type Circuit } from './model'
+import { chipDef, chipPlan, type BoardWire, type ChipPlan, type Circuit } from './model'
 
 /** A full-size breadboard: 63 columns, rows a–e and f–j either side of the channel, two power
  *  rails (+ and −) along the top and the bottom. */
@@ -14,7 +14,7 @@ export type Rail = 'top+' | 'top-' | 'bottom+' | 'bottom-'
 export type Spot = { kind: 'hole'; col: number; row: Row } | { kind: 'rail'; col: number; rail: Rail } | { kind: 'switch' | 'led'; label: string }
 export type Jumper = { net: string; a: Spot; b: Spot; color: string }
 export type BoardChip = { ref: string; part: string; name: string; pins: number; col: number }
-export type Board = { cols: number; chips: BoardChip[]; inputs: string[]; outputs: string[]; jumpers: Jumper[]; steps: string[]; notes: string[] }
+export type Board = { cols: number; chips: BoardChip[]; inputs: string[]; outputs: string[]; jumpers: Jumper[]; steps: string[]; notes: string[]; plan: ChipPlan }
 
 /** Where each chip goes: column of pin 1 by chip (moved by hand), kept with the circuit. */
 export type BoardPlacement = Record<string, number>
@@ -45,12 +45,7 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
   }
   const cols = Math.max(BOARD_COLS, ...chips.map(ch => ch.col + ch.pins / 2 + 2))
   // Pin 1 bottom left (notch on the left): pins 1…n/2 in row f, the rest back along row e.
-  const pinSpot = (ref: string, pin: number): { col: number; row: Row } | null => {
-    const ch = chips.find(x => x.ref === ref)
-    if (!ch) return null
-    const half = ch.pins / 2
-    return pin <= half ? { col: ch.col + pin - 1, row: 'f' } : { col: ch.col + (ch.pins - pin), row: 'e' }
-  }
+  const pinSpot = (ref: string, pin: number) => chipPinHole(chips, ref, pin)
   // Each strip of five holes has the chip leg in its row nearest the channel; jumpers take the others.
   const used = new Map<string, number>()
   const freeHole = (col: number, top: boolean): Spot => {
@@ -105,5 +100,97 @@ export function breadboard(c: Circuit, placement: BoardPlacement = {}, plan: Chi
     }
   })
   for (const led of outputs) steps.push(`LED ${led}: through a 330 Ω resistor to ground (the trainer's LEDs have one built in).`)
-  return { cols, chips, inputs: [...inputs].sort(), outputs: [...outputs].sort(), jumpers, steps, notes }
+  return { cols, chips, inputs: [...inputs].sort(), outputs: [...outputs].sort(), jumpers, steps, notes, plan }
+}
+
+/** The hole a chip's pin sits in: pin 1 bottom left (notch on the left), pins 1…n/2 along row f,
+ *  the rest back along row e. */
+export function chipPinHole(chips: BoardChip[], ref: string, pin: number): { col: number; row: Row } | null {
+  const ch = chips.find(x => x.ref === ref)
+  if (!ch) return null
+  const half = ch.pins / 2
+  return pin <= half ? { col: ch.col + pin - 1, row: 'f' } : { col: ch.col + (ch.pins - pin), row: 'e' }
+}
+
+/** A spot as text, to save a hand-placed wire's ends: "c12", "top+@5", "sw:A", "led:Y". */
+export const spotKey = (s: Spot): string =>
+  s.kind === 'hole' ? `${s.row}${s.col}` : s.kind === 'rail' ? `${s.rail}@${s.col}` : `${s.kind === 'switch' ? 'sw' : 'led'}:${s.label}`
+
+export function parseSpot(key: string): Spot | null {
+  let m = /^([a-j])(\d{1,3})$/.exec(key)
+  if (m) return { kind: 'hole', row: m[1] as Row, col: Number(m[2]) }
+  m = /^(top|bottom)([+-])@(\d{1,3})$/.exec(key)
+  if (m) return { kind: 'rail', rail: `${m[1]}${m[2]}` as Rail, col: Number(m[3]) }
+  m = /^(sw|led):(.+)$/.exec(key)
+  if (m) return { kind: m[1] === 'sw' ? 'switch' : 'led', label: m[2] }
+  return null
+}
+
+/** What a spot is joined to without any wire: the five holes of its strip, or the whole rail.
+ *  The power supply feeds both + rails and both − rails. */
+export function stripOf(s: Spot): string {
+  if (s.kind === 'hole') return `${s.col}${(ROWS_TOP as readonly string[]).includes(s.row) ? 't' : 'b'}`
+  if (s.kind === 'rail') return s.rail.endsWith('+') ? '+5V' : 'GND'
+  return `${s.kind}:${s.label}`
+}
+
+export type WiringCheck = { right: number; total: number; problems: string[] }
+
+/** Checks wires placed by hand against the circuit: every connection made, and nothing joined that
+ *  shouldn't be. */
+export function checkWiring(board: Board, wires: BoardWire[]): WiringCheck {
+  const parent = new Map<string, string>()
+  const find = (x: string): string => { let r = x; while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!; parent.set(x, r); return r }
+  const join = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb) }
+  for (const w of wires) {
+    const a = parseSpot(w.a), b = parseSpot(w.b)
+    if (a && b) join(stripOf(a), stripOf(b))
+  }
+  type End = { node: string; label: string }
+  const nets = board.plan.connections.map(conn => {
+    const ends: End[] = []
+    for (const text of conn.pins) {
+      const chip = /^(U\d+) pin (\d+)/.exec(text)
+      if (chip) {
+        const at = chipPinHole(board.chips, chip[1], Number(chip[2]))
+        if (at) ends.push({ node: stripOf({ kind: 'hole', ...at }), label: `${chip[1]} pin ${chip[2]} (${at.row}${at.col})` })
+        continue
+      }
+      const sw = /^(?:switch|clock) (.+)$/.exec(text)
+      if (sw) { ends.push({ node: `switch:${sw[1]}`, label: `switch ${sw[1]}` }); continue }
+      const led = /^LED (\S+)/.exec(text)
+      if (led) ends.push({ node: `led:${led[1]}`, label: `LED ${led[1]}` })
+    }
+    // Power: each pin to its rail (the rail first, so that's what a missing pin is said to need).
+    if (conn.net === '+5V' || conn.net === 'GND') ends.unshift({ node: conn.net, label: conn.net === '+5V' ? 'the + rail' : 'the − rail' })
+    return { net: conn.net, ends }
+  })
+  const problems: string[] = []
+  const owner = new Map<string, string>()
+  const shorted = new Set<string>()
+  for (const { net, ends } of nets) {
+    for (const e of ends) {
+      const root = find(e.node)
+      const other = owner.get(root)
+      if (other && other !== net) {
+        const pair = [other, net].sort().join(' and ')
+        if (!shorted.has(pair)) problems.push(`Short: ${pair} are joined (at ${e.label}).`)
+        shorted.add(pair)
+        shorted.add(net)
+        shorted.add(other)
+      } else owner.set(root, net)
+    }
+  }
+  let right = 0
+  for (const { net, ends } of nets) {
+    // The biggest group of this signal's ends that are joined; the rest aren't joined to it yet.
+    const groups = new Map<string, End[]>()
+    for (const e of ends) groups.set(find(e.node), [...(groups.get(find(e.node)) ?? []), e])
+    const power = net === '+5V' || net === 'GND'
+    const main = (power ? groups.get(find(ends[0].node)) : [...groups.values()].sort((a, b) => b.length - a.length)[0]) ?? []
+    const missing = ends.filter(e => !main.includes(e))
+    for (const e of missing) problems.push(`${net}: ${e.label} isn’t connected to ${main[0].label} yet.`)
+    if (!missing.length && !shorted.has(net)) right++
+  }
+  return { right, total: nets.length, problems }
 }
