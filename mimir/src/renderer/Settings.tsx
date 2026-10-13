@@ -20,6 +20,7 @@ export default function Settings({
   const [status, setStatus] = useState<string | null>(null);
   const [persona, setPersona] = useState<PersonaConfig | null>(null);
   const [locationInput, setLocationInput] = useState("");
+  const [preparingVoice, setPreparingVoice] = useState(false);
 
   useEffect(() => {
     void window.mimir.brain.getConfig().then(setBrain);
@@ -39,7 +40,7 @@ export default function Settings({
 
   async function patchVoice(
     patch: Partial<
-        Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">
+        Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "naturalVoice" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">
     >
   ) {
     const next = await window.mimir.voice.setConfig(patch);
@@ -150,15 +151,66 @@ export default function Settings({
         <h3>Voice</h3>
         <p className="hint">Open Mic is controlled from the conversation bar. Command + Shift + Space remains available for manual recording.</p>
         <label>
-          macOS voice
-          <input
-            value={voice.systemVoice}
-            onChange={(e) => void patchVoice({ systemVoice: e.target.value })}
-            placeholder="Samantha"
-          />
+          Mimir's voice
+          <select value={voice.ttsProvider} onChange={(e) => void patchVoice({ ttsProvider: e.target.value as VoiceConfig["ttsProvider"] })}>
+            <option value="natural">Natural (neural voice on this computer, free)</option>
+            <option value="system">System voice ({navigator.userAgent.includes("Mac") ? "macOS" : "Windows"})</option>
+            <option value="elevenlabs">ElevenLabs (needs an API key)</option>
+          </select>
         </label>
+        {voice.ttsProvider === "natural" && (
+          <>
+            <label>
+              Voice
+              <select value={voice.naturalVoice} onChange={(e) => void patchVoice({ naturalVoice: e.target.value })}>
+                {voice.naturalVoices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="hint">
+              {voice.naturalVoiceState === "ready"
+                ? "Loaded and ready."
+                : voice.naturalVoiceState === "loading" || preparingVoice
+                  ? "Loading the voice model (about 90 MB the first time)…"
+                  : voice.naturalVoiceState === "failed"
+                    ? `Couldn't load the voice model: ${voice.naturalVoiceError}. The system voice is used until it loads.`
+                    : "Kokoro runs on this computer's CPU. Its model (about 90 MB) downloads once, the first time it speaks or when you press Load; until then the system voice speaks."}
+            </p>
+          </>
+        )}
+        {voice.ttsProvider === "system" && (
+          <label>
+            macOS voice
+            <input value={voice.systemVoice} onChange={(e) => void patchVoice({ systemVoice: e.target.value })} placeholder="Samantha" />
+          </label>
+        )}
+        {voice.ttsProvider === "elevenlabs" && (
+          <label>
+            ElevenLabs voice id
+            <input value={voice.elevenLabsVoiceId} onChange={(e) => void patchVoice({ elevenLabsVoiceId: e.target.value })} />
+          </label>
+        )}
         <div className="key-row">
-          <button type="button" className="btn" onClick={() => void window.mimir.chat.speak("Voice systems online.")}>
+          {voice.ttsProvider === "natural" && voice.naturalVoiceState !== "ready" && (
+            <button
+              type="button"
+              className="btn"
+              disabled={preparingVoice}
+              onClick={() => {
+                setPreparingVoice(true);
+                void window.mimir.voice
+                  .prepare()
+                  .then(setVoice)
+                  .finally(() => setPreparingVoice(false));
+              }}
+            >
+              {preparingVoice ? "Loading…" : "Load voice"}
+            </button>
+          )}
+          <button type="button" className="btn" onClick={() => void window.mimir.chat.speak("Hi, I'm Mimir. This is how I sound now. What are we working on today?")}>
             Test voice
           </button>
         </div>

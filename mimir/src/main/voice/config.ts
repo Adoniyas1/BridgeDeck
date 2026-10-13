@@ -1,6 +1,7 @@
 import type { VoiceConfig } from "../../shared/types.js";
 import { readJsonFile, writeJsonFile } from "../config/store.js";
 import { getSecret, setSecret } from "../config/keychain.js";
+import { DEFAULT_NATURAL_VOICE, NATURAL_VOICES, naturalVoiceStatus } from "./natural.js";
 
 const FILE = "voice.json";
 const PICOVOICE_ACCOUNT = "voice:picovoice";
@@ -10,7 +11,8 @@ export const DEFAULT_ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 interface StoredVoiceConfig {
   wakeWordEnabled: boolean;
   openMicEnabled: boolean;
-  ttsProvider: "system" | "elevenlabs";
+  ttsProvider: "natural" | "system" | "elevenlabs";
+  naturalVoice: string;
   elevenLabsVoiceId: string;
   systemVoice: string;
   wakeWordPath: string | null;
@@ -22,7 +24,9 @@ interface StoredVoiceConfig {
 const DEFAULTS: StoredVoiceConfig = {
   wakeWordEnabled: false, // off until a Picovoice key is present — see loadVoiceConfig
   openMicEnabled: false,
-  ttsProvider: "system",
+  // A neural voice on this computer (Kokoro); the OS voice stays one click away.
+  ttsProvider: "natural",
+  naturalVoice: DEFAULT_NATURAL_VOICE,
   elevenLabsVoiceId: DEFAULT_ELEVENLABS_VOICE_ID,
   systemVoice: "Samantha",
   wakeWordPath: null,
@@ -39,7 +43,11 @@ export async function loadVoiceConfig(): Promise<VoiceConfig> {
     wakeWordEnabled: stored.wakeWordEnabled && Boolean(picovoiceKey),
     openMicEnabled: stored.openMicEnabled,
     hasPicovoiceKey: Boolean(picovoiceKey),
-    ttsProvider: stored.ttsProvider,
+    ttsProvider: (["natural", "system", "elevenlabs"] as const).includes(stored.ttsProvider) ? stored.ttsProvider : DEFAULTS.ttsProvider,
+    naturalVoice: NATURAL_VOICES.some((v) => v.id === stored.naturalVoice) ? stored.naturalVoice : DEFAULT_NATURAL_VOICE,
+    naturalVoices: NATURAL_VOICES.map((v) => ({ ...v })),
+    naturalVoiceState: naturalVoiceStatus().state,
+    naturalVoiceError: naturalVoiceStatus().error,
     hasElevenLabsKey: Boolean(elevenLabsKey),
     elevenLabsVoiceId: stored.elevenLabsVoiceId || DEFAULT_ELEVENLABS_VOICE_ID,
     systemVoice: stored.systemVoice.trim() || DEFAULTS.systemVoice,
@@ -50,7 +58,7 @@ export async function loadVoiceConfig(): Promise<VoiceConfig> {
 
 export async function saveVoiceConfig(
   patch: Partial<
-    Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">
+    Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "naturalVoice" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">
   >
 ): Promise<VoiceConfig> {
   const current = await readJsonFile<StoredVoiceConfig>(FILE, DEFAULTS);

@@ -53,6 +53,14 @@ Then open Settings (⚙, top right) and:
   once the answer starts. Claude's thinking summary shows the same way. In a Brain team you see the
   Head's thinking. Thinking is saved with the chat but never sent back to the model.
 
+## Voice
+
+Mimir speaks in a natural neural voice by default: [Kokoro](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX)
+(82M parameters), run on this computer's CPU through ONNX (`kokoro-js`), with no key or account. Its
+model (about 90 MB) downloads once, into `~/.mimir/models/voice`, the first time Mimir speaks or when
+you press **Load voice**. The system voice speaks until it's ready. Settings → **Voice** picks the voice
+(American or British, female or male), or switches to the system voice or ElevenLabs.
+
 ## ChatGPT section
 
 The **CHATGPT** button opens a separate chat with OpenAI's models using your own
