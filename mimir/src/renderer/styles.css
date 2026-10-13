@@ -890,3 +890,88 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* ============================================================
+   v1.0 design: calm graphite, matching BridgeDeck. No aurora,
+   grid, corner brackets or glow; flat panels, normal-case labels,
+   quiet bubbles. The face keeps its state colour, softly.
+   ============================================================ */
+:root {
+  --bg: #0f1012;
+  --panel: #16171a;
+  --panel-raised: #1c1d21;
+  --surface-3: #24252a;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-bright: rgba(143, 176, 255, 0.55);
+  --text: #f1f1f3;
+  --muted: #a2a5ad;
+  --faint: #6c6f77;
+  --accent: #8fb0ff;
+  --accent-2: #b4a7f5;
+  --accent-deep: #6f96ff;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+.app--idle { --state: #8fb0ff; }
+.app--listening { --state: #6fd6c0; }
+.app--thinking { --state: #b4a7f5; }
+.app--speaking { --state: #f0a6c8; }
+.app--error { --state: #f07178; }
+body { font-size: 14px; line-height: 1.5; }
+::selection { background: rgba(143, 176, 255, 0.28); }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); }
+
+.app { gap: 12px; padding: 12px; }
+.app-backdrop { display: none; }
+.core-panel, .console { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+.core-panel::before, .console::before, .core-panel::after, .console::after { display: none; }
+.core-panel { gap: 12px; padding: 16px; }
+.system-ident strong { font-size: 15px; font-weight: 600; }
+.settings-toggle { border-color: transparent !important; background: transparent !important; box-shadow: none !important; color: var(--muted) !important; }
+.settings-toggle:hover { background: var(--panel-raised) !important; color: var(--text) !important; }
+
+/* The face: same shape, a gentler light. */
+.orb-halo { opacity: 0.45; }
+.orb, .orb svg { filter: none !important; }
+
+/* State line under the face */
+.system-status__label { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 13px !important; text-shadow: none !important; }
+.system-status__hint { color: var(--faint); }
+.waveform span { box-shadow: none !important; }
+.status-dot { box-shadow: none !important; }
+
+/* Quick controls */
+.quick-controls__provider, .quick-controls__model { background: var(--bg) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 9px !important; color: var(--text) !important; box-shadow: none !important; }
+.quick-controls__action { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 12.5px !important; font-weight: 500; background: var(--panel-raised) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; border-radius: 9px !important; color: var(--text) !important; box-shadow: none !important; }
+.quick-controls__action:hover:not(:disabled) { background: var(--surface-3) !important; }
+
+/* Conversation */
+.chat-console-heading { font-family: var(--sans); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 600; color: var(--text); border-bottom-color: var(--border); }
+.chat-state { color: var(--muted); font-weight: 400; font-size: 12px; }
+.chat-state::before { box-shadow: none; background: var(--accent); }
+.chat-state--busy { color: var(--accent-2); }
+.chat-chip { font-family: var(--sans); letter-spacing: 0; text-transform: none; font-size: 12px; border-color: rgba(255, 255, 255, 0.1); }
+.chat-bubble { background: var(--panel-raised); border: 0; border-radius: 14px; padding: 11px 14px; }
+.chat-bubble--user { background: #26334f; border: 0; border-bottom-right-radius: 5px; }
+.chat-bubble--assistant { background: transparent; padding-left: 2px; }
+.chat-bubble--assistant::before { display: none; }
+.chat-bubble--system { background: rgba(240, 113, 120, 0.06); border: 1px solid rgba(240, 113, 120, 0.25); }
+.chat-role { font-family: var(--sans); letter-spacing: 0; text-transform: none; font-size: 12px; font-weight: 600; color: var(--muted); }
+.chat-bubble--assistant .chat-role { color: var(--accent); }
+.chat-bubble--user .chat-role { color: #c9d4f0; }
+.context-chip, .context-chips { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; }
+
+/* Input */
+.chat-input { background: var(--bg); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; box-shadow: none; }
+.chat-input:focus-within { border-color: var(--border-bright); box-shadow: 0 0 0 3px rgba(143, 176, 255, 0.12); }
+.chat-input__glow { display: none; }
+.voice-control:hover { color: var(--text); background: var(--panel-raised); }
+.voice-control--active { color: #6fd6c0; border-color: rgba(111, 214, 192, 0.4); background: rgba(111, 214, 192, 0.08); box-shadow: none; }
+
+/* Buttons and cards */
+.btn { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; border-radius: 9px !important; box-shadow: none !important; }
+.edit-card { background: var(--panel-raised); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; box-shadow: none; }
+.team-card { background: transparent; border-color: rgba(255, 255, 255, 0.08); }
+
+/* Settings, Skills, ChatGPT and Memory headers */
+.settings-header h2 { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 18px; color: var(--text) !important; text-shadow: none !important; }
+.settings section h3, .skills h3 { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 14px; color: var(--text) !important; }

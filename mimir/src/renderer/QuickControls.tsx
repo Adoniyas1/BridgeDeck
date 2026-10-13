@@ -145,13 +145,13 @@ export default function QuickControls({
           if (!result.ok) onError(`Could not open Projects folder: ${result.error}`);
         }}
       >
-        FILES
+        Files
       </button>
       <button type="button" className="quick-controls__action" title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
-        SKILLS
+        Skills
       </button>
       <button type="button" className="quick-controls__action quick-controls__action--wide" title="Chat with ChatGPT (your OpenAI API key)" onClick={onOpenChatGpt}>
-        CHATGPT
+        ChatGPT
       </button>
     </div>
   );

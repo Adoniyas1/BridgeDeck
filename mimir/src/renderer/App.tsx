@@ -440,8 +440,7 @@ export default function App() {
       <aside className="core-panel">
         <div className="core-panel__top">
           <div className="system-ident">
-            <span className="system-ident__eyebrow">MIMIR</span>
-            <strong>Neural interface</strong>
+            <strong>Mimir</strong>
           </div>
           <button
             type="button"
