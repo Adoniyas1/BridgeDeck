@@ -812,6 +812,12 @@ button.today-tile:hover{border-color:var(--accent)}
 .board-head small{color:var(--muted)}
 .board-card{background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;padding:8px 9px;cursor:grab;font-size:13px}
 .board-card:active{cursor:grabbing}
+.board--dragging,.board--dragging *{cursor:grabbing!important;user-select:none}
+.board-card{touch-action:none;transition:opacity .12s}
+.board-card.dragging{opacity:.35}
+.board-card.drop-before{box-shadow:0 -3px 0 0 var(--accent)}
+.board-drop-end{height:3px;border-radius:2px;background:var(--accent)}
+.board-card:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .board-card label{display:flex;gap:8px;align-items:flex-start;cursor:inherit}
 .board-card input{margin-top:3px;accent-color:var(--ok)}
 .board-card.done span{color:var(--muted);text-decoration:line-through}

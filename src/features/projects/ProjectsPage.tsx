@@ -119,8 +119,10 @@ function ProjectView({ name, root, onStatus }: { name: string; root: string; onS
 function Board({ note, onStatus }: { note: Note; onStatus: (s: string) => void }) {
   const columns = boardColumns(note)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
-  const [dragging, setDragging] = useState<string | null>(null)
-  const [over, setOver] = useState<number | null>(null)
+  // Dragging uses pointer events, not HTML5 drag and drop: Tauri's file-drop handling (which Files
+  // needs) swallows the page's own drag events, so a card never got its drop.
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number; moved: boolean } | null>(null)
+  const [over, setOver] = useState<{ column: number; index: number; before: string | null } | null>(null)
   const [picking, setPicking] = useState<string | null>(null)
 
   async function save(patch: NotePatch | null) {
@@ -133,15 +135,60 @@ function Board({ note, onStatus }: { note: Note; onStatus: (s: string) => void }
     } catch (e) { onStatus(String(e)) }
   }
 
+  /** Where a drop at (x, y) would land: a column, the card it goes after among the others (-1 for the
+   * top, as moveCard counts them), and the card it goes before (null for the end). */
+  function dropTarget(x: number, y: number): { column: number; index: number; before: string | null } | null {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-board-column]')
+    if (!el) return null
+    const cards = [...el.querySelectorAll<HTMLElement>('[data-board-card]')].filter(c => c.dataset.boardCard !== drag?.id)
+    const below = cards.findIndex(c => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2 })
+    return { column: Number(el.dataset.boardColumn), index: (below < 0 ? cards.length : below) - 1, before: below < 0 ? null : cards[below].dataset.boardCard ?? null }
+  }
+
+  function onPointerDown(e: React.PointerEvent, id: string) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('input, button, select, textarea')) return
+    setDrag({ id, x: e.clientX, y: e.clientY, moved: false })
+  }
+
+  useEffect(() => {
+    if (!drag) return
+    const move = (e: PointerEvent) => {
+      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return
+      if (!drag.moved) setDrag(d => d && { ...d, moved: true })
+      setOver(dropTarget(e.clientX, e.clientY))
+      e.preventDefault()
+    }
+    const up = (e: PointerEvent) => {
+      const target = drag.moved ? dropTarget(e.clientX, e.clientY) : null
+      if (target) void save(moveCard(note, drag.id, target.column, target.index))
+      setDrag(null)
+      setOver(null)
+    }
+    const cancel = (e: KeyboardEvent) => { if (e.key === 'Escape') { setDrag(null); setOver(null) } }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('keydown', cancel)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', cancel) }
+  })
+
+  /** Alt+← / Alt+→ on a focused card moves it to the column before or after. */
+  function onCardKey(e: React.KeyboardEvent, id: string, ci: number) {
+    if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+    const to = ci + (e.key === 'ArrowRight' ? 1 : -1)
+    if (!columns[to]) return
+    e.preventDefault()
+    void save(moveCard(note, id, to, columns[to].cards.length - 1))
+  }
+
   if (!columns.length) return <p className="hint">This board has no columns; add “## To do” style headings to its note.</p>
-  return <div className="board" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(200px, 1fr))` }}>
-    {columns.map((column, ci) => <div key={column.heading?.id ?? ci} className={`board-column${over === ci ? ' over' : ''}`}
-      onDragOver={e => { if (dragging) { e.preventDefault(); setOver(ci) } }} onDragLeave={() => setOver(o => o === ci ? null : o)}
-      onDrop={e => { e.preventDefault(); setOver(null); if (dragging) void save(moveCard(note, dragging, ci, column.cards.length - 1)); setDragging(null) }}>
+  const dragging = drag?.moved ? drag.id : null
+  return <div className={`board${dragging ? ' board--dragging' : ''}`} style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(200px, 1fr))` }}>
+    {columns.map((column, ci) => <div key={column.heading?.id ?? ci} data-board-column={ci} className={`board-column${over?.column === ci ? ' over' : ''}`}>
       <div className="board-head"><strong>{column.title}</strong><small>{column.cards.length}</small></div>
-      {column.cards.map((card, i) => <div key={card.block.id} className={`board-card${card.block.checked ? ' done' : ''}`} draggable
-        onDragStart={e => { setDragging(card.block.id); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDragging(null); setOver(null) }}
-        onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(null); if (dragging && dragging !== card.block.id) void save(moveCard(note, dragging, ci, i - 1)); setDragging(null) }}>
+      {column.cards.map((card, i) => <div key={card.block.id} data-board-card={card.block.id} tabIndex={0}
+        className={`board-card${card.block.checked ? ' done' : ''}${dragging === card.block.id ? ' dragging' : ''}${over?.before === card.block.id ? ' drop-before' : ''}`}
+        title="Drag to another column, or Alt+← / Alt+→"
+        onPointerDown={e => onPointerDown(e, card.block.id)} onKeyDown={e => onCardKey(e, card.block.id, ci)}>
         <label><input type="checkbox" checked={card.block.checked} onChange={e => void save(tickCard(note, card.block.id, e.target.checked))} /><span>{card.block.text || 'Untitled'}</span>
           <button type="button" className="notes-icon board-due" title="Due date" onClick={e => { e.preventDefault(); setPicking(p => p === card.block.id ? null : card.block.id) }}><CalendarClock size={12} /></button></label>
         {picking === card.block.id && <div className="board-due-pick">
@@ -158,6 +205,7 @@ function Board({ note, onStatus }: { note: Note; onStatus: (s: string) => void }
           {card.block.due && <small className={!card.block.checked && card.block.due <= Date.now() ? 'overdue' : ''}>{formatDue(card.block.due)}</small>}
         </div>}
       </div>)}
+      {dragging && over?.column === ci && over.before === null && <div className="board-drop-end" />}
       <form className="board-add" onSubmit={e => { e.preventDefault(); void save(addCard(note, ci, drafts[ci] ?? '')); setDrafts(d => ({ ...d, [ci]: '' })) }}>
         <input placeholder="Add a card" value={drafts[ci] ?? ''} onChange={e => setDrafts(d => ({ ...d, [ci]: e.target.value }))} />
       </form>
