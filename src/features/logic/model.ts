@@ -2,7 +2,8 @@
 
 export type Level = 0 | 1 | null
 export type GateType = 'AND' | 'OR' | 'NOT' | 'NAND' | 'NOR' | 'XOR' | 'XNOR' | 'BUF'
-export type PartKind = 'switch' | 'clock' | 'led' | 'vcc' | 'gnd' | 'gate' | 'chip' | 'seg7'
+/** `joint`: a junction dot where wires meet, so a signal can branch off along the way. */
+export type PartKind = 'switch' | 'clock' | 'led' | 'vcc' | 'gnd' | 'gate' | 'chip' | 'seg7' | 'joint'
 
 export type Part = {
   id: string
@@ -25,8 +26,11 @@ export type Rotation = 0 | 90 | 180 | 270
 export type WireShape = 'auto' | 'straight' | 'curved'
 /** A wire between two pins, written "partId:pin". */
 export type Wire = { id: string; a: string; b: string; shape?: WireShape; via?: Array<{ x: number; y: number }> }
-/** `board`: where chips sit on the breadboard (column of pin 1, by chip), when moved by hand. */
-export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number> }
+/** A jumper wire placed by hand on the breadboard, between two spots (see boardLayout's spotKey). */
+export type BoardWire = { id: string; a: string; b: string; color: string }
+/** `board`: where chips sit on the breadboard (column of pin 1, by chip), when moved by hand;
+ *  `jumpers`: the wires placed by hand on it. */
+export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number>; jumpers?: BoardWire[] }
 
 export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF']
 
@@ -165,6 +169,7 @@ export function sizeOf(part: Part): { w: number; h: number } {
     case 'chip': { const n = chipDef(part.chip)?.pins ?? 14; return { w: (n / 2) * 20 + 20, h: 60 } }
     case 'led': return { w: 40, h: 40 }
     case 'seg7': return { w: 60, h: 90 }
+    case 'joint': return { w: 0, h: 0 }
     default: return { w: 40, h: 40 }
   }
 }
@@ -175,6 +180,7 @@ export function pinsOf(part: Part): PinDef[] {
   switch (part.kind) {
     case 'switch': case 'clock': case 'vcc': case 'gnd': return [{ name: 'out', x: w + 10, y: h / 2, dir: 'out' }]
     case 'led': return [{ name: 'in', x: -10, y: h / 2, dir: 'in' }]
+    case 'joint': return [{ name: 'p', x: 0, y: 0, dir: 'in' }]
     case 'seg7': return SEG7_PINS.map((name, i) => ({ name, x: -10, y: 10 + i * 11.5, dir: 'in' as const, label: name }))
     case 'gate': {
       const n = part.gate === 'NOT' || part.gate === 'BUF' ? 1 : part.inputs ?? 2
@@ -277,11 +283,21 @@ export function wirePath(wire: Wire, from: { x: number; y: number; fx: number; f
     return `M${from.x},${from.y} H${mid} V${to.y} H${to.x}`
   }
   if (from.fy !== 0 && to.fy !== 0) {
-    const mid = Math.round((from.y + to.y) / 2 / GRID) * GRID + lane * 4
+    // Both pins pointing down (or both up): round the outside, clear of the pins; else halfway.
+    const mid = from.fy === to.fy
+      ? (from.fy > 0 ? Math.max(from.y, to.y) : Math.min(from.y, to.y)) + from.fy * (20 + lane * 6)
+      : Math.round((from.y + to.y) / 2 / GRID) * GRID + lane * 4
     return `M${from.x},${from.y} V${mid} H${to.x} V${to.y}`
   }
-  // One pin across, one up or down: a single corner.
-  return from.fx !== 0 ? `M${from.x},${from.y} H${to.x} V${to.y}` : `M${from.x},${from.y} V${to.y} H${to.x}`
+  // One pin across, one up or down: a single corner, unless that would come at the up-or-down pin
+  // through its own part (a chip's bottom pin from above): then round to the side it points.
+  const out = 20 + lane * 6
+  if (from.fx !== 0) {
+    if ((from.y - to.y) * to.fy >= 0) return `M${from.x},${from.y} H${to.x} V${to.y}`
+    return `M${from.x},${from.y} H${from.x + from.fx * (10 + lane * 8)} V${to.y + to.fy * out} H${to.x} V${to.y}`
+  }
+  if ((to.y - from.y) * from.fy >= 0) return `M${from.x},${from.y} V${to.y} H${to.x}`
+  return `M${from.x},${from.y} V${from.y + from.fy * out} H${to.x + to.fx * (10 + lane * 8)} V${to.y} H${to.x}`
 }
 
 /** Where a new bend point goes in a wire's list: the place that adds the least length. */
@@ -294,6 +310,36 @@ export function bendIndex(wire: Wire, from: { x: number; y: number }, to: { x: n
     if (c < cost) { cost = c; best = i }
   }
   return best
+}
+
+/** Puts a joint on a wire at `at` (given where its ends a and b are): the wire becomes two, a to the
+ *  joint and the joint to b, keeping its bends on either side. Returns the circuit and the joint. */
+export function splitWire(c: Circuit, wireId: string, a: { x: number; y: number }, b: { x: number; y: number }, at: { x: number; y: number }): { circuit: Circuit; joint: Part | null } {
+  const w = c.wires.find(x => x.id === wireId)
+  if (!w) return { circuit: c, joint: null }
+  const joint: Part = { id: newId('j'), kind: 'joint', x: at.x, y: at.y }
+  const i = bendIndex(w, a, b, at)
+  const via = w.via ?? []
+  const first: Wire = { id: newId('w'), a: w.a, b: pinRef(joint, 'p'), ...(w.shape ? { shape: w.shape } : {}), ...(i > 0 ? { via: via.slice(0, i) } : {}) }
+  const second: Wire = { id: newId('w'), a: pinRef(joint, 'p'), b: w.b, ...(w.shape ? { shape: w.shape } : {}), ...(i < via.length ? { via: via.slice(i) } : {}) }
+  return { circuit: { ...c, parts: [...c.parts, joint], wires: c.wires.flatMap(x => (x.id === wireId ? [first, second] : [x])) }, joint }
+}
+
+/** Removes a part and its wires; a joint with just two wires leaves one wire straight through instead. */
+export function removePart(c: Circuit, id: string): Circuit {
+  const part = c.parts.find(p => p.id === id)
+  const mine = (ref: string) => ref.startsWith(`${id}:`)
+  const touching = c.wires.filter(w => mine(w.a) || mine(w.b))
+  const rest = { ...c, parts: c.parts.filter(p => p.id !== id), wires: c.wires.filter(w => !mine(w.a) && !mine(w.b)) }
+  if (part?.kind !== 'joint' || touching.length !== 2) return rest
+  const [x, y] = touching
+  const far = (w: Wire) => (mine(w.a) ? w.b : w.a)
+  if (far(x) === far(y)) return rest
+  // x's bends run towards the joint when the joint is its b end; y's away from it when it's y's a end.
+  const toJoint = mine(x.b) ? x.via ?? [] : [...(x.via ?? [])].reverse()
+  const fromJoint = mine(y.a) ? y.via ?? [] : [...(y.via ?? [])].reverse()
+  const via = [...toJoint, { x: part.x, y: part.y }, ...fromJoint]
+  return { ...rest, wires: [...rest.wires, { id: newId('w'), a: far(x), b: far(y), ...(x.shape ? { shape: x.shape } : {}), via }] }
 }
 
 // ---- Simulation ----
@@ -411,7 +457,7 @@ export function simulate(c: Circuit, opts: { clock?: boolean; state?: FlopState 
             })
             break
           }
-          case 'led': case 'seg7': break
+          case 'led': case 'seg7': case 'joint': break
         }
       }
       if (!changed) return true
@@ -480,6 +526,7 @@ export function partNames(c: Circuit): Record<string, string> {
   for (const p of c.parts) {
     if (p.kind === 'gate') out[p.id] = `${p.gate} gate G${++g}`
     else if (p.kind === 'chip') out[p.id] = `U${++u}`
+    else if (p.kind === 'joint') out[p.id] = 'joint'
     else out[p.id] = p.label || p.kind.toUpperCase()
   }
   return out
@@ -1046,7 +1093,7 @@ export const emptyCircuit = (): Circuit => ({ version: 1, parts: [], wires: [] }
 /** A saved circuit, checked (anything odd is dropped rather than trusted). */
 export function readCircuit(text: string): Circuit {
   const raw = JSON.parse(text)
-  const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip', 'seg7'].includes(p.kind)) : []
+  const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip', 'seg7', 'joint'].includes(p.kind)) : []
   const ids = new Set(parts.map(p => p.id))
   const wires: Wire[] = Array.isArray(raw?.wires) ? raw.wires.filter((w: Wire) => typeof w?.a === 'string' && typeof w.b === 'string' && ids.has(w.a.split(':')[0]) && ids.has(w.b.split(':')[0])) : []
   for (const p of parts) if (p.rot !== undefined && ![0, 90, 180, 270].includes(p.rot)) delete p.rot
@@ -1055,7 +1102,8 @@ export function readCircuit(text: string): Circuit {
     if (w.via !== undefined) w.via = Array.isArray(w.via) ? w.via.filter(v => typeof v?.x === 'number' && typeof v.y === 'number').map(v => ({ x: v.x, y: v.y })) : undefined
   }
   const board = raw?.board && typeof raw.board === 'object' ? Object.fromEntries(Object.entries(raw.board as Record<string, unknown>).filter(([k, v]) => /^U\d+$/.test(k) && Number.isInteger(v)) as Array<[string, number]>) : undefined
-  return { version: 1, parts, wires, ...(board && Object.keys(board).length ? { board } : {}) }
+  const jumpers: BoardWire[] = Array.isArray(raw?.jumpers) ? raw.jumpers.filter((j: BoardWire) => typeof j?.id === 'string' && typeof j.a === 'string' && typeof j.b === 'string' && typeof j.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(j.color)).map((j: BoardWire) => ({ id: j.id, a: j.a, b: j.b, color: j.color })) : []
+  return { version: 1, parts, wires, ...(board && Object.keys(board).length ? { board } : {}), ...(jumpers.length ? { jumpers } : {}) }
 }
 
 /** A truth table as Markdown (for a note). */
@@ -1119,4 +1167,53 @@ export function timing(c: Circuit, cycles: number): Timing {
     for (const p of leds) signals[i++].values.push(sim.pins[pinRef(p, 'in')] ?? null)
   }
   return { steps, signals }
+}
+
+/** The same circuit built from ICs: the 74-series chips its gates need (chipPlan), each pin wired
+ *  as on the bench, with +5V and ground, in place of the gate symbols. */
+export function asChips(c: Circuit): Circuit {
+  const plan = chipPlan(c)
+  const keep = c.parts.filter(p => p.kind === 'switch' || p.kind === 'clock' || p.kind === 'led')
+  const ins = keep.filter(p => p.kind !== 'led'), outs = keep.filter(p => p.kind === 'led')
+  // Switches on the left, the chips in a row (room between them for wires), LEDs on the right,
+  // +5V above and ground below.
+  const top = 200, gap = 80
+  const widths = plan.chips.map(ch => sizeOf({ id: '', kind: 'chip', chip: ch.part, x: 0, y: 0 }).w)
+  const right = 240 + widths.reduce((sum, w) => sum + w + gap, 0) + 60
+  const parts: Part[] = [
+    ...ins.map((p, i) => ({ ...p, x: 40, y: top - 40 + i * 80, rot: undefined })),
+    ...outs.map((p, i) => ({ ...p, x: right, y: top - 40 + i * 80, rot: undefined })),
+  ]
+  const vcc: Part = { id: newId('v'), kind: 'vcc', x: 160, y: 40 }
+  const gnd: Part = { id: newId('g'), kind: 'gnd', x: 160, y: top + 60 + Math.max(160, ins.length * 80) }
+  parts.push(vcc, gnd)
+  // The chips, numbered as in the plan.
+  const chipOf = new Map<string, Part>()
+  let x = 240
+  plan.chips.forEach((ch, i) => {
+    const part: Part = { id: newId('u'), kind: 'chip', chip: ch.part, x, y: top }
+    x += widths[i] + gap
+    chipOf.set(ch.ref, part)
+    parts.push(part)
+  })
+  const byLabel = (kind: 'switch' | 'led', label: string) => keep.find(p => (kind === 'led' ? p.kind === 'led' : p.kind !== 'led') && p.label === label)
+  const wires: Wire[] = []
+  for (const conn of plan.connections) {
+    const refs: Array<{ ref: string; x: number }> = []
+    if (conn.net === '+5V') refs.push({ ref: pinRef(vcc, 'out'), x: vcc.x })
+    if (conn.net === 'GND') refs.push({ ref: pinRef(gnd, 'out'), x: gnd.x })
+    for (const text of conn.pins) {
+      const chip = /^(U\d+) pin (\d+)/.exec(text)
+      const io = /^(?:switch|clock) (.+)$/.exec(text)
+      const led = /^LED (\S+)/.exec(text)
+      const part = chip ? chipOf.get(chip[1]) : io ? byLabel('switch', io[1]) : led ? byLabel('led', led[1]) : undefined
+      if (!part) continue
+      const pin = chip ? chip[2] : io ? 'out' : 'in'
+      refs.push({ ref: pinRef(part, pin), x: (parts.find(p => p.id === part.id)?.x ?? 0) + (pinPoint(part, pin)?.x ?? 0) - part.x })
+    }
+    // Chained left to right, so the wires stay short.
+    refs.sort((a, b) => a.x - b.x)
+    for (let i = 1; i < refs.length; i++) if (refs[i].ref !== refs[i - 1].ref) wires.push({ id: newId('w'), a: refs[i - 1].ref, b: refs[i].ref })
+  }
+  return { version: 1, parts, wires }
 }

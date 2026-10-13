@@ -101,6 +101,7 @@ export function PartShape({ part, level, selected }: { part: Part; level: (pin: 
       </>
       break
     }
+    case 'joint': body = <></>; break
     case 'vcc':
       body = <>
         <rect width={w} height={h} rx={6} className="logic-power" />

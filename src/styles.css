@@ -1495,6 +1495,10 @@ main select,.tabbar select{background-color:var(--surface-2);color:var(--text);b
 main select option{background:var(--surface-2);color:var(--text)}
 /* Logic canvas: bend points and the bar for what's selected */
 .logic-bend{fill:var(--bg);stroke:var(--accent);stroke-width:2;cursor:move}
+.logic-joint{cursor:move}
+.logic-joint-hit{fill:transparent;stroke:none}
+.logic-joint:hover .logic-joint-hit,.logic-joint.selected .logic-joint-hit{fill:color-mix(in srgb,var(--accent) 22%,transparent)}
+.logic-joint.pending .logic-joint-hit{fill:color-mix(in srgb,var(--accent) 40%,transparent);stroke:var(--accent);stroke-width:1.5}
 .logic-selbar{position:absolute;top:8px;left:8px;z-index:5;display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:4px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);box-shadow:var(--shadow-pop);font-size:12px;max-width:calc(100% - 16px)}
 .logic-selbar>span{color:var(--muted);padding:0 6px}
 .logic-selbar small{color:var(--faint);padding:0 6px}
@@ -1534,3 +1538,22 @@ main .logic-view button.on{background:var(--surface-3);color:var(--text)}
 .bb-jumper{cursor:help;transition:opacity .12s}
 .bb-steps summary{cursor:pointer;font-weight:600;font-size:13px}
 .bb-steps ol{margin:8px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+/* Breadboard: building it yourself */
+.bb-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.bb-colors{display:inline-flex;gap:4px}
+.bb-colors button{width:18px;height:18px;min-width:0;padding:0;border-radius:50%;border:2px solid var(--border);cursor:pointer}
+.bb-colors button.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
+.bb-ghost{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.bb-build .bb-hole{cursor:crosshair;stroke:transparent;stroke-width:8}
+.bb-build .bb-hole:hover{fill:var(--accent)}
+.bb-build .bb-terminal{cursor:crosshair}
+.bb-strip-lit{fill:color-mix(in srgb,var(--accent) 28%,transparent);pointer-events:none}
+.bb-jumper.ghost{pointer-events:none}
+.bb-jumper.mine{cursor:pointer}
+.bb-led.unknown{fill:#3a3a3a;stroke:#555}
+.bb-check{margin-top:10px;font-size:13px}
+.bb-check ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)}
+.bb-check li.short{color:var(--danger,#f87171)}
+.bb-check-ok{display:flex;align-items:center;gap:6px;color:var(--success,#4ade80);font-weight:600}
+.bb-toolbar button{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.logic-rules__form{align-self:flex-start}

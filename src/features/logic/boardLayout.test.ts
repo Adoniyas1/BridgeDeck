@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { breadboard, spotName, type Spot } from './boardLayout'
+import { breadboard, checkWiring, parseSpot, ROWS_TOP, spotKey, spotName, type Board, type Spot } from './boardLayout'
 import { buildWithRules, chipPlan, readCircuit, tableOf, parseOutputs, type Circuit } from './model'
 
 const majority = () => buildWithRules(tableOf(parseOutputs('Y = AB + AC + BC')), { gates: 'nand', maxInputs: 2 })
@@ -77,5 +77,49 @@ describe('chips placed by hand', () => {
   it('keeps where chips sit on the board when saved', () => {
     const c = readCircuit(JSON.stringify({ version: 1, parts: [], wires: [], board: { U1: 12, x: 3, U2: 1.5 } }))
     expect(c.board).toEqual({ U1: 12 })
+  })
+})
+
+describe('wiring it yourself', () => {
+  const board = () => breadboard(majority())
+  const guide = (b: Board) => b.jumpers.map((j, i) => ({ id: `j${i}`, a: spotKey(j.a), b: spotKey(j.b), color: j.color }))
+
+  it('reads and writes spots', () => {
+    for (const s of [{ kind: 'hole', row: 'c', col: 12 }, { kind: 'rail', rail: 'bottom-', col: 4 }, { kind: 'switch', label: 'A' }, { kind: 'led', label: 'Y' }] as Spot[]) expect(parseSpot(spotKey(s))).toEqual(s)
+    expect(parseSpot('z9')).toBeNull()
+  })
+
+  it('finds nothing to fix in the guide’s own wiring', () => {
+    const b = board()
+    const check = checkWiring(b, guide(b))
+    expect(check.problems).toEqual([])
+    expect(check.right).toBe(check.total)
+  })
+
+  it('says what is missing, and finds shorts', () => {
+    const b = board()
+    expect(checkWiring(b, []).right).toBe(0)
+    const wires = guide(b)
+    const missing = checkWiring(b, wires.filter(w => !w.a.startsWith('sw:A')))
+    expect(missing.problems.some(p => p.startsWith('A: ') && p.includes('switch A'))).toBe(true)
+    // A wire from switch A's strip to switch B's terminal joins the two signals.
+    const short = checkWiring(b, [...wires, { id: 'x', a: 'sw:A', b: 'sw:B', color: '#000' }])
+    expect(short.problems.some(p => /^Short: A and B/.test(p))).toBe(true)
+    // Power and ground rails joined: a short too.
+    expect(checkWiring(b, [...wires, { id: 'y', a: 'top+@1', b: 'top-@1', color: '#000' }]).problems.some(p => p.includes('+5V and GND'))).toBe(true)
+  })
+
+  it('any hole in the strip will do, and both rails carry power', () => {
+    const b = board()
+    const moved = guide(b).map(w => {
+      const a = parseSpot(w.a)!
+      return a.kind === 'hole' ? { ...w, a: spotKey({ ...a, row: ROWS_TOP.includes(a.row as never) ? 'a' : 'j' }) } : w
+    }).map(w => ({ ...w, b: w.b.replace(/^top\+/, 'bottom+') }))
+    expect(checkWiring(b, moved).problems).toEqual([])
+  })
+
+  it('keeps your wires when saved', () => {
+    const c = readCircuit(JSON.stringify({ ...majority(), jumpers: [{ id: 'a', a: 'c3', b: 'top+@3', color: '#e0383e' }, { id: 'b', a: 'c3', b: 'x', color: 'red' }] }))
+    expect(c.jumpers).toEqual([{ id: 'a', a: 'c3', b: 'top+@3', color: '#e0383e' }])
   })
 })

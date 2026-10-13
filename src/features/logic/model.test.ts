@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bendIndex, pinFacing, rotateBy90, wirePath, pinPoint, buildCircuit, buildWithRules, chipPlan, designSummary, minimizePOS, posExpressions, groupsCovering, kmapGroups, kmapLayout, termOf, timing, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
+import { asChips, bendIndex, removePart, splitWire, pinFacing, rotateBy90, wirePath, pinPoint, buildCircuit, buildWithRules, chipPlan, designSummary, minimizePOS, posExpressions, groupsCovering, kmapGroups, kmapLayout, termOf, timing, expressions, minimize, parse, parseOutputs, pinRef, pinsOf, readCircuit, show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type Part } from './model'
 
 const sw = (id: string, label: string, on = false): Part => ({ id, kind: 'switch', x: 0, y: 0, label, on })
 const led = (id: string, label: string): Part => ({ id, kind: 'led', x: 0, y: 0, label })
@@ -305,5 +305,70 @@ describe('rotating parts and shaping wires', () => {
     expect(c.parts.map(p => p.rot)).toEqual([90, undefined])
     expect(c.wires[0]).toMatchObject({ shape: 'curved', via: [{ x: 1, y: 2 }] })
     expect(c.wires[1].shape).toBeUndefined()
+  })
+})
+
+describe('joints', () => {
+  const base = (): Circuit => ({
+    version: 1,
+    parts: [
+      { id: 's', kind: 'switch', x: 0, y: 0, label: 'A', on: true },
+      { id: 'g', kind: 'gate', gate: 'NOT', x: 200, y: 0 },
+      { id: 'l', kind: 'led', x: 400, y: 0, label: 'X' },
+      { id: 'm', kind: 'led', x: 400, y: 200, label: 'Y' },
+    ],
+    wires: [{ id: 'w', a: 's:out', b: 'g:in0', via: [{ x: 100, y: 0 }, { x: 100, y: 100 }] }, { id: 'w2', a: 'g:out', b: 'l:in' }],
+  })
+
+  it('splits a wire at a joint, keeping the bends on each side', () => {
+    const { circuit, joint } = splitWire(base(), 'w', { x: 50, y: 20 }, { x: 190, y: 20 }, { x: 100, y: 50 })
+    expect(joint?.kind).toBe('joint')
+    const [a, b] = circuit.wires.filter(w => w.a === `${joint!.id}:p` || w.b === `${joint!.id}:p`)
+    expect(a).toMatchObject({ a: 's:out', b: `${joint!.id}:p`, via: [{ x: 100, y: 0 }] })
+    expect(b).toMatchObject({ a: `${joint!.id}:p`, b: 'g:in0', via: [{ x: 100, y: 100 }] })
+  })
+
+  it('carries a signal to every wire on it (a branch)', () => {
+    const { circuit, joint } = splitWire(base(), 'w', { x: 50, y: 20 }, { x: 190, y: 20 }, { x: 100, y: 50 })
+    const branched = { ...circuit, wires: [...circuit.wires, { id: 'w3', a: `${joint!.id}:p`, b: 'm:in' }] }
+    const sim = simulate(branched)
+    expect(sim.pins['m:in']).toBe(1)
+    expect(sim.pins['l:in']).toBe(0)
+    expect(truthTable(branched).outputs).toEqual(['X', 'Y'])
+    expect(chipPlan(branched).connections.find(c => c.net === 'A')!.pins).toEqual(expect.arrayContaining(['switch A', 'LED Y (through a 330 Ω resistor to GND)']))
+  })
+
+  it('removing a joint with two wires leaves one wire through it; with more, removes them', () => {
+    const { circuit, joint } = splitWire(base(), 'w', { x: 50, y: 20 }, { x: 190, y: 20 }, { x: 100, y: 50 })
+    const back = removePart(circuit, joint!.id)
+    expect(back.parts.some(p => p.kind === 'joint')).toBe(false)
+    expect(back.wires.find(w => w.a === 's:out')).toMatchObject({ b: 'g:in0', via: [{ x: 100, y: 0 }, { x: 100, y: 50 }, { x: 100, y: 100 }] })
+    const three = { ...circuit, wires: [...circuit.wires, { id: 'w3', a: `${joint!.id}:p`, b: 'm:in' }] }
+    expect(removePart(three, joint!.id).wires.map(w => w.id)).toEqual(['w2'])
+  })
+
+  it('survives saving', () => {
+    const { circuit } = splitWire(base(), 'w', { x: 50, y: 20 }, { x: 190, y: 20 }, { x: 100, y: 50 })
+    expect(readCircuit(JSON.stringify(circuit)).parts.filter(p => p.kind === 'joint')).toHaveLength(1)
+  })
+})
+
+describe('building with ICs', () => {
+  const same = (a: Circuit, b: Circuit) => expect(truthTable(b).rows.map(r => r.out)).toEqual(truthTable(a).rows.map(r => r.out))
+
+  it('turns the NAND-only voting box into two 7400s, wired pin by pin, and it still works', () => {
+    const gates = buildWithRules(tableOf(parseOutputs('Y = AB + AC + BC')), { gates: 'nand', maxInputs: 2 })
+    const ics = asChips(gates)
+    expect(ics.parts.filter(p => p.kind === 'gate')).toHaveLength(0)
+    expect(ics.parts.filter(p => p.kind === 'chip').map(p => p.chip)).toEqual(['7400', '7400'])
+    same(gates, ics)
+    expect(simulate(ics).warnings).toEqual([])
+  })
+
+  it('works for mixed gates (7404, 7408, 7432) and several outputs', () => {
+    const gates = buildCircuit(parseOutputs("S = A ^ B\nK = AB\nY = A·B + C'"))
+    const ics = asChips(gates)
+    expect(new Set(ics.parts.filter(p => p.kind === 'chip').map(p => p.chip))).toEqual(new Set(['7486', '7408', '7404', '7432']))
+    same(gates, ics)
   })
 })
