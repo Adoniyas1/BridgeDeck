@@ -11,7 +11,7 @@ import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
 import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from "../../shared/types.js";
-import { cleanSetupConfig, isLocalModel, localSwapUrl, mergeSetupConfig, setupRoles, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, localSwapUrl, mergeSetupConfig, setupRoles, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 
 /**
@@ -70,6 +70,23 @@ function applyPicks(config: SetupConfig, picked: Picks): void {
     const model = config.models[role];
     if (found && model) model.source = found;
   }
+}
+
+/** The models with each role that's still on its default download switched to the matching file
+ * found here, or null when nothing changes. A source the user set themselves is left alone. */
+export function useLocalCopies(config: SetupConfig, picked: Picks): SetupConfig["models"] | null {
+  const defaults = DEFAULT_MODELS[config.computer];
+  const next = structuredClone(config.models);
+  let changed = false;
+  for (const role of ["head", "executor", "checker"] as const) {
+    const model = next[role];
+    const found = picked[role];
+    if (model && found && model.source === defaults[role]?.source) {
+      model.source = found;
+      changed = true;
+    }
+  }
+  return changed ? next : null;
 }
 
 export async function saveSetupConfig(patch: Partial<SetupConfig>): Promise<SetupConfig> {
@@ -416,9 +433,13 @@ async function fileText(file: string): Promise<string | null> {
 
 /** The steps for this computer and how far along each one is. */
 export async function setupView(): Promise<SetupView> {
-  const config = await loadSetupConfig();
+  let config = await loadSetupConfig();
   const mac = config.computer === "mac";
-  const found = await findLocal();
+  const found = await findLocal(os.homedir(), config.modelDirs);
+  // A role still on its default download uses the same model when it's already on this computer
+  // (e.g. Bonsai-demo's setup fetched it), instead of downloading it again.
+  const local = useLocalCopies(config, pickModels(found, config.computer));
+  if (local) config = await saveSetupConfig({ models: local });
   const server = await findServer(config);
   const yaml = swapYaml(config, server ?? "llama-server");
   const written = await fileText(SWAP_CONFIG);

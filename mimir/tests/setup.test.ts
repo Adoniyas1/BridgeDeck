@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
-import { explainLoadFailure, findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup } from "../src/main/setup/index.js";
+import { explainLoadFailure, findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup, useLocalCopies } from "../src/main/setup/index.js";
 import { DEFAULT_TEAM, presetConfig } from "../src/main/team/config.js";
 import { OpenAICompatibleProvider } from "../src/main/brain/openaiCompatibleProvider.js";
 
@@ -218,6 +218,30 @@ describe("setup I/O", () => {
     expect(path.basename(picked.executor!)).toBe("Ternary-Bonsai-8B-PQ2_0.gguf");
     expect(path.basename(picked.checker!)).toBe("Qwen3.5-9B-UD-IQ3_XXS.gguf");
     expect(pickModels(found, "mac").checker).toBeNull();
+  });
+
+  it("uses the 27B and CUDA llama-server that Bonsai-demo's setup.ps1 downloaded, instead of downloading again", async () => {
+    const home = await tempDir();
+    const models = path.join(home, "Bonsai-demo", "models", "bonsai2-gguf", "27B");
+    await mkdir(models, { recursive: true });
+    await writeFile(path.join(models, "Ternary-Bonsai-2-27B-PQ2_0.gguf"), "x");
+    await writeFile(path.join(models, "Ternary-Bonsai-2-27B-dspark-bf16.gguf"), "x");
+    const cuda = path.join(home, "Bonsai-demo", "bin", "cuda");
+    await mkdir(cuda, { recursive: true });
+    await writeFile(path.join(cuda, "llama-server.exe"), "");
+
+    const found = await findLocal(home, [], {});
+    expect(found.servers.filter(isPrismBuild)).toEqual([path.join(cuda, "llama-server.exe")]);
+    const picked = pickModels(found, "pc");
+    expect(picked.head).toBe(path.join(models, "Ternary-Bonsai-2-27B-PQ2_0.gguf"));
+
+    const pc = cleanSetupConfig({}, "win32");
+    const local = useLocalCopies(pc, picked)!;
+    expect(local.head.source).toBe(picked.head);
+    expect(local.executor.source).toBe(pc.models.executor.source);
+    // A source chosen in Settings stays.
+    const own = { ...pc, models: { ...pc.models, head: { ...pc.models.head, source: "someone/Other-27B-gguf:Q4_K_M" } } };
+    expect(useLocalCopies(own, picked)).toBeNull();
   });
 
   it("gives the PC a Checker model of its own and Bonsai's llama.cpp build", () => {
