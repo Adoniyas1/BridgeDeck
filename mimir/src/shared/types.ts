@@ -214,7 +214,10 @@ export interface SetupConfig {
   autostart: boolean;
   /** Keep the Head and Executor loaded together instead of taking turns. */
   keepBothLoaded: boolean;
-  models: { head: SetupModel; executor: SetupModel };
+  /** The Checker gets its own model when set (null: the Head checks its own work). */
+  models: { head: SetupModel; executor: SetupModel; checker: SetupModel | null };
+  /** Extra folders to look in for .gguf files. */
+  modelDirs: string[];
 }
 
 export type SetupStepState = "done" | "todo" | "error";

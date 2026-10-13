@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { SetupConfig, SetupModel, SetupView, StorageItem } from "../shared/types.js";
 
-const ROLE_TEXT = { head: "Head", executor: "Executor" } as const;
+const ROLE_TEXT = { head: "Head", executor: "Executor", checker: "Checker" } as const;
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
 
 /** Settings → Model servers: the steps to get llama-swap and the team's models running on this
@@ -38,7 +38,8 @@ export default function SetupSettings() {
     if (window.confirm(`Delete ${item.label} (${gb(item.bytes)})?\n\n${item.path}`)) void run(`free:${item.id}`);
   }
 
-  const setModel = (role: "head" | "executor", model: SetupModel) => void patch({ models: { ...config.models, [role]: model } });
+  const setModel = (role: "head" | "executor" | "checker", model: SetupModel) => void patch({ models: { ...config.models, [role]: model } });
+  const roles = (["head", "executor", "checker"] as const).filter((r) => config.models[r]);
 
   return (
     <section>
@@ -55,10 +56,11 @@ export default function SetupSettings() {
         ))}
       </div>
 
-      {(["head", "executor"] as const).map((role) => (
-        <ModelRow key={`${config.computer}-${role}-${config.models[role].source}-${config.models[role].args}`} label={ROLE_TEXT[role]} model={config.models[role]} found={view.found.models.map((m) => m.path)} onChange={(m) => setModel(role, m)} />
+      {roles.map((role) => (
+        <ModelRow key={`${config.computer}-${role}-${config.models[role]!.source}-${config.models[role]!.args}`} label={ROLE_TEXT[role]} model={config.models[role]!} found={view.found.models.map((m) => m.path)} onChange={(m) => setModel(role, m)} />
       ))}
       <ServerRow key={config.serverPath ?? ""} saved={config.serverPath} using={view.server} found={view.found.servers} onChange={(serverPath) => void patch({ serverPath })} />
+      <FoldersRow key={config.modelDirs.join("|")} saved={config.modelDirs} count={view.found.models.length} onChange={(modelDirs) => void patch({ modelDirs })} />
 
       <label className="checkbox-row">
         <input type="checkbox" checked={config.keepBothLoaded} onChange={(e) => void patch({ keepBothLoaded: e.target.checked })} />
@@ -142,6 +144,25 @@ function ModelRow({ label, model, found, onChange }: { label: string; model: Set
         ))}
       </datalist>
       <input title="llama-server arguments" placeholder="extra arguments" value={args} onChange={(e) => setArgs(e.target.value)} onBlur={save} />
+    </div>
+  );
+}
+
+function FoldersRow({ saved, count, onChange }: { saved: string[]; count: number; onChange: (dirs: string[]) => void }) {
+  const [value, setValue] = useState(saved.join("; "));
+  const parse = (text: string) => text.split(";").map((d) => d.trim()).filter(Boolean);
+  return (
+    <div className="team-endpoint setup-model">
+      <span className="team-endpoint__label">
+        Model folders <code>{count} .gguf found</code>
+      </span>
+      <input
+        placeholder="Extra folders to search, e.g. D:\AI\models; C:\Users\you\LLMs"
+        title="Separate folders with ;. Bonsai-demo, Downloads, Documents, the Hugging Face, llama.cpp and LM Studio caches are searched already."
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => parse(value).join("|") !== saved.join("|") && onChange(parse(value))}
+      />
     </div>
   );
 }

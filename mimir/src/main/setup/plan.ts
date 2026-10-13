@@ -18,16 +18,21 @@ const model = (name: string, source: string, args: string): SetupModel => ({ nam
 
 /** Settings that keep a model small in memory on the 8 GB Mac: 8K context, 4-bit KV cache. */
 export const MAC_ARGS = "-c 8192 -ngl 99 -fa on -ctk q4_0 -ctv q4_0 --jinja";
-export const SETUP_VERSION = 2;
+/** On the PC (12 GB GPU): a 16K context and 4-bit KV cache keep the 27B on the card. */
+export const PC_ARGS = "-c 16384 -ngl 99 -fa on -ctk q4_0 -ctv q4_0 --jinja";
+/** 3: the PC runs Ternary Bonsai 2 27B, Bonsai 8B and Qwen3.5-9B, and a Checker model of its own. */
+export const SETUP_VERSION = 3;
 
-export const DEFAULT_MODELS: Record<SetupComputer, { head: SetupModel; executor: SetupModel }> = {
+export const DEFAULT_MODELS: Record<SetupComputer, SetupConfig["models"]> = {
   mac: {
     head: model(MODELS.macHead, "unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS", MAC_ARGS),
-    executor: model(MODELS.macExecutor, "prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0", MAC_ARGS)
+    executor: model(MODELS.macExecutor, "prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0", MAC_ARGS),
+    checker: null
   },
   pc: {
-    head: model(MODELS.pcHead, "unsloth/Qwen3.5-35B-A3B-GGUF:UD-Q4_K_XL", "-c 32768 -ngl 99 --n-cpu-moe 24 --jinja"),
-    executor: model(MODELS.pcExecutor, "unsloth/Qwen3.5-9B-GGUF:Q4_K_M", "-c 32768 -ngl 99 --jinja")
+    head: model(MODELS.pcHead, "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0", PC_ARGS),
+    executor: model(MODELS.pcExecutor, "prism-ml/Ternary-Bonsai-8B-gguf:PQ2_0", PC_ARGS),
+    checker: model(MODELS.pcChecker, "unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS", PC_ARGS)
   }
 };
 
@@ -39,7 +44,8 @@ export function defaultSetup(computer: SetupComputer): SetupConfig {
     listen: computer === "mac" ? "127.0.0.1:8080" : "0.0.0.0:8080",
     autostart: false,
     keepBothLoaded: false,
-    models: structuredClone(DEFAULT_MODELS[computer])
+    models: structuredClone(DEFAULT_MODELS[computer]),
+    modelDirs: []
   };
 }
 
@@ -63,7 +69,7 @@ export function cleanSetupConfig(raw: unknown, platform: NodeJS.Platform = proce
   const base = defaultSetup(computer);
   // Switching computer kind starts from that kind's models, and so does a Mac config from before
   // version 2 (its MLX models are what ran out of memory).
-  const current = c.version === SETUP_VERSION || computer === "pc";
+  const current = c.version === SETUP_VERSION;
   const models = c.computer === computer && current ? c.models : undefined;
   return {
     version: SETUP_VERSION,
@@ -72,7 +78,12 @@ export function cleanSetupConfig(raw: unknown, platform: NodeJS.Platform = proce
     listen: typeof c.listen === "string" && /^[\w.[\]:-]+:\d{2,5}$/.test(c.listen.trim()) ? c.listen.trim() : base.listen,
     autostart: typeof c.autostart === "boolean" ? c.autostart : base.autostart,
     keepBothLoaded: typeof c.keepBothLoaded === "boolean" ? c.keepBothLoaded : base.keepBothLoaded,
-    models: { head: cleanModel(models?.head, base.models.head), executor: cleanModel(models?.executor, base.models.executor) }
+    models: {
+      head: cleanModel(models?.head, base.models.head),
+      executor: cleanModel(models?.executor, base.models.executor),
+      checker: models && "checker" in models ? (models.checker ? cleanModel(models.checker, base.models.checker ?? base.models.head) : null) : base.models.checker
+    },
+    modelDirs: Array.isArray(c.modelDirs) ? c.modelDirs.filter((d): d is string => typeof d === "string" && d.trim().length > 0).map((d) => d.trim().slice(0, 500)).slice(0, 10) : []
   };
 }
 
@@ -86,6 +97,9 @@ export function mergeSetupConfig(current: SetupConfig, patch: Partial<SetupConfi
   return cleanSetupConfig({ ...current, ...patch, models: { ...current.models, ...(patch.models ?? {}) } });
 }
 
+/** The roles that have a model of their own on this computer. */
+export const setupRoles = (config: SetupConfig): Array<"head" | "executor" | "checker"> => (config.models.checker ? ["head", "executor", "checker"] : ["head", "executor"]);
+
 /** A .gguf file on this computer (rather than a Hugging Face repo). */
 export function isLocalModel(source: string): boolean {
   return /^(\/|~\/|[A-Za-z]:[\\/]).+\.gguf$/i.test(source);
@@ -95,7 +109,7 @@ export function isLocalModel(source: string): boolean {
  * server. `fileBytes` is the file's size when it's on this computer. */
 export function memoryNeeded(source: string, fileBytes: number | null): number {
   const GB = 1024 ** 3;
-  const file = fileBytes ?? (/35b|30b/i.test(source) ? 20 : /PQ2|Bonsai/i.test(source) ? 2.3 : /IQ2|Q2/i.test(source) ? 3.3 : /IQ3|Q3/i.test(source) ? 3.8 : /9b|8b/i.test(source) ? 5.5 : 4) * GB;
+  const file = fileBytes ?? (/35b|30b/i.test(source) ? 20 : /27b/i.test(source) ? 8 : /PQ2|Bonsai/i.test(source) ? 2.3 : /IQ2|Q2/i.test(source) ? 3.3 : /IQ3|Q3/i.test(source) ? 3.8 : /9b|8b/i.test(source) ? 5.5 : 4) * GB;
   return file + 0.8 * GB;
 }
 
@@ -123,8 +137,8 @@ export function swapYaml(config: SetupConfig, server: string): string {
     "startPort: 10001",
     "models:"
   ];
-  for (const role of ["head", "executor"] as const) {
-    const m = config.models[role];
+  for (const role of setupRoles(config)) {
+    const m = config.models[role]!;
     const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}` : `-hf ${m.source}`;
     const cmd = `${cmdPath(server)} ${from} --host 127.0.0.1 --port \${PORT}`;
     lines.push(`  ${q(m.name)}:`, `    cmd: ${q(m.args ? `${cmd} ${m.args}` : cmd)}`);
@@ -132,7 +146,7 @@ export function swapYaml(config: SetupConfig, server: string): string {
     if (config.computer === "mac") lines.push("    ttl: 600");
   }
   if (config.keepBothLoaded) {
-    lines.push("groups:", '  "team":', "    swap: false", "    exclusive: true", "    members:", ...(["head", "executor"] as const).map((r) => `      - ${q(config.models[r].name)}`));
+    lines.push("groups:", '  "team":', "    swap: false", "    exclusive: true", "    members:", ...setupRoles(config).map((r) => `      - ${q(config.models[r]!.name)}`));
   }
   return `${lines.join("\n")}\n`;
 }
@@ -163,10 +177,11 @@ export function releaseTool(id: ReleaseTool["id"], platform: NodeJS.Platform = p
     return { id, repo: "PrismML-Eng/llama.cpp", assets: [[arch === "arm64" ? /-bin-macos-arm64\.(tar\.gz|zip)$/ : /-bin-macos-x64\.(tar\.gz|zip)$/]], files: null, subdir: "llama.cpp" };
   }
   if (platform !== "win32") return null;
-  // The CUDA build and its runtime DLLs: CUDA 12 runs on more drivers than 13.
+  // PrismML's CUDA build (it reads PQ2_0 files, stock llama.cpp doesn't) and its runtime DLLs:
+  // CUDA 12 runs on more drivers than 13.
   return {
     id,
-    repo: "ggml-org/llama.cpp",
+    repo: "PrismML-Eng/llama.cpp",
     assets: [
       [/^llama-.*-bin-win-cuda-12\.\d+-x64\.zip$/, /^llama-.*-bin-win-cuda-13\.\d+-x64\.zip$/],
       [/^cudart-llama-bin-win-cuda-12\.\d+-x64\.zip$/, /^cudart-llama-bin-win-cuda-13\.\d+-x64\.zip$/]

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync, readdirSync } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -11,7 +11,7 @@ import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
 import type { SetupConfig, SetupStep, SetupView, StorageItem } from "../../shared/types.js";
-import { cleanSetupConfig, isLocalModel, localSwapUrl, mergeSetupConfig, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { cleanSetupConfig, isLocalModel, localSwapUrl, mergeSetupConfig, setupRoles, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 
 /**
@@ -22,20 +22,28 @@ import { availableMemory, checkRoom } from "./memory.js";
  */
 
 const FILE = "setup.json";
+const ROLE_NAMES = { head: "Head", executor: "Executor", checker: "Checker" } as const;
 export const BIN_DIR = path.join(MIMIR_HOME, "bin");
 export const SWAP_CONFIG = path.join(MIMIR_HOME, "llama-swap.yaml");
 
 export async function loadSetupConfig(): Promise<SetupConfig> {
   const raw = await readJsonFile<unknown>(FILE, {});
   const config = cleanSetupConfig(raw);
-  // First run on a Mac (or the old MLX setup): use models already on this Mac when there are some.
-  if ((raw as { version?: number }).version !== SETUP_VERSION && config.computer === "mac") {
-    const picked = pickModels(await findLocal());
-    if (picked.head) config.models.head.source = picked.head;
-    if (picked.executor) config.models.executor.source = picked.executor;
+  // First run (or an older setup): use models already on this computer when there are some.
+  if ((raw as { version?: number }).version !== SETUP_VERSION) {
+    applyPicks(config, pickModels(await findLocal(os.homedir(), config.modelDirs), config.computer));
     await writeJsonFile(FILE, config);
   }
   return config;
+}
+
+/** Puts the models found on this computer into the settings. */
+function applyPicks(config: SetupConfig, picked: Picks): void {
+  for (const role of ["head", "executor", "checker"] as const) {
+    const found = picked[role];
+    const model = config.models[role];
+    if (found && model) model.source = found;
+  }
 }
 
 export async function saveSetupConfig(patch: Partial<SetupConfig>): Promise<SetupConfig> {
@@ -52,14 +60,35 @@ export function findCommand(name: string, env: NodeJS.ProcessEnv = process.env):
   return null;
 }
 
-/** Where to look for models and llama.cpp builds already on this computer. */
-const SEARCH_ROOTS = ["Bonsai-demo", "models", path.join(".mimir", "models"), "Downloads", "llama.cpp"];
+/** Where to look for models and llama.cpp builds already on this computer (under the home folder):
+ * Bonsai-demo, Mimir's own folders, llama.cpp's -hf download cache, the Hugging Face cache, LM
+ * Studio's models, winget's llama.cpp, and the usual places people save things. */
+const SEARCH_ROOTS = [
+  "Bonsai-demo",
+  path.join(".mimir", "models"),
+  path.join(".mimir", "bin"),
+  "models",
+  "llama.cpp",
+  path.join("AppData", "Local", "llama.cpp"),
+  path.join("Library", "Caches", "llama.cpp"),
+  path.join(".cache", "llama.cpp"),
+  path.join(".cache", "huggingface", "hub"),
+  path.join(".lmstudio", "models"),
+  path.join("AppData", "Local", "Microsoft", "WinGet", "Links"),
+  path.join("AppData", "Local", "Microsoft", "WinGet", "Packages"),
+  "Downloads",
+  "Documents",
+  "Desktop"
+];
 
-/** .gguf models and llama-server programs under the usual folders (Bonsai-demo first). */
-export async function findLocal(home = os.homedir()): Promise<{ models: Array<{ path: string; bytes: number }>; servers: string[] }> {
+type Found = { models: Array<{ path: string; bytes: number }>; servers: string[] };
+
+/** .gguf models and llama-server programs in the usual folders and any added in Settings. */
+export async function findLocal(home = os.homedir(), extraDirs: string[] = [], env: NodeJS.ProcessEnv = process.env): Promise<Found> {
   const models: Array<{ path: string; bytes: number }> = [];
   const servers: string[] = [];
-  let budget = 20_000;
+  const seen = new Set<string>();
+  let budget = 80_000;
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 5 || budget <= 0) return;
     let entries;
@@ -72,38 +101,62 @@ export async function findLocal(home = os.homedir()): Promise<{ models: Array<{ 
       if (--budget <= 0) return;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
-        if (!/^(node_modules|\.git|\.venv|venv|__pycache__)$/.test(e.name)) await walk(full, depth + 1);
+        if (!/^(node_modules|\.git|\.venv|venv|__pycache__|blobs|\.Trash)$/.test(e.name)) await walk(full, depth + 1);
       } else if (/\.gguf$/i.test(e.name) && !/mmproj/i.test(e.name)) {
         try {
-          models.push({ path: full, bytes: (await lstat(full)).size });
+          // stat, not lstat: the Hugging Face cache keeps models as links to its blobs.
+          models.push({ path: full, bytes: (await stat(full)).size });
         } catch {
-          /* gone */
+          /* gone, or a broken link */
         }
       } else if (e.name === "llama-server" || e.name === "llama-server.exe") servers.push(full);
     }
   };
-  for (const root of SEARCH_ROOTS) await walk(path.join(home, root), 0);
+  const roots = [
+    ...extraDirs,
+    ...(env.LLAMA_CACHE ? [env.LLAMA_CACHE] : []),
+    ...(env.HF_HUB_CACHE ? [env.HF_HUB_CACHE] : []),
+    ...SEARCH_ROOTS.map((r) => path.join(home, r)),
+    ...(process.platform === "win32" ? ["C:\\llama.cpp", "C:\\models", "C:\\AI"] : [])
+  ];
+  for (const root of roots) {
+    const dir = path.resolve(root.replace(/^~(?=[\\/])/, home));
+    if (seen.has(dir.toLowerCase())) continue;
+    seen.add(dir.toLowerCase());
+    await walk(dir, 0);
+  }
   return { models, servers };
 }
 
-/** The models to use from what's on this computer: Ternary Bonsai 8B as Executor, Qwen3.5-9B as
- * Head (IQ3_XXS scored best in your benchmark, then IQ2_M). */
-export function pickModels(found: { models: Array<{ path: string }> }): { head: string | null; executor: string | null } {
+export type Picks = { head: string | null; executor: string | null; checker: string | null };
+
+/** The models to use from what's on this computer.
+ * Mac: Qwen3.5-9B as Head (IQ3_XXS scored best in your benchmark, then IQ2_M), Bonsai 8B as Executor.
+ * PC: Ternary Bonsai 2 27B as Head, Bonsai 8B as Executor, Qwen3.5-9B IQ3_XXS as Checker. */
+export function pickModels(found: { models: Array<{ path: string }> }, computer: "mac" | "pc" = "mac"): Picks {
   const names = found.models.map((m) => m.path);
   const base = (p: string) => path.basename(p);
-  const executor = names.filter((p) => /bonsai/i.test(base(p)) && /8b/i.test(p)).sort((a, b) => Number(/PQ2/i.test(base(b))) - Number(/PQ2/i.test(base(a))))[0] ?? null;
+  const pq2First = (a: string, b: string) => Number(/PQ2/i.test(base(b))) - Number(/PQ2/i.test(base(a)));
+  const executor = names.filter((p) => /bonsai/i.test(base(p)) && /8b/i.test(base(p)) && !/bonsai[-_ .]?2[-_ .]/i.test(base(p))).sort(pq2First)[0] ?? null;
   const rank = (p: string) => (/IQ3_XXS/i.test(p) ? 0 : /IQ2_M/i.test(p) ? 1 : /Q3/i.test(p) ? 2 : /Q4/i.test(p) ? 3 : 4);
-  const head = names.filter((p) => /qwen3[._-]?5.*9b/i.test(base(p))).sort((a, b) => rank(base(a)) - rank(base(b)))[0] ?? null;
-  return { head, executor };
+  const qwen = names.filter((p) => /qwen3[._-]?5.*9b/i.test(base(p))).sort((a, b) => rank(base(a)) - rank(base(b)))[0] ?? null;
+  if (computer === "mac") return { head: qwen, executor, checker: null };
+  const big = names.filter((p) => /bonsai/i.test(base(p)) && /27b/i.test(base(p))).sort(pq2First)[0] ?? null;
+  return { head: big, executor, checker: qwen };
 }
 
 /** The llama-server to run: the one chosen in Settings, else Bonsai-demo's build (it reads PQ2_0
  * files), else Mimir's own or one on PATH. */
 async function findServer(config: SetupConfig): Promise<string | null> {
   if (config.serverPath && existsSync(config.serverPath)) return config.serverPath;
-  const local = (await findLocal()).servers;
-  const bonsai = local.find((s) => s.includes(`Bonsai-demo${path.sep}bin`)) ?? local.find((s) => s.includes("Bonsai-demo"));
-  return bonsai ?? findCommand("llama-server") ?? local[0] ?? null;
+  const local = (await findLocal(os.homedir(), config.modelDirs)).servers;
+  const prism = local.find(isPrismBuild);
+  return prism ?? findCommand("llama-server") ?? local[0] ?? null;
+}
+
+/** A llama-server from PrismML's build (Mimir's own install or Bonsai-demo's), which reads PQ2_0. */
+export function isPrismBuild(server: string): boolean {
+  return server.includes(path.join(".mimir", "bin", "llama.cpp")) || server.includes("Bonsai-demo");
 }
 
 /** Things that take up space for local models: the MLX downloads from the old Mac setup (which can
@@ -298,30 +351,36 @@ export async function setupView(): Promise<SetupView> {
   const preset = mac ? "mac-mlx" : "windows-llamacpp";
   const step = (s: Omit<SetupStep, "note"> & { note?: string }): SetupStep => ({ note: "", ...s });
   const has = (name: string) => findCommand(name) !== null;
-  const ready = (["head", "executor"] as const).filter((r) => modelCached(config.models[r].source));
+  const roles = setupRoles(config);
+  const ready = roles.filter((r) => modelCached(config.models[r]!.source));
+  const needsPrism = roles.some((r) => /PQ2/i.test(config.models[r]!.source));
 
   const steps: SetupStep[] = [
     step({
       id: "llama.cpp",
-      title: mac ? "llama.cpp (Bonsai's build)" : "llama.cpp (CUDA)",
+      title: mac ? "llama.cpp (Bonsai's build)" : "llama.cpp (Bonsai's CUDA build)",
       detail: mac
         ? "llama-server runs the models on the Mac's GPU. PrismML's build reads Ternary Bonsai's PQ2_0 files; Mimir uses the one in ~/Bonsai-demo when it's there."
-        : "llama-server for the NVIDIA card: Mimir gets the CUDA build and its runtime from llama.cpp's releases. Needs a current NVIDIA driver.",
-      command: mac ? "cd ~/Bonsai-demo && ./setup.sh" : "winget install llama.cpp   (Vulkan build: works, a bit slower)",
+        : "llama-server for the NVIDIA card. Bonsai's PQ2_0 files need PrismML's build of llama.cpp: Install gets its CUDA version and runtime into ~/.mimir/bin. Needs a current NVIDIA driver.",
+      command: mac ? "cd ~/Bonsai-demo && ./setup.sh" : "Or set the path of a llama-server.exe from PrismML's build below",
       action: process.platform === "darwin" || process.platform === "win32" ? (server ? "Update" : "Install") : null,
-      state: server ? "done" : "todo",
-      note: server ? `Using ${server}` : ""
+      state: server ? (needsPrism && !isPrismBuild(server) ? "error" : "done") : "todo",
+      note: server
+        ? needsPrism && !isPrismBuild(server)
+          ? `Found ${server}, but that looks like stock llama.cpp, which can't load Bonsai's PQ2_0 files. Press Install to get PrismML's build (it's used instead automatically).`
+          : `Using ${server}`
+        : ""
     }),
     step({
       id: "models",
       title: "Models",
       detail: mac
         ? "Qwen3.5-9B IQ3_XXS plans and checks; Ternary Bonsai 8B (PQ2_0) does the tool steps. Files already on this Mac are used as they are, nothing is copied."
-        : "Downloaded the first time each one starts.",
+        : "Ternary Bonsai 2 27B plans and writes, Ternary Bonsai 8B does the tool steps, Qwen3.5-9B IQ3_XXS checks them. Files already on this PC are used as they are; anything missing downloads the first time it starts. Add a folder below if yours are somewhere else.",
       command: null,
       action: "Look again",
-      state: ready.length === 2 ? "done" : "todo",
-      note: (["head", "executor"] as const).map((r) => `${config.models[r].name}: ${modelCached(config.models[r].source) ? config.models[r].source : `${config.models[r].source} (downloaded on first start)`}`).join("\n")
+      state: ready.length === roles.length ? "done" : "todo",
+      note: roles.map((r) => `${ROLE_NAMES[r]} · ${config.models[r]!.name}: ${modelCached(config.models[r]!.source) ? config.models[r]!.source : `${config.models[r]!.source} (not found on this computer; downloaded on first start)`}`).join("\n")
     }),
     step({
       id: "llama-swap",
@@ -404,14 +463,15 @@ export async function runSetupStep(id: string): Promise<string> {
       return message;
     }
     case "models": {
-      const picked = pickModels(await findLocal());
-      const models = { head: { ...config.models.head }, executor: { ...config.models.executor } };
-      if (config.computer === "mac") {
-        if (picked.head) models.head.source = picked.head;
-        if (picked.executor) models.executor.source = picked.executor;
-      }
-      await saveSetupConfig({ models });
-      return picked.head || picked.executor ? `Found ${[picked.head, picked.executor].filter(Boolean).map((p) => path.basename(p!)).join(" and ")}.` : "No models found in ~/Bonsai-demo, ~/models or ~/Downloads; they'll download on first start.";
+      const found = await findLocal(os.homedir(), config.modelDirs);
+      const picked = pickModels(found, config.computer);
+      const next = structuredClone(config);
+      applyPicks(next, picked);
+      await saveSetupConfig({ models: next.models });
+      const names = [picked.head, picked.executor, picked.checker].filter((p): p is string => !!p).map((p) => path.basename(p));
+      return names.length
+        ? `Found ${names.join(", ")} (${found.models.length} .gguf file${found.models.length === 1 ? "" : "s"} in all).`
+        : `No matching .gguf files found (${found.models.length} other .gguf file${found.models.length === 1 ? "" : "s"}). Add the folder they're in below, or they download on first start.`;
     }
     case "config": {
       const server = await findServer(config);
@@ -440,8 +500,8 @@ export async function runSetupStep(id: string): Promise<string> {
     case "warm-up": {
       const url = localSwapUrl(config);
       const done: string[] = [];
-      for (const role of ["executor", "head"] as const) {
-        const name = config.models[role].name;
+      for (const role of [...setupRoles(config)].reverse()) {
+        const name = config.models[role]!.name;
         if (config.computer === "mac") await checkRoom(config, name);
         const res = await fetch(`${url}/v1/chat/completions`, {
           method: "POST",

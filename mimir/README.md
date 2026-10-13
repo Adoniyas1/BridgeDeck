@@ -149,10 +149,12 @@ in `~/.mimir/bin`.
   with an 8K context and a 4-bit KV cache, each unloaded after 10 idle minutes. Before a model loads,
   a **memory guard** checks free memory (vm_stat) and refuses with what to close instead of letting
   the Mac run out. The old MLX downloads can be deleted under **Disk space**.
-- **Windows PC (RTX 4070 Ti 12 GB, 16 GB RAM):** `llama-server -hf …` — Qwen3.5-35B-A3B
-  (`UD-Q4_K_XL`, part of its experts in RAM with `--n-cpu-moe`) as Head, Qwen3.5-9B (`Q4_K_M`) as
-  Executor. With 16 GB of RAM they take turns; "Keep both models loaded" uses a llama-swap group
-  instead. It listens on `0.0.0.0:8080` so the Mac can use it (allow it through Windows Firewall).
+- **Windows PC (RTX 4070 Ti 12 GB, 16 GB RAM):** Ternary Bonsai 2 27B (PQ2_0) is the Head,
+  Ternary Bonsai 8B (PQ2_0) the Executor and Qwen3.5-9B IQ3_XXS the Checker, through PrismML's CUDA
+  build of llama.cpp (stock llama.cpp can't load PQ2_0; Install gets PrismML's build). Models already
+  on the PC are found in llama.cpp's and Hugging Face's caches, LM Studio, Downloads, Documents and
+  any folder added in Settings. They take turns on the GPU; llama-swap listens on `0.0.0.0:8080` so
+  the Mac can use it (allow it through Windows Firewall).
 
 Each model's file or source and its server arguments can be changed in the same panel. Every chat
 turn is logged to `~/.mimir/logs/<date>.md` (model calls, timings, prompt sizes, tools, errors).
