@@ -1485,3 +1485,52 @@ main .notice .update-banner__go:disabled{opacity:.4}
 .settings-stack input[type=time],.settings-stack input[type=date],.settings-stack input[type=number],.settings-stack input[type=color]{width:auto;flex:0 0 auto}
 /* Long paths and links wrap inside their card instead of running past it. */
 .card p,.card small,.card .hint{overflow-wrap:anywhere}
+/* Logic designer: design rules (NAND only, inputs per gate) */
+.logic-rules{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2)}
+.logic-rules__row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.logic-rules label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.logic-rules select{height:28px;border:1px solid var(--line-strong);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;padding:0 6px}
+/* Drop-downs: dark like the rest (some engines draw them white, hiding the light text). */
+main select,.tabbar select{background-color:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);border-radius:7px;color-scheme:dark}
+main select option{background:var(--surface-2);color:var(--text)}
+/* Logic canvas: bend points and the bar for what's selected */
+.logic-bend{fill:var(--bg);stroke:var(--accent);stroke-width:2;cursor:move}
+.logic-selbar{position:absolute;top:8px;left:8px;z-index:5;display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:4px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);box-shadow:var(--shadow-pop);font-size:12px;max-width:calc(100% - 16px)}
+.logic-selbar>span{color:var(--muted);padding:0 6px}
+.logic-selbar small{color:var(--faint);padding:0 6px}
+main .logic-selbar button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:0;background:transparent;color:var(--text);font-size:12px}
+main .logic-selbar button:hover{background:var(--surface-3)}
+main .logic-selbar button.on{background:var(--surface-3);color:var(--accent)}
+/* Logic: schematic / breadboard switch */
+.logic-view{display:inline-flex;padding:2px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface);margin-left:6px}
+main .logic-view button{height:26px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:12.5px}
+main .logic-view button.on{background:var(--surface-3);color:var(--text)}
+
+/* The breadboard */
+.logic-canvas--board{background:var(--bg)}
+.breadboard{display:flex;flex-direction:column;gap:12px;padding:14px}
+.breadboard-scroll{overflow:auto}
+.breadboard svg{display:block;user-select:none;touch-action:none}
+.bb-board{fill:#ece6d8;stroke:#cfc6b2}
+.bb-hole{fill:#3b3a36}
+.bb-channel{fill:#d9d1bf}
+.bb-rail-plus{stroke:#d6453d;stroke-width:1.5}
+.bb-rail-minus{stroke:#2f6fd0;stroke-width:1.5}
+.bb-label{fill:#8a826f;font-size:9px;font-family:ui-monospace,Menlo,monospace}
+.bb-chip{cursor:grab}
+.bb-chip.dragging{cursor:grabbing;opacity:.85}
+.bb-chip-body{fill:#24252a;stroke:#111}
+.bb-leg{fill:#b9bcc4}
+.bb-notch{fill:#ece6d8;stroke:#111}
+.bb-chip-ref{fill:#f1f1f3;font-size:11px;font-weight:600}
+.bb-chip-part{fill:#a2a5ad;font-size:9.5px;font-family:ui-monospace,Menlo,monospace}
+.bb-io{cursor:pointer}
+.bb-switch{fill:#2a2b30;stroke:#55575e}
+.bb-switch.on{fill:#3a5fd0;stroke:#8fb0ff}
+.bb-io-label{fill:#f1f1f3;font-size:11px;font-weight:600}
+.bb-terminal{fill:#c9a227;stroke:#6b5612}
+.bb-led{fill:#4a1c1c;stroke:#7a2a2a}
+.bb-led.lit{fill:#ff4d4d;stroke:#ffb3b3;filter:drop-shadow(0 0 6px #ff4d4d)}
+.bb-jumper{cursor:help;transition:opacity .12s}
+.bb-steps summary{cursor:pointer;font-weight:600;font-size:13px}
+.bb-steps ol{margin:8px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}

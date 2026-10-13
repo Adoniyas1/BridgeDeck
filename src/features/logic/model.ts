@@ -16,10 +16,17 @@ export type Part = {
   label?: string
   /** A switch's position; for a 7-segment display, common anode (a segment lights on 0, as from a 7447). */
   on?: boolean
+  /** Turned clockwise by this many degrees (pins turn with it). */
+  rot?: Rotation
 }
+export type Rotation = 0 | 90 | 180 | 270
+/** How a wire is drawn: auto (right angles, routed for you), straight, or curved; `via` are bend
+ *  points the user placed (the wire goes through them in order). */
+export type WireShape = 'auto' | 'straight' | 'curved'
 /** A wire between two pins, written "partId:pin". */
-export type Wire = { id: string; a: string; b: string }
-export type Circuit = { version: 1; parts: Part[]; wires: Wire[] }
+export type Wire = { id: string; a: string; b: string; shape?: WireShape; via?: Array<{ x: number; y: number }> }
+/** `board`: where chips sit on the breadboard (column of pin 1, by chip), when moved by hand. */
+export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number> }
 
 export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF']
 
@@ -199,10 +206,94 @@ export const SEG7_PINS = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
 
 export const pinRef = (part: Part, pin: string) => `${part.id}:${pin}`
 
+/** A point on a part (relative to its top-left corner) after the part is turned, about its middle. */
+export function turned(part: Part, x: number, y: number): { x: number; y: number } {
+  const { w, h } = sizeOf(part)
+  const cx = w / 2, cy = h / 2, dx = x - cx, dy = y - cy
+  switch (part.rot ?? 0) {
+    case 90: return { x: cx - dy, y: cy + dx }
+    case 180: return { x: cx - dx, y: cy - dy }
+    case 270: return { x: cx + dy, y: cy - dx }
+    default: return { x, y }
+  }
+}
+
+/** A part's pins where they are once it's turned (relative to its top-left corner). */
+export function placedPins(part: Part): PinDef[] {
+  return pinsOf(part).map(p => ({ ...p, ...turned(part, p.x, p.y) }))
+}
+
 /** Where a pin is on the canvas. */
 export function pinPoint(part: Part, pin: string): { x: number; y: number } | null {
   const def = pinsOf(part).find(p => p.name === pin)
-  return def ? { x: part.x + def.x, y: part.y + def.y } : null
+  if (!def) return null
+  const t = turned(part, def.x, def.y)
+  return { x: part.x + t.x, y: part.y + t.y }
+}
+
+/** The way a pin points out of its part (unit step), so wires leave it in that direction. */
+export function pinFacing(part: Part, pin: string): { x: number; y: number } {
+  const def = pinsOf(part).find(p => p.name === pin)
+  if (!def) return { x: 1, y: 0 }
+  const { w, h } = sizeOf(part)
+  const base = def.x < 0 ? { x: -1, y: 0 } : def.x > w ? { x: 1, y: 0 } : def.y < 0 ? { x: 0, y: -1 } : def.y > h ? { x: 0, y: 1 } : { x: 1, y: 0 }
+  const r = part.rot ?? 0
+  const t = r === 90 ? { x: -base.y, y: base.x } : r === 180 ? { x: -base.x, y: -base.y } : r === 270 ? { x: base.y, y: -base.x } : base
+  return { x: t.x + 0, y: t.y + 0 } // + 0 turns -0 into 0
+}
+
+export const rotateBy90 = (r: Rotation | undefined): Rotation => (((r ?? 0) + 90) % 360) as Rotation
+
+/** The SVG path of a wire from `from` to `to` (each with the way its pin points). `lane` spreads the
+ *  vertical runs of different signals so they don't sit on top of each other. */
+export function wirePath(wire: Wire, from: { x: number; y: number; fx: number; fy: number }, to: { x: number; y: number; fx: number; fy: number }, lane = 0): string {
+  const pts = [{ x: from.x, y: from.y }, ...(wire.via ?? []), { x: to.x, y: to.y }]
+  const shape = wire.shape ?? 'auto'
+  if (shape === 'curved') {
+    if (pts.length === 2) {
+      // Leaves each pin the way it points, then bends round.
+      const k = Math.max(30, Math.hypot(to.x - from.x, to.y - from.y) / 2.5)
+      return `M${from.x},${from.y} C${from.x + from.fx * k},${from.y + from.fy * k} ${to.x + to.fx * k},${to.y + to.fy * k} ${to.x},${to.y}`
+    }
+    // A smooth curve through the bend points (Catmull–Rom as cubic Béziers).
+    let d = `M${pts[0].x},${pts[0].y}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2
+      d += ` C${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`
+    }
+    return d
+  }
+  if (shape === 'straight' || pts.length > 2) {
+    if (shape === 'straight') return pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ')
+    // Auto through bend points: right angles between each pair (across, then up or down).
+    let d = `M${pts[0].x},${pts[0].y}`
+    for (let i = 1; i < pts.length; i++) d += ` H${pts[i].x} V${pts[i].y}`
+    return d
+  }
+  // Auto: out of the pin, across in a lane, then into the other pin.
+  if (from.fx !== 0 && to.fx !== 0) {
+    const room = to.x - from.x
+    const mid = room >= 30 ? Math.min(to.x - 10, from.x + 10 + lane * (room > 70 ? 8 : 4)) : Math.round((from.x + to.x) / 2 / GRID) * GRID
+    return `M${from.x},${from.y} H${mid} V${to.y} H${to.x}`
+  }
+  if (from.fy !== 0 && to.fy !== 0) {
+    const mid = Math.round((from.y + to.y) / 2 / GRID) * GRID + lane * 4
+    return `M${from.x},${from.y} V${mid} H${to.x} V${to.y}`
+  }
+  // One pin across, one up or down: a single corner.
+  return from.fx !== 0 ? `M${from.x},${from.y} H${to.x} V${to.y}` : `M${from.x},${from.y} V${to.y} H${to.x}`
+}
+
+/** Where a new bend point goes in a wire's list: the place that adds the least length. */
+export function bendIndex(wire: Wire, from: { x: number; y: number }, to: { x: number; y: number }, at: { x: number; y: number }): number {
+  const pts = [from, ...(wire.via ?? []), to]
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+  let best = 0, cost = Infinity
+  for (let i = 0; i < pts.length - 1; i++) {
+    const c = dist(pts[i], at) + dist(at, pts[i + 1]) - dist(pts[i], pts[i + 1])
+    if (c < cost) { cost = c; best = i }
+  }
+  return best
 }
 
 // ---- Simulation ----
@@ -707,9 +798,150 @@ export function buildCircuit(outputs: Array<{ name: string; expr: Expr }>): Circ
   return { version: 1, parts, wires }
 }
 
+// ---- Designing under constraints (NAND only, NOR only, inputs per gate) ----
+
+/** Which gates a design may use: any (AND, OR, NOT…), NAND only (from the sum of products) or NOR
+ *  only (from the product of sums). Inverters are the same gate with its inputs tied together. */
+export type GateSet = 'any' | 'nand' | 'nor'
+export type DesignRules = { gates: GateSet; maxInputs: 2 | 3 | 4 }
+
+/** A group of 0s as a sum term, e.g. (A + C'): each variable where the group is 1 is complemented. */
+export function sumOf(vars: string[], p: Implicant) {
+  const n = vars.length
+  const lits = vars.map((v, i) => {
+    const bit = 1 << (n - 1 - i)
+    return p.mask & bit ? '' : p.value & bit ? `${v}'` : v
+  }).filter(Boolean)
+  return lits.length > 1 ? `(${lits.join(' + ')})` : lits[0] ?? '0'
+}
+
+/** The smallest product of sums for an output: the groups of its 0s (don't-cares either way). */
+export function minimizePOS(vars: string[], minterms: number[], dontCares: number[] = []): string {
+  const ones = new Set([...minterms, ...dontCares])
+  const zeros = Array.from({ length: 2 ** vars.length }, (_, i) => i).filter(i => !ones.has(i))
+  if (!zeros.length) return '1'
+  const groups = implicants(vars.length, zeros, dontCares)
+  return groups.length === 1 && groups[0].mask === 2 ** vars.length - 1 ? '0' : groups.map(p => sumOf(vars, p)).join('·')
+}
+
+/** Each output's simplest product of sums. */
+export function posExpressions(table: TruthTable): Record<string, string> {
+  const out: Record<string, string> = {}
+  table.outputs.forEach((name, o) => {
+    const ones: number[] = [], either: number[] = []
+    table.rows.forEach((row, i) => { if (row.out[o] === 1) ones.push(i); else if (row.out[o] === null) either.push(i) })
+    out[name] = minimizePOS(table.inputs, ones, either)
+  })
+  return out
+}
+
+/** A circuit for a truth table using only NAND gates (two levels from the sum of products) or only
+ *  NOR gates (two levels from the product of sums), no gate wider than `maxInputs`. Wider ones become
+ *  trees, and a complemented input or a one-literal term uses the gate as an inverter. */
+export function buildWithRules(table: TruthTable, rules: DesignRules): Circuit {
+  if (rules.gates === 'any') return buildCircuit(Object.entries(expressions(table)).map(([name, text]) => ({ name, expr: parse(text) })))
+  const type: GateType = rules.gates === 'nand' ? 'NAND' : 'NOR'
+  const k = rules.maxInputs
+  const vars = table.inputs
+  const n = vars.length
+  const parts: Part[] = []
+  const wires: Wire[] = []
+  const depthOf = new Map<string, number>()
+  const columns: number[] = []
+  const wire = (a: string, b: string) => wires.push({ id: newId('w'), a, b })
+  const source = vars.map((name, i) => {
+    const p: Part = { id: newId('s'), kind: 'switch', x: 40, y: 40 + i * 70, label: name, on: false }
+    parts.push(p)
+    const pin = pinRef(p, 'out')
+    depthOf.set(pin, 0)
+    return pin
+  })
+  const gate = (ins: string[]): string => {
+    const depth = Math.max(...ins.map(i => depthOf.get(i) ?? 0)) + 1
+    columns[depth] = (columns[depth] ?? 0) + 1
+    const g: Part = { id: newId('g'), kind: 'gate', gate: type, inputs: ins.length, x: 160 + depth * 110, y: 30 + (columns[depth] - 1) * 80 }
+    parts.push(g)
+    ins.forEach((pin, i) => wire(pin, pinRef(g, `in${i}`)))
+    const out = pinRef(g, 'out')
+    depthOf.set(out, depth)
+    return out
+  }
+  // The gate with its inputs tied: an inverter (one per signal, shared).
+  const inverted = new Map<string, string>()
+  const invert = (pin: string) => { if (!inverted.has(pin)) { const out = gate([pin, pin]); inverted.set(pin, out); inverted.set(out, pin) } return inverted.get(pin)! }
+  // NAND (or NOR) of any number of signals with at most k inputs per gate: groups are combined
+  // (AND for NAND, OR for NOR: the gate, then an inverter) and the gate applied to the results.
+  const tree = (pins: string[]): string => {
+    if (pins.length === 1) return invert(pins[0])
+    if (pins.length <= k) return gate(pins)
+    const size = Math.ceil(pins.length / Math.ceil(pins.length / k))
+    const joined: string[] = []
+    for (let i = 0; i < pins.length; i += size) { const chunk = pins.slice(i, i + size); joined.push(chunk.length === 1 ? chunk[0] : invert(tree(chunk))) }
+    return tree(joined)
+  }
+  const literal = (i: number, negated: boolean) => (negated ? invert(source[i]) : source[i])
+  const constants: Partial<Record<0 | 1, string>> = {}
+  const constant = (v: 0 | 1) => {
+    if (!constants[v]) {
+      const p: Part = v ? { id: newId('v'), kind: 'vcc', x: 40, y: 40 + n * 70 } : { id: newId('g'), kind: 'gnd', x: 40, y: 110 + n * 70 }
+      parts.push(p)
+      constants[v] = pinRef(p, 'out')
+      depthOf.set(constants[v]!, 0)
+    }
+    return constants[v]!
+  }
+  const firstLevel = new Map<string, string>()
+  const results = table.outputs.map((name, o) => {
+    const ones: number[] = [], either: number[] = [], zeros: number[] = []
+    table.rows.forEach((row, i) => { if (row.out[o] === 1) ones.push(i); else if (row.out[o] === null) either.push(i); else zeros.push(i) })
+    // NAND: the groups of 1s (product terms); NOR: the groups of 0s (sum terms).
+    const groups = type === 'NAND' ? implicants(n, ones, either) : implicants(n, zeros, either)
+    const full = groups.length === 1 && groups[0].mask === 2 ** n - 1
+    if (!groups.length) return { name, pin: constant(type === 'NAND' ? 0 : 1) }
+    if (full) return { name, pin: constant(type === 'NAND' ? 1 : 0) }
+    const levelOne = groups.map(p => {
+      const lits = vars.flatMap((_, i) => {
+        const bit = 1 << (n - 1 - i)
+        if (p.mask & bit) return []
+        // In a product term a 0 bit is complemented; in a sum term (from 0s) a 1 bit is.
+        const negated = type === 'NAND' ? !(p.value & bit) : !!(p.value & bit)
+        return [{ i, negated }]
+      })
+      const key = lits.map(l => `${l.i}${l.negated ? "'" : ''}`).join(',')
+      if (!firstLevel.has(key)) {
+        // One literal: the gate of it is just its complement (no gate for an already complemented input).
+        firstLevel.set(key, lits.length === 1 ? literal(lits[0].i, !lits[0].negated) : tree(lits.map(l => literal(l.i, l.negated))))
+      }
+      return firstLevel.get(key)!
+    })
+    return { name, pin: tree(levelOne) }
+  })
+  const right = 160 + (Math.max(0, ...depthOf.values()) + 1) * 110
+  results.forEach(({ name, pin }, i) => {
+    const led: Part = { id: newId('l'), kind: 'led', x: right, y: 40 + i * 70, label: name }
+    parts.push(led)
+    wire(pin, pinRef(led, 'in'))
+  })
+  return { version: 1, parts, wires }
+}
+
+/** What a design uses: gates by type, how many are inverters (inputs tied together), and chips. */
+export function designSummary(c: Circuit) {
+  const gates = c.parts.filter(p => p.kind === 'gate')
+  const source = (p: Part, pin: string) => c.wires.find(w => w.b === pinRef(p, pin) || w.a === pinRef(p, pin))
+  const otherEnd = (p: Part, pin: string) => { const w = source(p, pin); return w ? (w.b === pinRef(p, pin) ? w.a : w.b) : null }
+  const inverters = gates.filter(g => (g.inputs ?? 2) === 2 && otherEnd(g, 'in0') !== null && otherEnd(g, 'in0') === otherEnd(g, 'in1')).length
+  const byType: Record<string, number> = {}
+  for (const g of gates) { const key = g.gate === 'NOT' || g.gate === 'BUF' ? g.gate : `${g.inputs ?? 2}-input ${g.gate}`; byType[key] = (byType[key] ?? 0) + 1 }
+  const plan = chipPlan(c)
+  const chips: Record<string, number> = {}
+  for (const ch of plan.chips) chips[ch.part] = (chips[ch.part] ?? 0) + 1
+  return { gates: gates.length, inverters, byType, chips }
+}
+
 // ---- Putting gates on chips ----
 
-export type ChipUse = { ref: string; part: string; name: string; slots: Array<{ gate: string; pins: number[]; out: number } | null> }
+export type ChipUse = { ref: string; part: string; name: string; slots: Array<{ gate: string; pins: number[]; out: number } | null>; /** Placed on the canvas by hand (wired as drawn). */ placed?: boolean }
 export type ChipPlan = { chips: ChipUse[]; connections: Array<{ net: string; pins: string[] }>; notes: string[] }
 
 /** Which chips the circuit's gates need, which gate goes where, and what to wire to which pin. */
@@ -770,7 +1002,23 @@ export function chipPlan(c: Circuit): ChipPlan {
     g.ins.forEach((pin, i) => pinsOn.push([ins[i], `${use!.ref} pin ${pin}`]))
     pinsOn.push([prim.out, `${use.ref} pin ${g.out}`])
   }
+  // Chips already on the canvas: wired as drawn (U1… in the order they were placed, as partNames).
+  let placedN = 0
+  const placed: ChipUse[] = []
+  const wired = new Set(c.wires.flatMap(w => [netOf.get(w.a), netOf.get(w.b)]))
+  for (const p of c.parts.filter(q => q.kind === 'chip')) {
+    const def = chipDef(p.chip)
+    const ref = `U${++placedN}`
+    if (!def) continue
+    placed.push({ ref, part: def.part, name: def.name, slots: def.gates.map(() => null), placed: true })
+    for (let pin = 1; pin <= def.pins; pin++) {
+      const net = netOf.get(pinRef(p, String(pin)))
+      if (net && wired.has(net)) pinsOn.push([nameOf(net), `${ref} pin ${pin}`])
+    }
+  }
+  chips.unshift(...placed)
   for (const ch of chips) {
+    if (ch.placed) continue
     const def = chipDef(ch.part)!
     pinsOn.push(['+5V', `${ch.ref} pin ${def.vcc}`], ['GND', `${ch.ref} pin ${def.gnd}`])
     // Unused gates' inputs to ground (floating TTL inputs pick up noise).
@@ -778,6 +1026,7 @@ export function chipPlan(c: Circuit): ChipPlan {
   }
   for (const p of c.parts) {
     if (p.kind === 'switch' && p.label) pinsOn.push([p.label, `switch ${p.label}`])
+    if (p.kind === 'clock' && p.label) pinsOn.push([p.label, `clock ${p.label}`])
     if (p.kind === 'led' && p.label) pinsOn.push([nameOf(netOf.get(pinRef(p, 'in'))!), `LED ${p.label} (through a 330 Ω resistor to GND)`])
   }
   const byNet = new Map<string, string[]>()
@@ -800,7 +1049,13 @@ export function readCircuit(text: string): Circuit {
   const parts: Part[] = Array.isArray(raw?.parts) ? raw.parts.filter((p: Part) => typeof p?.id === 'string' && typeof p.x === 'number' && typeof p.y === 'number' && ['switch', 'clock', 'led', 'vcc', 'gnd', 'gate', 'chip', 'seg7'].includes(p.kind)) : []
   const ids = new Set(parts.map(p => p.id))
   const wires: Wire[] = Array.isArray(raw?.wires) ? raw.wires.filter((w: Wire) => typeof w?.a === 'string' && typeof w.b === 'string' && ids.has(w.a.split(':')[0]) && ids.has(w.b.split(':')[0])) : []
-  return { version: 1, parts, wires }
+  for (const p of parts) if (p.rot !== undefined && ![0, 90, 180, 270].includes(p.rot)) delete p.rot
+  for (const w of wires) {
+    if (w.shape !== undefined && !['auto', 'straight', 'curved'].includes(w.shape)) delete w.shape
+    if (w.via !== undefined) w.via = Array.isArray(w.via) ? w.via.filter(v => typeof v?.x === 'number' && typeof v.y === 'number').map(v => ({ x: v.x, y: v.y })) : undefined
+  }
+  const board = raw?.board && typeof raw.board === 'object' ? Object.fromEntries(Object.entries(raw.board as Record<string, unknown>).filter(([k, v]) => /^U\d+$/.test(k) && Number.isInteger(v)) as Array<[string, number]>) : undefined
+  return { version: 1, parts, wires, ...(board && Object.keys(board).length ? { board } : {}) }
 }
 
 /** A truth table as Markdown (for a note). */
