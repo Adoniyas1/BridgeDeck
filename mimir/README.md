@@ -40,6 +40,19 @@ Then open Settings (⚙, top right) and:
    `mimir_windows.ppn`). Without either, wake word is simply disabled and
    push-to-talk (the mic button) still works fully offline via local Whisper.
 
+## Chats, memory and thinking
+
+- **Saved chats:** every conversation is saved to `~/.mimir/chats/` after each reply, and Mimir
+  reopens the last one when it starts, continuing from those messages. **History** lists them (open
+  or delete one); **New** starts another.
+- **Memory:** **Memory** shows what Mimir remembers (`MEMORY.md`, added to when you say "remember
+  that…") and what it knows about you (`USER.md`), both editable. Edits go through the same audited
+  history as Mimir's own changes. Local models get the start of `USER.md` and the end of `MEMORY.md`.
+- **Thinking:** with **Thinking on**, local reasoning models (Qwen3.5 and others) think before
+  answering, and their thinking streams in small text above the reply, folding to "Thought for Ns"
+  once the answer starts. Claude's thinking summary shows the same way. In a Brain team you see the
+  Head's thinking. Thinking is saved with the chat but never sent back to the model.
+
 ## ChatGPT section
 
 The **CHATGPT** button opens a separate chat with OpenAI's models using your own

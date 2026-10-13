@@ -58,6 +58,13 @@ describe("system prompt composition", () => {
     expect(await buildComposedSystemPrompt(workspaceRoot)).toContain("Private profile text");
   });
 
+  it("gives a local model only the start of a long user profile", async () => {
+    await persona("USER.md", `Name: Adoniyas\n${"Likes calculus. ".repeat(200)}END-OF-PROFILE`);
+    const prompt = await buildComposedSystemPrompt(workspaceRoot, { userMaxChars: 200, memoryMaxChars: 0, dailyLogDays: 0 });
+    expect(prompt).toContain("Name: Adoniyas");
+    expect(prompt).not.toContain("END-OF-PROFILE");
+  });
+
   it("injects TASKS.md as an upcoming-deadlines section when it has content", async () => {
     await persona("TASKS.md", "- Problem set 3 — due Thursday\n");
     const prompt = await buildComposedSystemPrompt(workspaceRoot);

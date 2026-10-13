@@ -16,6 +16,8 @@ export interface PersonaPromptOptions {
   /** Whether the user profile (USER.md) goes into the prompt. Small local
    * models skip it: it costs context and makes them talk about the user. */
   includeUserProfile?: boolean;
+  /** Keeps only the start of USER.md (local models, where context is small). */
+  userMaxChars?: number;
   /** A narrow, task-specific instruction for a tool-less small local model. */
   localToolInstructions?: string;
   /** Which tool set this turn has: "core" is the small curated set every
@@ -62,6 +64,7 @@ export async function composeSystemPrompt(workspaceRoot: string, options: Person
     dailyLogDays = DAILY_LOG_INJECT_DAYS,
     includeToolInstructions = true,
     includeUserProfile = true,
+    userMaxChars = Infinity,
     localToolInstructions = "",
     toolTier = "full",
     mode = "all"
@@ -105,7 +108,10 @@ export async function composeSystemPrompt(workspaceRoot: string, options: Person
     moduleTokens = 0;
   }
 
-  if (user.trim() && includeUserProfile) sections.push(`# What you know about the user (USER.md)\n\n${user.trim()}`);
+  if (user.trim() && includeUserProfile) {
+    const profile = user.trim().length > userMaxChars ? `${user.trim().slice(0, userMaxChars).trimEnd()}\n…` : user.trim();
+    sections.push(`# What you know about the user (USER.md)\n\nBackground for your answers; don't bring it up unless it's relevant.\n\n${profile}`);
+  }
   if (memoryTail.trim()) sections.push(`# Long-term memory (MEMORY.md)\n\n${memoryTail.trim()}`);
   if (tasks.trim()) sections.push(`# Upcoming deadlines and tasks (TASKS.md)\n\n${tasks.trim()}`);
   if (dailyLogTail.trim()) sections.push(`# Recent daily logs\n\n${dailyLogTail.trim()}`);

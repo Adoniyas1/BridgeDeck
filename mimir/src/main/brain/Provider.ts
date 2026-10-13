@@ -69,8 +69,9 @@ export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "error";
 
 export type ChatEvent =
   | { type: "text-delta"; text: string }
-  /** The model's thinking, when it shows it (Qwen3.5 and other reasoning models). Never shown in
-   * the chat or sent back to the model; only written to the turn log. */
+  /** The model's thinking, when it shows it (Qwen3.5 and other reasoning models, Claude's summary).
+   * Shown folded in the chat and saved with it; never sent back to the model, and the turn log only
+   * counts it. */
   | { type: "reasoning-delta"; text: string }
   | { type: "tool-call"; call: ToolCall }
   | { type: "done"; stopReason: StopReason }

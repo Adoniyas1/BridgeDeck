@@ -31,6 +31,29 @@ export interface ChatMessage {
   pendingEdit?: PendingEdit;
   /** The Brain team's plan and steps for this reply, when a team answered. */
   team?: TeamProgress;
+  /** What the model thought before answering (when thinking is on), shown folded above the reply. */
+  thinking?: string;
+  /** How long it thought, in milliseconds, once the reply started. */
+  thinkingMs?: number;
+}
+
+/** One of Mimir's own conversations, saved in ~/.mimir/chats/<id>.json. */
+export interface MimirChat {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type MimirChatSummary = Pick<MimirChat, "id" | "title" | "updatedAt">;
+
+/** What Mimir remembers: MEMORY.md (facts it saved) and USER.md (about the user), in its workspace. */
+export interface MemoryFiles {
+  memory: string;
+  user: string;
+  /** Where the files are, to show the user. */
+  folder: string;
 }
 
 /** A tool call waiting for the user to allow or deny it (src/main/approvals.ts). */
@@ -93,6 +116,8 @@ export interface LoadedPromptModule {
 /** Events pushed from main -> renderer over IPC.chatStream during one agent turn. */
 export type ChatStreamEvent =
   | { type: "text-delta"; text: string }
+  /** The model's thinking as it streams (only when the model shows it and thinking is on). */
+  | { type: "thinking-delta"; text: string }
   /** `step` is the Brain team's step the tool ran in (0-based), when a team is working. */
   | { type: "tool-start"; name: string; step?: number | null }
   | { type: "tool-end"; name: string; isError: boolean; step?: number | null }
@@ -361,6 +386,16 @@ export const IPC = {
   chatSend: "mimir:chat:send",
   chatStop: "mimir:chat:stop",
   chatStream: "mimir:chat:stream",
+  /** Mimir's saved conversations (~/.mimir/chats). */
+  chatsList: "mimir:chats:list",
+  chatsGet: "mimir:chats:get",
+  chatsSave: "mimir:chats:save",
+  chatsDelete: "mimir:chats:delete",
+  /** Makes a saved chat (or a new, empty one for null) the conversation Mimir continues. */
+  chatsOpen: "mimir:chats:open",
+  /** MEMORY.md and USER.md: what Mimir remembers, to read and edit. */
+  memoryGet: "mimir:memory:get",
+  memorySet: "mimir:memory:set",
   chatSpeak: "mimir:chat:speak",
   faceState: "mimir:face:state",
   brainGetConfig: "mimir:brain:get-config",
