@@ -49,7 +49,7 @@ export default function App() {
   // Kept-alive tabs mount when first opened (their code isn't loaded at start-up), then stay.
   const [visited, setVisited] = useState<Set<string>>(() => new Set([active]))
   useEffect(() => { setVisited(v => v.has(active) ? v : new Set(v).add(active)) }, [active])
-  const fill = active === 'browser' || active === 'tv' || active === 'logic' || active === 'spotify' || active === 'mail' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
+  const fill = active === 'browser' || active === 'tv' || active === 'logic' || active === 'code' || active === 'spotify' || active === 'mail' || dynamic.some(tab => tab.id === active && FILL_KINDS.has(tab.kind))
 
   return (
     <div className="shell">

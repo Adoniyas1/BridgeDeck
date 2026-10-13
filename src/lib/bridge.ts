@@ -576,6 +576,18 @@ export const errorLogClear = () => native<void>('error_log_clear')
 export type PythonRun = { ok: boolean; stdout: string; stderr: string; images: string[]; ms: number; timedOut: boolean; version: string }
 export const pythonStatus = () => native<string | null>('python_status')
 export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })
+
+/** The Code tab's languages, run by the compilers on this computer (src-tauri/src/code.rs). */
+export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; install: string }
+export type CodeStep = { ok: boolean; stdout: string; stderr: string; exitCode: number | null; ms: number; timedOut: boolean }
+export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string }
+export type CodeFile = { name: string; language: string; modified: number }
+export const codeLanguages = (refresh = false) => native<CodeLanguage[]>('code_languages', { refresh })
+export const codeRun = (language: string, source: string, input: string, limitSecs: number) => native<CodeRun>('code_run', { language, source, input, limitSecs })
+export const codeFiles = () => native<CodeFile[]>('code_files')
+export const codeLoad = (name: string, language: string) => native<string>('code_load', { name, language })
+export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
+export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
 export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
 export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })
