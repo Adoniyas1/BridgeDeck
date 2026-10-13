@@ -25,7 +25,8 @@ export type Rotation = 0 | 90 | 180 | 270
 export type WireShape = 'auto' | 'straight' | 'curved'
 /** A wire between two pins, written "partId:pin". */
 export type Wire = { id: string; a: string; b: string; shape?: WireShape; via?: Array<{ x: number; y: number }> }
-export type Circuit = { version: 1; parts: Part[]; wires: Wire[] }
+/** `board`: where chips sit on the breadboard (column of pin 1, by chip), when moved by hand. */
+export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number> }
 
 export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF']
 
@@ -940,7 +941,7 @@ export function designSummary(c: Circuit) {
 
 // ---- Putting gates on chips ----
 
-export type ChipUse = { ref: string; part: string; name: string; slots: Array<{ gate: string; pins: number[]; out: number } | null> }
+export type ChipUse = { ref: string; part: string; name: string; slots: Array<{ gate: string; pins: number[]; out: number } | null>; /** Placed on the canvas by hand (wired as drawn). */ placed?: boolean }
 export type ChipPlan = { chips: ChipUse[]; connections: Array<{ net: string; pins: string[] }>; notes: string[] }
 
 /** Which chips the circuit's gates need, which gate goes where, and what to wire to which pin. */
@@ -1001,7 +1002,23 @@ export function chipPlan(c: Circuit): ChipPlan {
     g.ins.forEach((pin, i) => pinsOn.push([ins[i], `${use!.ref} pin ${pin}`]))
     pinsOn.push([prim.out, `${use.ref} pin ${g.out}`])
   }
+  // Chips already on the canvas: wired as drawn (U1… in the order they were placed, as partNames).
+  let placedN = 0
+  const placed: ChipUse[] = []
+  const wired = new Set(c.wires.flatMap(w => [netOf.get(w.a), netOf.get(w.b)]))
+  for (const p of c.parts.filter(q => q.kind === 'chip')) {
+    const def = chipDef(p.chip)
+    const ref = `U${++placedN}`
+    if (!def) continue
+    placed.push({ ref, part: def.part, name: def.name, slots: def.gates.map(() => null), placed: true })
+    for (let pin = 1; pin <= def.pins; pin++) {
+      const net = netOf.get(pinRef(p, String(pin)))
+      if (net && wired.has(net)) pinsOn.push([nameOf(net), `${ref} pin ${pin}`])
+    }
+  }
+  chips.unshift(...placed)
   for (const ch of chips) {
+    if (ch.placed) continue
     const def = chipDef(ch.part)!
     pinsOn.push(['+5V', `${ch.ref} pin ${def.vcc}`], ['GND', `${ch.ref} pin ${def.gnd}`])
     // Unused gates' inputs to ground (floating TTL inputs pick up noise).
@@ -1009,6 +1026,7 @@ export function chipPlan(c: Circuit): ChipPlan {
   }
   for (const p of c.parts) {
     if (p.kind === 'switch' && p.label) pinsOn.push([p.label, `switch ${p.label}`])
+    if (p.kind === 'clock' && p.label) pinsOn.push([p.label, `clock ${p.label}`])
     if (p.kind === 'led' && p.label) pinsOn.push([nameOf(netOf.get(pinRef(p, 'in'))!), `LED ${p.label} (through a 330 Ω resistor to GND)`])
   }
   const byNet = new Map<string, string[]>()
@@ -1036,7 +1054,8 @@ export function readCircuit(text: string): Circuit {
     if (w.shape !== undefined && !['auto', 'straight', 'curved'].includes(w.shape)) delete w.shape
     if (w.via !== undefined) w.via = Array.isArray(w.via) ? w.via.filter(v => typeof v?.x === 'number' && typeof v.y === 'number').map(v => ({ x: v.x, y: v.y })) : undefined
   }
-  return { version: 1, parts, wires }
+  const board = raw?.board && typeof raw.board === 'object' ? Object.fromEntries(Object.entries(raw.board as Record<string, unknown>).filter(([k, v]) => /^U\d+$/.test(k) && Number.isInteger(v)) as Array<[string, number]>) : undefined
+  return { version: 1, parts, wires, ...(board && Object.keys(board).length ? { board } : {}) }
 }
 
 /** A truth table as Markdown (for a note). */

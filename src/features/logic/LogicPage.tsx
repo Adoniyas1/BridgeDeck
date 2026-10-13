@@ -9,6 +9,7 @@ import {
   show, simulate, tableMarkdown, tableOf, truthTable, type Circuit, type FlopState, type GateType, type Level, type Part, type TruthTable,
 } from './model'
 import { levelColor, PartShape } from './Symbols'
+import Breadboard from './Breadboard'
 
 const W = 2400, H = 1600
 const snap = (v: number) => Math.round(v / GRID) * GRID
@@ -32,6 +33,8 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [inputs, setInputs] = useState(2)
   const [running, setRunning] = useState(false)
   const [clock, setClock] = useState(false)
+  /** The canvas shows the schematic or the same circuit on a breadboard. */
+  const [view, setView] = useState<'schematic' | 'breadboard'>('schematic')
   const [speed, setSpeed] = useState(1)
   const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
   const [file, setFile] = useState({ project: '', name: 'Untitled circuit' })
@@ -255,6 +258,10 @@ export default function LogicPage({ active }: { active: boolean }) {
         </div>
       </details>
       <button className="ghost" onClick={fresh}><FilePlus size={14} /> New</button>
+      <div className="logic-view" role="tablist" aria-label="View">
+        <button role="tab" aria-selected={view === 'schematic'} className={view === 'schematic' ? 'on' : ''} onClick={() => setView('schematic')}>Schematic</button>
+        <button role="tab" aria-selected={view === 'breadboard'} className={view === 'breadboard' ? 'on' : ''} onClick={() => setView('breadboard')}>Breadboard</button>
+      </div>
       <span className="grow" />
       <button className={`ghost${running ? ' active' : ''}`} onClick={() => setRunning(r => !r)} title="Run the clock parts">{running ? <Pause size={14} /> : <Play size={14} />} Clock</button>
       <select value={speed} onChange={e => setSpeed(Number(e.target.value))} title="Clock speed">
@@ -273,6 +280,10 @@ export default function LogicPage({ active }: { active: boolean }) {
         {CHIPS.map(c => <PaletteButton key={c.part} item={{ kind: 'chip', chip: c.part, title: `${c.part} · ${c.name}` }} onAdd={add} />)}
         <p className="hint">Click a pin, then another, to wire them. Drag parts to move them; R rotates the selected part; double-click a wire to bend it, and pick its shape above the canvas; click a switch to flip it; Delete removes what’s selected. 14-pin chips need pin 14 to +5V and pin 7 to ground; 16-pin chips pin 16 and pin 8. Unconnected chip control inputs count as high, as on real TTL chips.</p>
       </aside>
+      {view === 'breadboard' ? <div className="logic-canvas logic-canvas--board"><Breadboard circuit={circuit}
+        levels={Object.fromEntries(circuit.parts.flatMap(p => p.label && (p.kind === 'switch' || p.kind === 'clock' || p.kind === 'led') ? [[p.label, sim.pins[pinRef(p, p.kind === 'led' ? 'in' : 'out')]]] : []))}
+        onPlace={(ref, col) => change(c => ({ ...c, board: { ...(c.board ?? {}), [ref]: col } }))}
+        onFlip={label => change(c => ({ ...c, parts: c.parts.map(p => (p.kind === 'switch' && p.label === label ? { ...p, on: !p.on } : p)) }))} /></div> :
       <div ref={scroller} className="logic-canvas" onDragOver={e => e.preventDefault()} onDrop={e => {
         e.preventDefault()
         try { const item = JSON.parse(e.dataTransfer.getData('application/x-logic')) as PaletteItem; add(item, point(e)) } catch { /* not a part */ }
@@ -336,7 +347,7 @@ export default function LogicPage({ active }: { active: boolean }) {
           </div>
         })()}
         {!circuit.parts.length && <div className="logic-empty"><CircuitBoard size={28} /><p>Add switches, gates or chips from the left, then wire their pins. Or build one from an expression or a truth table on the right.</p></div>}
-      </div>
+      </div>}
       <aside className="logic-side">
         <div className="logic-tabs">
           <button className={panel === 'table' ? 'on' : ''} onClick={() => setPanel('table')}><Table2 size={13} /> Table</button>
