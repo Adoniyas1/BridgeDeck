@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { breadboard, spotName, type Spot } from './breadboard'
+import { breadboard, spotName, type Spot } from './boardLayout'
 import { buildWithRules, chipPlan, readCircuit, tableOf, parseOutputs, type Circuit } from './model'
 
 const majority = () => buildWithRules(tableOf(parseOutputs('Y = AB + AC + BC')), { gates: 'nand', maxInputs: 2 })

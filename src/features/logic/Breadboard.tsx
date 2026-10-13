@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { breadboard, ROWS_BOTTOM, ROWS_TOP, spotName, type Board, type Spot } from './breadboard'
+import { breadboard, ROWS_BOTTOM, ROWS_TOP, spotName, type Board, type Spot } from './boardLayout'
 import type { Circuit, Level } from './model'
 
 const P = 16 // hole pitch
