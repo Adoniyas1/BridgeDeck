@@ -46,8 +46,9 @@ export default function SetupSettings() {
       <h3>Model servers</h3>
       <p className="hint">
         Gets the Brain team's models running here without a terminal: llama-swap in front of llama.cpp{mac ? " on the Mac's GPU" : " on the NVIDIA card"}.
-        Programs Mimir downloads go in ~/.mimir/bin. {gb(view.memory.availableBytes)} of {gb(view.memory.totalBytes)} memory free right now.
+        Programs Mimir downloads go in ~/.mimir/bin.
       </p>
+      <Hardware view={view} />
       <div className="team-engine__pick" role="radiogroup" aria-label="This computer">
         {(["mac", "pc"] as const).map((c) => (
           <button key={c} type="button" role="radio" aria-checked={config.computer === c} className={`team-engine__option${config.computer === c ? " team-engine__option--on" : ""}`} onClick={() => void patch({ computer: c })}>
@@ -62,6 +63,7 @@ export default function SetupSettings() {
       <ServerRow key={config.serverPath ?? ""} saved={config.serverPath} using={view.server} found={view.found.servers} onChange={(serverPath) => void patch({ serverPath })} />
       <FoldersRow key={config.modelDirs.join("|")} saved={config.modelDirs} count={view.found.models.length} onChange={(modelDirs) => void patch({ modelDirs })} />
 
+      <GpuShare key={config.gpuShare} view={view} onChange={(gpuShare) => void patch({ gpuShare })} />
       <label className="checkbox-row">
         <input type="checkbox" checked={config.keepBothLoaded} onChange={(e) => void patch({ keepBothLoaded: e.target.checked })} />
         Keep both models loaded (needs memory for both; off: they take turns)
@@ -206,6 +208,70 @@ function CommandLine({ command }: { command: string }) {
       >
         {copied ? "Copied" : "Copy"}
       </button>
+    </div>
+  );
+}
+
+/** This computer's memory: RAM, and each graphics card's own memory (VRAM). */
+function Hardware({ view }: { view: SetupView }) {
+  const gpus = view.gpus.filter((g) => !g.shared);
+  const shared = view.gpus.find((g) => g.shared);
+  return (
+    <div className="setup-hardware">
+      <div>
+        <strong>RAM</strong> {gb(view.memory.totalBytes)} <span className="hint">({gb(view.memory.availableBytes)} free)</span>
+      </div>
+      {gpus.map((g) => (
+        <div key={g.name}>
+          <strong>VRAM</strong> {gb(g.totalBytes)} <span className="hint">on {g.name}{g.freeBytes !== null ? ` (${gb(g.freeBytes)} free)` : ""}</span>
+        </div>
+      ))}
+      {shared && (
+        <div>
+          <strong>GPU</strong> <span className="hint">{shared.name}</span>
+        </div>
+      )}
+      {!view.gpus.length && (
+        <div className="hint">No graphics card found (on Windows, NVIDIA cards need their driver installed for Mimir to see their memory).</div>
+      )}
+    </div>
+  );
+}
+
+/** How much of each model goes on the GPU; the rest runs on the CPU from RAM. */
+function GpuShare({ view, onChange }: { view: SetupView; onChange: (share: number) => void }) {
+  const [share, setShare] = useState(view.config.gpuShare);
+  const vram = view.gpus.find((g) => !g.shared);
+  const roles = (["head", "executor", "checker"] as const).filter((r) => view.splits[r]);
+  return (
+    <div className="setup-gpu-share">
+      <label>
+        <strong>GPU use for AI</strong>
+        <input type="range" min={0} max={100} step={5} value={share} onChange={(e) => setShare(Number(e.target.value))} onPointerUp={() => share !== view.config.gpuShare && onChange(share)} onKeyUp={() => share !== view.config.gpuShare && onChange(share)} aria-label="Share of each model on the GPU" />
+        <span>
+          {share}% GPU · {100 - share}% CPU
+        </span>
+      </label>
+      <p className="hint">
+        {share >= 100
+          ? "Each model loads entirely on the GPU: fastest, and it takes the most VRAM."
+          : `${100 - share}% of each model's layers run on the CPU from RAM instead, which leaves VRAM free for the rest of the computer (and runs a little slower). Restart llama-swap after changing it.`}
+      </p>
+      {roles.map((r) => {
+        const s = view.splits[r]!;
+        return (
+          <p key={r} className="hint setup-gpu-share__model">
+            {ROLE_TEXT[r]} · {view.config.models[r]!.name}:{" "}
+            {s.moe && s.layers > s.onGpu
+              ? `all layers on the GPU, with the experts of ${s.layers - s.onGpu} of ${s.layers} layers in RAM (about ${gb(s.gpuBytes)} VRAM, ${gb(s.cpuBytes)} RAM)`
+              : `${s.onGpu} of ${s.layers} layers on the GPU (about ${gb(s.gpuBytes)} VRAM)${s.layers > s.onGpu ? `, ${s.layers - s.onGpu} on the CPU (about ${gb(s.cpuBytes)} RAM)` : ""}`}
+            {s.fromFile ? "" : " · layer count estimated until the model is downloaded"}
+          </p>
+        );
+      })}
+      {vram && roles.some((r) => view.splits[r]!.gpuBytes > vram.totalBytes * 0.92) && (
+        <p className="hint setup-step__result--error">At this setting a model needs about as much VRAM as the card has ({gb(vram.totalBytes)}): lower GPU use so it doesn't run out of memory.</p>
+      )}
     </div>
   );
 }

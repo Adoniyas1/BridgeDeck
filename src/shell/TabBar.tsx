@@ -13,6 +13,7 @@ import type { FeatureManifest } from '../features/features'
 import { CodeChip } from '../features/messages/CodeChip'
 import { SpotifyMini } from '../features/spotify/SpotifyMini'
 import { ChecklistPopup } from '../features/notes/ChecklistPopup'
+import { logActivity } from '../core/activity'
 
 const pages = features.filter(feature => feature.Page)
 const byId = (id: string) => pages.find(feature => feature.id === id)
@@ -99,6 +100,7 @@ export default function TabBar() {
   useEffect(() => {
     const group = groupOf(active)
     if (group && lastInGroupStore.get()[group.id] !== active) lastInGroupStore.set(map => ({ ...map, [group.id]: active }))
+    logActivity('tabs', `Opened ${active}`)
   }, [active])
 
   // Ctrl+Tab / Ctrl+Shift+Tab move between pages, like a browser.

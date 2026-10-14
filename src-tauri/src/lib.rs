@@ -19,7 +19,10 @@ mod adblock;
 mod extensions;
 mod backups;
 mod canvas;
+mod activity;
 mod circuits;
+mod hardware;
+mod watchdog;
 mod code;
 mod errorlog;
 mod python;
@@ -577,7 +580,12 @@ pub fn run() {
         .manage(BridgeLinkManager::default())
         .manage(sync_sidecar::SyncSidecar::default())
         .setup(|app| {
+            activity::init(app.handle());
             errorlog::init(app.handle());
+            activity::info("app", &format!("BridgeDeck {} started on {}.", env!("CARGO_PKG_VERSION"), sysinfo::System::long_os_version().unwrap_or_default()));
+            // What it's running on (nvidia-smi can take a moment, so not in the way of starting up).
+            std::thread::spawn(|| activity::info("hardware", &hardware::summary(&hardware::read())));
+            watchdog::start(app.handle());
             sync_sidecar::init(app.handle());
             transfer::init(app.handle());
             study::init(app.handle());
@@ -706,6 +714,13 @@ pub fn run() {
             circuits::circuit_delete,
             circuits::circuit_versions,
             circuits::circuit_version_load,
+            activity::activity_read,
+            activity::activity_add,
+            activity::activity_clear,
+            hardware::hardware_info,
+            watchdog::safety_status,
+            watchdog::safety_set,
+            watchdog::safety_stop_ai,
             code::code_languages,
             code::code_run,
             code::code_files,
@@ -830,6 +845,7 @@ pub fn run() {
                 send_to::deliver(app, urls.iter().filter_map(|url| url.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect());
             }
             tauri::RunEvent::Exit => {
+                activity::info("app", "BridgeDeck closed.");
                 errorlog::closed();
                 mimir_host::stop();
                 sync_sidecar::shutdown(app);

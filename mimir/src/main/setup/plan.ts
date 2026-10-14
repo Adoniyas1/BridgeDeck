@@ -45,7 +45,10 @@ export function defaultSetup(computer: SetupComputer): SetupConfig {
     autostart: false,
     keepBothLoaded: false,
     models: structuredClone(DEFAULT_MODELS[computer]),
-    modelDirs: []
+    modelDirs: [],
+    // The PC keeps a fifth of each model on the CPU, so the card isn't filled to the brim; the Mac's
+    // GPU shares its memory, so there's nothing to gain there.
+    gpuShare: computer === "mac" ? 100 : 80
   };
 }
 
@@ -83,7 +86,8 @@ export function cleanSetupConfig(raw: unknown, platform: NodeJS.Platform = proce
       executor: cleanModel(models?.executor, base.models.executor),
       checker: models && "checker" in models ? (models.checker ? cleanModel(models.checker, base.models.checker ?? base.models.head) : null) : base.models.checker
     },
-    modelDirs: Array.isArray(c.modelDirs) ? c.modelDirs.filter((d): d is string => typeof d === "string" && d.trim().length > 0).map((d) => d.trim().slice(0, 500)).slice(0, 10) : []
+    modelDirs: Array.isArray(c.modelDirs) ? c.modelDirs.filter((d): d is string => typeof d === "string" && d.trim().length > 0).map((d) => d.trim().slice(0, 500)).slice(0, 10) : [],
+    gpuShare: typeof c.gpuShare === "number" && Number.isFinite(c.gpuShare) ? Math.round(Math.min(100, Math.max(0, c.gpuShare)) / 5) * 5 : base.gpuShare
   };
 }
 
@@ -128,9 +132,40 @@ export function cmdPath(p: string): string {
 
 const q = (s: string) => JSON.stringify(s);
 
+/** How a model's layers split between the GPU and the CPU (from setup/gpu.ts). */
+export type LayerSplit = { layers: number; onGpu: number; fromFile: boolean };
+
+const NGL = /(^|\s)(-ngl|--n-gpu-layers|--gpu-layers)(\s+|=)(\d+|all|auto)\b/;
+
+/** A mixture-of-experts model (e.g. Qwen3.5-35B-A3B: 35B in all, 3B used per word). */
+export const isMoe = (source: string): boolean => /[-_]A\d+(\.\d+)?B\b|moe|mixtral/i.test(source);
+
+const CPU_MOE = /(^|\s)--n-cpu-moe(\s+|=)(\d+)\b/;
+
+/** A model's arguments with the GPU share applied: at 100 % they're left as they are. Below, an
+ * ordinary model gets -ngl (that many layers on the GPU, the rest on the CPU), unless the arguments
+ * already ask for fewer. A mixture-of-experts model instead keeps every layer on the GPU and puts
+ * the experts of the other layers in RAM (--n-cpu-moe): every word uses only a few experts, so
+ * that's much faster than running whole layers on the CPU. */
+export function argsForShare(args: string, share: number, split: LayerSplit, moe = false): string {
+  if (share >= 100) return args;
+  if (moe) {
+    const onCpu = split.layers - split.onGpu;
+    const m = CPU_MOE.exec(args);
+    if (m && Number(m[3]) >= onCpu) return args;
+    return m ? args.replace(CPU_MOE, `$1--n-cpu-moe ${onCpu}`) : `${args} --n-cpu-moe ${onCpu}`.trim();
+  }
+  const m = NGL.exec(args);
+  const current = m && /^\d+$/.test(m[4]!) ? Number(m[4]) : null;
+  if (current !== null && current <= split.onGpu) return args;
+  const flag = `-ngl ${split.onGpu}`;
+  return m ? args.replace(NGL, `$1${flag}`) : `${args} ${flag}`.trim();
+}
+
+
 /** The llama-swap config for this computer. `server` is the llama-server to run; a model on this
  * computer is loaded with -m, one from Hugging Face with -hf (downloaded on first use). */
-export function swapYaml(config: SetupConfig, server: string): string {
+export function swapYaml(config: SetupConfig, server: string, splits: Partial<Record<"head" | "executor" | "checker", LayerSplit>> = {}): string {
   const lines = [
     "# Written by Mimir (Settings → Model servers). Change the models there; edits here are replaced.",
     "healthCheckTimeout: 1800 # the first start downloads the model",
@@ -142,7 +177,10 @@ export function swapYaml(config: SetupConfig, server: string): string {
     const m = config.models[role]!;
     const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}` : `-hf ${m.source}`;
     const cmd = `${cmdPath(server)} ${from} --host 127.0.0.1 --port \${PORT}`;
-    lines.push(`  ${q(m.name)}:`, `    cmd: ${q(m.args ? `${cmd} ${m.args}` : cmd)}`);
+    // Below 100 %, part of the model runs on the CPU (-ngl: how many layers go on the GPU).
+    const split = splits[role];
+    const args = split ? argsForShare(m.args, config.gpuShare, split, isMoe(m.source)) : m.args;
+    lines.push(`  ${q(m.name)}:`, `    cmd: ${q(args ? `${cmd} ${args}` : cmd)}`);
     // On the 8 GB Mac an idle model gives its memory back after 10 minutes.
     if (config.computer === "mac") lines.push("    ttl: 600");
   }

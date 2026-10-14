@@ -8,6 +8,7 @@ import type {
   ToolDef
 } from "./Provider.js";
 import { normalizeBaseUrl } from "./baseUrl.js";
+import { modelCallEnded, modelCallStarted } from "../setup/adaptive.js";
 
 /**
  * Talks to any server implementing the OpenAI chat-completions wire format —
@@ -58,7 +59,17 @@ export class OpenAICompatibleProvider implements BrainProvider {
     return false;
   }
 
-  async *chat(
+  /** Counted as a model call in progress (so the load watch restarts llama-swap only between answers). */
+  async *chat(messages: BrainMessage[], tools: ToolDef[], opts: ChatOpts): AsyncGenerator<ChatEvent, void, unknown> {
+    modelCallStarted();
+    try {
+      yield* this.stream(messages, tools, opts);
+    } finally {
+      modelCallEnded();
+    }
+  }
+
+  private async *stream(
     messages: BrainMessage[],
     tools: ToolDef[],
     opts: ChatOpts

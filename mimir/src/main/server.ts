@@ -13,6 +13,8 @@
  * the new build to run).
  */
 import http from "node:http";
+import { installCrashLog, recordCrash } from "./logs/crashLog.js";
+import { pruneLogs } from "./logs/turnLog.js";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -69,7 +71,7 @@ import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { checkEngine } from "./engines/common.js";
-import { autostartSwap, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
+import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { ChatGptSession } from "./chatgpt/session.js";
@@ -522,6 +524,7 @@ async function main(): Promise<void> {
   await reportHealthy();
   void syncTeamWithSetup().catch(() => false);
   void autostartSwap();
+  startLoadWatch();
 
   const shutdown = () => {
     void mcpManager.closeAll();
@@ -543,7 +546,10 @@ async function main(): Promise<void> {
 }
 
 if (process.env.MIMIR_NO_AUTOSTART !== "1") {
+  installCrashLog();
+  void pruneLogs();
   main().catch((error) => {
+    recordCrash("failed to start", error);
     console.error("[mimir] failed to start:", error);
     process.exit(1);
   });

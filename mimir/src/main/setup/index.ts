@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, existsSync, readdirSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, statSync } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,8 +11,10 @@ import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
 import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from "../../shared/types.js";
-import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, localSwapUrl, mergeSetupConfig, setupRoles, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
+import { gpuInfo, layerSplit, modelFile } from "./gpu.js";
+import { logActivity, lowerShare, modelIdleFor, underPressure } from "./adaptive.js";
 
 /**
  * Settings → Model servers: gets llama-swap and the team's models running on this computer
@@ -431,6 +433,15 @@ async function fileText(file: string): Promise<string | null> {
   }
 }
 
+/** Each model's layers and how many go on the GPU at the configured share (read from the model's
+ * file when it's here, else typical for its size). */
+export function splitsFor(config: SetupConfig): Partial<Record<"head" | "executor" | "checker", LayerSplit>> {
+  return Object.fromEntries(setupRoles(config).map((r) => [r, layerSplit(config.models[r]!.source, config.gpuShare)]));
+}
+
+/** The llama-swap config with this computer's GPU share applied. */
+const yamlFor = (config: SetupConfig, server: string) => swapYaml(config, server, splitsFor(config));
+
 /** The steps for this computer and how far along each one is. */
 export async function setupView(): Promise<SetupView> {
   let config = await loadSetupConfig();
@@ -441,7 +452,7 @@ export async function setupView(): Promise<SetupView> {
   const local = useLocalCopies(config, pickModels(found, config.computer));
   if (local) config = await saveSetupConfig({ models: local });
   const server = await findServer(config);
-  const yaml = swapYaml(config, server ?? "llama-server");
+  const yaml = yamlFor(config, server ?? "llama-server");
   const written = await fileText(SWAP_CONFIG);
   const up = await answers(localSwapUrl(config));
   // What a running llama-swap serves, against what these settings list (an old one may still run).
@@ -543,6 +554,22 @@ export async function setupView(): Promise<SetupView> {
     found,
     server,
     memory: { availableBytes: await availableMemory(), totalBytes: os.totalmem() },
+    gpus: await gpuInfo(),
+    splits: Object.fromEntries(
+      Object.entries(splitsFor(config)).map(([role, split]) => {
+        const source = config.models[role as "head"]!.source;
+        const file = modelFile(source);
+        let bytes: number | null;
+        try {
+          bytes = file ? statSync(file).size : null;
+        } catch {
+          bytes = null;
+        }
+        const need = memoryNeeded(source, bytes);
+        const gpuBytes = (need * split!.onGpu) / split!.layers;
+        return [role, { ...split!, gpuBytes, cpuBytes: need - gpuBytes, moe: isMoe(source) }];
+      })
+    ),
     storage: await storageItems(),
     steps,
     yaml,
@@ -589,7 +616,7 @@ export async function runSetupStep(id: string): Promise<string> {
     case "config": {
       const server = await findServer(config);
       await mkdir(path.dirname(SWAP_CONFIG), { recursive: true });
-      await writeFile(SWAP_CONFIG, swapYaml(config, server ?? "llama-server"), "utf-8");
+      await writeFile(SWAP_CONFIG, yamlFor(config, server ?? "llama-server"), "utf-8");
       return server ? `Wrote ${SWAP_CONFIG}.` : `Wrote ${SWAP_CONFIG}, but llama-server isn't installed yet.`;
     }
     case "start": {
@@ -598,7 +625,7 @@ export async function runSetupStep(id: string): Promise<string> {
       const outdated =
         running !== null &&
         (setupRoles(config).some((r) => !running.includes(config.models[r]!.name)) ||
-          (swap.running && (await fileText(SWAP_CONFIG)) !== swapYaml(config, (await findServer(config)) ?? "llama-server")));
+          (swap.running && (await fileText(SWAP_CONFIG)) !== yamlFor(config, (await findServer(config)) ?? "llama-server")));
       if (outdated) {
         // Restart: stop Mimir's llama-swap, or close one started some other way.
         if (swap.running) swap.stop();
@@ -670,4 +697,52 @@ export async function autostartSwap(): Promise<void> {
   } catch {
     /* shown in Settings → Model servers */
   }
+}
+
+let watching: NodeJS.Timeout | null = null;
+
+/** The load watch (setup/adaptive.ts): while Mimir's llama-swap runs, every 5 s, eases off the GPU
+ * when the computer stays under pressure. Started once, when Mimir starts. */
+export function startLoadWatch(): void {
+  if (watching) return;
+  let expected = Date.now() + 5000;
+  let strained = 0;
+  let restartPending = false;
+  watching = setInterval(() => {
+    const lagMs = Math.max(0, Date.now() - expected);
+    expected = Date.now() + 5000;
+    void (async () => {
+      if (!swap.running) {
+        strained = 0;
+        return;
+      }
+      const config = await loadSetupConfig();
+      if (restartPending && modelIdleFor() > 10_000) {
+        restartPending = false;
+        const server = await findServer(config);
+        await writeFile(SWAP_CONFIG, yamlFor(config, server ?? "llama-server"), "utf-8");
+        swap.stop();
+        await new Promise((r) => setTimeout(r, 1500));
+        swap.start(config);
+        logActivity(`Restarted llama-swap with ${config.gpuShare}% of each model on the GPU.`);
+        return;
+      }
+      if (config.computer === "mac") return; // the Mac's GPU shares its memory: nothing to move
+      const vram = (await gpuInfo()).filter((g) => !g.shared && g.usedBytes !== null).map((g) => Math.round((g.usedBytes! * 100) / g.totalBytes));
+      const ramPercent = Math.round(((os.totalmem() - (await availableMemory())) * 100) / os.totalmem());
+      const why = underPressure({ vramPercent: vram.length ? Math.max(...vram) : null, ramPercent, lagMs });
+      strained = why ? strained + 1 : 0;
+      if (!why || strained < 3) return;
+      strained = 0;
+      const next = lowerShare(config.gpuShare);
+      if (next === null) {
+        logActivity(`Under pressure (${why}) with the GPU share already at its lowest (${config.gpuShare}%).`);
+        return;
+      }
+      await saveSetupConfig({ gpuShare: next });
+      restartPending = true;
+      logActivity(`Under pressure (${why}): moving more of each model to the CPU, GPU share ${config.gpuShare}% → ${next}%. llama-swap restarts once no model is answering.`);
+    })().catch((err) => logActivity(`Load watch: ${err instanceof Error ? err.message : String(err)}`));
+  }, 5000);
+  watching.unref();
 }
