@@ -3,8 +3,10 @@ import ReactDOM from 'react-dom/client'
 import App from './shell/App'
 import './styles.css'
 import { installErrorLog } from './core/errorlog'
+import { installActivityLog } from './core/activity'
 
 installErrorLog()
+installActivityLog()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

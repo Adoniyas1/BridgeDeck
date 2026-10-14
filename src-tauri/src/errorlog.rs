@@ -66,6 +66,10 @@ pub fn record(source: &str, message: &str) {
     }
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else { return };
     let _ = writeln!(file, "{}", entry(&crate::diagnostics::now_text(), source, message));
+    drop(_guard);
+    // Every error and crash is in the activity log too, among what was going on at the time.
+    let kind = if source == "crash" || source == "unclean-exit" { crate::activity::Kind::Crash } else { crate::activity::Kind::Error };
+    crate::activity::record(kind, source, message);
 }
 
 fn entry(time: &str, source: &str, message: &str) -> String {

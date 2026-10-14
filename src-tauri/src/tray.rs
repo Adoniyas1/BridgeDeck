@@ -53,9 +53,10 @@ fn build_menu<R: Runtime, M: Manager<R>>(app: &M, peers: &[TrayPeer], clipboard:
     let send = Submenu::with_items(app, "Send files to", !send_items.is_empty(), &as_items(&send_items))?;
     let clipboard = CheckMenuItem::with_id(app, "clipboard", "Share clipboard", true, clipboard, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop-remote", "Stop remote control", true, None::<&str>)?;
+    let stop_ai = MenuItem::with_id(app, "stop-ai", "Stop the AI models", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit BridgeDeck", true, None::<&str>)?;
     let (line1, line2) = (PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?);
-    Menu::with_items(app, &[&show, &line1, &control, &send, &clipboard, &line2, &stop, &quit])
+    Menu::with_items(app, &[&show, &line1, &control, &send, &clipboard, &line2, &stop, &stop_ai, &quit])
 }
 
 /// Rebuilds the tray menu with the current paired computers and settings.
@@ -82,6 +83,9 @@ pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main(app),
             "stop-remote" => crate::remote::host::stop_all(),
+            "stop-ai" => {
+                crate::watchdog::safety_stop_ai();
+            }
             "quit" => app.exit(0),
             "clipboard" => ui_action(app, serde_json::json!({ "action": "clipboard" })),
             id => {

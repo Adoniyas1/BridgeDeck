@@ -14,13 +14,22 @@ export function redactSecrets(text: string) {
   return text.replace(/(password|apikey|api_key|access_token|token)=([^&\s)"']+)/gi, '$1=***')
 }
 
+/** Told about each native command once it finishes (the activity log, core/activity.ts): its name,
+ *  how long it took, and the error if it failed. Never its arguments. */
+export const commandWatch: { done?: (command: string, ms: number, error?: string) => void } = {}
+
 async function invokeSafe<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
   if (!isTauri()) return null
+  const started = performance.now()
   try {
-    return await invoke<T>(command, args)
+    const result = await invoke<T>(command, args)
+    commandWatch.done?.(command, performance.now() - started)
+    return result
   } catch (error) {
     // Defense in depth: native commands strip URLs from network errors, but never surface a secret.
-    throw typeof error === 'string' ? redactSecrets(error) : error instanceof Error ? new Error(redactSecrets(error.message)) : error
+    const safe = typeof error === 'string' ? redactSecrets(error) : error instanceof Error ? new Error(redactSecrets(error.message)) : error
+    commandWatch.done?.(command, performance.now() - started, safe instanceof Error ? safe.message : String(safe))
+    throw safe
   }
 }
 
@@ -582,6 +591,20 @@ export type CodeLanguage = { id: string; name: string; ext: string; available: b
 export type CodeStep = { ok: boolean; stdout: string; stderr: string; exitCode: number | null; ms: number; timedOut: boolean }
 export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string }
 export type CodeFile = { name: string; language: string; modified: number }
+/** The activity log (src-tauri/src/activity.rs), this computer's hardware, and the safety stop
+ *  (watchdog.rs) that stops the AI models before they freeze the computer. */
+export type ActivityLog = { text: string; mimir: string; path: string }
+export const activityRead = () => native<ActivityLog>('activity_read')
+export const activityAdd = (entries: Array<{ kind: string; source: string; message: string }>) => native<void>('activity_add', { entries })
+export const activityClear = () => native<void>('activity_clear')
+export type Gpu = { name: string; totalBytes: number; usedBytes: number | null; freeBytes: number | null; shared: boolean }
+export type Hardware = { ramTotal: number; ramAvailable: number; cpu: string; cores: number; gpus: Gpu[] }
+export const hardwareInfo = () => native<Hardware>('hardware_info')
+export type SafetySettings = { enabled: boolean; memoryPercent: number; vramPercent: number; closeApp: boolean }
+export type SafetyStatus = { settings: SafetySettings; memoryUsedPercent: number; vramUsedPercent: number | null; aiRunning: boolean; lastStop: string | null }
+export const safetyStatus = () => native<SafetyStatus>('safety_status')
+export const safetySet = (settings: SafetySettings) => native<SafetySettings>('safety_set', { settings })
+export const safetyStopAi = () => native<number>('safety_stop_ai')
 export const codeLanguages = (refresh = false) => native<CodeLanguage[]>('code_languages', { refresh })
 export const codeRun = (language: string, source: string, input: string, limitSecs: number) => native<CodeRun>('code_run', { language, source, input, limitSecs })
 export const codeFiles = () => native<CodeFile[]>('code_files')

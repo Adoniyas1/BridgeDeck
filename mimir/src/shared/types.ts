@@ -243,6 +243,18 @@ export interface SetupConfig {
   models: { head: SetupModel; executor: SetupModel; checker: SetupModel | null };
   /** Extra folders to look in for .gguf files. */
   modelDirs: string[];
+  /** How much of each model goes on the GPU, in percent (the rest runs on the CPU from RAM). */
+  gpuShare: number;
+}
+
+/** A graphics card and its memory. On a Mac the GPU shares the computer's memory (`shared`). */
+export interface GpuInfo {
+  name: string;
+  vendor: "nvidia" | "amd" | "intel" | "apple" | "other";
+  totalBytes: number;
+  usedBytes: number | null;
+  freeBytes: number | null;
+  shared: boolean;
 }
 
 export type SetupStepState = "done" | "todo" | "error";
@@ -277,6 +289,10 @@ export interface SetupView {
   /** The llama-server Mimir will use, if any. */
   server: string | null;
   memory: { availableBytes: number; totalBytes: number };
+  /** The graphics cards and their memory (VRAM). */
+  gpus: GpuInfo[];
+  /** Each model's layers and how many go on the GPU, with about how much VRAM and RAM that takes. */
+  splits: Partial<Record<"head" | "executor" | "checker", { layers: number; onGpu: number; fromFile: boolean; gpuBytes: number; cpuBytes: number; moe: boolean }>>;
   storage: StorageItem[];
   steps: SetupStep[];
   /** The llama-swap config Mimir writes. */

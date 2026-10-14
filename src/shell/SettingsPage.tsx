@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
-import { Bell, CheckCircle2, Info, Search, Settings2 } from 'lucide-react'
+import { Activity, Bell, CheckCircle2, Info, Search, Settings2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { defaultConfig } from '../lib/config'
 import { setConfig } from '../core/config'
@@ -12,6 +12,7 @@ import { version } from '../../package.json'
 import NotificationSettings from './NotificationSettings'
 import DiagnosticsButton from './DiagnosticsButton'
 import ErrorLogCard from './ErrorLogCard'
+import ActivitySettings from './ActivitySettings'
 
 type Section = { id: string; title: string; icon: LucideIcon; group: string; Body: ComponentType }
 
@@ -43,7 +44,7 @@ export default function SettingsPage() {
     }))
     const groupIndex = (title: string) => { const i = GROUPS.findIndex(g => g.title === title); return i < 0 ? GROUPS.length : i }
     own.sort((a, b) => groupIndex(a.group) - groupIndex(b.group) || a.order - b.order)
-    return [...own, { id: 'notifications', title: 'Notifications', icon: Bell, group: 'App', Body: NotificationSettings }, { id: 'about', title: 'About & diagnostics', icon: Info, group: 'App', Body: About }]
+    return [...own, { id: 'notifications', title: 'Notifications', icon: Bell, group: 'App', Body: NotificationSettings }, { id: 'activity', title: 'Activity & safety', icon: Activity, group: 'App', Body: ActivitySettings }, { id: 'about', title: 'About & diagnostics', icon: Info, group: 'App', Body: About }]
   }, [])
   const [selected, setSelected] = useState(() => { try { return localStorage.getItem(SELECTED_KEY) ?? sections[0].id } catch { return sections[0].id } })
   const [query, setQuery] = useState('')

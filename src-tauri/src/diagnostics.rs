@@ -138,7 +138,7 @@ pub fn local_report(app: &AppHandle) -> String {
 pub async fn diagnostics_report(app: AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let manager = app.state::<BridgeLinkManager>().inner().clone();
-        let mut report = format!("BridgeDeck diagnostics, {}\n\n", chrono_like_now());
+        let mut report = format!("BridgeDeck diagnostics, {}\n\n", chrono_like_now(false));
         report.push_str(&local_report(&app));
         for (id, name) in crate::bridgelink::peer::paired_peers(&manager) {
             report.push('\n');
@@ -157,10 +157,15 @@ pub async fn diagnostics_report(app: AppHandle) -> Result<String, String> {
 
 /// UTC time as "2026-10-01 14:05 UTC" without a date crate.
 pub fn now_text() -> String {
-    chrono_like_now()
+    chrono_like_now(false)
 }
 
-fn chrono_like_now() -> String {
+/// The time to the second, for the activity log.
+pub fn now_text_seconds() -> String {
+    chrono_like_now(true)
+}
+
+fn chrono_like_now(seconds: bool) -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     // Civil-from-days (Howard Hinnant's algorithm).
@@ -173,6 +178,9 @@ fn chrono_like_now() -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
+    if seconds {
+        return format!("{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC", rem / 3600, (rem % 3600) / 60, rem % 60);
+    }
     format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", rem / 3600, (rem % 3600) / 60)
 }
 
@@ -192,7 +200,7 @@ mod tests {
 
     #[test]
     fn the_date_is_formatted_from_the_clock() {
-        let now = chrono_like_now();
+        let now = chrono_like_now(false);
         assert!(now.ends_with(" UTC") && now.len() == "2026-10-01 14:05 UTC".len(), "{now}");
         assert!(now.starts_with("20"));
     }
