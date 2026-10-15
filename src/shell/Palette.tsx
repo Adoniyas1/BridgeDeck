@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { Keyboard, Search } from 'lucide-react'
-import { isTauri, notesCreate, studySearch, type StudyHit } from '../lib/bridge'
+import { circuitsList, codeFiles, isTauri, notesCreate, studySearch, type CircuitFile, type CodeFile, type StudyHit } from '../lib/bridge'
+import { openCircuitRequest, openCodeRequest } from '../core/openRequests'
+import { useAssignments } from '../features/study/assignments'
 import { askChatGPT } from '../core/chatgpt'
 import { configStore } from '../core/config'
 import { CTRL_SHORTCUTS, MOD, openInBrowser, paletteStore, runShortcut, shortcutFor, shortcutsHelpStore, SHORTCUTS, type ShortcutName } from '../core/shortcuts'
@@ -57,8 +59,15 @@ function PaletteBox() {
   const events = useStore(eventsStore)
   const history = useStore(historyStore)
   const dynamic = useStore(tabsStore).dynamic
+  const assignments = useAssignments()
+  const [saved, setSaved] = useState<{ circuits: CircuitFile[]; code: CodeFile[] }>({ circuits: [], code: [] })
 
   useEffect(() => { input.current?.focus() }, [])
+  // Saved circuits and programs, listed once when search opens.
+  useEffect(() => {
+    if (!isTauri()) return
+    void Promise.all([circuitsList().catch(() => []), codeFiles().catch(() => [])]).then(([circuits, code]) => setSaved({ circuits, code }))
+  }, [])
 
   // The books' text is searched natively, a moment after typing stops.
   useEffect(() => {
@@ -87,6 +96,12 @@ function PaletteBox() {
         .map(n => ({ id: `note:${n.id}`, group: 'Notes', title: noteTitle(n) || 'Untitled', detail: [n.folder, preview(n)].filter(Boolean).join(' · '), run: go(() => { openNoteRequest.set(n.id); activateTab('notes') }) })))
       out.push(...best(events.filter(e => !e.deleted), q, e => [e.title, e.location], 4)
         .map(e => ({ id: `event:${e.id}`, group: 'Calendar', title: e.title, detail: new Date(e.start).toLocaleString(undefined, { dateStyle: 'medium', ...(e.allDay ? {} : { timeStyle: 'short' }) }), run: go(() => activateTab('calendar')) })))
+      out.push(...best(saved.circuits, q, c => [c.name, c.project], 4)
+        .map(c => ({ id: `circuit:${c.project}/${c.name}`, group: 'Circuits', title: c.name, detail: c.project || 'Logic', run: go(() => { openCircuitRequest.set(c); activateTab('logic') }) })))
+      out.push(...best(saved.code, q, c => [c.name, c.language], 4)
+        .map(c => ({ id: `code:${c.language}/${c.name}`, group: 'Code', title: c.name, detail: c.language, run: go(() => { openCodeRequest.set(c); activateTab('code') }) })))
+      out.push(...best(assignments.filter(a => !a.done), q, a => [a.title, a.course], 4)
+        .map(a => ({ id: `assignment:${a.id}`, group: 'Assignments', title: a.title, detail: [a.course, a.due ? `due ${new Date(a.due).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : ''].filter(Boolean).join(' · '), run: go(() => activateTab('study')) })))
       out.push(...books.map((b, i) => ({ id: `book:${i}:${b.file}:${b.page}`, group: 'Books', title: `${b.book}, p. ${b.page}`, detail: b.snippet, run: go(() => openBook(b.course, b.file, b.book, b.page)) })))
       const pages = [...configStore.get().browsing.bookmarks.map(b => ({ url: b.url, title: b.name, mark: true })), ...history.map(h => ({ url: h.url, title: h.title, mark: false }))]
       const seen = new Set<string>()

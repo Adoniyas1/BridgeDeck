@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studySetCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -20,6 +20,7 @@ import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
 import { ClassTimes, TermCard } from './ClassTimes'
 import { GradesCard } from './GradesCard'
+import { StudyPlanner } from './StudyPlanner'
 import { CoursePhotos, isPhoto } from './CoursePhotos'
 import { CourseFiles, isSlides } from './CourseFiles'
 import { canvasStore } from './canvasStore'
@@ -40,6 +41,7 @@ export default function StudyPage({ active }: { active: boolean }) {
   }, 10_000, [active])
   const [showArchived, setShowArchived] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
+  const [plannerOpen, setPlannerOpen] = useState(false)
   const all = library?.courses ?? []
   const courses = all.filter(c => !c.archived)
   const archived = all.filter(c => c.archived)
@@ -70,15 +72,16 @@ export default function StudyPage({ active }: { active: boolean }) {
     <aside className="card study-courses">
       <SectionTitle title="Courses" subtitle="Each has its books, notes, checklists and exams" />
       <div className="study-course-list">
-        {courses.map(c => <button key={c.name} className={c.name === course?.name && !planOpen ? 'active' : ''} title={c.info.title || undefined} onClick={() => { setSelected(c.name); setPlanOpen(false) }}>
+        {courses.map(c => <button key={c.name} className={c.name === course?.name && !planOpen && !plannerOpen ? 'active' : ''} title={c.info.title || undefined} onClick={() => { setSelected(c.name); setPlanOpen(false); setPlannerOpen(false) }}>
           <GraduationCap size={15} /><span>{c.name}{c.info.title && c.info.title !== c.name ? <small className="study-course-title">{c.info.title}</small> : null}</span><small>{c.books.length}</small>
         </button>)}
       </div>
       <TermCard />
-      <button className={`ghost study-plan-toggle${planOpen ? ' active' : ''}`} onClick={() => setPlanOpen(v => !v)}><MapIcon size={13} />Degree plan</button>
+      <button className={`ghost study-plan-toggle${plannerOpen ? ' active' : ''}`} onClick={() => { setPlannerOpen(v => !v); setPlanOpen(false) }}><CalendarRange size={13} />Study planner</button>
+      <button className={`ghost study-plan-toggle${planOpen ? ' active' : ''}`} onClick={() => { setPlanOpen(v => !v); setPlannerOpen(false) }}><MapIcon size={13} />Degree plan</button>
       {archived.length > 0 && <button className="ghost study-archived-toggle" onClick={() => setShowArchived(v => !v)}><Archive size={13} />{showArchived ? 'Hide' : 'Show'} archived ({archived.length})</button>}
       {showArchived && <div className="study-course-list archived">
-        {archived.map(c => <button key={c.name} className={c.name === course?.name && !planOpen ? 'active' : ''} onClick={() => { setSelected(c.name); setPlanOpen(false) }}>
+        {archived.map(c => <button key={c.name} className={c.name === course?.name && !planOpen && !plannerOpen ? 'active' : ''} onClick={() => { setSelected(c.name); setPlanOpen(false); setPlannerOpen(false) }}>
           <Archive size={15} /><span>{c.name}</span><small>{c.books.length}</small>
         </button>)}
       </div>}
@@ -89,7 +92,8 @@ export default function StudyPage({ active }: { active: boolean }) {
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
     </aside>
-    {planOpen ? <div className="study-course"><DegreePlan courses={all} onOpen={name => { setSelected(name); setPlanOpen(false) }} /></div>
+    {plannerOpen ? <StudyPlanner />
+      : planOpen ? <div className="study-course"><DegreePlan courses={all} onOpen={name => { setSelected(name); setPlanOpen(false) }} /></div>
       : course ? <CourseView key={course.name} course={course} name={course.name} archived={course.archived} courses={courses.map(c => c.name)} books={course.books} root={library!.root} onStatus={setStatus} status={status}
         onArchive={on => void archive(course.name, on)} onDelete={() => void remove(course.name)} />
       : <div className="study-course"><Card className="study-empty"><GraduationCap size={28} /><h3>Add your first course</h3><p>Then add its textbooks (PDF), and BridgeDeck keeps them on both computers with your notes, chapter checklists and exam dates.</p></Card><AssignmentsCard courses={[]} /><CanvasCard /></div>}

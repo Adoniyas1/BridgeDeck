@@ -563,6 +563,16 @@ export const drawingSave = (id: string, scene: string, svg: string) => native<vo
 export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; bytes: number; mine: boolean }
 export type BackupRestored = { notes: number; events: number; settings: unknown | null }
 export const backupsList = () => native<BackupInfo[]>('backups_list')
+/** Everything (notes, calendar, settings, circuits, programs) in one .zip, and bringing one back. */
+export const backupExport = (path: string) => native<string>('backup_export', { path })
+export const backupImport = (path: string, settings: boolean) => native<BackupRestored>('backup_import', { path, settings })
+export async function pickBackupFile(mode: 'open' | 'save'): Promise<string | null> {
+  if (!isTauri()) return null
+  const filters = [{ name: 'BridgeDeck export', extensions: ['zip'] }]
+  if (mode === 'save') return (await save({ defaultPath: `BridgeDeck ${new Date().toISOString().slice(0, 10)}.zip`, filters })) ?? null
+  const picked = await open({ multiple: false, filters })
+  return typeof picked === 'string' ? picked : null
+}
 export const backupNow = () => native<string>('backup_now')
 export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings })
 /** Logic circuits, kept in the shared folder (src-tauri/src/circuits.rs). */
@@ -602,6 +612,7 @@ export type ActivityLog = { text: string; mimir: string; path: string }
 export const activityRead = () => native<ActivityLog>('activity_read')
 export const activityAdd = (entries: Array<{ kind: string; source: string; message: string }>) => native<void>('activity_add', { entries })
 export const activityClear = () => native<void>('activity_clear')
+export const aiSpeedLog = () => native<{ speed: string; activity: string }>('ai_speed_log')
 export type Gpu = { name: string; totalBytes: number; usedBytes: number | null; freeBytes: number | null; shared: boolean }
 export type Hardware = { ramTotal: number; ramAvailable: number; cpu: string; cores: number; gpus: Gpu[] }
 export const hardwareInfo = () => native<Hardware>('hardware_info')

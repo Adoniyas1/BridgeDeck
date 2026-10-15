@@ -131,3 +131,16 @@ describe("expert models and easing off under load", () => {
     expect(keepTuning([...results.slice(0, 3), { share: 70, tokensPerSecond: 15, vramPercent: 70 }])).toBe(false);
   });
 });
+
+describe("speed log", () => {
+  it("records tokens per second for answers long enough to tell", async () => {
+    const { recordSpeed } = await import("../src/main/setup/adaptive.js");
+    const { mkdtempSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const file = path.join(mkdtempSync(path.join(tmpdir(), "speed-")), "speed.log");
+    recordSpeed("qwen 3", 100, 4000, file, new Date("2026-10-15T10:00:00Z"));
+    recordSpeed("qwen 3", 3, 100, file); // too short
+    expect(readFileSync(file, "utf-8")).toBe("2026-10-15T10:00:00.000Z\tqwen 3\t100\t25.0\n");
+  });
+});

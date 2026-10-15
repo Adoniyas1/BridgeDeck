@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArchiveRestore, Save } from 'lucide-react'
-import { backupNow, backupRestore, backupsList, isTauri, type BackupInfo } from '../../lib/bridge'
+import { ArchiveRestore, Download, Save, Upload } from 'lucide-react'
+import { backupExport, backupImport, backupNow, backupRestore, backupsList, isTauri, pickBackupFile, type BackupInfo } from '../../lib/bridge'
 import { mergeConfig } from '../../lib/config'
 import { setConfig } from '../../core/config'
 import { errorText, fmtSize } from '../../core/util'
@@ -26,6 +26,22 @@ export default function BackupsCard() {
 
   const backUp = () => run('now', async () => { await backupNow(); setMessage('Backed up.'); load() })
 
+  const exportAll = () => run('export', async () => {
+    const path = await pickBackupFile('save')
+    if (path) setMessage(await backupExport(path))
+  })
+
+  const importAll = () => run('import', async () => {
+    const path = await pickBackupFile('open')
+    if (!path) return
+    const withSettings = window.confirm('Also bring back the settings from that file? (OK: yes. Cancel: keep this computer’s settings.) Its devices and pairing stay as they are here either way.')
+    const done = await backupImport(path, withSettings)
+    if (done.settings) setConfig(current => ({ ...mergeConfig(done.settings as Partial<AppConfig>), devices: current.devices, pairing: current.pairing, localsend: current.localsend }))
+    await refreshNotes()
+    setMessage(`Imported ${done.notes} note${done.notes === 1 ? '' : 's'}, ${done.events} event${done.events === 1 ? '' : 's'}${done.settings ? ', settings' : ''}, and the circuits and programs (a file that was already here with other contents is kept, with the imported one beside it as “(imported)”).`)
+    load()
+  })
+
   const restore = (b: BackupInfo) => run(b.path, async () => {
     const done = await backupRestore(b.path, parts.notes, parts.events, parts.settings && b.mine)
     if (done.settings) {
@@ -39,7 +55,11 @@ export default function BackupsCard() {
   })
 
   return <Card><SectionTitle title="Backups" subtitle="Every day, notes (with flashcards), the calendar and settings are copied to the shared folder, so both computers keep two weeks of them." />
-    <div className="actions"><button disabled={!!busy || !isTauri()} onClick={() => void backUp()}><Save size={14} /> {busy === 'now' ? 'Backing up…' : 'Back up now'}</button></div>
+    <div className="actions">
+      <button disabled={!!busy || !isTauri()} onClick={() => void backUp()}><Save size={14} /> {busy === 'now' ? 'Backing up…' : 'Back up now'}</button>
+      <button className="secondary" disabled={!!busy || !isTauri()} onClick={() => void exportAll()} title="Notes, calendar, settings, circuits and programs in one .zip: for a new computer, a reinstall, or keeping a copy somewhere else"><Download size={14} /> {busy === 'export' ? 'Exporting…' : 'Export everything…'}</button>
+      <button className="secondary" disabled={!!busy || !isTauri()} onClick={() => void importAll()} title="Bring back an export made with Export everything"><Upload size={14} /> {busy === 'import' ? 'Importing…' : 'Import…'}</button>
+    </div>
     {message && <p className="hint">{message}</p>}
     {list && !list.length && <p className="hint">No backups yet. The first is made a minute or two after BridgeDeck starts.</p>}
     {!!list?.length && <div className="backup-list">{list.slice(0, 30).map(b => <div key={b.path} className="backup-row">
