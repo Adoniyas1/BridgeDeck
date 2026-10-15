@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clock3, FolderOpen, History, Trash2, X } from 'lucide-react'
 import type { CircuitFile } from '../../lib/bridge'
-import { chipDef, pinFacing, pinPoint, placedPins, readCircuit, sizeOf, wirePath, type Circuit } from './model'
+import { chipDef, pinFacing, pinPoint, placedPins, readCircuit, sizeOf, wirePath, type Circuit, type Level } from './model'
 import { PartShape } from './Symbols'
 
 /** A small picture of a circuit: its parts and wires, scaled to fit. */
-export function CircuitPreview({ circuit, width = 320, height = 220 }: { circuit: Circuit; width?: number; height?: number }) {
+export function CircuitPreview({ circuit, width = 320, height, pins }: { circuit: Circuit; width?: number; /** Default: as tall as the circuit's shape needs. */ height?: number; /** Levels to show (from a simulation). */ pins?: Record<string, Level> }) {
   const box = useMemo(() => {
     if (!circuit.parts.length) return null
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
@@ -18,7 +18,8 @@ export function CircuitPreview({ circuit, width = 320, height = 220 }: { circuit
     const pad = 20
     return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 }
   }, [circuit])
-  if (!box) return <div className="logic-preview empty" style={{ width, height }}>Empty circuit</div>
+  if (!box) return <div className="logic-preview empty" style={{ width, height: height ?? 220 }}>Empty circuit</div>
+  const h = height ?? Math.round(Math.min(width * 1.2, Math.max(120, (width * box.h) / box.w)))
   const end = (ref: string) => {
     const part = circuit.parts.find(p => ref.startsWith(`${p.id}:`))
     if (!part) return null
@@ -28,7 +29,7 @@ export function CircuitPreview({ circuit, width = 320, height = 220 }: { circuit
     const f = part.kind === 'joint' ? { x: 1, y: 0 } : pinFacing(part, pin)
     return { ...at, fx: f.x, fy: f.y }
   }
-  return <svg className="logic-preview" width={width} height={height} viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} preserveAspectRatio="xMidYMid meet">
+  return <svg className="logic-preview" width={width} height={h} viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} preserveAspectRatio="xMidYMid meet">
     {circuit.wires.map(w => {
       const a = end(w.a), b = end(w.b)
       return a && b ? <path key={w.id} d={wirePath(w, a, b)} className="logic-wire" style={{ stroke: '#7d8796' }} /> : null
@@ -36,7 +37,7 @@ export function CircuitPreview({ circuit, width = 320, height = 220 }: { circuit
     {circuit.parts.map(p => {
       const { w, h } = sizeOf(p)
       if (p.kind === 'joint') return <circle key={p.id} cx={p.x} cy={p.y} r={4} className="logic-preview-joint" />
-      return <g key={p.id} transform={p.rot ? `rotate(${p.rot} ${p.x + w / 2} ${p.y + h / 2})` : undefined}><PartShape part={p} level={() => undefined} selected={false} /></g>
+      return <g key={p.id} transform={p.rot ? `rotate(${p.rot} ${p.x + w / 2} ${p.y + h / 2})` : undefined}><PartShape part={p} level={pin => pins?.[`${p.id}:${pin}`]} selected={false} /></g>
     })}
   </svg>
 }
@@ -139,7 +140,7 @@ export function CircuitMenu({ mode, files, versions, file, loadFile, loadVersion
     </div>
     {shown && <div className="logic-menu__preview">
       {preview === 'error' ? <p className="hint">Couldn’t read this one.</p>
-        : preview ? <><CircuitPreview circuit={preview} /><p className="logic-menu__summary">{circuitSummary(preview)}</p></>
+        : preview ? <><CircuitPreview circuit={preview} height={220} /><p className="logic-menu__summary">{circuitSummary(preview)}</p></>
           : <p className="hint">Loading the preview…</p>}
       <button onClick={shown.onOpen}>{mode === 'open' ? 'Open' : 'Open this version'}</button>
       {mode === 'versions' && <p className="hint">The circuit you have open now stays in Versions when you save over it.</p>}

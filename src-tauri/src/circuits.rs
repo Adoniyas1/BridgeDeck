@@ -176,3 +176,20 @@ mod tests {
         assert!(!valid_name(&"x".repeat(81)));
     }
 }
+
+/// Saves a lab report (a web page) next to the circuits, in `Reports` (the project's own when it has
+/// one), and returns where, so the window can open it in the browser to print or save as a PDF.
+#[tauri::command]
+pub fn report_save(app: AppHandle, project: String, name: String, html: String) -> Result<String, String> {
+    if !valid_name(&name) {
+        return Err("That name can't be used for a file (no / \\ : * ? \" < > |)".into());
+    }
+    if html.len() > 8 * MAX_BYTES {
+        return Err("The report is too big".into());
+    }
+    let dir = folder(&app, &project)?.with_file_name("Reports");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{} – lab report.html", name.trim()));
+    fs::write(&path, html).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}

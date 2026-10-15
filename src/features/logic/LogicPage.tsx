@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CircuitBoard, FilePlus, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
-import { circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
+import { Activity, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
 import { projectFolder } from '../projects/model'
@@ -11,6 +11,10 @@ import {
 import { levelColor, PartShape } from './Symbols'
 import Breadboard from './Breadboard'
 import { CircuitMenu } from './Preview'
+import FsmEditor from './FsmEditor'
+import { buildFsmCircuit, loadCircuit } from './fsm'
+import { reportHtml, reportMarkdown } from './report'
+import { delayRun, levelAt } from './delays'
 
 const W = 4000, H = 3000
 const snap = (v: number) => Math.round(v / GRID) * GRID
@@ -36,7 +40,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [running, setRunning] = useState(false)
   const [clock, setClock] = useState(false)
   /** The canvas shows the schematic or the same circuit on a breadboard. */
-  const [view, setView] = useState<'schematic' | 'breadboard'>('schematic')
+  const [view, setView] = useState<'schematic' | 'breadboard' | 'fsm'>('schematic')
   const [speed, setSpeed] = useState(1)
   const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
   const [file, setFile] = useState({ project: '', name: 'Untitled circuit' })
@@ -296,7 +300,7 @@ export default function LogicPage({ active }: { active: boolean }) {
 
   const open = (f: CircuitFile) => run(async () => {
     if (dirty && !window.confirm('Open another circuit? Changes to this one aren’t saved.')) return
-    setCircuit(readCircuit(await circuitLoad(f.project, f.name)))
+    setCircuit(loadCircuit(await circuitLoad(f.project, f.name)))
     setFile({ project: f.project, name: f.name })
     setDirty(false)
     flops.current = {}
@@ -333,9 +337,21 @@ export default function LogicPage({ active }: { active: boolean }) {
         setMenu(m => (m === 'versions' ? null : 'versions'))
       }}><History size={14} /> Versions</button>
       <button className="ghost" onClick={fresh}><FilePlus size={14} /> New</button>
+      <details className="logic-open logic-report">
+        <summary className="ghost" title="A lab report: the circuit, truth table, K-maps, expressions, chips and wiring"><FileText size={14} /> Report</summary>
+        <div className="logic-files">
+          <button onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void run(async () => {
+            const path = await reportSave(file.project, file.name.trim() || 'Circuit', reportHtml(circuit, { title: file.name.trim() || 'Circuit', project: file.project, date: new Date() }))
+            await openPath(path)
+            setMessage(`Lab report saved as ${path}. It opened in your browser: print it or save it as a PDF from there.`)
+          }) }}><span>Open as a page</span><small>to print or save as a PDF</small></button>
+          <button onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void toNote(`${file.name} – lab report`, reportMarkdown(circuit, { title: file.name, project: file.project, date: new Date() })) }}><span>Save as a note</span><small>to write it up in Notes</small></button>
+        </div>
+      </details>
       <div className="logic-view" role="tablist" aria-label="View">
         <button role="tab" aria-selected={view === 'schematic'} className={view === 'schematic' ? 'on' : ''} onClick={() => setView('schematic')}>Schematic</button>
         <button role="tab" aria-selected={view === 'breadboard'} className={view === 'breadboard' ? 'on' : ''} onClick={() => setView('breadboard')}>Breadboard</button>
+        <button role="tab" aria-selected={view === 'fsm'} className={view === 'fsm' ? 'on' : ''} onClick={() => setView('fsm')} title="Design a state machine and build it with flip-flops">State machine</button>
       </div>
       <span className="grow" />
       <button className={`ghost${running ? ' active' : ''}`} onClick={() => setRunning(r => !r)} title="Run the clock parts">{running ? <Pause size={14} /> : <Play size={14} />} Clock</button>
@@ -350,12 +366,14 @@ export default function LogicPage({ active }: { active: boolean }) {
       onOpenFile={f => { setMenu(null); void open(f) }}
       onOpenVersion={at => { setMenu(null); void run(async () => {
         if (dirty && !window.confirm('Open an earlier version? Changes to the circuit on screen aren’t saved.')) return
-        setCircuit(readCircuit(await circuitVersionLoad(file.project, file.name.trim(), at)))
+        setCircuit(loadCircuit(await circuitVersionLoad(file.project, file.name.trim(), at)))
         setDirty(true)
         flops.current = {}
         setMessage(`Opened the version saved before ${new Date(at).toLocaleString()}. Save to keep it (the current one stays in Versions).`)
       }) }}
       onDelete={f => { if (window.confirm(`Delete ${f.name}?`)) void run(async () => { await circuitDelete(f.project, f.name); refreshFiles() }) }} />}
+    {view === 'fsm' ? <div className="logic-main logic-main--wide"><FsmEditor fsm={circuit.fsm} onChange={fsm => change(c => ({ ...c, fsm }))}
+      onBuild={fsm => { if (!circuit.parts.length || window.confirm('Replace the circuit on the canvas with this state machine’s?')) { setCircuit(buildFsmCircuit(fsm)); setDirty(true); flops.current = {}; setView('schematic'); setPanel('table') } }} /></div> :
     <div className="logic-main">
       <aside className="logic-palette">
         <h4>Inputs and outputs</h4>
@@ -493,7 +511,7 @@ export default function LogicPage({ active }: { active: boolean }) {
           </>}
         </>}
       </aside>
-    </div>
+    </div>}
   </div>
 }
 
@@ -625,8 +643,62 @@ function KMapView({ table }: { table: TruthTable }) {
   </div>
 }
 
-/** Every clock, switch and LED over a number of clock cycles from power-up. */
+/** Clock cycles from power-up, or gate delays: the nanoseconds after one switch flips. */
 function TimingView({ circuit }: { circuit: Circuit }) {
+  const [mode, setMode] = useState<'cycles' | 'delays'>('cycles')
+  return <>
+    <div className="logic-tabs small">
+      <button className={mode === 'cycles' ? 'on' : ''} onClick={() => setMode('cycles')}>Clock cycles</button>
+      <button className={mode === 'delays' ? 'on' : ''} onClick={() => setMode('delays')}>Gate delays</button>
+    </div>
+    {mode === 'cycles' ? <CyclesView circuit={circuit} /> : <DelaysView circuit={circuit} />}
+  </>
+}
+
+/** What happens in the nanoseconds after a switch flips, with each gate's real delay: glitches show. */
+function DelaysView({ circuit }: { circuit: Circuit }) {
+  const switches = circuit.parts.filter(p => p.kind === 'switch' && p.label).map(p => p.label!).sort()
+  const [flip, setFlip] = useState(switches[0] ?? '')
+  const [gates, setGates] = useState(false)
+  const label = switches.includes(flip) ? flip : switches[0]
+  const run = useMemo(() => (label ? delayRun(circuit, label) : null), [circuit, label])
+  if (!run) return <p className="hint">Add switches, gates and LEDs: this shows how a change on a switch travels through the gates, nanosecond by nanosecond.</p>
+  const sw = circuit.parts.find(p => p.kind === 'switch' && p.label === label)
+  const waves = run.waves.filter(w => gates || w.kind !== 'gate')
+  const ROW = 30, LEFT = 56, WIDTH = 240, HIGH = 6, LOW = 22
+  const x = (t: number) => LEFT + (t / run.end) * WIDTH
+  const wave = (w: (typeof waves)[number]) => {
+    let d = ''
+    w.changes.forEach((ch, i) => {
+      const y = ch.v === 1 ? HIGH : ch.v === 0 ? LOW : (HIGH + LOW) / 2
+      d += i === 0 ? `M${LEFT},${y}` : ` H${x(ch.t)} V${y}`
+    })
+    return `${d} H${LEFT + WIDTH}`
+  }
+  const ticks = Array.from({ length: Math.floor(run.end / 10) + 1 }, (_, i) => i * 10).filter(t => run.end <= 100 || t % 20 === 0)
+  return <div className="logic-timing">
+    <div className="logic-delay-bar">
+      <label className="logic-count">Flip <select value={label} onChange={e => setFlip(e.target.value)}>{switches.map(n => <option key={n} value={n}>{n}</option>)}</select> {sw?.on ? '1 → 0' : '0 → 1'}</label>
+      <label className="logic-count"><input type="checkbox" checked={gates} onChange={e => setGates(e.target.checked)} /> Every gate</label>
+    </div>
+    <div className="logic-timing-scroll"><svg width={LEFT + WIDTH + 8} height={waves.length * ROW + 18}>
+      {run.glitches.map((g, i) => <rect key={i} x={x(g.from) - 2} y={0} width={Math.max(4, x(g.to) - x(g.from) + 4)} height={waves.length * ROW} className="logic-glitch" />)}
+      <line x1={x(run.flipAt)} x2={x(run.flipAt)} y1={0} y2={waves.length * ROW} className="logic-timing-edge" />
+      {waves.map((w, r) => <g key={w.name + r} transform={`translate(0,${r * ROW})`}>
+        <text x={0} y={18} className={`logic-timing-name ${w.kind === 'gate' ? 'in' : w.kind}`}>{w.name.length > 10 ? `${w.name.slice(0, 9)}…` : w.name}<title>{w.name}</title></text>
+        <path d={wave(w)} className={`logic-timing-wave ${w.kind === 'gate' ? 'in' : w.kind}`} fill="none" />
+      </g>)}
+      {ticks.map(t => <text key={t} x={x(t)} y={waves.length * ROW + 12} className="logic-timing-tick" textAnchor="middle">{t}</text>)}
+    </svg></div>
+    <p className="hint">Nanoseconds after {label} flips (the dotted line), with typical 74LS delays: NOT, NAND, NOR 10 ns; AND, OR 15 ns; XOR 20 ns. Everything has settled {run.settled - run.flipAt} ns after the flip.</p>
+    {run.glitches.length > 0 ? <ul className="logic-warnings">{run.glitches.map(g => <li key={g.name}>
+      Glitch on {g.name} from {g.from} to {g.to} ns: {g.kind === 'static' ? `it should stay ${levelAt(run.waves.find(w => w.name === g.name)!, 0)} but flickers (a static hazard). Two product terms hand over to each other at different times; a K-map group overlapping both covers the handover and removes it.` : 'it changes more than once before settling (a dynamic hazard).'}
+    </li>)}</ul> : <p className="hint">No glitches on the outputs for this change.</p>}
+  </div>
+}
+
+/** Every clock, switch and LED over a number of clock cycles from power-up. */
+function CyclesView({ circuit }: { circuit: Circuit }) {
   const [cycles, setCycles] = useState(8)
   const t = useMemo(() => timing(circuit, cycles), [circuit, cycles])
   if (!t.signals.length) return <p className="hint">Add a clock, switches and LEDs: their levels over time show here, step by step.</p>
