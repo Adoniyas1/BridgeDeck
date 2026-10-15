@@ -200,3 +200,45 @@ export function newLine(before: string, lang: string): string {
 }
 
 export const indentUnit = (lang: string) => (lang === 'go' ? '\t' : lang === 'verilog' || lang === 'matlab' || lang === 'bash' ? '  ' : '    ')
+
+export type Portability = { line: number; found: string; fix: string }
+
+/** Octave-only MATLAB code: things GNU Octave accepts but real MATLAB rejects (or reads differently),
+ *  with the MATLAB way to write each, so code that runs here also runs where it's graded. */
+export function octaveOnly(source: string): Portability[] {
+  const out: Portability[] = []
+  source.split('\n').forEach((text, i) => {
+    const line = i + 1
+    const add = (found: string, fix: string) => { if (!out.some(o => o.line === line && o.found === found)) out.push({ line, found, fix }) }
+    // The code part of the line: text in quotes blanked, the comment cut off (noting a # one).
+    let code = ''
+    let quote = ''
+    let prev = ' '
+    let escapes = false
+    for (const c of text) {
+      if (quote) {
+        if (c === quote) quote = ''
+        code += c === quote || !quote ? c : ' '
+        if (quote === '"' && c === '\\') escapes = true
+      } else if (c === '%') break
+      else if (c === '#') { add('# comment', 'Use % for comments'); break }
+      else if (c === '"' || (c === "'" && !/[\w)\]}.']/.test(prev))) { quote = c; code += c }
+      else code += c
+      if (c.trim()) prev = c
+    }
+    let m: RegExpMatchArray | null
+    // fprintf, sprintf and friends read \n themselves; elsewhere MATLAB keeps it as two characters.
+    if (escapes && !/\b(fprintf|sprintf|printf|error|warning|regexprep|regexp|fdisp)\s*\(/.test(code)) add('\\ escapes in "…"', 'MATLAB doesn’t read \\n in "…" here: use fprintf/sprintf, or newline')
+    if ((m = code.match(/([\w)\]]+)\s*([-+*/^])=(?!=)/))) add(`${m[2]}=`, `Write it out: x = x ${m[2]} …`)
+    if (/\w\s*(\+\+|--)(?![\w(])/.test(code) || /(^|[^\w)\]])(\+\+|--)\w/.test(code)) add('++ / --', 'Write x = x + 1 (or - 1)')
+    if (code.includes('!=')) add('!=', 'Use ~= for “not equal”')
+    if (/!(?!=)/.test(code)) add('! (not)', 'Use ~ for “not”')
+    if (code.includes('**')) add('**', 'Use ^ (or .^) for powers')
+    if ((m = code.match(/\b(endif|endfor|endwhile|endfunction|endswitch|end_try_catch|end_unwind_protect|endparfor)\b/))) add(m[1], 'Use plain end')
+    if ((m = code.match(/\b(printf|puts|fputs|fdisp)\s*\(/))) add(`${m[1]}(…)`, m[1] === 'printf' ? 'Use fprintf(…)' : 'Use disp(…) or fprintf(…)')
+    if (/^\s*do\s*$/.test(code) || /^\s*until\b/.test(code)) add('do … until', 'Use a while loop')
+    if (/\bunwind_protect\b/.test(code)) add('unwind_protect', 'Use try … catch … end')
+    if ((m = code.match(/\)\s*(\(|\{)/)) && /\w\([^()]*\)\s*\(/.test(code) && !/\b(if|while|for|switch|function)\b/.test(code) && !/@\s*\(/.test(code)) add('chained (…)(…)', 'Save the first result in a variable, then index it')
+  })
+  return out
+}

@@ -1571,12 +1571,21 @@ main .logic-view button.on{background:var(--surface-3);color:var(--text)}
 .code-missing svg{color:var(--warn);flex:none}
 .code-missing span{flex:1}
 .code-missing button{display:inline-flex;align-items:center;gap:5px}
-.code-msg{margin:6px 12px 0}
+.code-msg{margin:6px 12px 0;white-space:pre-line}
 .code-main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 360px}
 .code-editor{display:flex;min-height:0;min-width:0;background:var(--bg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:20px}
 .code-gutter{flex:none;width:48px;overflow:hidden;padding:10px 0;text-align:right;color:var(--faint,#5c6370);user-select:none;border-right:1px solid var(--line)}
 .code-gutter div{padding-right:10px;cursor:pointer;height:20px}
 .code-gutter div.bad{color:#fff;background:color-mix(in srgb,var(--bad) 55%,transparent)}
+.code-gutter div.warn{color:#fff;background:color-mix(in srgb,var(--warn) 45%,transparent)}
+.code-portable{margin:8px 12px 0;padding:6px 12px;border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:var(--radius-sm);font-size:12.5px}
+.code-portable summary{display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--warn)}
+.code-portable summary small{color:var(--muted)}
+.code-portable ul{list-style:none;margin:6px 0 2px;padding:0;display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto}
+.code-portable li{display:flex;align-items:center;gap:10px}
+.code-portable li button{padding:1px 8px;font-size:11.5px}
+.code-portable code{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);min-width:110px}
+.code-portable li span{color:var(--muted)}
 .code-text{position:relative;flex:1;min-width:0}
 .code-text textarea,.code-shown{position:absolute;inset:0;margin:0;padding:10px 14px;border:0;font:inherit;line-height:inherit;white-space:pre;tab-size:4;overflow:auto;box-sizing:border-box}
 .code-text textarea{background:transparent;color:transparent;caret-color:var(--text);resize:none;outline:none}

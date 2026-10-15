@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errorLines, highlight, newLine, STARTERS } from './model'
+import { errorLines, highlight, newLine, octaveOnly, STARTERS } from './model'
 
 describe('code tab', () => {
   it('finds the lines compiler and runtime messages point at', () => {
@@ -35,5 +35,31 @@ describe('code tab', () => {
     expect(newLine('for i in range(3):', 'python')).toBe('\n    ')
     expect(newLine('for k = 1:10', 'matlab')).toBe('\n  ')
     expect(newLine('  disp(k)', 'matlab')).toBe('\n  ')
+  })
+})
+
+describe('octaveOnly', () => {
+  it('flags Octave-only syntax with the MATLAB way to write it', () => {
+    const src = [
+      'x = 1;',
+      'x += 2;          # add',
+      'if x != 3',
+      '  printf("%d\\n", x);',
+      'endif',
+      "y = x';",
+      "disp('a != b # not code')",
+      'z = !true;',
+      'k++;',
+      'p = 2**3;',
+      'v = magic(3)(2, :);',
+      'f = @(t) t.^2;',
+      'w = f(2);',
+      'disp("one\\ntwo")',
+    ].join('\n')
+    const found = octaveOnly(src).map(o => `${o.line}:${o.found}`)
+    expect(found).toEqual(['2:# comment', '2:+=', '3:!=', '4:printf(…)', '5:endif', '8:! (not)', '9:++ / --', '10:**', '11:chained (…)(…)', '14:\\ escapes in "…"'])
+  })
+  it('leaves plain MATLAB alone', () => {
+    expect(octaveOnly("A = [1 2; 3 4]';\nb = A \\ [1; 2];\nif b(1) ~= 0, fprintf('%g\\n', b); end\ns = 'it''s fine';\n% comment with += and !=")).toEqual([])
   })
 })
