@@ -49,6 +49,8 @@ type Incoming = { t: "hello"; bootId: string } | { t: "event"; ch: string; args:
 const params = new URLSearchParams(location.search);
 const token = params.get("token") ?? "";
 const listeners = new Map<string, Set<Listener>>();
+/** Questions from BridgeDeck (not an IPC channel: they come from the page around this one). */
+const ASK = "bridgedeck:ask";
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 const queue: string[] = [];
 let socket: WebSocket | null = null;
@@ -123,7 +125,9 @@ const api = {
     send: (text: string, attachments?: Attachment[]) => send(IPC.chatSend, text, attachments),
     stop: () => send(IPC.chatStop),
     speak: (text: string): Promise<void> => invoke(IPC.chatSpeak, text),
-    onStream: (cb: (event: ChatStreamEvent) => void) => on(IPC.chatStream, cb)
+    onStream: (cb: (event: ChatStreamEvent) => void) => on(IPC.chatStream, cb),
+    /** A question BridgeDeck hands over (e.g. "Ask Mimir about this error" in its Code tab). */
+    onAsk: (cb: (text: string) => void) => on(ASK, cb)
   },
   face: {
     onState: (cb: (state: FaceState) => void) => on(IPC.faceState, cb)
@@ -243,6 +247,9 @@ window.addEventListener("message", (event) => {
   if (data?.source === "bridgedeck" && data.type === "voice-hotkey") {
     listeners.get(IPC.voiceHotkeyTriggered)?.forEach((cb) => cb());
   }
+  const ask = event.data as { source?: string; type?: string; text?: unknown } | null;
+  const text = typeof ask?.text === "string" ? ask.text.trim().slice(0, 20000) : "";
+  if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
 });
 
 window.mimir = api;

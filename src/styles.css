@@ -1600,6 +1600,16 @@ main .logic-view button.on{background:var(--surface-3);color:var(--text)}
 .code-stderr{color:#ffb3b3;background:color-mix(in srgb,var(--bad) 10%,var(--bg));white-space:pre;overflow-x:auto;word-break:normal}
 .code-jump{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .code-jump button{padding:2px 8px;font-size:12px;border-radius:6px}
+.code-term{display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto}
+.code-stderr--soft{color:var(--muted);background:var(--bg)}
+.code-seg--err{color:#ffb3b3}
+.code-seg--in{color:var(--accent);font-weight:600}
+.code-plots{display:flex;flex-direction:column;gap:8px}
+.code-plots img{max-width:100%;border-radius:var(--radius-sm);background:#fff}
+.code-typein{display:flex;gap:6px;align-items:center}
+.code-typein input{flex:1;min-width:0;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.code-jump .grow{flex:1}
+.code-jump button.code-ask{display:inline-flex;align-items:center;gap:5px;color:var(--accent)}
 .bb-guide{display:flex;flex-direction:column;gap:8px}
 .bb-stepper{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}
 .bb-stepper>span{flex:1;min-width:240px}

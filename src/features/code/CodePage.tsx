@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Code2, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, Trash2, XCircle } from 'lucide-react'
-import { codeDelete, codeFiles, codeLanguages, codeLoad, codeRun, codeSave, isTauri, type CodeFile, type CodeLanguage, type CodeRun } from '../../lib/bridge'
+import { listen } from '@tauri-apps/api/event'
+import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
+import { codeDelete, codeFiles, codeInput, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
 import { errorText } from '../../core/util'
+import { askMimir } from '../mimir'
 import { errorLines, highlight, indentUnit, newLine, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
@@ -11,6 +13,24 @@ type Draft = { name: string; source: string; input: string }
 const readDrafts = (): Record<string, Draft> => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') } catch { return {} } }
 const readLang = () => { try { return localStorage.getItem(LANG_KEY) ?? 'python' } catch { return 'python' } }
 const MOD = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'
+const LIMITS = [10, 30, 60, 300, 0]
+
+/** A run as it happens: the build, what the program printed (and what was typed to it), and how it ended. */
+type Live = {
+  id: number
+  file: string
+  compile: { text: string; ok: boolean; ms: number } | null
+  segments: Array<{ kind: 'out' | 'err' | 'in'; text: string }>
+  exit: CodeEvent | null
+}
+
+function apply(live: Live, e: CodeEvent): Live {
+  if (e.kind === 'compile') return { ...live, file: e.file || live.file, compile: { text: e.text, ok: e.ok, ms: e.ms } }
+  if (e.kind === 'exit') return { ...live, file: e.file || live.file, exit: e }
+  const last = live.segments[live.segments.length - 1]
+  const segments = last?.kind === e.kind ? [...live.segments.slice(0, -1), { kind: e.kind, text: last.text + e.text }] : [...live.segments, { kind: e.kind, text: e.text }]
+  return { ...live, segments }
+}
 
 /** Write a program in C, Python, MATLAB and more, and run it with the compilers on this computer. */
 export default function CodePage({ active }: { active: boolean }) {
@@ -18,19 +38,35 @@ export default function CodePage({ active }: { active: boolean }) {
   const [lang, setLang] = useState(readLang)
   const [drafts, setDrafts] = useState<Record<string, Draft>>(readDrafts)
   const draft: Draft = drafts[lang] ?? { name: 'Untitled', source: STARTERS[lang] ?? '', input: '' }
-  const [result, setResult] = useState<CodeRun | null>(null)
-  const [running, setRunning] = useState(false)
+  const [live, setLive] = useState<Live | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [inputClosed, setInputClosed] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [limit, setLimit] = useState(10)
+  const [limit, setLimit] = useState(60)
   const [files, setFiles] = useState<CodeFile[]>([])
   const [checking, setChecking] = useState(false)
   const area = useRef<HTMLTextAreaElement>(null)
   const shown = useRef<HTMLPreElement>(null)
+  const term = useRef<HTMLDivElement>(null)
+  const current = useRef<number | null>(null)
+  /** Events for a run whose id hasn't come back yet (a fast program can finish before codeStart returns). */
+  const early = useRef(new Map<number, CodeEvent[]>())
+  const running = starting || (live !== null && !live.exit)
   const gutter = useRef<HTMLDivElement>(null)
   const info = langs.find(l => l.id === lang)
 
   useEffect(() => { if (isTauri()) void codeLanguages().then(setLangs).catch(() => undefined) }, [])
+  useEffect(() => {
+    if (!isTauri()) return
+    const off = listen<CodeEvent>('code-event', ({ payload: e }) => {
+      if (current.current === e.id) setLive(l => (l && l.id === e.id ? apply(l, e) : l))
+      else if (current.current === null) early.current.set(e.id, [...(early.current.get(e.id) ?? []), e])
+    })
+    return () => { void off.then(f => f()) }
+  }, [])
+  useEffect(() => { const t = term.current; if (t) t.scrollTop = t.scrollHeight }, [live])
   useEffect(() => { if (active && isTauri()) void codeFiles().then(setFiles).catch(() => undefined) }, [active])
   useEffect(() => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); localStorage.setItem(LANG_KEY, lang) } catch { /* this run only */ } }, [drafts, lang])
 
@@ -38,9 +74,25 @@ export default function CodePage({ active }: { active: boolean }) {
 
   async function run() {
     if (running) return
-    setRunning(true); setError(''); setMessage('')
-    try { setResult(await codeRun(lang, draft.source, draft.input, limit)) } catch (e) { setResult(null); setError(errorText(e, 'It didn’t run')) } finally { setRunning(false) }
+    setStarting(true); setError(''); setMessage(''); setTyped(''); setInputClosed(false); setLive(null)
+    current.current = null
+    early.current.clear()
+    try {
+      const id = await codeStart(lang, draft.source, draft.input, limit)
+      current.current = id
+      setLive((early.current.get(id) ?? []).reduce(apply, { id, file: '', compile: null, segments: [], exit: null }))
+      early.current.clear()
+    } catch (e) { setError(errorText(e, 'It didn’t run')) } finally { setStarting(false) }
   }
+  function send(close = false) {
+    if (!live || live.exit) return
+    const text = close ? '' : `${typed}\n`
+    if (!close) setLive(l => (l ? { ...l, segments: [...l.segments, { kind: 'in', text }] } : l))
+    setTyped('')
+    if (close) setInputClosed(true)
+    void codeInput(live.id, text, close).catch(e => setError(errorText(e, 'Couldn’t send that')))
+  }
+  const stop = () => { if (live && !live.exit) void codeStop(live.id).catch(() => undefined) }
   async function save() {
     setError('')
     try { await codeSave(draft.name.trim(), lang, draft.source); setMessage(`Saved as ${draft.name.trim()}.${info?.ext ?? ''} in the shared Code folder.`); setFiles(await codeFiles()) } catch (e) { setError(errorText(e, 'Couldn’t save')) }
@@ -50,7 +102,7 @@ export default function CodePage({ active }: { active: boolean }) {
     try {
       const source = await codeLoad(f.name, f.language)
       setDrafts(d => ({ ...d, [f.language]: { name: f.name, source, input: d[f.language]?.input ?? '' } }))
-      setLang(f.language); setResult(null)
+      setLang(f.language); setLive(null)
     } catch (e) { setError(errorText(e, 'Couldn’t open it')) }
   }
 
@@ -66,8 +118,8 @@ export default function CodePage({ active }: { active: boolean }) {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const output = result ? [result.compile?.stdout, result.compile?.stderr, result.run?.stderr].filter(Boolean).join('\n') : ''
-  const marked = useMemo(() => new Set(result ? errorLines(output, result.file) : []), [result, output])
+  const problems = live ? [live.compile?.text ?? '', ...live.segments.filter(x => x.kind === 'err').map(x => x.text)].join('\n').trim() : ''
+  const marked = useMemo(() => new Set(live?.file ? errorLines(problems, live.file) : []), [live?.file, problems])
   const lineCount = draft.source.split('\n').length
   const tokens = useMemo(() => highlight(draft.source, lang), [draft.source, lang])
 
@@ -116,24 +168,32 @@ export default function CodePage({ active }: { active: boolean }) {
     if (gutter.current) gutter.current.scrollTop = t.scrollTop
   }
 
-  const status = !result ? null
-    : result.compile && !result.compile.ok ? { ok: false, text: 'Didn’t compile' }
-      : result.run?.timedOut ? { ok: false, text: `Stopped after ${limit} s` }
-        : result.run?.ok ? { ok: true, text: `Ran in ${result.run.ms} ms${result.compile ? ` (built in ${result.compile.ms} ms)` : ''}` }
-          : { ok: false, text: `Exited with code ${result.run?.exitCode ?? '?'}` }
+  const end = live?.exit
+  const status = !live || !end ? null
+    : live.compile && !live.compile.ok ? { ok: false, text: 'Didn’t compile' }
+      : end.timedOut ? { ok: false, text: `Stopped after the time limit` }
+        : end.ok ? { ok: true, text: `Ran in ${end.ms} ms${live.compile ? ` (built in ${live.compile.ms} ms)` : ''}` }
+          : end.exitCode === null ? { ok: false, text: end.text || 'Stopped' }
+            : { ok: false, text: `Exited with code ${end.exitCode}` }
+  const failed = status !== null && !status.ok && !end?.timedOut && problems !== ''
+
+  function ask() {
+    const name = info?.name ?? lang
+    void askMimir(`My ${name} program ${live?.compile && !live.compile.ok ? 'doesn’t compile' : 'fails when it runs'}. Explain what's wrong in plain words and show the fixed code.\n\n\`\`\`${lang}\n${draft.source}\n\`\`\`\n\nThe error:\n\`\`\`\n${problems.slice(-4000)}\n\`\`\``)
+  }
 
   return <div className="code-page">
     <div className="code-bar">
       <Code2 size={16} />
       <input className="code-name" value={draft.name} onChange={e => edit({ name: e.target.value })} aria-label="Program name" />
-      <select value={lang} onChange={e => { setLang(e.target.value); setResult(null); setError('') }} aria-label="Language">
+      <select value={lang} onChange={e => { setLang(e.target.value); setLive(null); setError('') }} aria-label="Language">
         {(langs.length ? langs : Object.keys(STARTERS).map(id => ({ id, name: id, available: true }) as CodeLanguage)).map(l => <option key={l.id} value={l.id}>{l.name}{l.available ? '' : ' (not installed)'}</option>)}
       </select>
-      <button className="primary" onClick={() => void run()} disabled={running || !isTauri() || info?.available === false} title={`Run (${MOD} Enter)`}>
-        {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />} Run
-      </button>
+      {running
+        ? <button className="danger" onClick={stop} disabled={!live} title="Stop the program"><Square size={13} /> Stop</button>
+        : <button className="primary" onClick={() => void run()} disabled={!isTauri() || info?.available === false} title={`Run (${MOD} Enter)`}><Play size={14} /> Run</button>}
       <select value={limit} onChange={e => setLimit(Number(e.target.value))} title="Time limit: a program still running after this is stopped">
-        {[5, 10, 30, 60, 120].map(s => <option key={s} value={s}>{s} s limit</option>)}
+        {LIMITS.map(s => <option key={s} value={s}>{s === 0 ? 'No limit' : s >= 60 ? `${s / 60} min limit` : `${s} s limit`}</option>)}
       </select>
       <button className="ghost" onClick={() => void save()} disabled={!isTauri()} title={`Save in the shared Code folder (${MOD} S)`}><Save size={14} /> Save</button>
       <details className="logic-open code-open">
@@ -145,7 +205,7 @@ export default function CodePage({ active }: { active: boolean }) {
           </div>) : <p className="hint">No saved programs yet.</p>}
         </div>
       </details>
-      <button className="ghost" onClick={() => { if (draft.source === (STARTERS[lang] ?? '') || window.confirm('Start over with the example program? (Save first to keep this one.)')) { edit({ name: 'Untitled', source: STARTERS[lang] ?? '' }); setResult(null) } }}><FilePlus size={14} /> New</button>
+      <button className="ghost" onClick={() => { if (draft.source === (STARTERS[lang] ?? '') || window.confirm('Start over with the example program? (Save first to keep this one.)')) { edit({ name: 'Untitled', source: STARTERS[lang] ?? '' }); setLive(null) } }}><FilePlus size={14} /> New</button>
       <span className="grow" />
       {info && <span className="code-version" title={info.version}>{info.available ? info.version : 'Not installed'}</span>}
     </div>
@@ -168,8 +228,8 @@ export default function CodePage({ active }: { active: boolean }) {
       </div>
       <aside className="code-side">
         <label className="code-input">
-          <span>Input <small>what the program reads (scanf, input(), cin…)</small></span>
-          <textarea value={draft.input} onChange={e => edit({ input: e.target.value })} spellCheck={false} placeholder="Type the program’s input here, one line per answer" />
+          <span>Input <small>given at the start (or type answers below while it runs)</small></span>
+          <textarea value={draft.input} onChange={e => edit({ input: e.target.value })} spellCheck={false} placeholder="Optional: answers to give the program up front, one per line" />
         </label>
         <div className="code-output">
           <div className="code-output__head">
@@ -177,13 +237,26 @@ export default function CodePage({ active }: { active: boolean }) {
             {running ? <em><Loader2 size={13} className="spin" /> Running…</em>
               : status && <em className={status.ok ? 'ok' : 'bad'}>{status.ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />} {status.text}</em>}
           </div>
-          {!result && !running && <p className="hint">Press Run ({MOD} Enter). Your program is built and run on this computer{info?.version ? ` with ${info.version}` : ''}.</p>}
-          {result && <>
-            {result.run?.stdout && <pre className="code-stdout">{result.run.stdout}</pre>}
-            {output && <pre className="code-stderr">{output}</pre>}
-            {result.run && !result.run.stdout && !output && <p className="hint">(No output.)</p>}
-            {marked.size > 0 && <div className="code-jump">Go to line {[...marked].map(n => <button key={n} onClick={() => goTo(n)}>{n}</button>)}</div>}
-          </>}
+          {!live && !running && <p className="hint">Press Run ({MOD} Enter). Your program is built and run on this computer{info?.version ? ` with ${info.version}` : ''}. When it asks for input, type the answer below and press Enter.</p>}
+          {starting && !live && <p className="hint">Starting…</p>}
+          {live && <div className="code-term" ref={term}>
+            {live.compile && live.compile.text && <pre className={live.compile.ok ? 'code-stderr code-stderr--soft' : 'code-stderr'}>{live.compile.text}</pre>}
+            {live.segments.length > 0 && <pre className="code-stdout">{live.segments.map((x, i) => <span key={i} className={`code-seg code-seg--${x.kind}`}>{x.text}</span>)}</pre>}
+            {live.exit && !live.segments.length && !live.compile?.text && <p className="hint">(No output.)</p>}
+            {live.exit && live.exit.images.length > 0 && <div className="code-plots">
+              {live.exit.images.map((src, i) => <img key={i} src={`data:image/png;base64,${src}`} alt={`Figure ${i + 1}`} />)}
+            </div>}
+          </div>}
+          {live && !live.exit && !inputClosed && <form className="code-typein" onSubmit={e => { e.preventDefault(); send() }}>
+            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type input for the program, then Enter" aria-label="Input for the running program" autoFocus />
+            <button type="submit" className="ghost" title="Send this line"><CornerDownLeft size={13} /></button>
+            <button type="button" className="ghost" onClick={() => send(true)} title="Tell the program there's no more input (end of file)">End input</button>
+          </form>}
+          {(marked.size > 0 || failed) && <div className="code-jump">
+            {marked.size > 0 && <>Go to line {[...marked].map(n => <button key={n} onClick={() => goTo(n)}>{n}</button>)}</>}
+            <span className="grow" />
+            {failed && <button className="ghost code-ask" onClick={ask} title="Mimir explains the error and suggests a fix"><Sparkles size={13} /> Ask Mimir about this error</button>}
+          </div>}
         </div>
       </aside>
     </div>

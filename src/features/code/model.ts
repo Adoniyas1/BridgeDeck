@@ -124,6 +124,7 @@ export function errorLines(output: string, file: string): number[] {
     new RegExp(`${f}: line (\\d+)`, 'g'), // bash
     /near line (\d+)/g, // Octave
     /\(line (\d+)\)/g, // MATLAB
+    /^\s*main at line (\d+)/gm, // Octave, run through BridgeDeck's runner
   ]
   for (const re of patterns) for (const m of output.matchAll(re)) lines.add(Number(m[1]))
   return [...lines].filter(n => n > 0).sort((a, b) => a - b)

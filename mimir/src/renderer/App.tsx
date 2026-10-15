@@ -187,6 +187,11 @@ export default function App() {
     const offHotkey = window.mimir.voice.onHotkeyTriggered(() => {
       void handleMicToggle();
     });
+    // A question from BridgeDeck: asked as soon as Mimir isn't answering something else.
+    const offAsk = window.mimir.chat.onAsk((text) => {
+      const ask = () => (busyRef.current ? window.setTimeout(ask, 1000) : void handleSend(text));
+      ask();
+    });
     const offPython = window.mimir.python.onRunRequest((req) => {
       if ("reset" in req) {
         pythonRuntime.reset();
@@ -207,6 +212,7 @@ export default function App() {
       offStream();
       offWake();
       offHotkey();
+      offAsk();
       offPython();
       offSearch();
       void openMic.current?.destroy();
