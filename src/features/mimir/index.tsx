@@ -52,6 +52,28 @@ function MimirBackground() {
   return null
 }
 
+/** Opens the Mimir tab and asks it `text` (started first if it isn't running). The page needs a
+ *  moment after it appears before it listens, so the question is sent once it's there. */
+export async function askMimir(text: string) {
+  activateTab('mimir')
+  if (!mimirStore.get().url && isTauri()) {
+    setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))
+    await mimirStart().then(mimirStore.set).catch(() => undefined)
+  }
+  const deadline = Date.now() + 60_000
+  let seen = 0
+  const post = () => {
+    const url = mimirStore.get().url
+    if (frame?.contentWindow && url) {
+      // Wait a little after the frame first shows up, for its page to load.
+      if (!seen) seen = Date.now()
+      if (Date.now() - seen > 1500) { frame.contentWindow.postMessage({ source: 'bridgedeck', type: 'ask', text }, new URL(url).origin); return }
+    }
+    if (Date.now() < deadline) window.setTimeout(post, 400)
+  }
+  window.setTimeout(post, 300)
+}
+
 function MimirPage() {
   const config = useConfig()
   const status = useStore(mimirStore)

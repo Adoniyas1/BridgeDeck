@@ -5,6 +5,7 @@ describe('code tab', () => {
   it('finds the lines compiler and runtime messages point at', () => {
     expect(errorLines("main.c:4:12: error: use of undeclared identifier 'x'\nmain.c:9:1: warning: …", 'main.c')).toEqual([4, 9])
     expect(errorLines('Traceback (most recent call last):\n  File "/tmp/x/main.py", line 3, in <module>', 'main.py')).toEqual([3])
+    expect(errorLines('error: x undefined\n    main at line 4\n    bridgedeck_run at line 4', 'main.m')).toEqual([4])
     expect(errorLines("error: 'y' undefined near line 5, column 5", 'main.m')).toEqual([5])
     expect(errorLines('Error in main (line 7)', 'main.m')).toEqual([7])
     expect(errorLines('error[E0425]: cannot find value `x`\n --> main.rs:2:13', 'main.rs')).toEqual([2])

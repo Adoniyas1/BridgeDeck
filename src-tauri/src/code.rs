@@ -37,7 +37,7 @@ const LANGS: &[Lang] = &[
     Lang { id: "c", name: "C", ext: "c", tools: &["cc", "clang", "gcc"], runner: None, install_mac: "Run “xcode-select --install” in Terminal.", install_windows: "Install MSYS2 (msys2.org) and its gcc, or Visual Studio’s clang.", install_linux: "Install gcc (sudo apt install build-essential)." },
     Lang { id: "cpp", name: "C++", ext: "cpp", tools: &["c++", "clang++", "g++"], runner: None, install_mac: "Run “xcode-select --install” in Terminal.", install_windows: "Install MSYS2 (msys2.org) and its g++, or Visual Studio’s clang.", install_linux: "Install g++ (sudo apt install build-essential)." },
     Lang { id: "python", name: "Python", ext: "py", tools: &[], runner: None, install_mac: "Install Python 3 from python.org, or run “xcode-select --install”.", install_windows: "Install Python 3 from python.org (tick “Add python.exe to PATH”) or the Microsoft Store.", install_linux: "Install python3." },
-    Lang { id: "matlab", name: "MATLAB", ext: "m", tools: &["matlab", "octave-cli", "octave"], runner: None, install_mac: "Install MATLAB (your school’s licence), or the free GNU Octave, which runs most MATLAB code (“brew install octave”, or octave.org).", install_windows: "Install MATLAB (your school’s licence), or the free GNU Octave from octave.org, which runs most MATLAB code.", install_linux: "Install MATLAB, or GNU Octave (sudo apt install octave), which runs most MATLAB code." },
+    Lang { id: "matlab", name: "MATLAB", ext: "m", tools: &["matlab", "octave", "octave-cli"], runner: None, install_mac: "Install MATLAB (your school’s licence), or the free GNU Octave, which runs most MATLAB code (“brew install octave”, or octave.org).", install_windows: "Install MATLAB (your school’s licence), or the free GNU Octave from octave.org, which runs most MATLAB code.", install_linux: "Install MATLAB, or GNU Octave (sudo apt install octave), which runs most MATLAB code." },
     Lang { id: "java", name: "Java", ext: "java", tools: &["javac"], runner: Some(&["java"]), install_mac: "Install a JDK (adoptium.net, or “brew install openjdk”).", install_windows: "Install a JDK from adoptium.net.", install_linux: "Install a JDK (sudo apt install default-jdk)." },
     Lang { id: "javascript", name: "JavaScript", ext: "js", tools: &["node"], runner: None, install_mac: "Install Node.js from nodejs.org (or “brew install node”).", install_windows: "Install Node.js from nodejs.org.", install_linux: "Install Node.js from nodejs.org." },
     Lang { id: "rust", name: "Rust", ext: "rs", tools: &["rustc"], runner: None, install_mac: "Install Rust from rustup.rs.", install_windows: "Install Rust from rustup.rs.", install_linux: "Install Rust from rustup.rs." },
@@ -240,6 +240,8 @@ pub struct CodeRun {
     pub run: Option<Step>,
     /// The file the code was in, as error messages name it.
     pub file: String,
+    /// Pictures it drew (matplotlib, MATLAB/Octave figures), as base64 PNGs.
+    pub images: Vec<String>,
 }
 
 /// Runs a program in `dir` with `input` on its standard input, stopping it after `limit`.
@@ -310,53 +312,130 @@ fn java_class(source: &str) -> String {
     "Main".into()
 }
 
-fn run(language: &str, source: &str, input: &str, limit_secs: u64) -> Result<CodeRun, String> {
+/// Runs a Python program and saves the matplotlib figures it drew (a backend with no window, so
+/// plt.show() doesn't wait for one); errors are shown without this wrapper's own frame.
+const PY_WRAPPER: &str = r#"
+import os, sys, traceback, warnings
+os.environ.setdefault("MPLBACKEND", "Agg")
+warnings.filterwarnings("ignore", message=".*non-interactive.*")
+path, out = sys.argv[1], sys.argv[2]
+sys.argv = [path]
+status = 0
+try:
+    with open(path, encoding="utf-8") as f:
+        source = f.read()
+    exec(compile(source, path, "exec"), {"__name__": "__main__"})
+except SystemExit as e:
+    status = e.code if isinstance(e.code, int) else 0
+except BaseException as e:
+    traceback.print_exception(type(e), e, e.__traceback__.tb_next)
+    status = 1
+finally:
+    plt = sys.modules.get("matplotlib.pyplot")
+    if plt is not None:
+        for i, n in enumerate(plt.get_fignums()[:6]):
+            plt.figure(n).savefig(os.path.join(out, "figure%d.png" % i), dpi=110, bbox_inches="tight")
+    sys.stdout.flush()
+    sys.stderr.flush()
+os._exit(status)
+"#;
+
+/// Runs the script with figures hidden, then saves each figure it drew as figure0.png….
+const OCTAVE_RUNNER: &str = "set(0, 'defaultfigurevisible', 'off');\nstatus = 0;\ntry\n  main\ncatch err\n  fprintf(2, 'error: %s\\n', err.message);\n  for k = 1:numel(err.stack)\n    fprintf(2, '    %s at line %d\\n', err.stack(k).name, err.stack(k).line);\n  end\n  status = 1;\nend\nwarning('off', 'all');\nfigs = get(0, 'children');\nfor i = 1:min(numel(figs), 6)\n  try\n    print(figs(i), sprintf('figure%d.png', i - 1), '-dpng', '-r110');\n  catch\n  end\nend\nexit(status);\n";
+
+/// The same for MATLAB, as one -batch command.
+const MATLAB_BATCH: &str = "set(0,'DefaultFigureVisible','off'); try, main, catch err, fprintf(2,'%s\\n',err.getReport('basic')); figs=findobj('type','figure'); for i=1:min(numel(figs),6), print(figs(i),sprintf('figure%d.png',i-1),'-dpng','-r110'); end, exit(1), end, figs=findobj('type','figure'); for i=1:min(numel(figs),6), print(figs(i),sprintf('figure%d.png',i-1),'-dpng','-r110'); end";
+
+/// A program written out and ready: the folder, its file, how to build it (if it's built) and how
+/// to start it.
+struct Prepared {
+    dir: PathBuf,
+    file: String,
+    build: Option<Vec<String>>,
+    start: Vec<String>,
+}
+
+fn prepare(language: &str, source: &str) -> Result<Prepared, String> {
     let l = lang(language).ok_or("That language isn’t one BridgeDeck knows")?;
     if source.len() > MAX_CODE {
         return Err("That program is too long to run here".into());
     }
-    if input.len() > MAX_INPUT {
-        return Err("That input is too long".into());
-    }
     let tools = found(l).ok_or_else(|| format!("{} isn’t installed on this computer. {}", l.name, if cfg!(target_os = "macos") { l.install_mac } else if cfg!(windows) { l.install_windows } else { l.install_linux }))?;
-    let limit = Duration::from_secs(limit_secs.clamp(1, MAX_RUN_LIMIT));
     let stamp = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let dir = std::env::temp_dir().join(format!("bridgedeck-code-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = if l.id == "java" { java_class(source) } else { "main".to_string() };
+    let file = format!("{stem}.{}", l.ext);
+    let written = (|| -> std::io::Result<()> {
+        std::fs::write(dir.join(&file), source)?;
+        if l.id == "python" {
+            std::fs::write(dir.join("bridgedeck_run.py"), PY_WRAPPER)?;
+        }
+        if l.id == "matlab" {
+            std::fs::write(dir.join("bridgedeck_run.m"), OCTAVE_RUNNER)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e.to_string());
+    }
+    let exe = if cfg!(windows) { "main.exe" } else { "./main" };
+    let exe_path = dir.join(if cfg!(windows) { "main.exe" } else { "main" }).to_string_lossy().into_owned();
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    let tool = |i: usize| tools[i].clone();
+    let out_dir = dir.to_string_lossy().into_owned();
+    let (build, start): (Option<Vec<String>>, Vec<String>) = match l.id {
+        "c" => (Some([vec![tool(0)], s(&["-std=c17", "-Wall", "-O1", "-g", "-o", exe, &file, "-lm"])].concat()), vec![exe_path]),
+        "cpp" => (Some([vec![tool(0)], s(&["-std=c++17", "-Wall", "-O1", "-g", "-o", exe, &file])].concat()), vec![exe_path]),
+        "rust" => (Some([vec![tool(0)], s(&["--edition", "2021", "-O", "-o", exe, &file])].concat()), vec![exe_path]),
+        "go" => (Some([vec![tool(0)], s(&["build", "-o", exe, &file])].concat()), vec![exe_path]),
+        "java" => (Some([vec![tool(0)], s(&["-encoding", "UTF-8", &file])].concat()), vec![tool(1), "-cp".into(), ".".into(), stem.clone()]),
+        "verilog" => (Some([vec![tool(0)], s(&["-g2012", "-o", "main.vvp", &file])].concat()), vec![tool(1), "-n".into(), "main.vvp".into()]),
+        "python" => (None, [tools.clone(), s(&["-u", "bridgedeck_run.py", &file, &out_dir])].concat()),
+        // MATLAB itself runs the script in batch mode; Octave runs it through a small runner. Both
+        // save the figures it drew. Octave's command-line-only build can't draw, so it runs plainly.
+        "matlab" if is_matlab(&tool(0)) => (None, vec![tool(0), "-batch".into(), MATLAB_BATCH.into()]),
+        "matlab" if Path::new(&tool(0)).file_stem().is_some_and(|n| n.to_string_lossy().contains("cli")) => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-window-system", "--no-init-file", &file])].concat()),
+        "matlab" => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-init-file", "bridgedeck_run.m"])].concat()),
+        _ => (None, vec![tool(0), file.clone()]),
+    };
+    Ok(Prepared { dir, file, build, start })
+}
+
+/// The pictures a program drew (figure0.png…), as base64 PNGs.
+fn figures(dir: &Path) -> Vec<String> {
+    use base64::Engine;
+    (0..6)
+        .map(|i| dir.join(format!("figure{i}.png")))
+        .take_while(|p| p.exists())
+        .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() <= 4 * 1024 * 1024))
+        .filter_map(|p| std::fs::read(p).ok())
+        .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
+        .collect()
+}
+
+fn run(language: &str, source: &str, input: &str, limit_secs: u64) -> Result<CodeRun, String> {
+    if input.len() > MAX_INPUT {
+        return Err("That input is too long".into());
+    }
+    let limit = Duration::from_secs(limit_secs.clamp(1, MAX_RUN_LIMIT));
+    let p = prepare(language, source)?;
     let result = (|| {
-        let stem = if l.id == "java" { java_class(source) } else { "main".to_string() };
-        let file = format!("{stem}.{}", l.ext);
-        std::fs::write(dir.join(&file), source).map_err(|e| e.to_string())?;
-        let exe = if cfg!(windows) { "main.exe" } else { "./main" };
-        let exe_path = dir.join(if cfg!(windows) { "main.exe" } else { "main" }).to_string_lossy().into_owned();
-        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
-        let tool = |i: usize| tools[i].clone();
-        let (build, start): (Option<Vec<String>>, Vec<String>) = match l.id {
-            "c" => (Some([vec![tool(0)], s(&["-std=c17", "-Wall", "-O1", "-g", "-o", exe, &file, "-lm"])].concat()), vec![exe_path]),
-            "cpp" => (Some([vec![tool(0)], s(&["-std=c++17", "-Wall", "-O1", "-g", "-o", exe, &file])].concat()), vec![exe_path]),
-            "rust" => (Some([vec![tool(0)], s(&["--edition", "2021", "-O", "-o", exe, &file])].concat()), vec![exe_path]),
-            "go" => (Some([vec![tool(0)], s(&["build", "-o", exe, &file])].concat()), vec![exe_path]),
-            "java" => (Some([vec![tool(0)], s(&["-encoding", "UTF-8", &file])].concat()), vec![tool(1), "-cp".into(), ".".into(), stem.clone()]),
-            "verilog" => (Some([vec![tool(0)], s(&["-g2012", "-o", "main.vvp", &file])].concat()), vec![tool(1), "-n".into(), "main.vvp".into()]),
-            "python" => (None, [tools.clone(), s(&["-u", &file])].concat()),
-            // MATLAB itself runs the script in batch mode; Octave runs the file, without a window.
-            "matlab" if is_matlab(&tool(0)) => (None, vec![tool(0), "-batch".into(), stem.clone()]),
-            "matlab" => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-window-system", "--no-init-file", &file])].concat()),
-            _ => (None, vec![tool(0), file.clone()]),
-        };
-        let mut out = CodeRun { file: file.clone(), ..Default::default() };
-        if let Some(build) = build {
-            let compiled = step(&build, &dir, "", COMPILE_LIMIT)?;
+        let mut out = CodeRun { file: p.file.clone(), ..Default::default() };
+        if let Some(build) = &p.build {
+            let compiled = step(build, &p.dir, "", COMPILE_LIMIT)?;
             let ok = compiled.ok;
             out.compile = Some(compiled);
             if !ok {
                 return Ok(out);
             }
         }
-        out.run = Some(step(&start, &dir, input, limit)?);
+        out.run = Some(step(&p.start, &p.dir, input, limit)?);
+        out.images = figures(&p.dir);
         Ok(out)
     })();
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&p.dir);
     result
 }
 
@@ -368,6 +447,228 @@ fn is_matlab(program: &str) -> bool {
 #[tauri::command]
 pub async fn code_run(language: String, source: String, input: String, limit_secs: u64) -> Result<CodeRun, String> {
     tauri::async_runtime::spawn_blocking(move || run(&language, &source, &input, limit_secs)).await.map_err(|e| e.to_string())?
+}
+
+// ---- Live runs: output as it comes, input as it's typed ----
+
+/// What a live run sends the window, as it happens.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeEvent {
+    pub id: u64,
+    /// "compile" (the build's messages and whether it worked), "out", "err", or "exit".
+    pub kind: String,
+    pub text: String,
+    pub ok: bool,
+    pub exit_code: Option<i32>,
+    pub ms: u64,
+    pub timed_out: bool,
+    pub file: String,
+    pub images: Vec<String>,
+}
+
+struct Live {
+    stdin: Option<std::process::ChildStdin>,
+    child: std::sync::Arc<Mutex<Option<std::process::Child>>>,
+}
+
+static LIVE: Mutex<Option<std::collections::HashMap<u64, Live>>> = Mutex::new(None);
+static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// A live run's output stops being passed on past this much (a print loop shouldn't fill memory).
+const LIVE_OUTPUT: usize = 2 * 1024 * 1024;
+
+fn live<T>(f: impl FnOnce(&mut std::collections::HashMap<u64, Live>) -> T) -> T {
+    let mut guard = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+    f(guard.get_or_insert_with(Default::default))
+}
+
+/// Builds the program if it's built, then runs it with its output sent to the window as it comes
+/// (`code-event`), the input box's text first on its input, then whatever's typed (code_input).
+/// `limit_secs` 0: no time limit (the window's Stop ends it).
+fn start_live(app: tauri::AppHandle, id: u64, language: String, source: String, input: String, limit_secs: u64) {
+    use std::io::Read;
+    use tauri::Emitter;
+    let send = move |e: CodeEvent| {
+        let _ = app.emit("code-event", CodeEvent { id, ..e });
+    };
+    let p = match prepare(&language, &source) {
+        Ok(p) => p,
+        Err(e) => {
+            send(CodeEvent { kind: "exit".into(), text: e, ..Default::default() });
+            return;
+        }
+    };
+    let file = p.file.clone();
+    if let Some(build) = &p.build {
+        match step(build, &p.dir, "", COMPILE_LIMIT) {
+            Ok(c) => {
+                let ok = c.ok;
+                send(CodeEvent { kind: "compile".into(), text: format!("{}{}", c.stdout, c.stderr), ok, ms: c.ms, file: file.clone(), ..Default::default() });
+                if !ok {
+                    send(CodeEvent { kind: "exit".into(), file, ..Default::default() });
+                    let _ = std::fs::remove_dir_all(&p.dir);
+                    return;
+                }
+            }
+            Err(e) => {
+                send(CodeEvent { kind: "exit".into(), text: e, file, ..Default::default() });
+                let _ = std::fs::remove_dir_all(&p.dir);
+                return;
+            }
+        }
+    }
+    let started = Instant::now();
+    let spawned = crate::python::command(&p.start)
+        .current_dir(&p.dir)
+        .env("PATH", joined_path())
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1")
+        .env("GOCACHE", p.dir.join(".gocache"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => {
+            send(CodeEvent { kind: "exit".into(), text: format!("Couldn’t start {}: {e}", p.start[0]), file, ..Default::default() });
+            let _ = std::fs::remove_dir_all(&p.dir);
+            return;
+        }
+    };
+    let mut stdin = child.stdin.take();
+    if !input.is_empty() {
+        if let Some(w) = stdin.as_mut() {
+            let _ = w.write_all(input.as_bytes());
+            if !input.ends_with('\n') {
+                let _ = w.write_all(b"\n");
+            }
+            let _ = w.flush();
+        }
+    }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let child = std::sync::Arc::new(Mutex::new(Some(child)));
+    live(|m| m.insert(id, Live { stdin, child: child.clone() }));
+    let total = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let reader = |pipe: Option<Box<dyn Read + Send>>, kind: &'static str| {
+        let send = send.clone();
+        let total = total.clone();
+        let child = child.clone();
+        std::thread::spawn(move || {
+            let Some(mut pipe) = pipe else { return };
+            let mut buf = [0u8; 4096];
+            let mut carry: Vec<u8> = Vec::new();
+            loop {
+                let n = match pipe.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                if total.fetch_add(n, std::sync::atomic::Ordering::Relaxed) > LIVE_OUTPUT {
+                    if let Some(c) = child.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                        let _ = c.kill();
+                    }
+                    send(CodeEvent { kind: "err".into(), text: "\n… (too much output: stopped)".into(), ..Default::default() });
+                    break;
+                }
+                // Whole characters only: a multi-byte one split between reads waits for the rest.
+                carry.extend_from_slice(&buf[..n]);
+                let cut = match std::str::from_utf8(&carry) {
+                    Ok(_) => carry.len(),
+                    Err(e) if e.error_len().is_none() => e.valid_up_to(),
+                    Err(_) => carry.len(),
+                };
+                let text = String::from_utf8_lossy(&carry[..cut]).into_owned();
+                carry.drain(..cut);
+                if !text.is_empty() {
+                    send(CodeEvent { kind: kind.into(), text, ..Default::default() });
+                }
+            }
+        })
+    };
+    let out_thread = reader(stdout.map(|p| Box::new(p) as Box<dyn Read + Send>), "out");
+    let err_thread = reader(stderr.map(|p| Box::new(p) as Box<dyn Read + Send>), "err");
+    let limit = (limit_secs > 0).then(|| Duration::from_secs(limit_secs.min(3600)));
+    let mut timed_out = false;
+    let status = loop {
+        let done = {
+            let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                None => Some(None),
+                Some(c) => match c.try_wait() {
+                    Ok(Some(status)) => Some(Some(status)),
+                    Ok(None) => {
+                        if limit.is_some_and(|l| started.elapsed() > l) {
+                            timed_out = true;
+                            let _ = c.kill();
+                            Some(c.wait().ok())
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => Some(None),
+                },
+            }
+        };
+        if let Some(status) = done {
+            break status;
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    };
+    let _ = out_thread.join();
+    let _ = err_thread.join();
+    live(|m| m.remove(&id));
+    let images = figures(&p.dir);
+    let _ = std::fs::remove_dir_all(&p.dir);
+    send(CodeEvent {
+        kind: "exit".into(),
+        text: if timed_out { format!("Stopped after {} seconds (the time limit).", limit.map(|l| l.as_secs()).unwrap_or(0)) } else { String::new() },
+        ok: status.is_some_and(|s| s.success()),
+        exit_code: status.and_then(|s| s.code()),
+        ms: started.elapsed().as_millis() as u64,
+        timed_out,
+        file,
+        images,
+        ..Default::default()
+    });
+}
+
+/// Starts a live run and returns its id (its output arrives as `code-event`s).
+#[tauri::command]
+pub fn code_start(app: tauri::AppHandle, language: String, source: String, input: String, limit_secs: u64) -> Result<u64, String> {
+    if input.len() > MAX_INPUT {
+        return Err("That input is too long".into());
+    }
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::thread::Builder::new().name(format!("code-{id}")).spawn(move || start_live(app, id, language, source, input, limit_secs)).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// Types a line into a live run (`close`: then ends its input, like Ctrl+D).
+#[tauri::command]
+pub fn code_input(id: u64, text: String, close: bool) -> Result<(), String> {
+    live(|m| {
+        let run = m.get_mut(&id).ok_or("That program isn’t running")?;
+        if let Some(w) = run.stdin.as_mut() {
+            w.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+            let _ = w.flush();
+        }
+        if close {
+            run.stdin = None;
+        }
+        Ok(())
+    })
+}
+
+/// Stops a live run.
+#[tauri::command]
+pub fn code_stop(id: u64) {
+    let child = live(|m| m.get(&id).map(|r| r.child.clone()));
+    if let Some(child) = child {
+        if let Some(c) = child.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            let _ = c.kill();
+        }
+    }
 }
 
 // ---- Saved programs ----
@@ -507,6 +808,25 @@ mod tests {
         }
         assert_eq!(java_class("class A {}\npublic final class Main2 {"), "Main2");
         assert_eq!(java_class("class A {}"), "Main");
+    }
+
+    #[test]
+    fn brings_back_the_plots_a_program_draws() {
+        let has_mpl = has("python") && Command::new(&found(lang("python").unwrap()).unwrap()[0]).args(["-c", "import matplotlib"]).status().is_ok_and(|s| s.success());
+        if has_mpl {
+            let out = run("python", "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3], [1, 4, 9])\nplt.show()\nprint('drawn')", "", 60).unwrap();
+            assert_eq!(out.run.unwrap().stdout.trim(), "drawn");
+            assert_eq!(out.images.len(), 1);
+            assert!(out.images[0].starts_with("iVBOR"), "a PNG");
+        }
+        // Octave draws with its Qt engine, which needs a screen (a Mac or PC has one).
+        let octave_can_draw = has("matlab") && std::env::var_os("DISPLAY").is_some() && !found(lang("matlab").unwrap()).unwrap()[0].contains("cli");
+        if octave_can_draw {
+            let out = run("matlab", "x = linspace(0, 1, 10);\nplot(x, x.^2);\ndisp('ok')", "", 90).unwrap();
+            let r = out.run.unwrap();
+            assert!(r.stdout.contains("ok"), "{}", r.stderr);
+            assert_eq!(out.images.len(), 1, "{}", r.stderr);
+        }
     }
 
     #[test]
