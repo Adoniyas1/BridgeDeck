@@ -714,6 +714,7 @@ pub fn run() {
             circuits::circuit_delete,
             circuits::circuit_versions,
             circuits::circuit_version_load,
+            circuits::report_save,
             activity::activity_read,
             activity::activity_add,
             activity::activity_clear,

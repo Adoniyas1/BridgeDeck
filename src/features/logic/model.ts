@@ -30,7 +30,7 @@ export type Wire = { id: string; a: string; b: string; shape?: WireShape; via?: 
 export type BoardWire = { id: string; a: string; b: string; color: string }
 /** `board`: where chips sit on the breadboard (column of pin 1, by chip), when moved by hand;
  *  `jumpers`: the wires placed by hand on it. */
-export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number>; jumpers?: BoardWire[] }
+export type Circuit = { version: 1; parts: Part[]; wires: Wire[]; board?: Record<string, number>; jumpers?: BoardWire[]; /** The state machine it was built from (fsm.ts). */ fsm?: import('./fsm').Fsm }
 
 export const GATES: GateType[] = ['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF']
 
@@ -344,7 +344,7 @@ export function removePart(c: Circuit, id: string): Circuit {
 
 // ---- Simulation ----
 
-function gateValue(type: GateType, ins: Level[]): Level {
+export function gateValue(type: GateType, ins: Level[]): Level {
   const any = (v: 0 | 1) => ins.includes(v)
   const unknown = ins.includes(null)
   const inv = (v: Level): Level => (v === null ? null : v ? 0 : 1)
@@ -800,15 +800,29 @@ export function buildCircuit(outputs: Array<{ name: string; expr: Expr }>): Circ
     parts.push(p)
     source.set(name, pinRef(p, 'out'))
   })
-  const notOf = new Map<string, string>()
+  const { pins, right } = synthesize(parts, wires, outputs.map(o => o.expr), source, new Map(), 160, { x: 40, y: 40 + inputs.length * 70 })
+  pins.forEach((pin, i) => {
+    const led: Part = { id: newId('l'), kind: 'led', x: right, y: 40 + i * 70, label: outputs[i].name }
+    parts.push(led)
+    wires.push({ id: newId('w'), a: pin, b: pinRef(led, 'in') })
+  })
+  return { version: 1, parts, wires }
+}
+
+/** Gates for expressions, added to a circuit being built. `source` is the pin carrying each
+ *  variable, `notSource` its complement where one is free (a flip-flop's Q̄); gates go in columns
+ *  from `x0`, and +5V/ground (for constants) at `constAt`. Returns each expression's pin and the x
+ *  just right of the last column. */
+export function synthesize(parts: Part[], wires: Wire[], exprs: Expr[], source: Map<string, string>, notSource: Map<string, string>, x0: number, constAt: { x: number; y: number }): { pins: string[]; right: number } {
+  const notOf = new Map(notSource)
   const columns: number[] = []
-  const place = (depth: number) => { columns[depth] = (columns[depth] ?? 0) + 1; return { x: 160 + depth * 120, y: 30 + (columns[depth] - 1) * 90 } }
+  const place = (depth: number) => { columns[depth] = (columns[depth] ?? 0) + 1; return { x: x0 + (depth - 1) * 120, y: 30 + (columns[depth] - 1) * 90 } }
   const wire = (a: string, b: string) => wires.push({ id: newId('w'), a, b })
   let constants: Record<0 | 1, string> | null = null
   const constant = (v: 0 | 1) => {
     if (!constants) {
-      const hi: Part = { id: newId('v'), kind: 'vcc', x: 40, y: 40 + inputs.length * 70 }
-      const lo: Part = { id: newId('g'), kind: 'gnd', x: 40, y: 110 + inputs.length * 70 }
+      const hi: Part = { id: newId('v'), kind: 'vcc', x: constAt.x, y: constAt.y }
+      const lo: Part = { id: newId('g'), kind: 'gnd', x: constAt.x, y: constAt.y + 70 }
       parts.push(hi, lo)
       constants = { 1: pinRef(hi, 'out'), 0: pinRef(lo, 'out') }
     }
@@ -818,7 +832,7 @@ export function buildCircuit(outputs: Array<{ name: string; expr: Expr }>): Circ
   const build = (e: Expr): { pin: string; depth: number } => {
     if (e.op === 'var') return { pin: source.get(e.name)!, depth: 0 }
     if (e.op === 'const') return { pin: constant(e.value), depth: 0 }
-    if (e.op === 'not' && e.arg.op === 'var' && notOf.has(e.arg.name)) return { pin: notOf.get(e.arg.name)!, depth: 1 }
+    if (e.op === 'not' && e.arg.op === 'var' && notOf.has(e.arg.name)) return { pin: notOf.get(e.arg.name)!, depth: notSource.has(e.arg.name) ? 0 : 1 }
     const args = e.op === 'not' ? [e.arg] : e.args
     // Four inputs at most per gate: more are split into a tree.
     if (args.length > 4 && e.op !== 'not') {
@@ -835,14 +849,8 @@ export function buildCircuit(outputs: Array<{ name: string; expr: Expr }>): Circ
     if (e.op === 'not' && e.arg.op === 'var') notOf.set(e.arg.name, out)
     return { pin: out, depth }
   }
-  const results = outputs.map(o => ({ o, r: build(o.expr) }))
-  const right = 160 + (Math.max(0, ...results.map(x => x.r.depth)) + 1) * 120
-  results.forEach(({ o, r }, i) => {
-    const led: Part = { id: newId('l'), kind: 'led', x: right, y: 40 + i * 70, label: o.name }
-    parts.push(led)
-    wire(r.pin, pinRef(led, 'in'))
-  })
-  return { version: 1, parts, wires }
+  const results = exprs.map(build)
+  return { pins: results.map(r => r.pin), right: x0 + Math.max(0, ...results.map(r => r.depth)) * 120 }
 }
 
 // ---- Designing under constraints (NAND only, NOR only, inputs per gate) ----

@@ -570,6 +570,8 @@ export type CircuitFile = { project: string; name: string; modified: number }
 export const circuitsList = () => native<CircuitFile[]>('circuits_list')
 export const circuitLoad = (project: string, name: string) => native<string>('circuit_load', { project, name })
 export const circuitSave = (project: string, name: string, circuit: string) => native<void>('circuit_save', { project, name, circuit })
+/** Saves a lab report page next to the circuits and returns its path. */
+export const reportSave = (project: string, name: string, html: string) => native<string>('report_save', { project, name, html })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
 export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
