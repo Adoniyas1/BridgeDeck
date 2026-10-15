@@ -614,6 +614,8 @@ export const codeRun = (language: string, source: string, input: string, limitSe
 export const codeStart = (language: string, source: string, input: string, limitSecs: number) => native<number>('code_start', { language, source, input, limitSecs })
 export const codeInput = (id: number, text: string, close = false) => native<void>('code_input', { id, text, close })
 export const codeStop = (id: number) => native<void>('code_stop', { id })
+/** Installs an Octave package (control, signal, statistics, symbolic) from Octave Forge. */
+export const codeOctaveInstall = (name: string) => native<string>('code_octave_install', { name })
 export const codeFiles = () => native<CodeFile[]>('code_files')
 export const codeLoad = (name: string, language: string) => native<string>('code_load', { name, language })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })

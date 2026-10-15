@@ -24,6 +24,7 @@ mod circuits;
 mod hardware;
 mod watchdog;
 mod code;
+mod octave;
 mod errorlog;
 mod python;
 mod spotify;
@@ -727,6 +728,7 @@ pub fn run() {
             code::code_start,
             code::code_input,
             code::code_stop,
+            code::code_octave_install,
             code::code_files,
             code::code_load,
             code::code_save,

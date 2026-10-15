@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
-import { codeDelete, codeFiles, codeInput, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
+import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, Download, ExternalLink, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, ShieldCheck, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
+import { codeDelete, codeFiles, codeInput, codeOctaveInstall, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { askMimir } from '../mimir'
-import { errorLines, highlight, indentUnit, newLine, STARTERS } from './model'
+import { openTab } from '../../core/tabs'
+import { errorLines, highlight, indentUnit, newLine, octaveOnly, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
 const LANG_KEY = 'bridgedeck.code.language'
@@ -47,6 +48,7 @@ export default function CodePage({ active }: { active: boolean }) {
   const [limit, setLimit] = useState(60)
   const [files, setFiles] = useState<CodeFile[]>([])
   const [checking, setChecking] = useState(false)
+  const [installing, setInstalling] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
   const shown = useRef<HTMLPreElement>(null)
   const term = useRef<HTMLDivElement>(null)
@@ -120,6 +122,20 @@ export default function CodePage({ active }: { active: boolean }) {
 
   const problems = live ? [live.compile?.text ?? '', ...live.segments.filter(x => x.kind === 'err').map(x => x.text)].join('\n').trim() : ''
   const marked = useMemo(() => new Set(live?.file ? errorLines(problems, live.file) : []), [live?.file, problems])
+  const portable = useMemo(() => (lang === 'matlab' ? octaveOnly(draft.source) : []), [lang, draft.source])
+  const unportable = useMemo(() => new Set(portable.map(p => p.line)), [portable])
+  const usingOctave = lang === 'matlab' && !/^MATLAB/.test(info?.version ?? '')
+  /** An Octave package the program needs and doesn't have (the runner names it). */
+  const missingPackage = /Octave's (\w+) package/.exec(problems)?.[1] ?? ''
+  async function installPackage(name: string) {
+    setInstalling(name); setError(''); setMessage('')
+    try { setMessage(await codeOctaveInstall(name)) } catch (e) { setError(errorText(e, `Couldn’t install the ${name} package`)) } finally { setInstalling('') }
+  }
+  function matlabOnline() {
+    void navigator.clipboard.writeText(draft.source).catch(() => undefined)
+    openTab({ kind: 'web', title: 'MATLAB Online', params: { page: 'matlab-online', url: 'https://matlab.mathworks.com/', title: 'MATLAB Online' } })
+    setMessage('Your program is copied: in MATLAB Online make a new script and paste it (your school’s MATLAB licence usually includes MATLAB Online, with Simulink and the toolboxes).')
+  }
   const lineCount = draft.source.split('\n').length
   const tokens = useMemo(() => highlight(draft.source, lang), [draft.source, lang])
 
@@ -207,6 +223,7 @@ export default function CodePage({ active }: { active: boolean }) {
       </details>
       <button className="ghost" onClick={() => { if (draft.source === (STARTERS[lang] ?? '') || window.confirm('Start over with the example program? (Save first to keep this one.)')) { edit({ name: 'Untitled', source: STARTERS[lang] ?? '' }); setLive(null) } }}><FilePlus size={14} /> New</button>
       <span className="grow" />
+      {lang === 'matlab' && <button className="ghost" onClick={matlabOnline} title="Open MATLAB Online (Simulink and every toolbox) with this program copied, ready to paste"><ExternalLink size={13} /> MATLAB Online</button>}
       {info && <span className="code-version" title={info.version}>{info.available ? info.version : 'Not installed'}</span>}
     </div>
     {info && !info.available && <div className="code-missing">
@@ -215,10 +232,14 @@ export default function CodePage({ active }: { active: boolean }) {
       <button className="ghost" disabled={checking} onClick={() => { setChecking(true); void codeLanguages(true).then(setLangs).finally(() => setChecking(false)) }}><RefreshCw size={13} className={checking ? 'spin' : undefined} /> Check again</button>
     </div>}
     {(message || error) && <p className={error ? 'error-text code-msg' : 'hint code-msg'}>{error || message}</p>}
+    {portable.length > 0 && <details className="code-portable">
+      <summary><ShieldCheck size={14} /> {portable.length} thing{portable.length === 1 ? '' : 's'} {usingOctave ? 'Octave accepts but' : ''} real MATLAB won’t accept <small>(so it runs where it’s graded)</small></summary>
+      <ul>{portable.map((p, i) => <li key={i}><button className="ghost" onClick={() => goTo(p.line)}>Line {p.line}</button><code>{p.found}</code><span>{p.fix}</span></li>)}</ul>
+    </details>}
     <div className="code-main">
       <div className="code-editor">
         <div className="code-gutter" ref={gutter} aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, i) => <div key={i} className={marked.has(i + 1) ? 'bad' : undefined} onClick={() => goTo(i + 1)}>{i + 1}</div>)}
+          {Array.from({ length: lineCount }, (_, i) => <div key={i} className={marked.has(i + 1) ? 'bad' : unportable.has(i + 1) ? 'warn' : undefined} onClick={() => goTo(i + 1)}>{i + 1}</div>)}
         </div>
         <div className="code-text">
           <pre ref={shown} className="code-shown" aria-hidden="true">{tokens.map((t, i) => (t.kind ? <span key={i} className={`tok-${t.kind}`}>{t.text}</span> : t.text))}{'\n'}</pre>
@@ -252,9 +273,10 @@ export default function CodePage({ active }: { active: boolean }) {
             <button type="submit" className="ghost" title="Send this line"><CornerDownLeft size={13} /></button>
             <button type="button" className="ghost" onClick={() => send(true)} title="Tell the program there's no more input (end of file)">End input</button>
           </form>}
-          {(marked.size > 0 || failed) && <div className="code-jump">
+          {(marked.size > 0 || failed || missingPackage) && <div className="code-jump">
             {marked.size > 0 && <>Go to line {[...marked].map(n => <button key={n} onClick={() => goTo(n)}>{n}</button>)}</>}
             <span className="grow" />
+            {missingPackage && <button className="ghost code-ask" disabled={!!installing} onClick={() => void installPackage(missingPackage)} title="Downloads it from Octave Forge (a few minutes)">{installing ? <Loader2 size={13} className="spin" /> : <Download size={13} />} {installing ? `Installing ${installing}…` : `Install the ${missingPackage} package`}</button>}
             {failed && <button className="ghost code-ask" onClick={ask} title="Mimir explains the error and suggests a fix"><Sparkles size={13} /> Ask Mimir about this error</button>}
           </div>}
         </div>

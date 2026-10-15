@@ -371,8 +371,14 @@ fn prepare(language: &str, source: &str) -> Result<Prepared, String> {
         if l.id == "python" {
             std::fs::write(dir.join("bridgedeck_run.py"), PY_WRAPPER)?;
         }
-        if l.id == "matlab" {
-            std::fs::write(dir.join("bridgedeck_run.m"), OCTAVE_RUNNER)?;
+        if l.id == "matlab" && !is_matlab(&tools[0]) {
+            // Octave: MATLAB functions it lacks, and the packages the program needs.
+            std::fs::write(dir.join("bridgedeck_run.m"), crate::octave::prelude(source) + OCTAVE_RUNNER)?;
+            let compat = dir.join("bridgedeck_compat");
+            std::fs::create_dir_all(&compat)?;
+            for (name, body) in crate::octave::FILL_INS {
+                std::fs::write(compat.join(name), body)?;
+            }
         }
         Ok(())
     })();
@@ -394,9 +400,9 @@ fn prepare(language: &str, source: &str) -> Result<Prepared, String> {
         "verilog" => (Some([vec![tool(0)], s(&["-g2012", "-o", "main.vvp", &file])].concat()), vec![tool(1), "-n".into(), "main.vvp".into()]),
         "python" => (None, [tools.clone(), s(&["-u", "bridgedeck_run.py", &file, &out_dir])].concat()),
         // MATLAB itself runs the script in batch mode; Octave runs it through a small runner. Both
-        // save the figures it drew. Octave's command-line-only build can't draw, so it runs plainly.
+        // save the figures it drew (Octave's command-line-only build can't draw, so it has none).
         "matlab" if is_matlab(&tool(0)) => (None, vec![tool(0), "-batch".into(), MATLAB_BATCH.into()]),
-        "matlab" if Path::new(&tool(0)).file_stem().is_some_and(|n| n.to_string_lossy().contains("cli")) => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-window-system", "--no-init-file", &file])].concat()),
+        "matlab" if Path::new(&tool(0)).file_stem().is_some_and(|n| n.to_string_lossy().contains("cli")) => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-window-system", "--no-init-file", "bridgedeck_run.m"])].concat()),
         "matlab" => (None, [vec![tool(0)], s(&["--no-gui", "--quiet", "--no-init-file", "bridgedeck_run.m"])].concat()),
         _ => (None, vec![tool(0), file.clone()]),
     };
@@ -447,6 +453,46 @@ fn is_matlab(program: &str) -> bool {
 #[tauri::command]
 pub async fn code_run(language: String, source: String, input: String, limit_secs: u64) -> Result<CodeRun, String> {
     tauri::async_runtime::spawn_blocking(move || run(&language, &source, &input, limit_secs)).await.map_err(|e| e.to_string())?
+}
+
+/// Installs an Octave package (control, signal, statistics or symbolic) from Octave Forge, so
+/// programs using MATLAB's toolbox functions run. Takes a few minutes; needs the internet.
+#[tauri::command]
+pub async fn code_octave_install(name: String) -> Result<String, String> {
+    if !crate::octave::is_package(&name) {
+        return Err("That isn’t a package BridgeDeck installs".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let l = lang("matlab").ok_or("No MATLAB language")?;
+        let tools = found(l).ok_or("GNU Octave isn’t installed on this computer")?;
+        let octave = tools.iter().find(|t| !is_matlab(t)).ok_or("Installing packages needs GNU Octave (MATLAB has its toolboxes built in)")?.clone();
+        crate::activity::info("code", &format!("Installing Octave's {name} package."));
+        let dir = std::env::temp_dir();
+        let command = vec![octave, "--no-gui".into(), "--quiet".into(), "--no-init-file".into(), "--eval".into(), format!("pkg install -forge {name}; pkg load {name}; disp('installed')")];
+        let out = step(&command, &dir, "", Duration::from_secs(20 * 60))?;
+        let text = format!("{}{}", out.stdout, out.stderr);
+        if out.ok && text.contains("installed") {
+            crate::activity::info("code", &format!("Installed Octave's {name} package."));
+            Ok(format!("Installed the {name} package. Run the program again."))
+        } else {
+            // Octave's own words, without its call stack or Qt's start-up notes.
+            let said: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("QStandardPaths") && !l.contains(" at line ") && !l.starts_with("error: called from")).collect();
+            let tail = said[said.len().saturating_sub(4)..].join("\n");
+            crate::activity::warn("code", &format!("Installing Octave's {name} package failed: {tail}"));
+            let hint = if text.contains("could not read URL") {
+                "Octave couldn’t download it: check the internet connection.\n".to_string()
+            } else if cfg!(target_os = "linux") {
+                format!("On Linux the ready-made one is easier: sudo apt install octave-{name}\n")
+            } else if cfg!(target_os = "macos") {
+                "Octave needs Xcode’s command line tools to build it: xcode-select --install\n".to_string()
+            } else {
+                String::new()
+            };
+            Err(format!("Couldn’t install the {name} package{}.\n{hint}{tail}", if out.timed_out { " (it took too long)" } else { "" }))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---- Live runs: output as it comes, input as it's typed ----
@@ -808,6 +854,20 @@ mod tests {
         }
         assert_eq!(java_class("class A {}\npublic final class Main2 {"), "Main2");
         assert_eq!(java_class("class A {}"), "Main");
+    }
+
+    #[test]
+    fn octave_runs_matlab_functions_it_lacks() {
+        if !has("matlab") || is_matlab(&found(lang("matlab").unwrap()).unwrap()[0]) {
+            return;
+        }
+        let src = "parts = split('a, b , c', ',');\nfprintf('%s|', strip(parts){:}); fprintf('\\n');\nif contains('Hello', 'ell'), disp(join({'yes', 'it', 'works'})); end\nfprintf('%d %d\\n', height(zeros(2, 3)), width(zeros(2, 3)));";
+        let out = run("matlab", src, "", 90).unwrap().run.unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        assert!(out.stdout.contains("a|b|c|") && out.stdout.contains("yes it works") && out.stdout.contains("2 3"), "{}", out.stdout);
+        // A toolbox function names its package when the package isn't installed.
+        let pkg = run("matlab", "G = tf(1, [1 1]);", "", 90).unwrap().run.unwrap();
+        assert!(pkg.ok || pkg.stderr.contains("control package"), "{}", pkg.stderr);
     }
 
     #[test]
