@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { Activity, BookOpen, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
 import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
@@ -15,6 +15,7 @@ import FsmEditor from './FsmEditor'
 import { buildFsmCircuit, loadCircuit } from './fsm'
 import { reportHtml, reportMarkdown } from './report'
 import { delayRun, levelAt } from './delays'
+import { EXAMPLES, type Example } from './examples'
 
 const W = 4000, H = 3000
 const snap = (v: number) => Math.round(v / GRID) * GRID
@@ -29,10 +30,30 @@ const INPUTS: PaletteItem[] = [
 ]
 const GATE_ITEMS: PaletteItem[] = (['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'BUF'] as GateType[]).map(gate => ({ kind: 'gate', gate, title: gate }))
 
+/** A toolbar menu (details) placed against the window: the toolbar scrolls sideways, which would clip it. */
+function placeMenu(e: React.SyntheticEvent<HTMLDetailsElement>) {
+  const d = e.currentTarget
+  const menu = d.querySelector<HTMLElement>('.logic-files')
+  if (!d.open || !menu) return
+  const r = d.getBoundingClientRect()
+  menu.style.position = 'fixed'
+  menu.style.top = `${r.bottom + 4}px`
+  menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`
+}
+
+const DRAFT_KEY = 'bridgedeck.logic.draft'
+type Draft = { circuit: Circuit; file: { project: string; name: string }; at: number }
+/** The circuit on screen as last left, if it had unsaved changes (kept every few seconds, so a crash
+ *  or an update loses nothing). */
+function readDraft(): Draft | null {
+  try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null; return d?.circuit ? { ...d, circuit: loadCircuit(JSON.stringify(d.circuit)) } : null } catch { return null }
+}
+
 /** Logic gates and 74-series chips: design a circuit, watch it work, get its truth table and the chips to build it with. */
 export default function LogicPage({ active }: { active: boolean }) {
   const config = useConfig()
-  const [circuit, setCircuit] = useState<Circuit>(emptyCircuit)
+  const [draft] = useState(readDraft)
+  const [circuit, setCircuit] = useState<Circuit>(() => draft?.circuit ?? emptyCircuit())
   const [selection, setSelection] = useState<Selection>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [mouse, setMouse] = useState({ x: 0, y: 0 })
@@ -43,11 +64,11 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [view, setView] = useState<'schematic' | 'breadboard' | 'fsm'>('schematic')
   const [speed, setSpeed] = useState(1)
   const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
-  const [file, setFile] = useState({ project: '', name: 'Untitled circuit' })
+  const [file, setFile] = useState(() => draft?.file ?? { project: '', name: 'Untitled circuit' })
   const [files, setFiles] = useState<CircuitFile[]>([])
   const [projects, setProjects] = useState<string[]>([])
-  const [message, setMessage] = useState('')
-  const [dirty, setDirty] = useState(false)
+  const [message, setMessage] = useState(() => (draft ? `Brought back your unsaved changes from ${new Date(draft.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : ''))
+  const [dirty, setDirty] = useState(!!draft)
   const [versions, setVersions] = useState<number[]>([])
   /** Open or Versions, whichever is showing (one at a time). */
   const [menu, setMenu] = useState<'open' | 'versions' | null>(null)
@@ -62,6 +83,17 @@ export default function LogicPage({ active }: { active: boolean }) {
   const flops = useRef<FlopState>({})
 
   const change = (next: (c: Circuit) => Circuit) => { setCircuit(next); setDirty(true) }
+
+  // Unsaved changes are kept as a draft (a second after the last change); saving clears it.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      try {
+        if (dirty) localStorage.setItem(DRAFT_KEY, JSON.stringify({ circuit, file, at: Date.now() }))
+        else localStorage.removeItem(DRAFT_KEY)
+      } catch { /* too big or storage off: the next save still works */ }
+    }, 1000)
+    return () => window.clearTimeout(t)
+  }, [circuit, file, dirty])
 
   // The circuit's levels; flip-flops remember their state from step to step.
   const sim = useMemo(() => {
@@ -314,6 +346,16 @@ export default function LogicPage({ active }: { active: boolean }) {
     flops.current = {}
   }
 
+  const example = (e: Example) => {
+    if (dirty && !window.confirm(`Open the ${e.title} example? Changes to this circuit aren’t saved.`)) return
+    setCircuit(e.build())
+    setFile(f => ({ project: f.project, name: e.title }))
+    setDirty(true)
+    flops.current = {}
+    setView('schematic'); setPanel('table')
+    setMessage(`${e.title}: ${e.about}.${e.group === 'Sequential' ? ' Run the clock to watch it step; its state machine is in the State machine tab.' : ' Flip the switches to try it.'}`)
+  }
+
   const toNote = (title: string, markdown: string) => run(async () => {
     await notesCreateMarkdown(title, file.project ? projectFolder(file.project) : 'Logic', 'note', markdown)
     setMessage(`Saved as a note in ${file.project ? projectFolder(file.project) : 'Logic'}.`)
@@ -337,7 +379,16 @@ export default function LogicPage({ active }: { active: boolean }) {
         setMenu(m => (m === 'versions' ? null : 'versions'))
       }}><History size={14} /> Versions</button>
       <button className="ghost" onClick={fresh}><FilePlus size={14} /> New</button>
-      <details className="logic-open logic-report">
+      <details className="logic-open logic-examples" onToggle={placeMenu}>
+        <summary className="ghost" title="Ready-made circuits: adders, decoders, counters, shift registers…"><BookOpen size={14} /> Examples</summary>
+        <div className="logic-files">
+          {(['Combinational', 'Sequential'] as const).map(g => <div key={g}>
+            <p className="logic-files__group">{g}</p>
+            {EXAMPLES.filter(e => e.group === g).map(e => <button key={e.id} onClick={ev => { (ev.currentTarget.closest('details') as HTMLDetailsElement).open = false; example(e) }}><span>{e.title}</span><small>{e.about}</small></button>)}
+          </div>)}
+        </div>
+      </details>
+      <details className="logic-open logic-report" onToggle={placeMenu}>
         <summary className="ghost" title="A lab report: the circuit, truth table, K-maps, expressions, chips and wiring"><FileText size={14} /> Report</summary>
         <div className="logic-files">
           <button onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void run(async () => {

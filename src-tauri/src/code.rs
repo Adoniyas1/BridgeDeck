@@ -242,6 +242,31 @@ pub struct CodeRun {
     pub file: String,
     /// Pictures it drew (matplotlib, MATLAB/Octave figures), as base64 PNGs.
     pub images: Vec<String>,
+    /// MATLAB/Octave: the variables it left, like MATLAB's Workspace panel.
+    pub workspace: Vec<Variable>,
+}
+
+/// A variable a MATLAB/Octave program left behind.
+#[derive(Serialize, Clone, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Variable {
+    pub name: String,
+    pub size: String,
+    pub class: String,
+    pub value: String,
+}
+
+/// The variables the Octave runner wrote out (workspace.tsv), if it did.
+fn workspace(dir: &Path) -> Vec<Variable> {
+    std::fs::read_to_string(dir.join("workspace.tsv"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(4, '\t');
+            Some(Variable { name: f.next()?.into(), size: f.next()?.replace('x', "×"), class: f.next()?.into(), value: f.next().unwrap_or("").into() })
+        })
+        .take(200)
+        .collect()
 }
 
 /// Runs a program in `dir` with `input` on its standard input, stopping it after `limit`.
@@ -341,7 +366,7 @@ os._exit(status)
 "#;
 
 /// Runs the script with figures hidden, then saves each figure it drew as figure0.png….
-const OCTAVE_RUNNER: &str = "set(0, 'defaultfigurevisible', 'off');\nstatus = 0;\ntry\n  main\ncatch err\n  fprintf(2, 'error: %s\\n', err.message);\n  for k = 1:numel(err.stack)\n    fprintf(2, '    %s at line %d\\n', err.stack(k).name, err.stack(k).line);\n  end\n  status = 1;\nend\nwarning('off', 'all');\nfigs = get(0, 'children');\nfor i = 1:min(numel(figs), 6)\n  try\n    print(figs(i), sprintf('figure%d.png', i - 1), '-dpng', '-r110');\n  catch\n  end\nend\nexit(status);\n";
+const OCTAVE_RUNNER: &str = "set(0, 'defaultfigurevisible', 'off');\nbridgedeck_status = 0;\ntry\n  main\ncatch bridgedeck_err\n  fprintf(2, 'error: %s\\n', bridgedeck_err.message);\n  for bridgedeck_k = 1:numel(bridgedeck_err.stack)\n    fprintf(2, '    %s at line %d\\n', bridgedeck_err.stack(bridgedeck_k).name, bridgedeck_err.stack(bridgedeck_k).line);\n  end\n  bridgedeck_status = 1;\nend\nwarning('off', 'all');\nbridgedeck_workspace(who);\nbridgedeck_figs = get(0, 'children');\nfor bridgedeck_i = 1:min(numel(bridgedeck_figs), 6)\n  try\n    print(bridgedeck_figs(bridgedeck_i), sprintf('figure%d.png', bridgedeck_i - 1), '-dpng', '-r110');\n  catch\n  end\nend\nexit(bridgedeck_status);\n";
 
 /// The same for MATLAB, as one -batch command.
 const MATLAB_BATCH: &str = "set(0,'DefaultFigureVisible','off'); try, main, catch err, fprintf(2,'%s\\n',err.getReport('basic')); figs=findobj('type','figure'); for i=1:min(numel(figs),6), print(figs(i),sprintf('figure%d.png',i-1),'-dpng','-r110'); end, exit(1), end, figs=findobj('type','figure'); for i=1:min(numel(figs),6), print(figs(i),sprintf('figure%d.png',i-1),'-dpng','-r110'); end";
@@ -439,6 +464,7 @@ fn run(language: &str, source: &str, input: &str, limit_secs: u64) -> Result<Cod
         }
         out.run = Some(step(&p.start, &p.dir, input, limit)?);
         out.images = figures(&p.dir);
+        out.workspace = workspace(&p.dir);
         Ok(out)
     })();
     let _ = std::fs::remove_dir_all(&p.dir);
@@ -511,6 +537,7 @@ pub struct CodeEvent {
     pub timed_out: bool,
     pub file: String,
     pub images: Vec<String>,
+    pub workspace: Vec<Variable>,
 }
 
 struct Live {
@@ -665,6 +692,7 @@ fn start_live(app: tauri::AppHandle, id: u64, language: String, source: String, 
     let _ = err_thread.join();
     live(|m| m.remove(&id));
     let images = figures(&p.dir);
+    let vars = workspace(&p.dir);
     let _ = std::fs::remove_dir_all(&p.dir);
     send(CodeEvent {
         kind: "exit".into(),
@@ -675,6 +703,7 @@ fn start_live(app: tauri::AppHandle, id: u64, language: String, source: String, 
         timed_out,
         file,
         images,
+        workspace: vars,
         ..Default::default()
     });
 }
@@ -854,6 +883,21 @@ mod tests {
         }
         assert_eq!(java_class("class A {}\npublic final class Main2 {"), "Main2");
         assert_eq!(java_class("class A {}"), "Main");
+    }
+
+    #[test]
+    fn octave_brings_back_the_variables_a_program_left() {
+        if !has("matlab") || is_matlab(&found(lang("matlab").unwrap()).unwrap()[0]) {
+            return;
+        }
+        let out = run("matlab", "A = [1 2; 3 4];\nname = 'hi';\nstatus = 5;\nf = @(t) t.^2;", "", 90).unwrap();
+        assert!(out.run.as_ref().unwrap().ok, "{}", out.run.unwrap().stderr);
+        let get = |n: &str| out.workspace.iter().find(|v| v.name == n).cloned();
+        assert_eq!(get("A"), Some(Variable { name: "A".into(), size: "2×2".into(), class: "double".into(), value: "[1 2;3 4]".into() }));
+        assert_eq!(get("name").map(|v| v.value), Some("'hi'".into()));
+        assert_eq!(get("status").map(|v| v.value), Some("5".into()));
+        assert_eq!(get("f").map(|v| v.class), Some("function_handle".into()));
+        assert!(out.workspace.iter().all(|v| !v.name.starts_with("bridgedeck_")));
     }
 
     #[test]

@@ -591,9 +591,10 @@ export const pythonRun = (code: string) => native<PythonRun>('python_run', { cod
 /** The Code tab's languages, run by the compilers on this computer (src-tauri/src/code.rs). */
 export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; install: string }
 export type CodeStep = { ok: boolean; stdout: string; stderr: string; exitCode: number | null; ms: number; timedOut: boolean }
-export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string; images: string[] }
+export type CodeVariable = { name: string; size: string; class: string; value: string }
+export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string; images: string[]; workspace: CodeVariable[] }
 /** A live run (code.rs): the build, the output as it comes, and the end (with the plots it drew). */
-export type CodeEvent = { id: number; kind: 'compile' | 'out' | 'err' | 'exit'; text: string; ok: boolean; exitCode: number | null; ms: number; timedOut: boolean; file: string; images: string[] }
+export type CodeEvent = { id: number; kind: 'compile' | 'out' | 'err' | 'exit'; text: string; ok: boolean; exitCode: number | null; ms: number; timedOut: boolean; file: string; images: string[]; workspace: CodeVariable[] }
 export type CodeFile = { name: string; language: string; modified: number }
 /** The activity log (src-tauri/src/activity.rs), this computer's hardware, and the safety stop
  *  (watchdog.rs) that stops the AI models before they freeze the computer. */

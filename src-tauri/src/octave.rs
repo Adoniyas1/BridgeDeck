@@ -4,6 +4,7 @@
 
 /// The fill-in functions, written next to each program in `bridgedeck_compat/`.
 pub const FILL_INS: &[(&str, &str)] = &[
+    ("bridgedeck_workspace.m", include_str!("octave_compat/bridgedeck_workspace.m")),
     ("compose.m", include_str!("octave_compat/compose.m")),
     ("contains.m", include_str!("octave_compat/contains.m")),
     ("convertStringsToChars.m", include_str!("octave_compat/convertStringsToChars.m")),
