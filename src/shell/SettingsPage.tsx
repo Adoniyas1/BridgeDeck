@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { Activity, Bell, CheckCircle2, Info, Search, Settings2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { defaultConfig } from '../lib/config'
@@ -13,6 +13,8 @@ import NotificationSettings from './NotificationSettings'
 import DiagnosticsButton from './DiagnosticsButton'
 import ErrorLogCard from './ErrorLogCard'
 import ActivitySettings from './ActivitySettings'
+import { settingsSectionStore } from '../core/settingsNav'
+import { useStore } from '../core/store'
 
 type Section = { id: string; title: string; icon: LucideIcon; group: string; Body: ComponentType }
 
@@ -59,6 +61,8 @@ export default function SettingsPage() {
   }, [query, sections])
 
   const pick = (id: string) => { setSelected(id); setQuery(''); try { localStorage.setItem(SELECTED_KEY, id) } catch { /* this run only */ } }
+  const asked = useStore(settingsSectionStore)
+  useEffect(() => { if (asked) { pick(asked); settingsSectionStore.set(null) } }, [asked])
   const current = sections.some(s => s.id === selected) ? selected : sections[0].id
   const shown = (id: string) => matches ? matches.has(id) : id === current
   let lastGroup = ''

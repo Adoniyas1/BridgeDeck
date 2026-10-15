@@ -14,6 +14,7 @@ import { CodeChip } from '../features/messages/CodeChip'
 import { SpotifyMini } from '../features/spotify/SpotifyMini'
 import { ChecklistPopup } from '../features/notes/ChecklistPopup'
 import { logActivity } from '../core/activity'
+import { SystemMeter } from './SystemMeter'
 
 const pages = features.filter(feature => feature.Page)
 const byId = (id: string) => pages.find(feature => feature.id === id)
@@ -141,6 +142,7 @@ export default function TabBar() {
         ) })}
       </nav>
       <div className="tab-actions">
+        <SystemMeter />
         <CodeChip />
         <SpotifyMini />
         {!hydrated && <span className="save-state">Loading…</span>}
