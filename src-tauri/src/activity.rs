@@ -108,6 +108,22 @@ fn mimir_crashes() -> String {
     out
 }
 
+/// Mimir's speed log (each answer's tokens per second) and its activity log (where the load watch
+/// notes GPU share changes), for the AI speed chart.
+#[derive(serde::Serialize)]
+pub struct AiSpeedLog {
+    pub speed: String,
+    pub activity: String,
+}
+
+#[tauri::command]
+pub fn ai_speed_log() -> AiSpeedLog {
+    let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) else { return AiSpeedLog { speed: String::new(), activity: String::new() } };
+    let dir = PathBuf::from(home).join(".mimir").join("logs");
+    let read = |f: &str, bytes: usize| tail(&fs::read_to_string(dir.join(f)).unwrap_or_default(), bytes).to_string();
+    AiSpeedLog { speed: read("speed.log", 96 * 1024), activity: read("activity.log", 64 * 1024) }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityLog {

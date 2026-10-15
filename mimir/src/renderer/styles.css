@@ -984,3 +984,4 @@ body { font-size: 14px; line-height: 1.5; }
 .setup-gpu-share input[type="range"] { flex: 1; max-width: 280px; }
 .setup-gpu-share label span { font-variant-numeric: tabular-nums; min-width: 120px; }
 .setup-gpu-share__model { margin: 2px 0; }
+.chat-share-note { margin: 0 0 4px; font-size: 11.5px; }

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { LOG_DIR } from "../logs/turnLog.js";
 
@@ -43,6 +43,26 @@ export function modelCallEnded(): void {
 export const modelIdleFor = (now = Date.now()): number => (inFlight > 0 ? 0 : now - lastCall);
 
 export const ACTIVITY_LOG = path.join(LOG_DIR, "activity.log");
+
+/** How fast each answer came (BridgeDeck charts it in Settings → Activity & safety): one line each,
+ * tab-separated: time, model, tokens, tokens per second. Kept under SPEED_MAX bytes. */
+export const SPEED_LOG = path.join(LOG_DIR, "speed.log");
+const SPEED_MAX = 200 * 1024;
+
+export function recordSpeed(model: string, tokens: number, ms: number, file = SPEED_LOG, now = new Date()): void {
+  if (tokens < 8 || ms <= 0) return; // too short to say
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      if (statSync(file).size > SPEED_MAX) writeFileSync(file, readFileSync(file, "utf-8").split("\n").slice(-1000).join("\n"));
+    } catch {
+      /* no file yet */
+    }
+    appendFileSync(file, `${now.toISOString()}\t${model.replace(/\s+/g, " ").slice(0, 80)}\t${tokens}\t${((tokens * 1000) / ms).toFixed(1)}\n`);
+  } catch {
+    /* nowhere to write it */
+  }
+}
 
 export function logActivity(message: string, file = ACTIVITY_LOG): void {
   try {

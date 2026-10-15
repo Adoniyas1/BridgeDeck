@@ -51,6 +51,26 @@ const token = params.get("token") ?? "";
 const listeners = new Map<string, Set<Listener>>();
 /** Questions from BridgeDeck (not an IPC channel: they come from the page around this one). */
 const ASK = "bridgedeck:ask";
+
+/** Inside BridgeDeck (its Mimir tab): this page is in a frame BridgeDeck made. */
+const embedded = window.parent !== window;
+export type BridgeDeckTab = { title: string; text: string };
+const contextWaiting = new Map<number, (ctx: BridgeDeckTab | null) => void>();
+let contextSeq = 0;
+
+/** What's open in BridgeDeck: the last tab worked in that has something to ask about (a circuit, a
+ * program), or null (not in BridgeDeck, nothing open, or no answer in time). */
+function bridgeDeckContext(): Promise<BridgeDeckTab | null> {
+  if (!embedded) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = ++contextSeq;
+    contextWaiting.set(id, resolve);
+    window.parent.postMessage({ source: "mimir", type: "context-request", id }, "*");
+    setTimeout(() => {
+      if (contextWaiting.delete(id)) resolve(null);
+    }, 2000);
+  });
+}
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 const queue: string[] = [];
 let socket: WebSocket | null = null;
@@ -128,6 +148,10 @@ const api = {
     onStream: (cb: (event: ChatStreamEvent) => void) => on(IPC.chatStream, cb),
     /** A question BridgeDeck hands over (e.g. "Ask Mimir about this error" in its Code tab). */
     onAsk: (cb: (text: string) => void) => on(ASK, cb)
+  },
+  bridgedeck: {
+    embedded,
+    context: bridgeDeckContext
   },
   face: {
     onState: (cb: (state: FaceState) => void) => on(IPC.faceState, cb)
@@ -250,6 +274,13 @@ window.addEventListener("message", (event) => {
   const ask = event.data as { source?: string; type?: string; text?: unknown } | null;
   const text = typeof ask?.text === "string" ? ask.text.trim().slice(0, 20000) : "";
   if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
+  const reply = event.data as { source?: string; type?: string; id?: unknown; context?: { title?: unknown; text?: unknown } | null } | null;
+  if (reply?.source === "bridgedeck" && reply.type === "context" && typeof reply.id === "number") {
+    const done = contextWaiting.get(reply.id);
+    contextWaiting.delete(reply.id);
+    const c = reply.context;
+    done?.(c && typeof c.title === "string" && typeof c.text === "string" ? { title: c.title.slice(0, 200), text: c.text.slice(0, 16000) } : null);
+  }
 });
 
 window.mimir = api;

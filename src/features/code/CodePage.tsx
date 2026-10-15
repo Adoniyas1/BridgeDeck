@@ -5,6 +5,9 @@ import { codeDelete, codeFiles, codeInput, codeOctaveInstall, codeRun, codeLangu
 import { errorText } from '../../core/util'
 import { askMimir } from '../mimir'
 import { openTab } from '../../core/tabs'
+import { useTabContext } from '../../core/tabContext'
+import { openCodeRequest } from '../../core/openRequests'
+import { useStore } from '../../core/store'
 import { errorLines, highlight, indentUnit, newLine, octaveOnly, sameOutput, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
@@ -91,6 +94,18 @@ export default function CodePage({ active }: { active: boolean }) {
       early.current.clear()
     } catch (e) { setError(errorText(e, 'It didn’t run')) } finally { setStarting(false) }
   }
+  // What Mimir sees when asked about this tab: the program, and how its last run and tests went.
+  useTabContext('code', () => {
+    const name = info?.name ?? lang
+    const output = live ? live.segments.map(x => (x.kind === 'in' ? `[typed] ${x.text}` : x.text)).join('').slice(-3000) : ''
+    const parts = [`The ${name} program “${draft.name}”:\n\`\`\`${lang}\n${draft.source}\n\`\`\``]
+    if (live?.compile && !live.compile.ok) parts.push(`It didn’t compile:\n\`\`\`\n${live.compile.text.slice(-3000)}\n\`\`\``)
+    if (output) parts.push(`Its last run printed:\n\`\`\`\n${output}\n\`\`\``)
+    if (status) parts.push(`Last run: ${status.text}.`)
+    if (results.length) parts.push(`Tests: ${results.filter(r => r.state === 'pass').length} of ${results.length} passed.${results.map((r, i) => (r.state === 'fail' ? `\nTest ${i + 1}: input ${JSON.stringify((draft.tests ?? [])[i]?.input ?? '')}, expected ${JSON.stringify((draft.tests ?? [])[i]?.expected ?? '')}, got ${JSON.stringify(r.got.slice(0, 500))}` : '')).join('')}`)
+    return { title: `${name} program “${draft.name}”`, text: parts.join('\n\n') }
+  })
+
   const tests = draft.tests ?? []
   const setTests = (next: Test[]) => { edit({ tests: next }); setResults([]) }
   /** Runs the program once per test, with the test's input, and compares what it prints. */
@@ -133,6 +148,10 @@ export default function CodePage({ active }: { active: boolean }) {
       setLang(f.language); setLive(null)
     } catch (e) { setError(errorText(e, 'Couldn’t open it')) }
   }
+
+  // A program picked in search.
+  const requested = useStore(openCodeRequest)
+  useEffect(() => { if (requested) { openCodeRequest.set(null); void open(requested) } }, [requested])
 
   // ⌘/Ctrl+Enter runs, ⌘/Ctrl+S saves.
   useEffect(() => {

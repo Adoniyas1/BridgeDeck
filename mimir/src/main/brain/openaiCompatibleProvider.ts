@@ -8,7 +8,7 @@ import type {
   ToolDef
 } from "./Provider.js";
 import { normalizeBaseUrl } from "./baseUrl.js";
-import { modelCallEnded, modelCallStarted } from "../setup/adaptive.js";
+import { modelCallEnded, modelCallStarted, recordSpeed } from "../setup/adaptive.js";
 
 /**
  * Talks to any server implementing the OpenAI chat-completions wire format —
@@ -62,10 +62,20 @@ export class OpenAICompatibleProvider implements BrainProvider {
   /** Counted as a model call in progress (so the load watch restarts llama-swap only between answers). */
   async *chat(messages: BrainMessage[], tools: ToolDef[], opts: ChatOpts): AsyncGenerator<ChatEvent, void, unknown> {
     modelCallStarted();
+    // Its speed: streamed pieces (about a token each) from the first one to the end.
+    let first = 0;
+    let pieces = 0;
     try {
-      yield* this.stream(messages, tools, opts);
+      for await (const event of this.stream(messages, tools, opts)) {
+        if (event.type === "text-delta" || event.type === "reasoning-delta") {
+          if (!first) first = Date.now();
+          pieces++;
+        }
+        yield event;
+      }
     } finally {
       modelCallEnded();
+      if (first) recordSpeed(this.model, pieces, Date.now() - first);
     }
   }
 

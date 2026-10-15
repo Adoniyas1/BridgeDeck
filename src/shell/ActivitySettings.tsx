@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ClipboardCopy, Cpu, FolderOpen, OctagonX, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
-import { activityClear, activityRead, hardwareInfo, isTauri, openPath, safetySet, safetyStatus, safetyStopAi, type ActivityLog, type Hardware, type SafetySettings, type SafetyStatus } from '../lib/bridge'
+import { activityClear, activityRead, aiSpeedLog, hardwareInfo, isTauri, openPath, safetySet, safetyStatus, safetyStopAi, type ActivityLog, type Hardware, type SafetySettings, type SafetyStatus } from '../lib/bridge'
 import { setNotice } from '../core/notice'
 import { errorText } from '../core/util'
 import { Card, SectionTitle, Toggle } from '../ui'
 import { version } from '../../package.json'
+import { parseShareChanges, parseSpeed, type ShareChange, type SpeedSample } from './aiSpeed'
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
 
@@ -30,7 +31,57 @@ export function filterLog(text: string, filter: Filter, query: string): string[]
  *  stops the AI models before they freeze the computer, and the log of what BridgeDeck has done. */
 export default function ActivitySettings() {
   if (!isTauri()) return <Card><p className="hint">The activity log and safety stop are in the BridgeDeck app.</p></Card>
-  return <><SafetyCard /><ActivityCard /></>
+  return <><SafetyCard /><AiSpeedCard /><ActivityCard /></>
+}
+
+const W = 600, H = 170, L = 36, R = 8, T = 10, B = 22
+
+/** Each answer's speed (tokens per second), last 120 in order, with where the GPU share changed. */
+function AiSpeedCard() {
+  const [data, setData] = useState<{ samples: SpeedSample[]; changes: ShareChange[] } | null>(null)
+  const [hover, setHover] = useState<number | null>(null)
+  const load = () => void aiSpeedLog().then(l => setData({ samples: parseSpeed(l.speed).slice(-120), changes: parseShareChanges(l.activity) })).catch(() => setData({ samples: [], changes: [] }))
+  useEffect(load, [])
+  if (!data) return null
+  const { samples } = data
+  const max = Math.max(5, ...samples.map(s => s.tps)) * 1.1
+  const step = Math.ceil(max / 4 / 5) * 5
+  const x = (i: number) => L + (samples.length < 2 ? (W - L - R) / 2 : (i * (W - L - R)) / (samples.length - 1))
+  const y = (v: number) => T + (H - T - B) * (1 - v / (step * 4))
+  // A share change is drawn before the first answer after it.
+  const marks = data.changes.flatMap(c => { const i = samples.findIndex(s => s.at >= c.at); return i > 0 ? [{ ...c, i }] : [] })
+  const avg = samples.length ? samples.reduce((n, s) => n + s.tps, 0) / samples.length : 0
+  const h = hover !== null ? samples[hover] : null
+  const when = (ms: number) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return <Card>
+    <SectionTitle title="AI speed" subtitle={samples.length ? `Tokens per second for Mimir's last ${samples.length} answer${samples.length === 1 ? '' : 's'} on local models · average ${avg.toFixed(1)}` : 'How fast Mimir answers on local models'} />
+    {samples.length < 2 ? <p className="hint">Nothing yet: each answer from a local model (llama.cpp, llama-swap) is timed and shows here, with the moments the load watch or auto-tune changed how much runs on the GPU.</p> : <>
+      <div className="ai-speed">
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Tokens per second, last ${samples.length} answers`}
+          onMouseMove={e => { const r = e.currentTarget.getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * W; setHover(Math.max(0, Math.min(samples.length - 1, Math.round(((px - L) / (W - L - R)) * (samples.length - 1))))) }}
+          onMouseLeave={() => setHover(null)}>
+          {[0, 1, 2, 3, 4].map(k => <g key={k}>
+            <line className="ai-speed__grid" x1={L} x2={W - R} y1={y(k * step)} y2={y(k * step)} />
+            <text className="ai-speed__tick" x={L - 6} y={y(k * step) + 3} textAnchor="end">{k * step}</text>
+          </g>)}
+          {marks.map(m => <g key={m.at}>
+            <line className="ai-speed__mark" x1={(x(m.i - 1) + x(m.i)) / 2} x2={(x(m.i - 1) + x(m.i)) / 2} y1={T} y2={H - B} />
+            <text className="ai-speed__tick" x={(x(m.i - 1) + x(m.i)) / 2 + 3} y={T + 8}>{m.share}% GPU</text>
+          </g>)}
+          <polyline className="ai-speed__line" points={samples.map((s, i) => `${x(i)},${y(s.tps)}`).join(' ')} />
+          {h && hover !== null && <>
+            <line className="ai-speed__cross" x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} />
+            <circle className="ai-speed__dot" cx={x(hover)} cy={y(h.tps)} r={4} />
+          </>}
+          <text className="ai-speed__tick" x={L} y={H - 6}>{when(samples[0].at)}</text>
+          <text className="ai-speed__tick" x={W - R} y={H - 6} textAnchor="end">{when(samples[samples.length - 1].at)}</text>
+        </svg>
+        {h && hover !== null && <div className="ai-speed__tip" style={{ left: `${(x(hover) / W) * 100}%` }}><strong>{h.tps.toFixed(1)} tokens/s</strong><span>{h.model} · {h.tokens} tokens</span><span>{when(h.at)}</span></div>}
+      </div>
+      {marks.length > 0 && <p className="hint">Dashed lines: the GPU share changed ({marks.map(m => `${m.share}%: ${m.why.toLowerCase()}`).join('; ')}).</p>}
+    </>}
+    <div className="actions"><button className="secondary" onClick={load}><RefreshCw size={14} /> Refresh</button></div>
+  </Card>
 }
 
 function SafetyCard() {

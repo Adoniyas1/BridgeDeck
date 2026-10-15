@@ -6,6 +6,7 @@ import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
+import { workContext } from '../../core/tabContext'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
 
@@ -51,6 +52,15 @@ function MimirBackground() {
   }, [])
   return null
 }
+
+// Mimir's chat asks for what's open in BridgeDeck (the last tab worked in) to attach to a message.
+if (typeof window !== 'undefined') window.addEventListener('message', event => {
+  const data = event.data as { source?: string; type?: string; id?: unknown } | null
+  if (data?.source !== 'mimir' || data.type !== 'context-request' || !frame?.contentWindow || event.source !== frame.contentWindow) return
+  const url = mimirStore.get().url
+  if (!url) return
+  frame.contentWindow.postMessage({ source: 'bridgedeck', type: 'context', id: data.id, context: workContext() }, new URL(url).origin)
+})
 
 /** Opens the Mimir tab and asks it `text` (started first if it isn't running). The page needs a
  *  moment after it appears before it listens, so the question is sent once it's there. */

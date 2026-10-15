@@ -50,6 +50,9 @@ export default function Chat({
 }: ChatProps) {
   const [draft, setDraft] = useState("");
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  /** Attach what's open in BridgeDeck (the circuit or program last worked on) to the next message. */
+  const [shareTab, setShareTab] = useState(false);
+  const [shareNote, setShareNote] = useState("");
   const [showCamera, setShowCamera] = useState(false);
   const [history, setHistory] = useState<MimirChatSummary[] | null>(null);
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")?.id;
@@ -65,13 +68,19 @@ export default function Chat({
   }
   const fileInput = useRef<HTMLInputElement>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const text = draft.trim();
+    let text = draft.trim();
     if ((!text && stagedFiles.length === 0) || busy) return;
-    onSend(text, stagedFiles.length > 0 ? stagedFiles : undefined);
+    const files = stagedFiles.length > 0 ? stagedFiles : undefined;
     setDraft("");
     setStagedFiles([]);
+    if (shareTab) {
+      const tab = await window.mimir.bridgedeck.context();
+      if (tab) text = `${text}\n\n---\nWhat's open in BridgeDeck (${tab.title}):\n\n${tab.text}`;
+      setShareNote(tab ? `Attached: ${tab.title}` : "Nothing to attach: open a circuit in Logic or a program in Code first.");
+    }
+    onSend(text, files);
   }
 
   function addFiles(files: FileList | null) {
@@ -105,6 +114,19 @@ export default function Chat({
           >
             Thinking {thinkingOn ? "on" : "off"}
           </button>
+          {window.mimir.bridgedeck.embedded && (
+            <button
+              type="button"
+              className={`chat-chip${shareTab ? " chat-chip--on" : ""}`}
+              onClick={() => {
+                setShareTab((v) => !v);
+                setShareNote("");
+              }}
+              title="Attach what's open in BridgeDeck (the circuit in Logic or the program in Code you last worked on) to your messages, so Mimir can see it"
+            >
+              BridgeDeck tab {shareTab ? "shared" : "off"}
+            </button>
+          )}
           <button type="button" className="chat-chip" onClick={onOpenMemory} title="What Mimir remembers about you">
             Memory
           </button>
@@ -234,7 +256,8 @@ export default function Chat({
         </div>
       )}
 
-      <form className="chat-input" onSubmit={submit}>
+      {shareNote && <p className="hint chat-share-note">{shareNote}</p>}
+      <form className="chat-input" onSubmit={(e) => void submit(e)}>
         <span className="chat-input__glow" aria-hidden="true" />
         <button
           type="button"

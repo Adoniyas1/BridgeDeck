@@ -16,6 +16,9 @@ import { buildFsmCircuit, loadCircuit } from './fsm'
 import { reportHtml, reportMarkdown } from './report'
 import { delayRun, levelAt } from './delays'
 import { EXAMPLES, type Example } from './examples'
+import { useTabContext } from '../../core/tabContext'
+import { openCircuitRequest } from '../../core/openRequests'
+import { useStore } from '../../core/store'
 
 const W = 4000, H = 3000
 const snap = (v: number) => Math.round(v / GRID) * GRID
@@ -83,6 +86,12 @@ export default function LogicPage({ active }: { active: boolean }) {
   const flops = useRef<FlopState>({})
 
   const change = (next: (c: Circuit) => Circuit) => { setCircuit(next); setDirty(true) }
+
+  // What Mimir sees when asked about this tab: the circuit written up like the lab report.
+  useTabContext('logic', () => circuit.parts.length ? {
+    title: `Logic circuit “${file.name}”`,
+    text: `${reportMarkdown(circuit, { title: file.name, project: file.project, date: new Date() }).replace(/## (Objective|Observations|Conclusion)\n+/g, '')}\n\nRight now the switches are: ${circuit.parts.filter(p => p.kind === 'switch').map(p => `${p.label}=${p.on ? 1 : 0}`).join(', ') || 'none'}.`,
+  } : null)
 
   // Unsaved changes are kept as a draft (a second after the last change); saving clears it.
   useEffect(() => {
@@ -337,6 +346,18 @@ export default function LogicPage({ active }: { active: boolean }) {
     setDirty(false)
     flops.current = {}
   })
+
+  // ⌘/Ctrl+S saves.
+  useEffect(() => {
+    if (!active) return
+    const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); void save() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  // A circuit picked in search.
+  const requested = useStore(openCircuitRequest)
+  useEffect(() => { if (requested) { openCircuitRequest.set(null); void open(requested) } }, [requested])
 
   const fresh = () => {
     if (dirty && !window.confirm('Start a new circuit? Changes to this one aren’t saved.')) return
