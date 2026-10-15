@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errorLines, highlight, newLine, octaveOnly, STARTERS } from './model'
+import { errorLines, highlight, newLine, octaveOnly, sameOutput, STARTERS } from './model'
 
 describe('code tab', () => {
   it('finds the lines compiler and runtime messages point at', () => {
@@ -61,5 +61,13 @@ describe('octaveOnly', () => {
   })
   it('leaves plain MATLAB alone', () => {
     expect(octaveOnly("A = [1 2; 3 4]';\nb = A \\ [1; 2];\nif b(1) ~= 0, fprintf('%g\\n', b); end\ns = 'it''s fine';\n% comment with += and !=")).toEqual([])
+  })
+})
+
+describe('sameOutput', () => {
+  it('ignores line endings and trailing spaces, not real differences', () => {
+    expect(sameOutput('5\r\nok  \n\n', '5\nok')).toBe(true)
+    expect(sameOutput('5\nok', '5\nOK')).toBe(false)
+    expect(sameOutput(' 5', '5')).toBe(false)
   })
 })

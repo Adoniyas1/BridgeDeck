@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, Download, ExternalLink, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, ShieldCheck, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
-import { codeDelete, codeFiles, codeInput, codeOctaveInstall, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
+import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, Download, FlaskConical, Plus, ExternalLink, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, ShieldCheck, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
+import { codeDelete, codeFiles, codeInput, codeOctaveInstall, codeRun, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { askMimir } from '../mimir'
 import { openTab } from '../../core/tabs'
-import { errorLines, highlight, indentUnit, newLine, octaveOnly, STARTERS } from './model'
+import { errorLines, highlight, indentUnit, newLine, octaveOnly, sameOutput, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
 const LANG_KEY = 'bridgedeck.code.language'
 /** Each language's program as last left, so switching languages (or restarting) loses nothing. */
-type Draft = { name: string; source: string; input: string }
+type Test = { input: string; expected: string }
+type Draft = { name: string; source: string; input: string; tests?: Test[] }
+type TestResult = { state: 'running' | 'pass' | 'fail' | 'error'; got: string; ms: number }
 const readDrafts = (): Record<string, Draft> => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') } catch { return {} } }
 const readLang = () => { try { return localStorage.getItem(LANG_KEY) ?? 'python' } catch { return 'python' } }
 const MOD = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'
@@ -49,6 +51,9 @@ export default function CodePage({ active }: { active: boolean }) {
   const [files, setFiles] = useState<CodeFile[]>([])
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState('')
+  const [side, setSide] = useState<'input' | 'tests'>('input')
+  const [results, setResults] = useState<TestResult[]>([])
+  const [testing, setTesting] = useState(false)
   const area = useRef<HTMLTextAreaElement>(null)
   const shown = useRef<HTMLPreElement>(null)
   const term = useRef<HTMLDivElement>(null)
@@ -86,6 +91,27 @@ export default function CodePage({ active }: { active: boolean }) {
       early.current.clear()
     } catch (e) { setError(errorText(e, 'It didn’t run')) } finally { setStarting(false) }
   }
+  const tests = draft.tests ?? []
+  const setTests = (next: Test[]) => { edit({ tests: next }); setResults([]) }
+  /** Runs the program once per test, with the test's input, and compares what it prints. */
+  async function runTests() {
+    if (testing || !tests.length) return
+    setTesting(true); setError('')
+    const out: TestResult[] = tests.map(() => ({ state: 'running', got: '', ms: 0 }))
+    setResults([...out])
+    for (let i = 0; i < tests.length; i++) {
+      try {
+        const r = await codeRun(lang, draft.source, tests[i].input, limit || 60)
+        if (r.compile && !r.compile.ok) out[i] = { state: 'error', got: r.compile.stderr || r.compile.stdout, ms: r.compile.ms }
+        else if (!r.run || r.run.timedOut) out[i] = { state: 'error', got: 'Stopped after the time limit.', ms: r.run?.ms ?? 0 }
+        else out[i] = { state: sameOutput(r.run.stdout, tests[i].expected) ? 'pass' : r.run.ok ? 'fail' : 'error', got: r.run.ok ? r.run.stdout : `${r.run.stdout}${r.run.stderr}`, ms: r.run.ms }
+      } catch (e) { out[i] = { state: 'error', got: errorText(e, 'It didn’t run'), ms: 0 } }
+      setResults([...out])
+    }
+    setTesting(false)
+  }
+  const passed = results.filter(r => r.state === 'pass').length
+
   function send(close = false) {
     if (!live || live.exit) return
     const text = close ? '' : `${typed}\n`
@@ -248,10 +274,35 @@ export default function CodePage({ active }: { active: boolean }) {
         </div>
       </div>
       <aside className="code-side">
-        <label className="code-input">
+        <div className="code-side-tabs" role="tablist">
+          <button role="tab" aria-selected={side === 'input'} className={side === 'input' ? 'on' : ''} onClick={() => setSide('input')}>Input</button>
+          <button role="tab" aria-selected={side === 'tests'} className={side === 'tests' ? 'on' : ''} onClick={() => setSide('tests')}><FlaskConical size={13} /> Tests{tests.length ? ` (${results.length && !testing ? `${passed}/${tests.length}` : tests.length})` : ''}</button>
+        </div>
+        {side === 'input' ? <label className="code-input">
           <span>Input <small>given at the start (or type answers below while it runs)</small></span>
           <textarea value={draft.input} onChange={e => edit({ input: e.target.value })} spellCheck={false} placeholder="Optional: answers to give the program up front, one per line" />
-        </label>
+        </label> : <div className="code-tests">
+          {!tests.length && <p className="hint">A test gives the program some input and says what it should print. Run them all to check the program still works after a change, like an autograder.</p>}
+          {tests.map((t, i) => { const r = results[i]; return <div key={i} className={`code-test${r ? ` code-test--${r.state}` : ''}`}>
+            <div className="code-test__head">
+              <strong>Test {i + 1}</strong>
+              {r && <em>{r.state === 'running' ? <Loader2 size={12} className="spin" /> : r.state === 'pass' ? <CheckCircle2 size={12} /> : <XCircle size={12} />} {r.state === 'running' ? 'Running…' : r.state === 'pass' ? `Passed (${r.ms} ms)` : r.state === 'fail' ? 'Different output' : 'Didn’t run'}</em>}
+              <span className="grow" />
+              <button className="ghost" title="Remove this test" onClick={() => setTests(tests.filter((_, j) => j !== i))}><Trash2 size={12} /></button>
+            </div>
+            <div className="code-test__io">
+              <label><small>Input</small><textarea value={t.input} spellCheck={false} onChange={e => setTests(tests.map((x, j) => (j === i ? { ...x, input: e.target.value } : x)))} placeholder="(none)" /></label>
+              <label><small>Should print</small><textarea value={t.expected} spellCheck={false} onChange={e => setTests(tests.map((x, j) => (j === i ? { ...x, expected: e.target.value } : x)))} /></label>
+            </div>
+            {r && (r.state === 'fail' || r.state === 'error') && <div className="code-test__got"><small>{r.state === 'fail' ? 'It printed' : 'What happened'}</small><pre>{r.got || '(nothing)'}</pre>
+              {r.state === 'fail' && <button className="ghost" onClick={() => setTests(tests.map((x, j) => (j === i ? { ...x, expected: r.got } : x)))} title="If this output is actually right">Use this as the expected output</button>}</div>}
+          </div> })}
+          <div className="code-tests__actions">
+            <button className="ghost" onClick={() => setTests([...tests, { input: '', expected: '' }])}><Plus size={13} /> Add a test</button>
+            <button className="primary" disabled={!tests.length || testing || !isTauri() || info?.available === false} onClick={() => void runTests()}>{testing ? <Loader2 size={13} className="spin" /> : <Play size={13} />} Run all tests</button>
+          </div>
+          {results.length > 0 && !testing && <p className={passed === tests.length ? 'code-tests__sum ok' : 'code-tests__sum bad'}>{passed === tests.length ? `All ${tests.length} passed.` : `${passed} of ${tests.length} passed.`}</p>}
+        </div>}
         <div className="code-output">
           <div className="code-output__head">
             <span>Output</span>
@@ -264,6 +315,11 @@ export default function CodePage({ active }: { active: boolean }) {
             {live.compile && live.compile.text && <pre className={live.compile.ok ? 'code-stderr code-stderr--soft' : 'code-stderr'}>{live.compile.text}</pre>}
             {live.segments.length > 0 && <pre className="code-stdout">{live.segments.map((x, i) => <span key={i} className={`code-seg code-seg--${x.kind}`}>{x.text}</span>)}</pre>}
             {live.exit && !live.segments.length && !live.compile?.text && <p className="hint">(No output.)</p>}
+            {live.exit && live.exit.workspace?.length > 0 && <details className="code-workspace" open>
+              <summary>Workspace <small>{live.exit.workspace.length} variable{live.exit.workspace.length === 1 ? '' : 's'}</small></summary>
+              <table><thead><tr><th>Name</th><th>Size</th><th>Class</th><th>Value</th></tr></thead>
+                <tbody>{live.exit.workspace.map(v => <tr key={v.name}><td>{v.name}</td><td>{v.size}</td><td>{v.class}</td><td title={v.value}>{v.value}</td></tr>)}</tbody></table>
+            </details>}
             {live.exit && live.exit.images.length > 0 && <div className="code-plots">
               {live.exit.images.map((src, i) => <img key={i} src={`data:image/png;base64,${src}`} alt={`Figure ${i + 1}`} />)}
             </div>}

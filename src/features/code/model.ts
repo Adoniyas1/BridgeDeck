@@ -242,3 +242,10 @@ export function octaveOnly(source: string): Portability[] {
   })
   return out
 }
+
+/** Whether a program's output matches what a test expects: line endings, spaces at line ends and
+ *  blank lines at the end don't count. */
+export function sameOutput(got: string, expected: string): boolean {
+  const norm = (s: string) => s.replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').replace(/\n+$/, '').replace(/^\n+/, '')
+  return norm(got) === norm(expected)
+}
