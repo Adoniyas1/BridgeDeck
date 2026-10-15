@@ -979,6 +979,8 @@ body { font-size: 14px; line-height: 1.5; }
 .setup-hardware strong { margin-right: 4px; }
 .setup-gpu-share { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
 .setup-gpu-share label { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.setup-tune { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 12px; }
+.setup-tune__result { flex-basis: 100%; white-space: pre-line; margin: 0; }
 .setup-gpu-share input[type="range"] { flex: 1; max-width: 280px; }
 .setup-gpu-share label span { font-variant-numeric: tabular-nums; min-width: 120px; }
 .setup-gpu-share__model { margin: 2px 0; }

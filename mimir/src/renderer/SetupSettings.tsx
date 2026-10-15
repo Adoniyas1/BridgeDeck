@@ -64,6 +64,15 @@ export default function SetupSettings() {
       <FoldersRow key={config.modelDirs.join("|")} saved={config.modelDirs} count={view.found.models.length} onChange={(modelDirs) => void patch({ modelDirs })} />
 
       <GpuShare key={config.gpuShare} view={view} onChange={(gpuShare) => void patch({ gpuShare })} />
+      {!mac && (
+        <div className="setup-tune">
+          <button type="button" className="ghost" disabled={busy !== null} onClick={() => void run("tune")}>
+            {busy === "tune" ? "Tuning… (loads the model a few times)" : "Find the fastest GPU share"}
+          </button>
+          <span className="hint">Times the main model at a few settings and keeps the fastest that leaves graphics memory room. Takes a few minutes.</span>
+          {notes.tune && <p className={`hint setup-step__result setup-tune__result${notes.tune.ok ? "" : " setup-step__result--error"}`}>{notes.tune.text}</p>}
+        </div>
+      )}
       <label className="checkbox-row">
         <input type="checkbox" checked={config.keepBothLoaded} onChange={(e) => void patch({ keepBothLoaded: e.target.checked })} />
         Keep both models loaded (needs memory for both; off: they take turns)

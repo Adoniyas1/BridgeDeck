@@ -112,4 +112,22 @@ describe("expert models and easing off under load", () => {
     modelCallEnded();
     expect(modelIdleFor(Date.now() + 11_000)).toBeGreaterThan(10_000);
   });
+
+  it("auto-tune keeps the fastest GPU share that fits, preferring less GPU when it's about as fast", async () => {
+    const { pickShare, keepTuning, tokensPerSecond } = await import("../src/main/setup/adaptive.js");
+    expect(tokensPerSecond({ timings: { predicted_per_second: 31.5 } }, 1000)).toBe(31.5);
+    expect(tokensPerSecond({ usage: { completion_tokens: 50 } }, 2000)).toBe(25);
+    expect(tokensPerSecond({}, 1000)).toBeNull();
+    const results = [
+      { share: 100, tokensPerSecond: 40, vramPercent: 97 }, // too full
+      { share: 90, tokensPerSecond: 30, vramPercent: 88 },
+      { share: 80, tokensPerSecond: 29, vramPercent: 80 }, // within 5% of 30: less VRAM, keep this
+      { share: 70, tokensPerSecond: 20, vramPercent: 72 },
+      { share: 60, tokensPerSecond: null, vramPercent: null, error: "didn't load" }
+    ];
+    expect(pickShare(results)?.share).toBe(80);
+    expect(pickShare([{ share: 100, tokensPerSecond: null, vramPercent: null, error: "x" }])).toBeNull();
+    expect(keepTuning(results.slice(0, 3))).toBe(true);
+    expect(keepTuning([...results.slice(0, 3), { share: 70, tokensPerSecond: 15, vramPercent: 70 }])).toBe(false);
+  });
 });

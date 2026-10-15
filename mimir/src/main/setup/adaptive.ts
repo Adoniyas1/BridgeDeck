@@ -52,3 +52,36 @@ export function logActivity(message: string, file = ACTIVITY_LOG): void {
     /* nowhere to write it */
   }
 }
+
+/** Auto-tune: the GPU shares to try, most on the GPU first. */
+export const TUNE_SHARES = [100, 90, 80, 70, 60, 50, 40];
+
+export type TuneResult = { share: number; tokensPerSecond: number | null; vramPercent: number | null; error?: string };
+
+/** How fast an answer came, from llama-server's own timings when it sends them, else the token count
+ * over the time it took. */
+export function tokensPerSecond(body: unknown, elapsedMs: number): number | null {
+  const b = body as { timings?: { predicted_per_second?: number }; usage?: { completion_tokens?: number } } | null;
+  const t = b?.timings?.predicted_per_second;
+  if (typeof t === "number" && Number.isFinite(t) && t > 0) return t;
+  const n = b?.usage?.completion_tokens;
+  return typeof n === "number" && n > 0 && elapsedMs > 0 ? (n * 1000) / elapsedMs : null;
+}
+
+/** The share to keep: the fastest one that loaded and left graphics memory some room (under 92%),
+ * and among ones within 5% of that speed, the lowest (it leaves the most VRAM for everything else). */
+export function pickShare(results: TuneResult[]): TuneResult | null {
+  const fits = results.filter((r) => r.tokensPerSecond !== null && !r.error && (r.vramPercent === null || r.vramPercent < 92));
+  if (!fits.length) return null;
+  const best = Math.max(...fits.map((r) => r.tokensPerSecond!));
+  return fits.filter((r) => r.tokensPerSecond! >= best * 0.95).sort((a, b) => a.share - b.share)[0] ?? null;
+}
+
+/** Whether to keep trying lower shares: stop once speed has clearly dropped off (under 60% of the
+ * best so far), since less on the GPU only gets slower from there. */
+export function keepTuning(results: TuneResult[]): boolean {
+  const speeds = results.map((r) => r.tokensPerSecond).filter((s): s is number => s !== null);
+  if (!speeds.length) return true;
+  const last = results[results.length - 1]?.tokensPerSecond ?? null;
+  return last === null || last >= Math.max(...speeds) * 0.6;
+}

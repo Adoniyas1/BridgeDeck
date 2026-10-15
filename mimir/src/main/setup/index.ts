@@ -14,7 +14,7 @@ import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from 
 import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 import { gpuInfo, layerSplit, modelFile } from "./gpu.js";
-import { logActivity, lowerShare, modelIdleFor, underPressure } from "./adaptive.js";
+import { keepTuning, logActivity, lowerShare, modelIdleFor, pickShare, tokensPerSecond, TUNE_SHARES, underPressure, type TuneResult } from "./adaptive.js";
 
 /**
  * Settings → Model servers: gets llama-swap and the team's models running on this computer
@@ -669,6 +669,8 @@ export async function runSetupStep(id: string): Promise<string> {
       }
       return `Loaded ${done.join(" and ")}.`;
     }
+    case "tune":
+      return tuneGpuShare(config);
     case "team": {
       await applyTeamPreset(config.computer === "mac" ? "mac-mlx" : "windows-llamacpp", undefined, localSwapUrl(config));
       clearProbeCache();
@@ -676,6 +678,81 @@ export async function runSetupStep(id: string): Promise<string> {
     }
     default:
       throw new Error(`No setup step called ${id}`);
+  }
+}
+
+let tuning = false;
+
+/** Restarts llama-swap with the model list for `config` and waits for it to answer. */
+async function restartSwap(config: SetupConfig): Promise<void> {
+  const server = await findServer(config);
+  await writeFile(SWAP_CONFIG, yamlFor(config, server ?? "llama-server"), "utf-8");
+  if (swap.running) swap.stop();
+  else await stopOtherSwap();
+  const url = localSwapUrl(config);
+  for (let i = 0; i < 20 && (await answers(url)); i++) await new Promise((r) => setTimeout(r, 500));
+  swap.start(config);
+  for (let i = 0; i < 40 && swap.running; i++) {
+    if (await answers(url)) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`llama-swap didn't come up: ${swap.output.trim().slice(-300) || "no output"}`);
+}
+
+/** Auto-tune: loads the main model at a few GPU shares, times an answer at each, and keeps the
+ * fastest that leaves graphics memory some room. Tries less GPU only while it isn't much slower. */
+async function tuneGpuShare(start: SetupConfig): Promise<string> {
+  if (start.computer === "mac") return "On a Mac the GPU shares the computer's memory, so the whole model stays on it: nothing to tune.";
+  if (!(await gpuInfo()).some((g) => !g.shared)) throw new Error("No graphics card with its own memory was found, so there's nothing to tune.");
+  const role = setupRoles(start).includes("executor") ? "executor" : setupRoles(start)[0];
+  if (!role) throw new Error("Pick the models first.");
+  const name = start.models[role]!.name;
+  if (tuning) throw new Error("Already tuning.");
+  tuning = true;
+  const results: TuneResult[] = [];
+  try {
+    logActivity(`Auto-tune: timing ${name} at different GPU shares.`);
+    for (const share of TUNE_SHARES) {
+      const config = await saveSetupConfig({ gpuShare: share });
+      try {
+        await restartSwap(config);
+        const ask = () =>
+          fetch(`${localSwapUrl(config)}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: name, messages: [{ role: "user", content: "Count from 1 to 60, separated by commas." }], max_tokens: 96, temperature: 0, chat_template_kwargs: { enable_thinking: false } }),
+            signal: AbortSignal.timeout(10 * 60_000)
+          });
+        // The first answer includes loading the model; time the second.
+        const first = await ask();
+        if (!first.ok) throw new Error(`didn't load (${first.status})`);
+        await first.text();
+        const began = Date.now();
+        const res = await ask();
+        if (!res.ok) throw new Error(`didn't answer (${res.status})`);
+        const speed = tokensPerSecond(await res.json(), Date.now() - began);
+        const vram = (await gpuInfo()).filter((g) => !g.shared && g.usedBytes !== null).map((g) => Math.round((g.usedBytes! * 100) / g.totalBytes));
+        results.push({ share, tokensPerSecond: speed, vramPercent: vram.length ? Math.max(...vram) : null });
+        logActivity(`Auto-tune: ${share}% GPU → ${speed === null ? "?" : speed.toFixed(1)} tokens/s, graphics memory ${vram.length ? `${Math.max(...vram)}%` : "?"} full.`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        results.push({ share, tokensPerSecond: null, vramPercent: null, error });
+        logActivity(`Auto-tune: ${share}% GPU failed (${error}).`);
+      }
+      if (!keepTuning(results)) break;
+    }
+    const best = pickShare(results);
+    const final = await saveSetupConfig({ gpuShare: best?.share ?? start.gpuShare });
+    await restartSwap(final).catch(() => undefined);
+    clearProbeCache();
+    const table = results.map((r) => `${r.share}% GPU: ${r.error ? r.error : `${r.tokensPerSecond?.toFixed(1) ?? "?"} tokens/s${r.vramPercent === null ? "" : `, VRAM ${r.vramPercent}% full`}`}`).join("\n");
+    const message = best
+      ? `Kept ${best.share}% on the GPU for ${name} (${best.tokensPerSecond!.toFixed(1)} tokens/s).\n${table}`
+      : `None of the shares worked well, so the GPU share stays at ${start.gpuShare}%.\n${table}`;
+    logActivity(`Auto-tune: ${message.split("\n")[0]}`);
+    return message;
+  } finally {
+    tuning = false;
   }
 }
 
@@ -712,7 +789,7 @@ export function startLoadWatch(): void {
     const lagMs = Math.max(0, Date.now() - expected);
     expected = Date.now() + 5000;
     void (async () => {
-      if (!swap.running) {
+      if (!swap.running || tuning) {
         strained = 0;
         return;
       }
