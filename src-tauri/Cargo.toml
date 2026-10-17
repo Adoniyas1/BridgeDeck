@@ -84,6 +84,11 @@ keyring = { version = "3", features = ["linux-native"] }
 
 # `npm run tauri dev` builds in the dev profile. Screen capture, change detection and JPEG encoding
 # are far too slow unoptimized (remote control ran at 1-2 fps), so optimize the app and its crates.
+[profile.release]
+# Rebuilds after a small change reuse the unchanged parts of BridgeDeck's own code (minutes → about
+# a minute); the app runs about the same.
+incremental = true
+
 [profile.dev]
 opt-level = 2
 

@@ -1,0 +1,4 @@
+# Link with Rust's own linker on Windows: much faster than Microsoft's link.exe at joining
+# BridgeDeck into one program. It comes with Rust (no extra install). To go back, delete this file.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
