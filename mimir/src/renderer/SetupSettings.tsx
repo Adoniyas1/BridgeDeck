@@ -73,6 +73,29 @@ export default function SetupSettings() {
           {notes.tune && <p className={`hint setup-step__result setup-tune__result${notes.tune.ok ? "" : " setup-step__result--error"}`}>{notes.tune.text}</p>}
         </div>
       )}
+      <label className="setup-idle">
+        Unload the models{" "}
+        <select
+          value={config.unloadWhenDone ? "done" : String(config.idleUnloadSecs)}
+          onChange={(e) => {
+            const v = e.target.value;
+            void patch(v === "done" ? { unloadWhenDone: true, idleUnloadSecs: 1200 } : { unloadWhenDone: false, idleUnloadSecs: Number(v) });
+          }}
+          aria-label="When to unload the models"
+        >
+          <option value="done">as soon as Mimir is done with them</option>
+          <option value="300">after 5 minutes idle</option>
+          <option value="1200">after 20 minutes idle</option>
+          <option value="0">never (until another model needs the room)</option>
+          {!config.unloadWhenDone && ![300, 1200, 0].includes(config.idleUnloadSecs) && <option value={config.idleUnloadSecs}>after {config.idleUnloadSecs} seconds idle</option>}
+        </select>
+        <span className="hint">
+          {" "}
+          {config.unloadWhenDone
+            ? "A model stays loaded while it's answering, running a tool or waiting for your OK, and is unloaded the moment the answer is done. The next message loads it again (a few seconds)."
+            : "Frees RAM and VRAM after that long with no requests. Restart llama-swap to apply."}
+        </span>
+      </label>
       <label className="checkbox-row">
         <input type="checkbox" checked={config.keepBothLoaded} onChange={(e) => void patch({ keepBothLoaded: e.target.checked })} />
         Keep both models loaded (needs memory for both; off: they take turns)

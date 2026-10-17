@@ -245,6 +245,10 @@ export interface SetupConfig {
   modelDirs: string[];
   /** How much of each model goes on the GPU, in percent (the rest runs on the CPU from RAM). */
   gpuShare: number;
+  /** Unload the models as soon as Mimir is done with them (its turn over, tools and approvals included). */
+  unloadWhenDone: boolean;
+  /** Backup: llama-swap unloads a model after this many seconds without a request (0: never). */
+  idleUnloadSecs: number;
 }
 
 /** A graphics card and its memory. On a Mac the GPU shares the computer's memory (`shared`). */
