@@ -112,6 +112,18 @@ export function mergeSetupConfig(current: SetupConfig, patch: Partial<SetupConfi
 /** The roles that have a model of their own on this computer. */
 export const setupRoles = (config: SetupConfig): Array<"head" | "executor" | "checker"> => (config.models.checker ? ["head", "executor", "checker"] : ["head", "executor"]);
 
+/** Roles given the same model name but a different model: llama-swap serves a name once, so the
+ * later role gets the first one's model. */
+export function sharedNames(config: SetupConfig): string[] {
+  const roles = setupRoles(config);
+  return roles.flatMap((r, i) => {
+    const m = config.models[r]!;
+    const first = roles.find((o) => config.models[o]!.name === m.name)!;
+    const f = config.models[first]!;
+    return roles.indexOf(first) < i && (f.source !== m.source || f.args !== m.args) ? [`${first} and ${r} are both named “${m.name}” but are different models: ${r} will use ${first}'s. Give one a different name.`] : [];
+  });
+}
+
 /** A .gguf file on this computer (rather than a Hugging Face repo). */
 export function isLocalModel(source: string): boolean {
   return /^(\/|~\/|[A-Za-z]:[\\/]).+\.gguf$/i.test(source);
@@ -181,7 +193,9 @@ export function swapYaml(config: SetupConfig, server: string, splits: Partial<Re
     "startPort: 10001",
     "models:"
   ];
-  for (const role of setupRoles(config)) {
+  // Roles can share a model (the same name): it's written once, as llama-swap refuses a name twice.
+  const roles = setupRoles(config).filter((r, i, all) => all.findIndex((o) => config.models[o]!.name === config.models[r]!.name) === i);
+  for (const role of roles) {
     const m = config.models[role]!;
     const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}` : `-hf ${m.source}`;
     const cmd = `${cmdPath(server)} ${from} --host 127.0.0.1 --port \${PORT}`;
@@ -193,7 +207,7 @@ export function swapYaml(config: SetupConfig, server: string, splits: Partial<Re
     if (config.idleUnloadSecs > 0) lines.push(`    ttl: ${config.idleUnloadSecs}`);
   }
   if (config.keepBothLoaded) {
-    lines.push("groups:", '  "team":', "    swap: false", "    exclusive: true", "    members:", ...setupRoles(config).map((r) => `      - ${q(config.models[r]!.name)}`));
+    lines.push("groups:", '  "team":', "    swap: false", "    exclusive: true", "    members:", ...roles.map((r) => `      - ${q(config.models[r]!.name)}`));
   }
   return `${lines.join("\n")}\n`;
 }

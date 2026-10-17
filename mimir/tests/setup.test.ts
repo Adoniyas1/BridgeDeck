@@ -4,7 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, swapYaml } from "../src/main/setup/plan.js";
+import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, sharedNames, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
 import { explainLoadFailure, findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup, useLocalCopies } from "../src/main/setup/index.js";
 import { DEFAULT_TEAM, presetConfig } from "../src/main/team/config.js";
@@ -37,6 +37,17 @@ describe("model server plan", () => {
     expect(pc).toContain('"qwen3.5-9b":\n    cmd: "\'C:/Users/Jo Smith/.mimir/bin/llama.cpp/llama-server.exe\' -hf unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS');
     expect(pc).toContain('groups:\n  "team":\n    swap: false\n    exclusive: true\n    members:\n      - "bonsai-2-27b"\n      - "bonsai-8b"\n      - "qwen3.5-9b"');
     expect(cmdPath("/usr/bin/llama-server")).toBe("/usr/bin/llama-server");
+  });
+
+  it("writes a model two roles share once (llama-swap refuses a name twice)", () => {
+    const base = defaultSetup("pc");
+    const head = { ...base.models.head, name: "smart-head" };
+    const shared = { ...base, keepBothLoaded: true, models: { ...base.models, head, executor: head } };
+    const yaml = swapYaml(shared, "llama-server");
+    expect(yaml.match(/"smart-head":/g)).toHaveLength(1);
+    expect(yaml).toContain('members:\n      - "smart-head"\n      - "qwen3.5-9b"\n');
+    expect(sharedNames(shared)).toEqual([]);
+    expect(sharedNames({ ...shared, models: { ...shared.models, executor: { ...base.models.executor, name: "smart-head" } } })[0]).toContain("head and executor");
   });
 
   it("cleans the settings, and replaces the old MLX models on the Mac", () => {

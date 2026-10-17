@@ -11,7 +11,7 @@ import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
 import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from "../../shared/types.js";
-import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, sharedNames, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 import { gpuInfo, layerSplit, modelFile } from "./gpu.js";
 import { keepTuning, logActivity, lowerShare, modelIdleFor, setIdleUnloader, pickShare, tokensPerSecond, TUNE_SHARES, underPressure, type TuneResult } from "./adaptive.js";
@@ -495,7 +495,7 @@ export async function setupView(): Promise<SetupView> {
       command: null,
       action: "Look again",
       state: wrongKind ? "error" : ready.length === roles.length ? "done" : "todo",
-      note: (wrongKind ? `These settings are for ${mac ? "a Mac" : "the Windows PC"}, but this computer is ${process.platform === "darwin" ? "a Mac" : "not a Mac"}: pick “${process.platform === "darwin" ? "Mac" : "Windows PC"}” at the top.\n` : "") + roles.map((r) => `${ROLE_NAMES[r]} · ${config.models[r]!.name}: ${modelCached(config.models[r]!.source) ? config.models[r]!.source : `${config.models[r]!.source} (not found on this computer; downloaded on first start)`}`).join("\n")
+      note: (wrongKind ? `These settings are for ${mac ? "a Mac" : "the Windows PC"}, but this computer is ${process.platform === "darwin" ? "a Mac" : "not a Mac"}: pick “${process.platform === "darwin" ? "Mac" : "Windows PC"}” at the top.\n` : "") + roles.map((r) => `${ROLE_NAMES[r]} · ${config.models[r]!.name}: ${modelCached(config.models[r]!.source) ? config.models[r]!.source : `${config.models[r]!.source} (not found on this computer; downloaded on first start)`}`).join("\n") + sharedNames(config).map((t) => `\n${t}`).join("")
     }),
     step({
       id: "llama-swap",
