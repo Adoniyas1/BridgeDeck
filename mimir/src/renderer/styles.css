@@ -985,3 +985,4 @@ body { font-size: 14px; line-height: 1.5; }
 .setup-gpu-share label span { font-variant-numeric: tabular-nums; min-width: 120px; }
 .setup-gpu-share__model { margin: 2px 0; }
 .chat-share-note { margin: 0 0 4px; font-size: 11.5px; }
+.setup-idle { display: block; margin: 8px 0; font-size: 13px; }

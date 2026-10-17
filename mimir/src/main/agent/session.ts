@@ -44,6 +44,7 @@ import { TurnLog } from "../logs/turnLog.js";
 import { guardEndpoint } from "../setup/memory.js";
 import type { PromptModule } from "../prompts/modules.js";
 import { buildEngineeringToolset, runCalculiX, runFreeCadMacro, runKicadDrc, runKicadErc, runNgspice } from "../engineering/tools.js";
+import { turnEnded, turnStarted } from "../setup/adaptive.js";
 import { requiresFullEngineeringTools } from "../engineering/intent.js";
 import { buildEngineeringWorkflowToolset } from "../engineering/workflow.js";
 import {
@@ -131,7 +132,17 @@ export class AgentSession {
     return transaction.revert(auditId);
   }
 
+  /** A turn holds its models from start to end (tools and approvals included); then they can go. */
   async send(userText: string, attachments?: Attachment[]): Promise<void> {
+    turnStarted();
+    try {
+      await this.sendTurn(userText, attachments);
+    } finally {
+      turnEnded();
+    }
+  }
+
+  private async sendTurn(userText: string, attachments?: Attachment[]): Promise<void> {
     const { win, workspaceRoot, auditFilePath, relaunch, runPython, resetPython, semanticSearch } = this.deps;
     const turnId = ++this.activeTurnId;
     this.runningTurn = true;

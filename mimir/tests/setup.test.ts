@@ -26,7 +26,8 @@ describe("model server plan", () => {
     const yaml = swapYaml(mac, "/Users/me/Bonsai-demo/bin/mac/llama-server");
     expect(yaml).toContain('"qwen3.5-9b":\n    cmd: "/Users/me/Bonsai-demo/bin/mac/llama-server -m /Users/me/Bonsai-demo/models/qwen3.5-9b/Qwen3.5-9B-UD-IQ3_XXS.gguf --host 127.0.0.1 --port ${PORT} -c 8192 -ngl 99 -fa on -ctk q4_0 -ctv q4_0 --jinja"');
     expect(yaml).toContain("-m /Users/me/Bonsai-demo/models/ternary-gguf/8B/Ternary-Bonsai-8B-PQ2_0.gguf");
-    expect(yaml).toContain("ttl: 600");
+    expect(yaml).toContain("ttl: 1200");
+    expect(swapYaml({ ...mac, idleUnloadSecs: 0 }, "/x/llama-server")).not.toContain("ttl:");
     expect(yaml).not.toContain("groups:");
     expect(defaultSetup("mac").models.head.source).toBe("unsloth/Qwen3.5-9B-GGUF:UD-IQ3_XXS");
 

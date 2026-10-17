@@ -34,10 +34,52 @@ let lastCall = 0;
 export function modelCallStarted(): void {
   inFlight++;
   lastCall = Date.now();
+  cancelUnload();
 }
 export function modelCallEnded(): void {
   inFlight = Math.max(0, inFlight - 1);
   lastCall = Date.now();
+  unloadIfDone();
+}
+
+/**
+ * Unloading models the moment they're done: a chat turn holds its models for the whole turn, tool
+ * calls and approval waits included (llama-swap's own idle timer only sees requests, so it would
+ * unload a model waiting on a tool). When no turn is running and no call is in flight, the unloader
+ * runs after a short grace (a quick follow-up call at the end of a turn shouldn't reload the model).
+ */
+let turns = 0;
+let unloadTimer: NodeJS.Timeout | null = null;
+let unloader: (() => Promise<void>) | null = null;
+export const UNLOAD_GRACE_MS = 2000;
+
+export function setIdleUnloader(fn: (() => Promise<void>) | null): void {
+  unloader = fn;
+}
+export function turnStarted(): void {
+  turns++;
+  cancelUnload();
+}
+export function turnEnded(): void {
+  turns = Math.max(0, turns - 1);
+  unloadIfDone();
+}
+/** Whether a turn or a model call is under way. */
+export const modelsInUse = (): boolean => turns > 0 || inFlight > 0;
+
+function cancelUnload(): void {
+  if (unloadTimer) clearTimeout(unloadTimer);
+  unloadTimer = null;
+}
+function unloadIfDone(): void {
+  if (modelsInUse() || !unloader) return;
+  cancelUnload();
+  const run = unloader;
+  unloadTimer = setTimeout(() => {
+    unloadTimer = null;
+    if (!modelsInUse()) void run().catch(() => undefined);
+  }, UNLOAD_GRACE_MS);
+  unloadTimer.unref?.();
 }
 /** How long no model has been answering (0 while one is). */
 export const modelIdleFor = (now = Date.now()): number => (inFlight > 0 ? 0 : now - lastCall);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ggufBlockCount, guessLayers, layerSplit, parseNvidiaSmi, parseRegistryGpus } from "../src/main/setup/gpu.js";
 import { argsForShare, cleanSetupConfig, defaultSetup, swapYaml } from "../src/main/setup/plan.js";
 
@@ -142,5 +142,32 @@ describe("speed log", () => {
     recordSpeed("qwen 3", 100, 4000, file, new Date("2026-10-15T10:00:00Z"));
     recordSpeed("qwen 3", 3, 100, file); // too short
     expect(readFileSync(file, "utf-8")).toBe("2026-10-15T10:00:00.000Z\tqwen 3\t100\t25.0\n");
+  });
+});
+
+describe("unloading when done", () => {
+  it("waits for the whole turn (tool waits included), then unloads after a short grace", async () => {
+    vi.useFakeTimers();
+    const a = await import("../src/main/setup/adaptive.js");
+    const unload = vi.fn(async () => undefined);
+    a.setIdleUnloader(unload);
+    a.turnStarted();
+    a.modelCallStarted();
+    a.modelCallEnded(); // the model asked for a tool: no request now, but the turn goes on
+    vi.advanceTimersByTime(60_000);
+    expect(unload).not.toHaveBeenCalled();
+    a.modelCallStarted();
+    a.modelCallEnded();
+    a.turnEnded();
+    vi.advanceTimersByTime(a.UNLOAD_GRACE_MS - 100);
+    expect(unload).not.toHaveBeenCalled();
+    a.turnStarted(); // a new message within the grace keeps the model
+    vi.advanceTimersByTime(5000);
+    expect(unload).not.toHaveBeenCalled();
+    a.turnEnded();
+    vi.advanceTimersByTime(a.UNLOAD_GRACE_MS);
+    expect(unload).toHaveBeenCalledTimes(1);
+    a.setIdleUnloader(null);
+    vi.useRealTimers();
   });
 });

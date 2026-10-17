@@ -14,7 +14,7 @@ import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from 
 import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 import { gpuInfo, layerSplit, modelFile } from "./gpu.js";
-import { keepTuning, logActivity, lowerShare, modelIdleFor, pickShare, tokensPerSecond, TUNE_SHARES, underPressure, type TuneResult } from "./adaptive.js";
+import { keepTuning, logActivity, lowerShare, modelIdleFor, setIdleUnloader, pickShare, tokensPerSecond, TUNE_SHARES, underPressure, type TuneResult } from "./adaptive.js";
 
 /**
  * Settings → Model servers: gets llama-swap and the team's models running on this computer
@@ -776,12 +776,27 @@ export async function autostartSwap(): Promise<void> {
   }
 }
 
+/** Unloads every model on Mimir's llama-swap (its /unload), when the setting is on. */
+async function unloadIdleModels(): Promise<void> {
+  if (tuning) return;
+  const config = await loadSetupConfig();
+  if (!config.unloadWhenDone) return;
+  const url = localSwapUrl(config);
+  if (!swap.running && !(await answers(url))) return;
+  const running = await fetch(`${url}/running`, { signal: AbortSignal.timeout(2000) })
+    .then(async (r) => ((await r.json()) as { running?: unknown[] }).running?.length ?? 0)
+    .catch(() => 0);
+  if (!running) return;
+  await fetch(`${url}/unload`, { signal: AbortSignal.timeout(10_000) });
+}
+
 let watching: NodeJS.Timeout | null = null;
 
 /** The load watch (setup/adaptive.ts): while Mimir's llama-swap runs, every 5 s, eases off the GPU
  * when the computer stays under pressure. Started once, when Mimir starts. */
 export function startLoadWatch(): void {
   if (watching) return;
+  setIdleUnloader(unloadIdleModels);
   let expected = Date.now() + 5000;
   let strained = 0;
   let restartPending = false;

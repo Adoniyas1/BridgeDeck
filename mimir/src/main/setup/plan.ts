@@ -36,6 +36,8 @@ export const DEFAULT_MODELS: Record<SetupComputer, SetupConfig["models"]> = {
   }
 };
 
+export const IDLE_UNLOAD_SECS = 1200;
+
 export function defaultSetup(computer: SetupComputer): SetupConfig {
   return {
     version: SETUP_VERSION,
@@ -48,7 +50,11 @@ export function defaultSetup(computer: SetupComputer): SetupConfig {
     modelDirs: [],
     // The PC keeps a fifth of each model on the CPU, so the card isn't filled to the brim; the Mac's
     // GPU shares its memory, so there's nothing to gain there.
-    gpuShare: computer === "mac" ? 100 : 80
+    gpuShare: computer === "mac" ? 100 : 80,
+    // Unloaded as soon as Mimir is done with it, freeing RAM and VRAM; llama-swap's idle timer is a
+    // backup for requests from anything else.
+    unloadWhenDone: true,
+    idleUnloadSecs: IDLE_UNLOAD_SECS
   };
 }
 
@@ -87,7 +93,9 @@ export function cleanSetupConfig(raw: unknown, platform: NodeJS.Platform = proce
       checker: models && "checker" in models ? (models.checker ? cleanModel(models.checker, base.models.checker ?? base.models.head) : null) : base.models.checker
     },
     modelDirs: Array.isArray(c.modelDirs) ? c.modelDirs.filter((d): d is string => typeof d === "string" && d.trim().length > 0).map((d) => d.trim().slice(0, 500)).slice(0, 10) : [],
-    gpuShare: typeof c.gpuShare === "number" && Number.isFinite(c.gpuShare) ? Math.round(Math.min(100, Math.max(0, c.gpuShare)) / 5) * 5 : base.gpuShare
+    gpuShare: typeof c.gpuShare === "number" && Number.isFinite(c.gpuShare) ? Math.round(Math.min(100, Math.max(0, c.gpuShare)) / 5) * 5 : base.gpuShare,
+    unloadWhenDone: typeof c.unloadWhenDone === "boolean" ? c.unloadWhenDone : base.unloadWhenDone,
+    idleUnloadSecs: typeof c.idleUnloadSecs === "number" && Number.isFinite(c.idleUnloadSecs) ? Math.round(Math.min(86_400, Math.max(0, c.idleUnloadSecs))) : base.idleUnloadSecs
   };
 }
 
@@ -181,8 +189,8 @@ export function swapYaml(config: SetupConfig, server: string, splits: Partial<Re
     const split = splits[role];
     const args = split ? argsForShare(m.args, config.gpuShare, split, isMoe(m.source)) : m.args;
     lines.push(`  ${q(m.name)}:`, `    cmd: ${q(args ? `${cmd} ${args}` : cmd)}`);
-    // On the 8 GB Mac an idle model gives its memory back after 10 minutes.
-    if (config.computer === "mac") lines.push("    ttl: 600");
+    // An idle model gives its memory back (llama-swap's ttl: seconds without a request).
+    if (config.idleUnloadSecs > 0) lines.push(`    ttl: ${config.idleUnloadSecs}`);
   }
   if (config.keepBothLoaded) {
     lines.push("groups:", '  "team":', "    swap: false", "    exclusive: true", "    members:", ...setupRoles(config).map((r) => `      - ${q(config.models[r]!.name)}`));
