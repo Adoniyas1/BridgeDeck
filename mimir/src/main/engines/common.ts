@@ -117,7 +117,7 @@ export function spawnCommand(command: string, args: string[], options: SpawnOpti
   env.PATH = serverPath(env.PATH);
   if (process.platform !== "win32") return spawn(command, args, { ...options, env });
   const quote = (a: string) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
-  return spawn(quote(command), args.map(quote), { ...options, env, shell: true });
+  return spawn(quote(command), args.map(quote), { ...options, env, shell: true, windowsHide: true });
 }
 
 /** A friendly error for a command that couldn't start. */

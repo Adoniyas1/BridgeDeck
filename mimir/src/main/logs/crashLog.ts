@@ -32,7 +32,15 @@ let installed = false;
 export function installCrashLog(): void {
   if (installed) return;
   installed = true;
+  // Writing to a pipe whose reader is gone (BridgeDeck closed or was force-quit): nothing is
+  // listening any more, so stop quietly instead of crashing (or running on alone).
+  const parentGone = (error: NodeJS.ErrnoException) => {
+    if (error?.code === "EPIPE" || error?.code === "ERR_STREAM_DESTROYED") process.exit(0);
+  };
+  process.stdout.on("error", parentGone);
+  process.stderr.on("error", parentGone);
   process.on("uncaughtException", (error) => {
+    if ((error as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
     recordCrash("crash", error);
     console.error(error);
     process.exit(1);

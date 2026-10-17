@@ -152,7 +152,7 @@ export function runSolver(def: SolverDefinition, inputAbsPath: string, timeoutSe
     }
     const args = def.buildArgs(inputAbsPath);
     const cwd = def.cwd ? def.cwd(inputAbsPath) : path.dirname(inputAbsPath);
-    const child = spawn(bin, args, { cwd, stdio: "ignore" });
+    const child = spawn(bin, args, { cwd, stdio: "ignore", windowsHide: true });
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`${def.label} exceeded its ${timeoutSeconds}-second limit.`));

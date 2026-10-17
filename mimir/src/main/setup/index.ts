@@ -249,7 +249,7 @@ async function listFiles(dir: string): Promise<string[]> {
 function run(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     let output = "";
-    const child = spawn(command, args, { cwd: options.cwd, env: { ...process.env, PATH: serverPath(process.env.PATH) }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd: options.cwd, env: { ...process.env, PATH: serverPath(process.env.PATH) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     const keep = (d: Buffer) => (output = (output + d.toString()).slice(-20_000));
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
@@ -340,7 +340,7 @@ class SwapProcess {
     const bin = findCommand("llama-swap");
     if (!bin) throw new Error("llama-swap isn't installed yet.");
     this.log = "";
-    const child = spawn(bin, ["--config", SWAP_CONFIG, "--listen", config.listen], { env: { ...process.env, PATH: serverPath(process.env.PATH) }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, ["--config", SWAP_CONFIG, "--listen", config.listen], { env: { ...process.env, PATH: serverPath(process.env.PATH) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     this.child = child;
     const keep = (d: Buffer) => (this.log = (this.log + d.toString()).slice(-8000));
     child.stdout?.on("data", keep);
@@ -360,7 +360,7 @@ class SwapProcess {
     this.child = null;
     if (!child) return;
     // On Windows a plain kill leaves the model servers it started running (and holding VRAM).
-    if (process.platform === "win32" && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    if (process.platform === "win32" && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
     else child.kill();
   }
 }

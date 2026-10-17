@@ -170,7 +170,7 @@ fn version_of(program: &str, l: &Lang) -> String {
         return Path::new(program).ancestors().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).find(|n| n.contains('R') && n.chars().any(|c| c.is_ascii_digit())).map(|n| format!("MATLAB {}", n.trim_start_matches("MATLAB_").trim_end_matches(".app"))).unwrap_or_else(|| "MATLAB".into());
     }
     let flag = match l.id { "go" => "version", "verilog" => "-V", "java" => "-version", _ => "--version" };
-    let out = Command::new(program).arg(flag).env("PATH", joined_path()).stdin(Stdio::null()).output();
+    let out = crate::python::command(&[program.to_string(), flag.to_string()]).env("PATH", joined_path()).stdin(Stdio::null()).output();
     let Ok(out) = out else { return String::new() };
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("").chars().take(80).collect()
