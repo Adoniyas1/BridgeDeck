@@ -162,6 +162,8 @@ pub fn read_status(app: &AppHandle) -> UpgradeStatus {
 }
 
 const PID_FILE: &str = "script.pid";
+/// What the update script's shell printed itself, next to the status file.
+const START_LOG: &str = ".start.log";
 const STALL_MS: u64 = 45 * 60_000;
 
 /// Why a "running" update is really over, if it is: its script exited without saying how it went,
@@ -207,7 +209,12 @@ fn process_alive(pid: u32) -> bool {
 /// The last lines of the update's log.
 fn log_tail(app: &AppHandle, lines: usize) -> Vec<String> {
     let Ok(path) = status_path(app) else { return Vec::new() };
-    let raw = fs::read(PathBuf::from(format!("{}.log", path.display()))).unwrap_or_default();
+    // The script's own log, then anything PowerShell or bash printed itself (a script that couldn't
+    // start at all, e.g. blocked by policy or antivirus, says why only there).
+    let read = |suffix: &str| fs::read(PathBuf::from(format!("{}{suffix}", path.display()))).unwrap_or_default();
+    let mut raw = read(".log");
+    raw.push(b'\n');
+    raw.extend(read(START_LOG));
     let text = String::from_utf8_lossy(&raw).replace('\u{feff}', "").replace('\0', "");
     let all: Vec<&str> = text.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect();
     all[all.len().saturating_sub(lines)..].iter().map(|l| l.chars().take(400).collect()).collect()
@@ -303,6 +310,11 @@ pub fn start(app: &AppHandle, mode: UpgradeMode, bundle: Option<PathBuf>, reques
     if let Ok(work) = upgrade_dir(app) {
         let _ = fs::remove_file(work.join(PID_FILE));
     }
+    // A run that stops before writing its log must not show the last run's.
+    if let Ok(path) = status_path(app) {
+        let _ = fs::remove_file(format!("{}.log", path.display()));
+        let _ = fs::remove_file(format!("{}{START_LOG}", path.display()));
+    }
     write_status(app, &UpgradeStatus {
         state: "running".into(),
         stage: "starting".into(),
@@ -370,6 +382,9 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
     let mode_arg = mode.arg();
     let bundle_arg = bundle.map(|b| b.to_string_lossy().to_string()).unwrap_or_default();
     let app_path = current_app_path();
+    // The shell's own output (the script logs everything else itself).
+    let start_log = PathBuf::from(format!("{}{START_LOG}", status_file.display()));
+    let output = || fs::OpenOptions::new().create(true).append(true).open(&start_log).map(std::process::Stdio::from).map_err(|e| format!("self-update log: {e}"));
 
     // Run a copy of the script: `git pull` or unpacking may rewrite the original while it executes.
     #[cfg(target_os = "windows")]
@@ -377,18 +392,24 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
         use std::os::windows::process::CommandExt;
         let script = work.join("self-update.ps1");
         copy_script(mode, &dir, "self-update.ps1", include_str!("../../scripts/self-update.ps1"), &script)?;
-        Command::new("powershell.exe")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+        let mut cmd = Command::new("powershell.exe");
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(output()?)
+            .stderr(output()?)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
-            .args(["-Mode", mode_arg, "-Bundle", &bundle_arg, "-Status"]).arg(&status_file)
-            .arg("-Src").arg(&dir)
-            .arg("-AppPath").arg(&app_path)
-            // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW: outlives this app.
-            .creation_flags(0x0000_0008 | 0x0000_0200 | 0x0800_0000)
-            .spawn()
+            .args(["-Mode", mode_arg, "-Status"]).arg(&status_file)
+            .arg("-Src").arg(&dir);
+        // Only when there is one: Windows PowerShell can drop an empty argument, leaving -Bundle
+        // without a value, so the script never starts.
+        if !bundle_arg.is_empty() {
+            cmd.args(["-Bundle", &bundle_arg]);
+        }
+        if !app_path.as_os_str().is_empty() {
+            cmd.arg("-AppPath").arg(&app_path);
+        }
+        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW: outlives this app.
+        cmd.creation_flags(0x0000_0008 | 0x0000_0200 | 0x0800_0000).spawn()
     };
     #[cfg(not(target_os = "windows"))]
     let child = {
@@ -405,8 +426,8 @@ fn launch_script(app: &AppHandle, mode: &UpgradeMode, bundle: Option<PathBuf>, d
             // process group, which would stop the update just as it installs the new version.
             .process_group(0)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(output()?)
+            .stderr(output()?)
             .spawn()
     };
     if let Ok(child) = &child {
