@@ -98,7 +98,7 @@ function playAudioFile(file: string): Promise<void> {
 
 function runCommand(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "ignore" });
+    const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
