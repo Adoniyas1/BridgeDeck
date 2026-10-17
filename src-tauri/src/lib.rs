@@ -25,6 +25,8 @@ mod hardware;
 mod watchdog;
 mod code;
 mod octave;
+#[cfg(debug_assertions)]
+mod dev_fallback;
 mod errorlog;
 mod python;
 mod spotify;
@@ -583,6 +585,8 @@ pub fn run() {
         .setup(|app| {
             activity::init(app.handle());
             errorlog::init(app.handle());
+            #[cfg(debug_assertions)]
+            dev_fallback::check(app.handle());
             activity::info("app", &format!("BridgeDeck {} started on {}.", env!("CARGO_PKG_VERSION"), sysinfo::System::long_os_version().unwrap_or_default()));
             // What it's running on (nvidia-smi can take a moment, so not in the way of starting up).
             std::thread::spawn(|| activity::info("hardware", &hardware::summary(&hardware::read())));
