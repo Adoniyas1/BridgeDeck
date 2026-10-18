@@ -223,8 +223,13 @@ fn fill(view: &tauri::Webview, text: &str) {
 /// Shows ChatGPT as the panel at the side of BridgeDeck's window, at `x, y` (`w × h`, logical
 /// pixels in the window), creating it on first use. With `text`, puts it in the message box.
 /// `folder` is where chats started from here are saved (a course's or project's Notes folder).
+/// Async, so the panel is made off the main thread (see `browser::browser_show`).
 #[tauri::command]
-pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+pub async fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || show(app, text, folder, x, y, w, h)).await.map_err(|e| e.to_string())?
+}
+
+fn show(app: AppHandle, text: Option<String>, folder: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let text = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     if folder.is_some() {
         if let Ok(mut stored) = FOLDER.lock() {
@@ -318,6 +323,7 @@ pub fn chatgpt_show(app: AppHandle, text: Option<String>, folder: Option<String>
     window.add_child(builder, pos, size).map_err(|e| format!("Couldn't open ChatGPT: {e}"))?;
     crate::placement::verify(&app, LABEL, x, y);
     crate::adblock::attach(&app, LABEL);
+    crate::browser::hide_if_hidden_meanwhile(&app, LABEL);
     Ok(())
 }
 

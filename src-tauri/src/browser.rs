@@ -225,8 +225,17 @@ fn new_window(app: &AppHandle, tab: &str, label: &str, url: Url, features: tauri
 
 /// Shows the browser tab's page at `x, y` (`w × h`, logical pixels in the window), creating it on
 /// first use; with `url`, goes there.
+///
+/// Async, so it runs off the main thread: a plain command runs on the main thread inside WebView2's
+/// message callback, and making a page there waits forever for WebView2 (the page stays blank and
+/// every later command waits behind it).
 #[tauri::command]
-pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+pub async fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || show(app, tab, url, x, y, w, h)).await.map_err(|e| e.to_string())?
+}
+
+/// `browser_show`'s work; never from the main thread when it may make the page.
+pub fn show(app: AppHandle, tab: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let id = label(&tab)?;
     set_shown(&id, true);
     let (pos, size) = crate::placement::bounds(x, y, w, h);
@@ -329,7 +338,18 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     crate::placement::verify(&app, &id, x, y);
     crate::adblock::attach(&app, &id);
     crate::webmedia::setup(&app, &id);
+    hide_if_hidden_meanwhile(&app, &id);
     Ok(())
+}
+
+/// A page hidden (its tab left or closed) while it was being made stays out of sight.
+pub fn hide_if_hidden_meanwhile(app: &AppHandle, label: &str) {
+    let hidden = HIDDEN_SINCE.lock().ok().and_then(|m| m.as_ref().map(|m| m.contains_key(label))).unwrap_or(false);
+    if hidden {
+        if let Some(view) = app.get_webview(label) {
+            let _ = view.hide();
+        }
+    }
 }
 
 /// Hides a browser tab's page (its tab is off screen); it keeps its place in history.

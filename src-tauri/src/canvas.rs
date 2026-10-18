@@ -103,7 +103,7 @@ fn cookie_page(app: &AppHandle, site: &Url) -> Option<tauri::Webview> {
     if let Some(view) = open(app) {
         return Some(view);
     }
-    crate::browser::browser_show(app.clone(), SESSION_PAGE.into(), Some(site.to_string()), 0.0, 0.0, 1.0, 1.0).ok()?;
+    crate::browser::show(app.clone(), SESSION_PAGE.into(), Some(site.to_string()), 0.0, 0.0, 1.0, 1.0).ok()?;
     let _ = crate::browser::browser_hide(app.clone(), SESSION_PAGE.into());
     open(app)
 }
