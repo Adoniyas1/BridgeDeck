@@ -383,6 +383,10 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .notes-search:focus-within{border-color:var(--accent)}
 .notes-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);padding:8px 0}
 .notes-new button{flex:1;justify-content:center}
+.notes-sections{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:2px;background:var(--surface-2);border-radius:var(--radius-sm)}
+.notes-sections button{display:inline-flex;align-items:center;justify-content:center;gap:4px;border:0;background:transparent;color:var(--muted);border-radius:calc(var(--radius-sm) - 2px);padding:5px 4px;font-size:11px;white-space:nowrap}
+.notes-sections button.active{background:var(--surface-3);color:var(--text)}
+.notes-sections small{color:var(--faint)}
 .notes-filters{display:flex;flex-wrap:wrap;gap:5px}
 .notes-filters button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);background:transparent;color:var(--muted);border-radius:999px;padding:4px 9px;font-size:11px}
 .notes-filters button.active{background:var(--surface-3);color:var(--text);border-color:var(--accent)}

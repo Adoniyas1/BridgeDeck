@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
 import { noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
-import { allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, shortcut, subProgress, toggleTask, toMarkdown, visible } from './model'
+import { MIMIR_MEMORY_ID, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
@@ -23,7 +23,9 @@ const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
 /** Blocks typed like code: Enter is a new line (Shift+Enter a new block), no spell check. */
 const codeLike = (kind: NoteBlockKind) => kind === 'code' || kind === 'graph' || kind === 'python'
 
-/** "All", "Pinned", a folder or a tag. */
+const SECTIONS: Array<[Section, string, typeof Pilcrow]> = [['mine', 'My notes', StickyNote], ['lists', 'Checklists', ListChecks], ['mimir', 'Mimir', Sparkles]]
+
+/** "All", "Pinned", a folder or a tag (within a section). */
 type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; name: string } | { kind: 'tag'; name: string }
 
 /** What a block needs to follow links and tags. */
@@ -40,14 +42,26 @@ export default function NotesPage() {
   const notes = useStore(notesStore)
   const loaded = useStore(notesLoadedStore)
   const [query, setQuery] = useState('')
+  const [section, setSectionState] = useState<Section>('mine')
   const [filter, setFilter] = useState<Filter>({ kind: 'all' })
   const [openId, setOpenId] = useState<string | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
-  const shown = useMemo(() => notes.filter(n => matches(n, query) && (filter.kind === 'all' || (filter.kind === 'pinned' ? n.pinned : filter.kind === 'tag' ? tagsOf(n).includes(filter.name) : n.folder === filter.name))), [notes, query, filter])
-  const folderNames = useMemo(() => folders(notes), [notes])
-  const tags = useMemo(() => allTags(notes).slice(0, 24), [notes])
+  const counts = useMemo(() => {
+    const out: Record<Section, number> = { mine: 0, lists: 0, mimir: 0 }
+    for (const n of notes) out[sectionOf(n)]++
+    return out
+  }, [notes])
+  const inSection = useMemo(() => notes.filter(n => sectionOf(n) === section), [notes, section])
+  const shown = useMemo(() => inSection.filter(n => matches(n, query) && (filter.kind === 'all' || (filter.kind === 'pinned' ? n.pinned : filter.kind === 'tag' ? tagsOf(n).includes(filter.name) : n.folder === filter.name))), [inSection, query, filter])
+  const folderNames = useMemo(() => folders(inSection), [inSection])
+  const allFolderNames = useMemo(() => folders(notes), [notes])
+  const tags = useMemo(() => allTags(inSection).slice(0, 24), [inSection])
+  /** Shows a section; with `id`, opens that note in it. */
+  const showSection = useCallback((next: Section, id: string | null = null) => {
+    setSectionState(next); setFilter({ kind: 'all' }); setOpenId(id)
+  }, [])
   const [showGraph, setShowGraph] = useState(false)
   const open = notes.find(n => n.id === openId) ?? null
 
@@ -55,16 +69,19 @@ export default function NotesPage() {
   const requested = useStore(openNoteRequest)
   useEffect(() => {
     if (!requested) return
-    setFilter({ kind: 'all' }); setQuery(''); setOpenId(requested); openNoteRequest.set(null)
-  }, [requested])
+    const note = notesStore.get().find(n => n.id === requested)
+    setQuery(''); showSection(note ? sectionOf(note) : 'mine', requested); openNoteRequest.set(null)
+  }, [requested, showSection])
 
   async function create(kind: 'note' | 'list') {
     setError('')
     try {
-      const note = await notesCreate(kind, filter.kind === 'folder' ? filter.name : '')
+      const target: Section = kind === 'list' ? 'lists' : 'mine'
+      const note = await notesCreate(kind, target === section && filter.kind === 'folder' ? filter.name : '')
       notesStore.set(current => [note, ...current])
       setQuery('')
-      setOpenId(note.id)
+      if (target === section) setOpenId(note.id)
+      else showSection(target, note.id)
       setFreshId(note.id)
     } catch (e) { setError(String(e)) }
   }
@@ -72,13 +89,12 @@ export default function NotesPage() {
   /** A [[link]]: opens the note, or makes it when it doesn't exist yet (as Obsidian does). */
   async function openTitle(title: string) {
     const found = findByTitle(notesStore.get(), title)
-    if (found) { setFilter({ kind: 'all' }); setQuery(''); setOpenId(found.id); return }
+    if (found) { setQuery(''); showSection(sectionOf(found), found.id); return }
     try {
       const created = await notesCreate('note', '')
       const named = await notesSave({ id: created.id, title: title.trim() })
       notesStore.set(current => [named, ...current])
-      setFilter({ kind: 'all' })
-      setOpenId(named.id)
+      showSection('mine', named.id)
     } catch (e) { setError(String(e)) }
   }
   const nav: Nav = { notes, openTitle: title => void openTitle(title), filterTag: tag => { setFilter({ kind: 'tag', name: tag.toLowerCase() }); setQuery('') } }
@@ -90,8 +106,11 @@ export default function NotesPage() {
         <button onClick={() => void create('note')}><FilePlus size={15} />Note</button>
         <button onClick={() => void create('list')}><ListChecks size={15} />Checklist</button>
       </div>
+      <div className="notes-sections" role="tablist">
+        {SECTIONS.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={section === id} className={section === id ? 'active' : ''} onClick={() => showSection(id)}><Icon size={13} />{label} <small>{counts[id]}</small></button>)}
+      </div>
       <div className="notes-filters">
-        <button className={filter.kind === 'all' ? 'active' : ''} onClick={() => setFilter({ kind: 'all' })}>All <small>{notes.length}</small></button>
+        <button className={filter.kind === 'all' ? 'active' : ''} onClick={() => setFilter({ kind: 'all' })}>All <small>{inSection.length}</small></button>
         <button className={filter.kind === 'pinned' ? 'active' : ''} onClick={() => setFilter({ kind: 'pinned' })}><Pin size={12} />Pinned</button>
         {folderNames.map(name => <button key={name} className={filter.kind === 'folder' && filter.name === name ? 'active' : ''} onClick={() => setFilter({ kind: 'folder', name })}><Folder size={12} />{name}</button>)}
         <button onClick={() => setShowGraph(true)} title="How your notes link together"><Share2 size={12} />Graph</button>
@@ -105,12 +124,12 @@ export default function NotesPage() {
           <strong>{n.pinned && <Pin size={11} />}{n.kind === 'list' && <ListChecks size={12} />}{noteTitle(n)}</strong>
           <small>{preview(n) || (n.folder ? n.folder : 'Empty')}</small>
         </button>)}
-        {loaded && !shown.length && <p className="notes-empty">{query ? 'No notes match.' : notes.length ? 'Nothing here.' : 'No notes yet. They’re kept on every paired computer.'}</p>}
+        {loaded && !shown.length && <p className="notes-empty">{query ? 'No notes match.' : section === 'mimir' ? 'Notes Mimir writes for you show up here.' : section === 'lists' ? 'No checklists yet.' : notes.length ? 'Nothing here.' : 'No notes yet. They’re kept on every paired computer.'}</p>}
       </div>
     </aside>
-    {open ? <NoteEditor key={open.id} stored={open} fresh={open.id === freshId} folderNames={folderNames} onDeleted={() => setOpenId(null)} />
+    {open ? <NoteEditor key={open.id} stored={open} fresh={open.id === freshId} folderNames={allFolderNames} onDeleted={() => setOpenId(null)} onMoved={note => showSection(sectionOf(note), note.id)} />
       : <section className="card notes-editor notes-blank"><p>{loaded ? 'Pick a note or make a new one.' : 'Loading notes…'}</p></section>}
-    {showGraph && <GraphView notes={notes} current={openId} onOpen={id => { setOpenId(id); setFilter({ kind: 'all' }); setShowGraph(false) }} onClose={() => setShowGraph(false)} />}
+    {showGraph && <GraphView notes={notes} current={openId} onOpen={id => { const note = notes.find(n => n.id === id); showSection(note ? sectionOf(note) : section, id); setShowGraph(false) }} onClose={() => setShowGraph(false)} />}
   </div></NavContext.Provider>
 }
 
@@ -141,7 +160,7 @@ type Focus = { id: string; caret: number | 'end' } | null
 
 /** Edits one note. Changes are saved half a second after typing stops, as a patch of what changed,
  *  so a change that arrives from another computer meanwhile is merged rather than undone. */
-function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; fresh: boolean; folderNames: string[]; onDeleted: () => void }) {
+function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored: Note; fresh: boolean; folderNames: string[]; onDeleted: () => void; onMoved: (note: Note) => void }) {
   const base = useRef(stored)
   const [draft, setDraftState] = useState(stored)
   const draftRef = useRef(stored)
@@ -178,6 +197,16 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
       saving.current = false
     }
   }, [setDraft])
+
+  /** Moves the note between the person's notes and Mimir's, then follows it there. */
+  async function moveTo(mimir: boolean) {
+    await save()
+    try {
+      const saved = await notesSave({ id: stored.id, mimir })
+      notesStore.set(current => current.map(n => n.id === saved.id ? saved : n))
+      onMoved(saved)
+    } catch (e) { setStatus(`Not moved: ${String(e)}`) }
+  }
 
   const change = useCallback((next: Note) => {
     setDraft(next)
@@ -396,6 +425,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted }: { stored: Note; f
       <div className="notes-meta">
         <label className="notes-folder" title="Folder"><Folder size={13} /><input list="notes-folders" placeholder="No folder" value={draft.folder} onChange={e => change({ ...draftRef.current, folder: e.target.value })} /></label>
         <datalist id="notes-folders">{folderNames.map(f => <option key={f} value={f} />)}</datalist>
+        <button className="notes-icon" title={draft.mimir || stored.id === MIMIR_MEMORY_ID ? 'Mimir wrote this. Move it to your notes' : 'Move to Mimir’s notes'} disabled={stored.id === MIMIR_MEMORY_ID} onClick={() => void moveTo(!draftRef.current.mimir)}>{draft.mimir || stored.id === MIMIR_MEMORY_ID ? <User size={15} /> : <Sparkles size={15} />}</button>
         <button className="notes-icon" title={draft.pinned ? 'Unpin' : 'Pin to the top'} onClick={() => change({ ...draftRef.current, pinned: !draftRef.current.pinned })}>{draft.pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
         {!lockedBlock && <button className="notes-icon" title="Lock with a password" onClick={() => setLocking(true)}><Lock size={15} /></button>}
         {!lockedBlock && <button className="notes-icon" title="Earlier versions" onClick={() => setHistory(true)}><History size={15} /></button>}

@@ -56,6 +56,9 @@ pub struct Note {
     pub folder: String,
     #[serde(default)]
     pub pinned: bool,
+    /// Made by Mimir: shown in Mimir's own section of Notes, apart from the person's notes.
+    #[serde(default)]
+    pub mimir: bool,
     /// "note" or "list" (a checklist first).
     #[serde(default)]
     pub kind: String,
@@ -93,6 +96,8 @@ pub struct NotePatch {
     pub folder: Option<String>,
     #[serde(default)]
     pub pinned: Option<bool>,
+    #[serde(default)]
+    pub mimir: Option<bool>,
     #[serde(default)]
     pub kind: Option<String>,
     /// Blocks added or edited.
@@ -158,6 +163,7 @@ fn sanitize_note(note: Note) -> Option<Note> {
         title: clean_text(&note.title, MAX_TITLE).replace(['\n', '\t'], " "),
         folder: clean_text(&note.folder, 80).replace(['\n', '\t'], " ").trim().to_string(),
         pinned: note.pinned,
+        mimir: note.mimir,
         kind: if note.kind == "list" { "list".into() } else { "note".into() },
         created: note.created,
         title_updated: note.title_updated,
@@ -225,6 +231,7 @@ impl NoteStore {
             title: Some(edited.title.clone()),
             folder: Some(edited.folder.clone()),
             pinned: Some(edited.pinned),
+            mimir: Some(edited.mimir),
             kind: Some(edited.kind.clone()),
             removed: current.blocks.iter().filter(|b| !b.deleted && !ids.contains(b.id.as_str())).map(|b| b.id.clone()).collect(),
             blocks: edited.blocks,
@@ -245,14 +252,16 @@ impl NoteStore {
         }
         let folder = patch.folder.map(|f| clean_text(&f, 80).replace(['\n', '\t'], " ").trim().to_string()).unwrap_or_else(|| next.folder.clone());
         let pinned = patch.pinned.unwrap_or(next.pinned);
+        let mimir = patch.mimir.unwrap_or(next.mimir);
         let kind = match patch.kind.as_deref() {
             Some("list") => "list".to_string(),
             Some(_) => "note".to_string(),
             None => next.kind.clone(),
         };
-        if (folder.as_str(), pinned, kind.as_str()) != (next.folder.as_str(), next.pinned, next.kind.as_str()) {
+        if (folder.as_str(), pinned, mimir, kind.as_str()) != (next.folder.as_str(), next.pinned, next.mimir, next.kind.as_str()) {
             next.folder = folder;
             next.pinned = pinned;
+            next.mimir = mimir;
             next.kind = kind;
             next.meta_updated = now;
         }
@@ -301,7 +310,7 @@ impl NoteStore {
         };
         let keep: std::collections::HashSet<&str> = blocks.iter().map(|b| b.id.as_str()).collect();
         let removed = self.notes[&id].blocks.iter().filter(|b| !b.deleted && !keep.contains(b.id.as_str())).map(|b| b.id.clone()).collect();
-        let patch = NotePatch { id, title: Some(backup.title), folder: Some(backup.folder), pinned: Some(backup.pinned), kind: Some(backup.kind), removed, blocks };
+        let patch = NotePatch { id, title: Some(backup.title), folder: Some(backup.folder), pinned: Some(backup.pinned), mimir: Some(backup.mimir), kind: Some(backup.kind), removed, blocks };
         self.apply(patch, device, now)
     }
 
@@ -339,6 +348,7 @@ impl NoteStore {
         if incoming.meta_updated > current.meta_updated {
             next.folder = incoming.folder.clone();
             next.pinned = incoming.pinned;
+            next.mimir = incoming.mimir;
             next.kind = incoming.kind.clone();
             next.deleted = incoming.deleted;
             next.meta_updated = incoming.meta_updated;
@@ -1132,6 +1142,20 @@ mod tests {
         assert!(pages > 1);
         assert_eq!(b.list().len(), 30);
         assert!(a.changes_since(since).notes.is_empty());
+    }
+
+    #[test]
+    fn mimir_mark_is_kept_and_spreads() {
+        let mut store = NoteStore::default();
+        let note = store.create_from_markdown(None, "note", "Plan", "", "hi", "pc", 1).unwrap();
+        let marked = store.apply(NotePatch { id: note.id.clone(), mimir: Some(true), ..Default::default() }, "pc", 2).unwrap();
+        assert!(marked.mimir);
+        // Editing the text leaves the mark alone.
+        let edited = store.apply(NotePatch { id: note.id.clone(), title: Some("Plan 2".into()), ..Default::default() }, "pc", 3).unwrap();
+        assert!(edited.mimir);
+        let mut other = NoteStore::default();
+        other.merge(edited);
+        assert!(other.notes[&note.id].mimir);
     }
 
     #[test]
