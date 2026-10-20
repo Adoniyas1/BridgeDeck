@@ -879,7 +879,10 @@ mod tests {
             assert!(r.ok, "{}", r.stderr);
             assert_eq!(r.stdout.split_whitespace().collect::<Vec<_>>(), ["10", "2"]);
             let bad = run("matlab", "a = 1;\nb = nope + a;", "", 60).unwrap().run.unwrap();
-            assert!(!bad.ok && bad.stderr.contains("line 2"), "{}", bad.stderr);
+            // Octave's runner prints the stack, so it names the line; MATLAB's short ('basic') report
+            // gives only the message, so there the unknown name is what to look for.
+            let octave = !is_matlab(&found(lang("matlab").unwrap()).unwrap()[0]);
+            assert!(!bad.ok && bad.stderr.contains(if octave { "line 2" } else { "nope" }), "{}", bad.stderr);
         }
         assert_eq!(java_class("class A {}\npublic final class Main2 {"), "Main2");
         assert_eq!(java_class("class A {}"), "Main");
