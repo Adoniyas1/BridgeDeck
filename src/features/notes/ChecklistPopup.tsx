@@ -4,7 +4,7 @@ import { notesCreate, notesSave, type Note, type NotePatch } from '../../lib/bri
 import { tabMenuStore } from '../../core/shortcuts'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
-import { between, indentOf, newId, noteTitle, toggleTask, visible } from './model'
+import { between, byMimir, indentOf, newId, noteTitle, toggleTask, visible } from './model'
 import { notesStore, openNoteRequest } from './state'
 
 const CHOSEN_KEY = 'bridgedeck.quickChecklist'
@@ -22,7 +22,7 @@ async function save(patch: NotePatch) {
  *  browser extension's. Which checklist it shows is remembered on this computer. */
 export function ChecklistPopup() {
   const notes = useStore(notesStore)
-  const lists = useMemo(() => notes.filter(n => n.kind === 'list' && !n.deleted), [notes])
+  const lists = useMemo(() => notes.filter(n => n.kind === 'list' && !n.deleted && !byMimir(n)), [notes])
   const [open, setOpen] = useState(false)
   const [chosen, setChosen] = useState<string | null>(read)
   const [draft, setDraft] = useState('')

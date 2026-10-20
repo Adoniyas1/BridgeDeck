@@ -205,6 +205,13 @@ export function matches(note: Note, query: string) {
   return words.every(w => haystack.includes(w))
 }
 
+/** Notes has three sections: the person's notes, their checklists, and what Mimir wrote. */
+export type Section = 'mine' | 'lists' | 'mimir'
+/** Mimir's memory, kept as a note (mimir/src/main/bridgedeck/memory.ts); made before notes were marked. */
+export const MIMIR_MEMORY_ID = 'mimir-memory'
+export const byMimir = (note: Note) => !!note.mimir || note.id === MIMIR_MEMORY_ID
+export const sectionOf = (note: Note): Section => byMimir(note) ? 'mimir' : note.kind === 'list' ? 'lists' : 'mine'
+
 export function folders(notes: Note[]) {
   return [...new Set(notes.map(n => n.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b))
 }

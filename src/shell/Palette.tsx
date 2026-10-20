@@ -11,7 +11,7 @@ import { useStore } from '../core/store'
 import { activateTab, tabsStore } from '../core/tabs'
 import { features } from '../features/registry'
 import { notesStore, openNoteRequest } from '../features/notes/state'
-import { noteTitle, preview, matches } from '../features/notes/model'
+import { byMimir, noteTitle, preview, matches } from '../features/notes/model'
 import { eventsStore } from '../features/calendar/state'
 import { historyStore } from '../features/browser/state'
 import { openBook } from '../features/study/open'
@@ -93,7 +93,7 @@ function PaletteBox() {
     if (!q) out.push(...actions)
     if (q) {
       out.push(...best(notes.filter(n => !n.deleted && matches(n, q)), q, n => [noteTitle(n), `${n.folder} ${preview(n)}`], 6)
-        .map(n => ({ id: `note:${n.id}`, group: 'Notes', title: noteTitle(n) || 'Untitled', detail: [n.folder, preview(n)].filter(Boolean).join(' · '), run: go(() => { openNoteRequest.set(n.id); activateTab('notes') }) })))
+        .map(n => ({ id: `note:${n.id}`, group: byMimir(n) ? 'Mimir’s notes' : n.kind === 'list' ? 'Checklists' : 'Notes', title: noteTitle(n) || 'Untitled', detail: [n.folder, preview(n)].filter(Boolean).join(' · '), run: go(() => { openNoteRequest.set(n.id); activateTab('notes') }) })))
       out.push(...best(events.filter(e => !e.deleted), q, e => [e.title, e.location], 4)
         .map(e => ({ id: `event:${e.id}`, group: 'Calendar', title: e.title, detail: new Date(e.start).toLocaleString(undefined, { dateStyle: 'medium', ...(e.allDay ? {} : { timeStyle: 'short' }) }), run: go(() => activateTab('calendar')) })))
       out.push(...best(saved.circuits, q, c => [c.name, c.project], 4)

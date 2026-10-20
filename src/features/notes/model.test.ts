@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Note, NoteBlock } from '../../lib/bridge'
 import { layoutGraph } from './graph'
-import { allTags, backlinks, between, bumpLabel, diff, displayMath, findByTitle, graphOf, linkQuery, linksOf, dueItems, firstSubLabel, inline, labelOnly, matches, nextLabel, noteTitle, rebase, remindersDue, shortcut, sortNotes, subProgress, toggleTask, toMarkdown, visible } from './model'
+import { MIMIR_MEMORY_ID, sectionOf, allTags, backlinks, between, bumpLabel, diff, displayMath, findByTitle, graphOf, linkQuery, linksOf, dueItems, firstSubLabel, inline, labelOnly, matches, nextLabel, noteTitle, rebase, remindersDue, shortcut, sortNotes, subProgress, toggleTask, toMarkdown, visible } from './model'
 
 const block = (id: string, pos: string, over: Partial<NoteBlock> = {}): NoteBlock =>
   ({ id, kind: 'p', text: '', checked: false, due: null, pos, updated: 1, by: 'mac', deleted: false, ...over })
@@ -157,5 +157,15 @@ describe('links, tags and math', () => {
     for (const p of at.values()) expect(p.x >= 20 && p.x <= 380 && p.y >= 20 && p.y <= 280).toBe(true)
     const d = (x: string, y: string) => Math.hypot(at.get(x)!.x - at.get(y)!.x, at.get(x)!.y - at.get(y)!.y)
     expect(d('a', 'b')).toBeLessThan(d('a', 'c'))
+  })
+})
+
+describe('sections', () => {
+  const note = (over: Partial<Note>): Note => ({ id: 'n', title: '', folder: '', pinned: false, kind: 'note', created: 0, titleUpdated: 0, metaUpdated: 0, deleted: false, blocks: [], seq: 0, ...over })
+  it('keeps the person’s notes, checklists and Mimir’s notes apart', () => {
+    expect(sectionOf(note({}))).toBe('mine')
+    expect(sectionOf(note({ kind: 'list' }))).toBe('lists')
+    expect(sectionOf(note({ mimir: true, kind: 'list' }))).toBe('mimir')
+    expect(sectionOf(note({ id: MIMIR_MEMORY_ID }))).toBe('mimir')
   })
 })

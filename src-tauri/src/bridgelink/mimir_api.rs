@@ -148,7 +148,11 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             let id = text(body, "id").filter(|id| *id == MEMORY_NOTE_ID).map(str::to_string);
             let markdown = text(body, "markdown").unwrap_or("").to_string();
             let (title, folder) = (text(body, "title").unwrap_or("").to_string(), text(body, "folder").unwrap_or("").to_string());
-            let note = notes_change(manager, move |store, device, now| store.create_from_markdown(id, kind, &title, &folder, &markdown, device, now))?;
+            // Mimir's notes are kept in its own section of Notes, apart from the person's.
+            let note = notes_change(manager, move |store, device, now| {
+                let note = store.create_from_markdown(id, kind, &title, &folder, &markdown, device, now)?;
+                store.apply(notes::NotePatch { id: note.id, mimir: Some(true), ..Default::default() }, device, now)
+            })?;
             Ok(json!({ "id": note.id }))
         }
         "/mimir/notes/append" => {
