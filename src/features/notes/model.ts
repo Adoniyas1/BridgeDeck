@@ -40,8 +40,14 @@ export function preview(note: Note) {
   const blocks = visible(note).filter(b => b.text.trim())
   const rest = note.title.trim() ? blocks : blocks.slice(1)
   if (blocks.some(b => b.kind === 'locked')) return '🔒 Locked'
-  return rest.map(b => b.kind === 'drawing' ? '✎ Drawing' : b.text.trim()).join(' · ').slice(0, 120)
+  return rest.map(b => b.kind === 'drawing' ? '✎ Drawing' : b.kind === 'ink' ? '✎ Handwriting' : b.kind === 'image' ? '🖼 Picture' : b.text.trim()).join(' · ').slice(0, 120)
 }
+
+/** Block kinds this build edits as text. Others (handwriting and pictures, which get their own
+ *  views, or a kind made by a newer BridgeDeck) are shown but never edited as text, so their data
+ *  is kept as it is. */
+const TEXT_KINDS = new Set(['p', 'h1', 'h2', 'h3', 'li', 'ol', 'todo', 'quote', 'code', 'graph', 'python', 'locked'])
+export const editableAsText = (kind: string) => TEXT_KINDS.has(kind)
 
 /** Markdown typed at the start of a paragraph that turns it into another kind of block. */
 export function shortcut(text: string): { kind: NoteBlockKind; text: string; checked?: boolean } | null {
@@ -192,6 +198,8 @@ export function toMarkdown(note: Note) {
       case 'graph': lines.push('```graph', block.text, '```'); break
       case 'python': lines.push('```python', block.text, '```'); break
       case 'drawing': lines.push(`![Drawing](bridgedeck-drawing:${block.text})`, ''); break
+      case 'ink': lines.push(`![Ink](bridgedeck-ink:${block.text})`, ''); break
+      case 'image': lines.push(`![Image](bridgedeck-image:${block.text})`, ''); break
       default: lines.push(block.text, '')
     }
   }

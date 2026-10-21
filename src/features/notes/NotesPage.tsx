@@ -5,7 +5,7 @@ import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart,
 import { noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
-import { MIMIR_MEMORY_ID, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
+import { MIMIR_MEMORY_ID, editableAsText, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
@@ -359,6 +359,12 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
       const previous = blocks[index - 1]
       if (!previous) return
       event.preventDefault()
+      // Text never runs into a drawing, handwriting or picture (its text is where the data is):
+      // an empty line goes, otherwise nothing happens.
+      if (!editableAsText(previous.kind)) {
+        if (!block.text) { removeBlock(block.id, draftRef.current); setFocus({ id: previous.id, caret: 0 }) }
+        return
+      }
       const current = { ...draftRef.current, blocks: draftRef.current.blocks.map(b => b.id === previous.id ? { ...b, text: previous.text + block.text } : b) }
       removeBlock(block.id, current)
       setFocus({ id: previous.id, caret: previous.text.length })
@@ -567,6 +573,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     : null
   const overdue = block.due && !block.checked && block.due <= Date.now()
   if (block.kind === 'drawing') return <div className="notes-block kind-drawing"><span className="notes-fold-space" /><DrawingBlock id={block.text} /></div>
+  if (!editableAsText(block.kind)) return <div className="notes-block kind-other"><span className="notes-fold-space" /><p className="notes-other">{block.kind === 'ink' ? '✎ Handwriting' : block.kind === 'image' ? '🖼 Picture' : `A “${block.kind}” block`}, made with a newer BridgeDeck. Update BridgeDeck on this computer to see it; it’s kept as it is.</p></div>
 
   return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`} style={{ paddingLeft: indentOf(block) * 26 }}>
     {folded !== null ? <button className="notes-fold" title={folded ? 'Show sub-tasks' : 'Hide sub-tasks'} onClick={onFold}>{folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button> : <span className="notes-fold-space" />}
