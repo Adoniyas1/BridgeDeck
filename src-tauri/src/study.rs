@@ -165,7 +165,7 @@ fn remember(root: &Path) {
     }
 }
 
-fn current_root() -> Result<PathBuf, String> {
+pub(crate) fn current_root() -> Result<PathBuf, String> {
     ROOT.lock().ok().and_then(|r| r.clone()).ok_or_else(|| "Open the Study tab first".into())
 }
 
