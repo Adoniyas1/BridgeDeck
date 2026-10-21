@@ -560,8 +560,8 @@ export const modelsRemove = (model: string) => native<ModelsStatus>('models_remo
 export const drawingLoad = (id: string) => native<{ scene: string | null; svg: string | null }>('drawing_load', { id })
 export const drawingSave = (id: string, scene: string, svg: string) => native<void>('drawing_save', { id, scene, svg })
 /** Daily backups of notes, the calendar and settings in the shared folder (src-tauri/src/backups.rs). */
-export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; bytes: number; mine: boolean }
-export type BackupRestored = { notes: number; events: number; settings: unknown | null }
+export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; study: number; bytes: number; mine: boolean }
+export type BackupRestored = { notes: number; events: number; study: number; settings: unknown | null }
 export const backupsList = () => native<BackupInfo[]>('backups_list')
 /** Everything (notes, calendar, settings, circuits, programs) in one .zip, and bringing one back. */
 export const backupExport = (path: string) => native<string>('backup_export', { path })
@@ -574,7 +574,7 @@ export async function pickBackupFile(mode: 'open' | 'save'): Promise<string | nu
   return typeof picked === 'string' ? picked : null
 }
 export const backupNow = () => native<string>('backup_now')
-export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings })
+export const backupRestore = (path: string, notes: boolean, events: boolean, settings: boolean, study: boolean) => native<BackupRestored>('backup_restore', { path, notes, events, settings, study })
 /** Logic circuits, kept in the shared folder (src-tauri/src/circuits.rs). */
 export type CircuitFile = { project: string; name: string; modified: number }
 export const circuitsList = () => native<CircuitFile[]>('circuits_list')

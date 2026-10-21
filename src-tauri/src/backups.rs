@@ -1,9 +1,11 @@
 //! Daily backups of notes (flashcards are notes), the calendar and settings, to the shared folder,
 //! so a copy is on both computers: `<shared>/BridgeDeck Backups/<computer>/<date>.json`, the last
 //! two weeks of each computer's. Restoring puts notes and events back as new edits, so the restored
-//! versions win on both computers; nothing made since the backup is deleted.
+//! versions win on both computers; nothing made since the backup is deleted. Study's small files
+//! (each course's settings, the term, ticked problems, the degree plan) go along; books don't.
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -28,6 +30,70 @@ pub struct Backup {
     pub events: Vec<calendar::Event>,
     /// BridgeDeck's settings as saved (secrets are in the system keychain, not here).
     pub settings: Option<serde_json::Value>,
+    /// Study's small files by path under the Study folder ("EE 310/.course.json"), as text.
+    #[serde(default)]
+    pub study: BTreeMap<String, String>,
+}
+
+/// The Study files a backup carries: what can't be got back from the books themselves.
+const STUDY_FILES: &[&str] = &[".course.json", ".term.json", ".problems.json", ".degree-plan.json"];
+const MAX_STUDY_FILE: u64 = 2 * 1024 * 1024;
+
+/// A path under the Study folder that a backup may write: plain names, no "..", at most 3 deep
+/// (archived courses are `.archived/<course>/`), ending in one of `STUDY_FILES`.
+fn study_rel_ok(rel: &Path) -> bool {
+    let parts: Vec<_> = rel.components().collect();
+    let plain = parts.iter().all(|c| matches!(c, std::path::Component::Normal(_)));
+    let name = rel.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let dirs_ok = parts.len() <= 3 && parts.iter().rev().skip(1).all(|c| {
+        let d = c.as_os_str().to_string_lossy();
+        !d.starts_with('.') || d == ".archived"
+    });
+    plain && dirs_ok && STUDY_FILES.contains(&name)
+}
+
+/// Study's small files under `study`, by path ("EE 310/.course.json", forward slashes).
+fn study_files(study: &Path) -> BTreeMap<String, String> {
+    fn walk(dir: &Path, base: &Path, depth: usize, out: &mut BTreeMap<String, String>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = entry.path();
+            let Ok(rel) = p.strip_prefix(base) else { continue };
+            if p.is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if depth < 2 && (!name.starts_with('.') || name == ".archived") {
+                    walk(&p, base, depth + 1, out);
+                }
+            } else if study_rel_ok(rel) && entry.metadata().is_ok_and(|m| m.len() <= MAX_STUDY_FILE) {
+                if let Ok(text) = fs::read_to_string(&p) {
+                    out.insert(rel.to_string_lossy().replace('\\', "/"), text);
+                }
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(study, study, 0, &mut out);
+    out
+}
+
+/// Puts Study's small files back under `study`; with `overwrite` off, only where there's none.
+/// Returns how many changed.
+fn restore_study(study: &Path, files: &BTreeMap<String, String>, overwrite: bool) -> Result<usize, String> {
+    let mut changed = 0;
+    for (rel, text) in files {
+        let rel = Path::new(rel);
+        let now = fs::read_to_string(study.join(rel));
+        if !study_rel_ok(rel) || now.as_ref().is_ok_and(|now| now == text) || (!overwrite && study.join(rel).exists()) {
+            continue;
+        }
+        let dest = study.join(rel);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let partial = dest.with_extension("json.partial");
+        fs::write(&partial, text).and_then(|_| fs::rename(&partial, &dest)).map_err(|e| format!("Couldn't write {}: {e}", dest.display()))?;
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 #[derive(Serialize)]
@@ -39,6 +105,8 @@ pub struct BackupInfo {
     pub made: u64,
     pub notes: usize,
     pub events: usize,
+    /// Study files (course settings, term, problems, degree plan).
+    pub study: usize,
     pub bytes: u64,
     /// Made by this computer (its settings can be restored here).
     pub mine: bool,
@@ -49,6 +117,7 @@ pub struct BackupInfo {
 pub struct Restored {
     pub notes: usize,
     pub events: usize,
+    pub study: usize,
     pub settings: Option<serde_json::Value>,
 }
 
@@ -78,11 +147,18 @@ fn folder_name(name: &str) -> String {
     if clean.is_empty() { "BridgeDeck".into() } else { clean.chars().take(60).collect() }
 }
 
-fn root(app: &AppHandle) -> Result<PathBuf, String> {
+fn shared_dir(app: &AppHandle) -> PathBuf {
     let shared = crate::shared_folder(app);
     // A blank setting means the usual place (~/BridgeDeck Shared).
-    let shared = if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) };
-    Ok(shared.join(FOLDER))
+    if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) }
+}
+
+fn root(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(shared_dir(app).join(FOLDER))
+}
+
+fn study_dir(app: &AppHandle) -> PathBuf {
+    shared_dir(app).join("Study")
 }
 
 fn manager(app: &AppHandle) -> BridgeLinkManager {
@@ -104,6 +180,7 @@ fn make(app: &AppHandle) -> Result<PathBuf, String> {
         notes: notes::all(&manager)?,
         events: calendar::all(&manager)?,
         settings: crate::read_saved_config(app).ok().flatten().and_then(|raw| serde_json::from_str(&raw).ok()),
+        study: study_files(&study_dir(app)),
     };
     let dir = my_folder(app)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the backups folder: {e}"))?;
@@ -167,6 +244,7 @@ pub fn backups_list(app: AppHandle) -> Result<Vec<BackupInfo>, String> {
                 made: backup.made,
                 notes: backup.notes.iter().filter(|n| !n.deleted).count(),
                 events: backup.events.iter().filter(|e| !e.deleted).count(),
+                study: backup.study.len(),
                 bytes: raw.len() as u64,
                 mine: folder == mine,
             });
@@ -184,7 +262,7 @@ pub fn backup_now(app: AppHandle) -> Result<String, String> {
 /// Restores from a backup in the backups folder: notes, events, and (returned for the window to
 /// apply, from this computer's own backups only) settings.
 #[tauri::command]
-pub fn backup_restore(app: AppHandle, path: String, notes: bool, events: bool, settings: bool) -> Result<Restored, String> {
+pub fn backup_restore(app: AppHandle, path: String, notes: bool, events: bool, settings: bool, study: Option<bool>) -> Result<Restored, String> {
     let root = root(&app)?.canonicalize().map_err(|_| "There are no backups yet")?;
     let file = PathBuf::from(&path).canonicalize().map_err(|_| "That backup is gone")?;
     if !file.starts_with(&root) || !is_backup_name(&file) {
@@ -198,6 +276,7 @@ pub fn backup_restore(app: AppHandle, path: String, notes: bool, events: bool, s
     Ok(Restored {
         notes: if notes { notes::restore_all(&manager, backup.notes)? } else { 0 },
         events: if events { calendar::restore_all(&manager, backup.events)? } else { 0 },
+        study: if study.unwrap_or(false) { restore_study(&study_dir(&app), &backup.study, true)? } else { 0 },
         settings: if settings && mine { backup.settings } else { None },
     })
 }
@@ -317,9 +396,12 @@ pub async fn backup_import(app: AppHandle, path: String, settings: bool) -> Resu
         let restored = Restored {
             notes: notes::restore_all(&manager, backup.notes)?,
             events: calendar::restore_all(&manager, backup.events)?,
+            // An export brings Study's files to a computer that doesn't have them; it never
+            // replaces the ones here.
+            study: restore_study(&study_dir(&app), &backup.study, false)?,
             settings: if settings { backup.settings } else { None },
         };
-        crate::activity::info("backup", &format!("Imported {path}: {} notes, {} events, {files} circuit and program files.", restored.notes, restored.events));
+        crate::activity::info("backup", &format!("Imported {path}: {} notes, {} events, {} Study files, {files} circuit and program files.", restored.notes, restored.events, restored.study));
         Ok(restored)
     })
     .await
@@ -362,7 +444,7 @@ mod tests {
         fs::write(a.join("Circuits/.history/x/1.circuit.json"), "old").unwrap();
         fs::write(a.join("Code/hello.py"), "print('hi')").unwrap();
         fs::write(a.join("Notes.txt"), "not carried").unwrap();
-        let backup = serde_json::to_vec(&Backup { version: VERSION, made: 1, computer: "Mac".into(), notes: vec![], events: vec![], settings: Some(serde_json::json!({"theme": "dark"})) }).unwrap();
+        let backup = serde_json::to_vec(&Backup { version: VERSION, made: 1, computer: "Mac".into(), notes: vec![], events: vec![], settings: Some(serde_json::json!({"theme": "dark"})), study: BTreeMap::new() }).unwrap();
         let zip = base.join("export.zip");
         assert_eq!(write_export(&backup, &a, &zip).unwrap(), 2);
         // On the other computer: hello.py is there with other code, adder.circuit.json isn't.
@@ -377,6 +459,46 @@ mod tests {
         assert_eq!(fs::read_to_string(b.join("Code/hello (imported).py")).unwrap(), "print('hi')");
         assert!(!b.join("Circuits/.history").exists() && !b.join("Notes.txt").exists());
         assert!(read_export(&base.join("a/Code/hello.py"), &b).is_err());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn study_files_go_in_a_backup_and_come_back() {
+        let base = std::env::temp_dir().join(format!("bd-study-backup-{}", std::process::id()));
+        let study = base.join("Study");
+        fs::create_dir_all(study.join("EE 310/Lectures")).unwrap();
+        fs::create_dir_all(study.join(".archived/EE 210")).unwrap();
+        fs::create_dir_all(study.join(".state/pc")).unwrap();
+        fs::write(study.join(".term.json"), "{\"start\":1}").unwrap();
+        fs::write(study.join(".degree-plan.json"), "{}").unwrap();
+        fs::write(study.join("EE 310/.course.json"), "{\"code\":\"EE 310\"}").unwrap();
+        fs::write(study.join("EE 310/.problems.json"), "{}").unwrap();
+        fs::write(study.join("EE 310/Book.pdf"), "%PDF").unwrap();
+        fs::write(study.join("EE 310/Lectures/.course.json"), "{}").unwrap();
+        fs::write(study.join(".archived/EE 210/.course.json"), "{\"code\":\"EE 210\"}").unwrap();
+        fs::write(study.join(".state/pc/.term.json"), "not carried").unwrap();
+        let files = study_files(&study);
+        let names: Vec<&str> = files.keys().map(String::as_str).collect();
+        assert_eq!(names, [".archived/EE 210/.course.json", ".degree-plan.json", ".term.json", "EE 310/.course.json", "EE 310/.problems.json", "EE 310/Lectures/.course.json"]);
+        // Old backups (without Study) still read.
+        let old: Backup = serde_json::from_str(r#"{"version":1,"made":1,"computer":"PC","notes":[],"events":[],"settings":null}"#).unwrap();
+        assert!(old.study.is_empty());
+        // Restoring: replaces when asked, otherwise only fills in what's missing.
+        let other = base.join("Other");
+        fs::create_dir_all(other.join("EE 310")).unwrap();
+        fs::write(other.join("EE 310/.course.json"), "{\"code\":\"mine\"}").unwrap();
+        assert_eq!(restore_study(&other, &files, false).unwrap(), 5);
+        assert_eq!(fs::read_to_string(other.join("EE 310/.course.json")).unwrap(), "{\"code\":\"mine\"}");
+        assert_eq!(restore_study(&other, &files, true).unwrap(), 1);
+        assert_eq!(fs::read_to_string(other.join("EE 310/.course.json")).unwrap(), "{\"code\":\"EE 310\"}");
+        assert_eq!(restore_study(&other, &files, true).unwrap(), 0);
+        // Nothing outside the Study folder or under .state can be written.
+        let mut bad = BTreeMap::new();
+        for rel in ["../escape/.term.json", "/abs/.term.json", ".state/pc/.term.json", "EE 310/notes.txt", "a/b/c/.course.json"] {
+            bad.insert(rel.to_string(), "x".to_string());
+        }
+        assert_eq!(restore_study(&other, &bad, true).unwrap(), 0);
+        assert!(!base.join("escape").exists());
         let _ = fs::remove_dir_all(&base);
     }
 }

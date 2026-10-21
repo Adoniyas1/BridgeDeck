@@ -91,6 +91,23 @@ fn normalize_device_id(value: &str) -> Result<String, String> {
     Ok(value)
 }
 
+/// Days Syncthing keeps the old versions of a changed or deleted file in the shared folder.
+const VERSION_DAYS: u64 = 30;
+
+/// The folder's versioning set to "staggered" (old versions kept for `VERSION_DAYS`, thinned out
+/// over time), or None when it already keeps versions (a choice made in Syncthing is left alone).
+/// The rest of Syncthing's versioning object is kept as it was.
+fn with_versioning(current: Option<&Value>) -> Option<Value> {
+    let kind = current.and_then(|v| v.get("type")).and_then(Value::as_str).unwrap_or("");
+    if !kind.is_empty() {
+        return None;
+    }
+    let mut versioning = current.cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    versioning["type"] = json!("staggered");
+    versioning["params"] = json!({ "maxAge": (VERSION_DAYS * 86_400).to_string() });
+    Some(versioning)
+}
+
 fn device_entry(device_id: &str) -> Value {
     json!({
         "deviceID": device_id,
@@ -218,8 +235,12 @@ pub async fn syncthing_setup_peer(
         if !has_peer {
             devices.push(device_entry(&peer_device_id));
         }
-        if !has_local || !has_peer {
-            let patch = json!({ "devices": devices });
+        let versioning = with_versioning(folder.get("versioning"));
+        if !has_local || !has_peer || versioning.is_some() {
+            let mut patch = json!({ "devices": devices });
+            if let Some(v) = versioning {
+                patch["versioning"] = v;
+            }
             let path = format!("/rest/config/folders/{folder_id}");
             let (patch_status, patch_body) = request_json(&client, &base, &api_key, Method::PATCH, &path, Some(&patch)).await?;
             if !patch_status.is_success() {
@@ -238,6 +259,9 @@ pub async fn syncthing_setup_peer(
         object.insert("path".into(), Value::String(requested_path.to_string_lossy().to_string()));
         object.insert("type".into(), Value::String("sendreceive".into()));
         object.insert("devices".into(), Value::Array(vec![device_entry(&local_device_id), device_entry(&peer_device_id)]));
+        if let Some(v) = with_versioning(object.get("versioning")) {
+            object.insert("versioning".into(), v);
+        }
         let (post_status, post_body) = request_json(&client, &base, &api_key, Method::POST, "/rest/config/folders", Some(&folder)).await?;
         if !post_status.is_success() {
             return Err(format!("Could not create Syncthing shared folder: HTTP {post_status} {post_body}"));
@@ -280,4 +304,19 @@ pub async fn syncthing_setup_peer(
         restart_required,
         detail,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shared_folder_keeps_old_versions_unless_syncthing_already_does() {
+        let made = with_versioning(Some(&json!({ "type": "", "params": {}, "cleanupIntervalS": 3600, "fsPath": "" }))).unwrap();
+        assert_eq!(made["type"], "staggered");
+        assert_eq!(made["params"]["maxAge"], "2592000");
+        assert_eq!(made["cleanupIntervalS"], 3600);
+        assert_eq!(with_versioning(None).unwrap()["type"], "staggered");
+        assert!(with_versioning(Some(&json!({ "type": "simple", "params": { "keep": "5" } }))).is_none());
+    }
 }

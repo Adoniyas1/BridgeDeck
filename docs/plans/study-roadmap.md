@@ -42,6 +42,8 @@ The plan was checked against the code by two reviewers. Their corrections are ap
 
 Make study data merge cleanly between the PC and the Mac, make it impossible to lose, and fix the big-file serving and unknown-block problems before any new feature builds on them. The user should notice ticks and term data matching on both computers, and backups that now include Study.
 
+- [x] **1.0 Safety net: Study files in daily backups and exports, and Syncthing keeps old versions** (S). Items: 40 (part 1). Needs: none.
+  - backups.rs: the daily backup, export and restore carry Study's small state files (`.course.json`, `.term.json`, `.problems.json`, `.degree-plan.json`). syncthing_bridge.rs: staggered versioning (30 days) on the shared folder, for new folders and for existing ones that have none.
 - [ ] **1.1 Per-device study state store, merged on read** (M). Items: 38 (also foundation (c), used later by 11, 14, 18, 21, 23, 30, 35, 36, 39). Needs: none.
   - src-tauri/src/study.rs: new study_state_read(key) / study_state_put(key, entries) commands taking State<BridgeLinkManager> for runtime.instance_id. Layout Study/.state/<key>/<instanceId>.json as {v:1, entries:{id:{at,del?,val}}}; .jsonl logs are concatenated on read. Newest-at wins, del is a tombstone, at = max(now, lastSeen+1). Key allowlist: term, problems, canvasDone, ratings, focus, plan, examDay, mistakes, reviews, inbox, timetable, reading. One-time import of legacy .term.json/.problems.json as device "legacy" (at = mtime), leaving the files in place. src/lib/bridge.ts widens the key union. state.ts problemsStore becomes Record<assignment, Record<problemKey,{at,done,rating?}>> with the 600 ms debounce kept. Rust unit tests for the merge plus a vitest test for the TS store.
 - [ ] **1.2 Per-course settings patch (study_course_patch) and courseSettings.ts** (M). Items: foundation (a), no numbered item (enables 1, 22, 26, 27, 31, 34, 41, 42, 44, 50). Needs: none.
@@ -272,7 +274,16 @@ Risks:
 
 Suggested merge order for early, visible testing on the Windows PC: 1.1 → 1.2 → 1.3 → 1.4 → 1.5, then all of phase 2. Most phase 2 PRs are independent of each other and can merge in any order once 1.1, 1.2 or 2.1 is in.
 
-## Open decisions
+## Decisions (answered)
+
+- **Devices:** the student has an iPad with Apple Pencil, a pen on the Windows PC, and a Mac (with Sidecar). All three ink paths are built: the desktop editor (Windows pen, Sidecar) and the iPad page.
+- **Updates:** both computers are usually updated together, but every format change must still work while they run different versions. So the rule stands: readers ship before writers, a version handshake runs over BridgeLink, and legacy files are read on every read until both computers have migrated.
+- **Vision and handwriting:** the PC has an RTX 4070 Ti (12 GB) and is on only some of the time. Mimir's vision model runs on the PC when it's reachable. On the Mac, Apple Vision (8.10) is the fallback, so scanning works when the PC is off. The vision spike checks a 7–8B VL model in 12 GB.
+- **Obsidian / Anki / Quizlet:** not used, so BridgeDeck has its own versions. Card syntax is our own, with no Obsidian compatibility needed. 4.9 shrinks to our own CSV import and export for backup and sharing. There is no `.apkg` import or export.
+- **Font for typed notes:** both. The user picks a clean font (Inter or Source Serif) or a handwriting-style one (Caveat or Patrick Hand) for each note or export.
+- **Order:** the book features (8.1–8.3: chapters, book folders, split, download) move to right after Phase 2.
+
+## Earlier open questions (see Decisions)
 
 - Decision: does the user own an iPad and Apple Pencil (which models; the iPad must support Sidecar)? Does the Windows PC have a pen digitizer? If neither, the scope of Phase 8 ink changes completely.
 - Decision: will both computers always be updated together? A minimum-peer-version handshake over BridgeLink is needed before any format change (1.1, 1.4, 4.3) starts writing new data.
