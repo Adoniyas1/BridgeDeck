@@ -18,7 +18,15 @@ const MAX_TITLE: usize = 300;
 const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
-const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python", "locked"];
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python", "locked", "ink", "image"];
+
+/// A block kind this build may not know yet (made by a newer BridgeDeck): kept as it is, so a
+/// computer that hasn't been updated doesn't turn it into a paragraph and sync that back. Only
+/// short lowercase names are kept; anything else becomes a paragraph.
+fn kept_kind(kind: String) -> String {
+    let plausible = !kind.is_empty() && kind.len() <= 24 && kind.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if BLOCK_KINDS.contains(&kind.as_str()) || plausible { kind } else { "p".into() }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -143,7 +151,7 @@ fn clean_id(value: &str) -> Option<String> {
 fn sanitize_block(block: Block) -> Option<Block> {
     Some(Block {
         id: clean_id(&block.id)?,
-        kind: if BLOCK_KINDS.contains(&block.kind.as_str()) { block.kind } else { "p".into() },
+        kind: kept_kind(block.kind),
         text: clean_text(&block.text, MAX_TEXT),
         checked: block.checked,
         indent: block.indent.min(MAX_INDENT),
@@ -718,6 +726,9 @@ pub fn to_markdown(note: &Note) -> String {
             "locked" => format!("```bridgedeck-locked\n{}\n```", block.text),
             // The picture lives in the shared folder; this link brings the drawing back on import.
             "drawing" => format!("![Drawing](bridgedeck-drawing:{})", block.text),
+            // Handwriting and pictures, kept in the shared folder like drawings.
+            "ink" => format!("![Ink](bridgedeck-ink:{})", block.text),
+            "image" => format!("![Image](bridgedeck-image:{})", block.text),
             _ => block.text.clone(),
         };
         // List items sit together; everything else is separated by a blank line, as Markdown
@@ -804,6 +815,10 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
             Some(("h1", text.to_string(), false))
         } else if let Some(id) = line.strip_prefix("![Drawing](bridgedeck-drawing:").and_then(|r| r.strip_suffix(')')).filter(|id| crate::drawings::valid_id(id)) {
             Some(("drawing", id.to_string(), false))
+        } else if let Some(id) = line.strip_prefix("![Ink](bridgedeck-ink:").and_then(|r| r.strip_suffix(')')).filter(|id| crate::drawings::valid_id(id)) {
+            Some(("ink", id.to_string(), false))
+        } else if let Some(id) = line.strip_prefix("![Image](bridgedeck-image:").and_then(|r| r.strip_suffix(')')).filter(|id| crate::drawings::valid_id(id)) {
+            Some(("image", id.to_string(), false))
         } else {
             line.strip_prefix("> ").map(|text| ("quote", text.to_string(), false))
         };
@@ -1194,6 +1209,27 @@ mod tests {
     }
 
     #[test]
+    fn block_kinds_from_a_newer_build_are_kept() {
+        let mut store = NoteStore::default();
+        let note = store.create_from_markdown(None, "note", "Future", "", "Text", "mac", 100).unwrap();
+        let block = |id: &str, kind: &str| Block { id: id.into(), kind: kind.into(), text: "x".into(), pos: id.into(), updated: 200, by: "pc".into(), ..Default::default() };
+        let incoming = Note { blocks: vec![block("a", "calc"), block("b", "table-2"), block("c", "Bad Kind!"), block("d", "ink"), block("e", "")], title_updated: 0, ..note.clone() };
+        store.merge(incoming);
+        let kinds: Vec<(String, String)> = store.notes[&note.id].blocks.iter().map(|b| (b.id.clone(), b.kind.clone())).filter(|(id, _)| id.len() == 1).collect();
+        assert_eq!(kinds, vec![("a".into(), "calc".into()), ("b".into(), "table-2".into()), ("c".into(), "p".into()), ("d".into(), "ink".into()), ("e".into(), "p".into())]);
+    }
+
+    #[test]
+    fn ink_and_images_go_out_to_markdown_and_come_back() {
+        let mut store = NoteStore::default();
+        let note = store.create_from_markdown(None, "note", "Scan", "", "![Ink](bridgedeck-ink:pen_1)\n\n![Image](bridgedeck-image:img_2)\n\n![Ink](bridgedeck-ink:../x)", "mac", 100).unwrap();
+        let kinds: Vec<(&str, &str)> = shown(&note).iter().map(|b| (b.kind.as_str(), b.text.as_str())).collect();
+        assert_eq!(kinds, vec![("ink", "pen_1"), ("image", "img_2"), ("p", "![Ink](bridgedeck-ink:../x)")]);
+        let md = to_markdown(&note);
+        assert!(md.contains("![Ink](bridgedeck-ink:pen_1)") && md.contains("![Image](bridgedeck-image:img_2)"));
+    }
+
+    #[test]
     fn drawings_go_out_to_markdown_and_come_back() {
         let mut store = NoteStore::default();
         let note = store.create_from_markdown(None, "note", "Sketch", "", "Before\n\n![Drawing](bridgedeck-drawing:abc_12)\n\n![Drawing](bridgedeck-drawing:../x)", "mac", 100).unwrap();
@@ -1244,7 +1280,7 @@ mod tests {
     #[test]
     fn untrusted_notes_are_cleaned() {
         let mut store = NoteStore::default();
-        let hostile = Note { id: "../../etc".into(), title: "a\nb".into(), kind: "exec".into(), blocks: vec![Block { id: "x".into(), kind: "script".into(), text: "\u{0007}hi".into(), ..Default::default() }], ..Default::default() };
+        let hostile = Note { id: "../../etc".into(), title: "a\nb".into(), kind: "exec".into(), blocks: vec![Block { id: "x".into(), kind: "<script>".into(), text: "\u{0007}hi".into(), ..Default::default() }], ..Default::default() };
         assert!(store.merge(hostile));
         let note = store.list().into_iter().next().unwrap();
         assert_eq!(note.id, "etc");
