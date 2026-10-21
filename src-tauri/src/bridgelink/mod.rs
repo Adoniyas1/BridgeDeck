@@ -369,6 +369,11 @@ impl BridgeLinkManager {
         self.lock().map(|r| if r.display_name.trim().is_empty() { r.instance_id.clone() } else { r.display_name.clone() }).unwrap_or_default()
     }
 
+    /// This computer's id, which stays the same when it's renamed.
+    pub fn instance_id(&self) -> String {
+        self.lock().map(|r| r.instance_id.clone()).unwrap_or_default()
+    }
+
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Runtime>, String> {
         self.inner.lock().map_err(|_| "BridgeLink state lock poisoned".to_string())
     }

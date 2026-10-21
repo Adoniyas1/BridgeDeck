@@ -165,7 +165,7 @@ fn remember(root: &Path) {
     }
 }
 
-fn current_root() -> Result<PathBuf, String> {
+pub(crate) fn current_root() -> Result<PathBuf, String> {
     ROOT.lock().ok().and_then(|r| r.clone()).ok_or_else(|| "Open the Study tab first".into())
 }
 
@@ -508,32 +508,7 @@ pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), Strin
     fs::write(dir.join(INFO), bytes).map_err(|e| e.to_string())
 }
 
-/// Study-wide state kept beside the courses (synced): the semester's dates, homework progress.
-fn state_file(key: &str) -> Result<&'static str, String> {
-    match key {
-        "term" => Ok(".term.json"),
-        "problems" => Ok(".problems.json"),
-        _ => Err("Unknown study state".into()),
-    }
-}
-
-#[tauri::command]
-pub fn study_state_read(key: String) -> Result<String, String> {
-    match fs::read_to_string(current_root()?.join(state_file(&key)?)) {
-        Ok(text) => Ok(text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn study_state_write(key: String, text: String) -> Result<(), String> {
-    let file = state_file(&key)?;
-    if text.len() > MAX_PLAN || serde_json::from_str::<serde_json::Value>(&text).is_err() {
-        return Err("Not study state".into());
-    }
-    fs::write(current_root()?.join(file), text).map_err(|e| e.to_string())
-}
+// The term and ticked problems are kept in study_state.rs.
 
 /// The degree plan's saved state (JSON), empty when there's none yet.
 #[tauri::command]

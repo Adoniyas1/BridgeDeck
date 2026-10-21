@@ -42,6 +42,7 @@ mod projects;
 mod skill_packs;
 mod study;
 mod study_slides;
+mod study_state;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -651,8 +652,8 @@ pub fn run() {
             study::study_set_course_info,
             study::study_plan_read,
             study::study_plan_write,
-            study::study_state_read,
-            study::study_state_write,
+            study_state::study_state_get,
+            study_state::study_state_put,
             study::study_save_index,
             study::study_search,
             study::study_slides_pdf,
