@@ -7,7 +7,12 @@
 //! computer's clock running behind can't lose an edit: a change is stamped after the newest time
 //! already seen for that entry.
 //!
-//! Format v1 (see docs/plans/study-roadmap.md). A reader skips files with a newer `v` and entries
+//! Older builds kept the term and ticked problems in single files (`.term.json`,
+//! `.problems.json`). Those are still read, as one more computer ("legacy") whose changes are as
+//! new as the file, and rewritten with the merged result after every change here, so a computer
+//! that hasn't been updated yet sees and keeps the same state.
+//!
+//! Format v1 (see docs/formats.md). A reader skips files with a newer `v` and entries
 //! it can't read, and never rewrites another computer's file.
 
 use std::{
@@ -68,6 +73,7 @@ fn device_file(device: &str) -> String {
 fn read_all(study: &Path, key: &str) -> Vec<(String, StateFile)> {
     let dir = study.join(DIR).join(key);
     let mut out = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
     for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") || entry.metadata().map_or(u64::MAX, |m| m.len()) > MAX_FILE {
@@ -79,9 +85,85 @@ fn read_all(study: &Path, key: &str) -> Vec<(String, StateFile)> {
         }
         // A Syncthing conflict copy of a computer's file is still that computer's.
         let by = if file.by.is_empty() { path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default() } else { file.by.clone() };
+        ids.extend(file.entries.keys().cloned());
         out.push((by, file));
     }
+    if let Some(legacy) = read_legacy(study, key, &ids) {
+        out.push((LEGACY.to_string(), legacy));
+    }
     out
+}
+
+const LEGACY: &str = "legacy";
+/// Separates an assignment from a problem in a `problems` entry id ("<assignment>\u{1f}<problem>").
+pub const SEP: char = '\u{1f}';
+
+fn legacy_file(key: &str) -> Option<&'static str> {
+    match key {
+        "term" => Some(".term.json"),
+        "problems" => Some(".problems.json"),
+        _ => None,
+    }
+}
+
+/// An older build's single file for `key`, as entries stamped with the file's time. It holds the
+/// whole state, so ids it doesn't list (from `known`) are removals as of then.
+fn read_legacy(study: &Path, key: &str, known: &[String]) -> Option<StateFile> {
+    let path = study.join(legacy_file(key)?);
+    let at = fs::metadata(&path).ok()?.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
+    let raw: Value = serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
+    let mut entries = BTreeMap::new();
+    match key {
+        "term" => {
+            let set = raw.as_object().is_some_and(|o| !o.is_empty());
+            entries.insert("term".to_string(), if set { Entry { at, del: false, val: raw } } else { Entry { at, del: true, val: Value::Null } });
+        }
+        "problems" => {
+            for (assignment, list) in raw.as_object()? {
+                for problem in list.as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    entries.insert(format!("{assignment}{SEP}{problem}"), Entry { at, del: false, val: Value::Bool(true) });
+                }
+            }
+        }
+        _ => return None,
+    }
+    // Only ids the old file can hold: the term, and "<assignment><SEP><problem>".
+    for id in known.iter().filter(|id| if key == "term" { id.as_str() == "term" } else { id.contains(SEP) }) {
+        entries.entry(id.clone()).or_insert(Entry { at, del: true, val: Value::Null });
+    }
+    Some(StateFile { v: VERSION, by: LEGACY.into(), entries })
+}
+
+/// Rewrites the older build's file for `key` with the merged state, dated by the newest change in
+/// it (so, read back, it doesn't look newer than the changes it holds).
+fn write_legacy(study: &Path, key: &str, files: &[(String, StateFile)]) -> Result<(), String> {
+    let merged = values(files);
+    let newest = merge(files).values().map(|(at, _, _)| *at).max().unwrap_or(0);
+    let Some(name) = legacy_file(key) else { return Ok(()) };
+    let value = match key {
+        "term" => merged.get("term").cloned().unwrap_or_else(|| serde_json::json!({})),
+        _ => {
+            let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for id in merged.keys() {
+                if let Some((assignment, problem)) = id.split_once(SEP) {
+                    out.entry(assignment.to_string()).or_default().push(problem.to_string());
+                }
+            }
+            serde_json::to_value(out).map_err(|e| e.to_string())?
+        }
+    };
+    let path = study.join(name);
+    let now: Option<Value> = fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok());
+    if now.as_ref() == Some(&value) {
+        return Ok(());
+    }
+    let partial = path.with_extension("json.partial");
+    fs::write(&partial, value.to_string()).map_err(|e| format!("Couldn't save study state: {e}"))?;
+    if newest > 0 {
+        let time = UNIX_EPOCH + std::time::Duration::from_millis(newest);
+        let _ = fs::File::options().write(true).open(&partial).and_then(|f| f.set_modified(time));
+    }
+    fs::rename(&partial, &path).map_err(|e| format!("Couldn't save study state: {e}"))
 }
 
 /// The winning entry for each id across the computers' files: newest `at`, ties to the larger
@@ -132,7 +214,8 @@ pub fn put(study: &Path, key: &str, device: &str, changes: BTreeMap<String, Valu
     fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make {}: {e}", dir.display()))?;
     let text = serde_json::to_string(&mine).map_err(|e| e.to_string())?;
     let partial = path.with_extension("json.partial");
-    fs::write(&partial, text).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save study state: {e}"))
+    fs::write(&partial, text).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save study state: {e}"))?;
+    write_legacy(study, key, &read_all(study, key))
 }
 
 fn study_root() -> Result<PathBuf, String> {
@@ -224,6 +307,43 @@ mod tests {
         // A device id is made safe as a file name.
         put(&study, "term", "../../evil", changes(&[("c", json!(1))]), 2).unwrap();
         assert!(d.join("evil.json").exists() && !study.parent().unwrap().join("evil.json").exists());
+        let _ = fs::remove_dir_all(&study);
+    }
+
+    fn set_mtime(path: &Path, ms: u64) {
+        let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms);
+        fs::File::options().write(true).open(path).unwrap().set_modified(t).unwrap();
+    }
+
+    #[test]
+    fn an_older_build_and_a_newer_one_share_the_ticks() {
+        let study = dir("legacy");
+        fs::create_dir_all(&study).unwrap();
+        let id = |a: &str, p: &str| format!("{a}{SEP}{p}");
+        // What an older build left: two ticks.
+        fs::write(study.join(".problems.json"), r#"{"hw4":["1","2"]}"#).unwrap();
+        set_mtime(&study.join(".problems.json"), 1_000);
+        assert_eq!(values(&read_all(&study, "problems")).len(), 2);
+        // This build unticks 1 and ticks 3; the old file is rewritten to match.
+        put(&study, "problems", "pc", changes(&[(id("hw4", "1").as_str(), Value::Null), (id("hw4", "3").as_str(), json!(true))]), 2_000).unwrap();
+        let legacy: Value = serde_json::from_str(&fs::read_to_string(study.join(".problems.json")).unwrap()).unwrap();
+        assert_eq!(legacy, json!({"hw4": ["2", "3"]}));
+        // The other computer, not yet updated, unticks 2 later (rewriting the whole file).
+        fs::write(study.join(".problems.json"), r#"{"hw4":["3"]}"#).unwrap();
+        set_mtime(&study.join(".problems.json"), 3_000);
+        let v = values(&read_all(&study, "problems"));
+        assert_eq!(v.keys().cloned().collect::<Vec<_>>(), vec![id("hw4", "3")]);
+        // The term: the old file's dates count until this build changes them.
+        fs::write(study.join(".term.json"), r#"{"start":"2026-08-24","end":"2026-12-18","breaks":[]}"#).unwrap();
+        set_mtime(&study.join(".term.json"), 1_000);
+        assert_eq!(values(&read_all(&study, "term"))["term"]["start"], "2026-08-24");
+        put(&study, "term", "mac", changes(&[("term", json!({"start":"2027-01-20","end":"2027-05-15","breaks":[]}))]), 5_000).unwrap();
+        assert_eq!(values(&read_all(&study, "term"))["term"]["start"], "2027-01-20");
+        assert!(fs::read_to_string(study.join(".term.json")).unwrap().contains("2027-01-20"));
+        // Clearing the term clears the old file too ("{}", as older builds write).
+        put(&study, "term", "mac", changes(&[("term", Value::Null)]), 6_000).unwrap();
+        assert!(values(&read_all(&study, "term")).is_empty());
+        assert_eq!(fs::read_to_string(study.join(".term.json")).unwrap(), "{}");
         let _ = fs::remove_dir_all(&study);
     }
 }

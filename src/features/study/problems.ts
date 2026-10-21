@@ -34,11 +34,17 @@ export function expandProblems(text: string): Problem[] {
 
 export const problemLabel = (p: Problem, many: boolean) => many && p.section ? `${p.section} #${p.number}` : `#${p.number}`
 
-export function readProblems(text: string): Record<string, string[]> {
-  try {
-    const raw = JSON.parse(text) as Record<string, unknown>
-    const out: Record<string, string[]> = {}
-    for (const [id, list] of Object.entries(raw ?? {})) if (Array.isArray(list)) out[id] = list.filter((x): x is string => typeof x === 'string').slice(0, 500)
-    return out
-  } catch { return {} }
+/** A ticked problem's id in the study state: "<assignment>\u001f<problem>" (study_state.rs SEP). */
+const SEP = '\u001f'
+export const problemId = (assignment: string, problem: string) => `${assignment}${SEP}${problem}`
+
+/** Ticks by assignment from the merged study state. */
+export function problemsFromState(state: Record<string, unknown>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [id, value] of Object.entries(state)) {
+    const at = id.indexOf(SEP)
+    if (at <= 0 || value !== true) continue
+    ;(out[id.slice(0, at)] ??= []).push(id.slice(at + 1))
+  }
+  return out
 }

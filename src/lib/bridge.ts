@@ -449,8 +449,6 @@ export const studyAddBooks = (course: string, paths: string[]) => native<StudyBo
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
 export const studySetCourseInfo = (name: string, info: CourseInfo) => native<void>('study_set_course_info', { name, info })
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
-export const studyStateRead = (key: 'term' | 'problems') => native<string>('study_state_read', { key })
-export const studyStateWrite = (key: 'term' | 'problems', text: string) => native<void>('study_state_write', { key, text })
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
 export type StudyStateKey = 'term' | 'problems'

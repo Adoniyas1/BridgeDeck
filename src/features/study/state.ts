@@ -1,5 +1,5 @@
 import type { Card } from 'ts-fsrs'
-import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyStateRead, studyStateWrite, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
+import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyStateGet, studyStateSet, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
 import { configStore } from '../../core/config'
 import { quietUntilStore } from '../../core/exam'
 import { notify } from '../../core/notify'
@@ -10,7 +10,7 @@ import { notesStore } from '../notes/state'
 import { flashcardsTitle, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
 import { readTerm, type Term } from './schedule'
-import { readProblems } from './problems'
+import { problemId, problemsFromState } from './problems'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
 /** The semester's dates and breaks (Study → courses → Semester). */
@@ -22,36 +22,36 @@ export async function refreshLibrary() {
   if (!isTauri()) return
   try {
     libraryStore.set({ library: await studyLibrary(configStore.get().syncthing.sharedFolderPath), error: '' })
-    const term = readTerm(await studyStateRead('term').catch(() => ''))
+    const term = readTerm(JSON.stringify((await studyStateGet('term').catch(() => ({} as Record<string, unknown>))).term ?? {}))
     if (JSON.stringify(term) !== JSON.stringify(termStore.get())) termStore.set(term)
   } catch (e) {
     libraryStore.set(current => ({ ...current, error: String(e) }))
   }
 }
 
-/** Homework problems ticked off, by assignment (study/problems.ts). */
+/** Homework problems ticked off, by assignment (study/problems.ts). Each computer keeps its own
+ *  ticks and they're merged (src-tauri/src/study_state.rs), so ticking on both doesn't conflict. */
 export const problemsStore = createStore<Record<string, string[]>>({})
 let problemsLoaded = false
 export async function loadProblems() {
   if (problemsLoaded || !isTauri()) return
   problemsLoaded = true
-  problemsStore.set(readProblems(await studyStateRead('problems').catch(() => '')))
+  problemsStore.set(problemsFromState(await studyStateGet('problems').catch(() => ({}))))
 }
-let problemsTimer: number | undefined
 export function tickProblem(assignment: string, key: string) {
+  const ticked = !(problemsStore.get()[assignment] ?? []).includes(key)
   problemsStore.set(all => {
     const list = all[assignment] ?? []
-    const next = { ...all, [assignment]: list.includes(key) ? list.filter(k => k !== key) : [...list, key] }
+    const next = { ...all, [assignment]: ticked ? [...list, key] : list.filter(k => k !== key) }
     if (!next[assignment].length) delete next[assignment]
     return next
   })
-  window.clearTimeout(problemsTimer)
-  problemsTimer = window.setTimeout(() => { if (isTauri()) void studyStateWrite('problems', JSON.stringify(problemsStore.get())).catch(() => undefined) }, 600)
+  if (isTauri()) void studyStateSet('problems', { [problemId(assignment, key)]: ticked ? true : null }).catch(() => undefined)
 }
 
 export async function saveTerm(term: Term | null) {
   termStore.set(term)
-  await studyStateWrite('term', JSON.stringify(term ?? {}))
+  await studyStateSet('term', { term: term ?? null })
 }
 
 // ---- Flashcards ----
