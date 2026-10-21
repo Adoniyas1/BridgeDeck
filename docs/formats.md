@@ -16,7 +16,8 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
   - `term`: entry `term` holds the semester's dates and breaks.
   - `problems`: one entry `<assignment>\u001f<problem>` per ticked problem, with value `true`.
   - A new key is added by the change that first uses it.
-- **Older builds:** the single files `Study/.term.json` and `Study/.problems.json` are still read. They count as computer `legacy`, with every entry dated by the file's modified time, and ids the file doesn't list count as removed. After every change they are rewritten with the merged state, dated by the newest change. Older builds keep working until both computers are updated. - **Limits:** 4 MB per file, 64 KB per value, 20,000 entries.
+- **Older builds:** the single files `Study/.term.json` and `Study/.problems.json` are still read. They count as computer `legacy`, with every entry dated by the file's modified time, and ids the file doesn't list count as removed. After every change they are rewritten with the merged state, dated by the newest change. Older builds keep working until both computers are updated.
+- **Limits:** 4 MB per file, 64 KB per value, 20,000 entries.
 
 ## Note blocks (`src-tauri/src/bridgelink/notes.rs`)
 
