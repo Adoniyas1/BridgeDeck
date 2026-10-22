@@ -175,8 +175,8 @@ Keep lecture audio with timestamps, live transcription and Mimir summaries; down
 
 Help with each homework problem without giving answers away, build exam prep from real material, and plan study time realistically.
 
-- [ ] **7.1 Read section and Check answer for each homework problem** (M). Items: 17. Needs: 1.1.
-  - Problem rows get 'Read section' (opens the book at the mapped section via the outline) and 'Check answer' (opens the book's answers page in a split view beside the user's work). The mapping problem→page is stored in the problems state.
+- [x] **7.1 Read section and Check answer for each homework problem** (M). Items: 17. Needs: 1.1.
+  - Problem rows get 'Read section' (opens the book at the mapped section via the outline) and 'Check answer' (opens the book's answers page in a split view beside the user's work). The mapping problem→page is stored in the problems state. Done: pages come from the textbook's contents (biggest non-slide PDF first) and are kept in the course setting sectionPages; Check answers opens beside the work.
 - [ ] **7.2 Rate problems solved/help/stuck; hard ones resurface** (S). Items: 18. Needs: 1.1, 7.1.
   - A rating per problem stored in state key ratings; 'stuck'/'help' problems come back in review sessions and before exams, optionally as cards.
 - [ ] **7.3 Stuck? button: book worked examples plus a twin problem checked in Python** (M). Items: 7. Needs: 5.1, 3.3, 7.1.

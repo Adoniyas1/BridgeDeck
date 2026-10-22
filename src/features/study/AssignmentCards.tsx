@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { BookCheck, CalendarClock, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
-import { examSites, isTauri } from '../../lib/bridge'
+import { BookCheck, BookOpen, CalendarClock, CheckCheck, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
+import { examSites, isTauri, studyPatchCourseInfo } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
 import { examStore, loadSharedExam } from '../../core/exam'
 import { setNotice } from '../../core/notice'
@@ -22,6 +22,9 @@ import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, t
 import { parseQuickAdd } from './quickAdd'
 import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
+import { ANSWERS, findPlaces, savedPlaces, textbooks, type Place } from './sections'
+import { openBook } from './open'
+
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
 
@@ -44,6 +47,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
       <strong>{a.title}</strong>
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
       {notHandedIn([a], now).length > 0 && <small className="cal-error">Ticked done, but Canvas has no submission: upload it?</small>}
+      {open && <SectionLinks assignment={a} sections={[...new Set(problems.map(p => p.section).filter(Boolean))]} />}
       {open && <div className="problem-grid">{problems.map(p => <button key={p.key} className={ticked.includes(p.key) ? 'on' : ''} onClick={() => tickProblem(a.id, p.key)}>{problemLabel(p, sections)}</button>)}
         {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
     </div>
@@ -51,6 +55,42 @@ function Row({ a, now }: { a: Assignment; now: number }) {
       <span className="problem-bar"><i style={{ width: `${(doneCount / problems.length) * 100}%` }} /></span>{doneCount}/{problems.length}
     </button>}
     {a.url && <button className="ghost" title="Open in Canvas (Browser tab)" onClick={() => openInNewTab(a.url)}><ExternalLink size={14} /></button>}
+  </div>
+}
+
+/** "Read 10.1" opens the textbook at the section; "Answers" opens the answers at the back beside
+ *  the work (split screen). Pages come from the book's contents and are remembered for the course. */
+function SectionLinks({ assignment, sections }: { assignment: Assignment; sections: string[] }) {
+  const library = useStore(libraryStore).library
+  const course = library?.courses.find(c => belongsTo({ name: c.name, code: c.info.code, canvasCode: c.info.canvasCode }, assignment.course))
+  const [places, setPlaces] = useState<Record<string, Place>>({})
+  const [looking, setLooking] = useState('')
+  if (!course || !textbooks(course.books).length) return null
+  const known = { ...savedPlaces(course.info), ...places }
+
+  async function go(key: string, beside: boolean) {
+    let place = known[key]
+    if (!place) {
+      setLooking(key)
+      try {
+        const found = await findPlaces(course!.info, course!.books, [key], async file => (await import('./pdf')).bookOutline(course!.name, file))
+        if (Object.keys(found).length) {
+          setPlaces(p => ({ ...p, ...found }))
+          await studyPatchCourseInfo(course!.name, { sectionPages: { ...savedPlaces(course!.info), ...places, ...found } })
+          void refreshLibrary()
+        }
+        place = found[key]
+      } catch (e) { setNotice(errorText(e, 'Couldn’t read the book')) } finally { setLooking('') }
+    }
+    const book = textbooks(course!.books)[0]
+    // Not in the contents: the textbook opens, and the page can be found by hand.
+    openBook(course!.name, place?.file ?? book.file, course!.books.find(b => b.file === (place?.file ?? book.file))?.title ?? book.title, place?.page ?? 0, beside)
+    if (!place) setNotice(`${key === ANSWERS ? 'The answers aren’t' : `Section ${key} isn’t`} in the book’s contents; it opened at the start.`)
+  }
+
+  return <div className="problem-links">
+    {sections.map(s => <button key={s} className="ghost" disabled={looking === s} title={`Open the book at section ${s}`} onClick={() => void go(s, false)}><BookOpen size={12} />{looking === s ? 'Looking…' : `Read ${s}`}</button>)}
+    <button className="ghost" disabled={looking === ANSWERS} title="The answers at the back of the book, beside your work" onClick={() => void go(ANSWERS, true)}><CheckCheck size={12} />{looking === ANSWERS ? 'Looking…' : 'Check answers'}</button>
   </div>
 }
 

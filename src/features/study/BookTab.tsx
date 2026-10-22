@@ -16,7 +16,7 @@ import { useTabContext } from '../../core/tabContext'
 import { aiPolicyStore } from '../../core/exam'
 import { askMimir } from '../mimir'
 import { mimirPassagePrompt, readingContext } from './model'
-import { isSlideFile, loadBook, pdfjs } from './pdf'
+import { isSlideFile, loadBook, pdfjs, resolveOutline } from './pdf'
 import EpubTab from './EpubTab'
 import { BookChapters } from './BookChapters'
 import { chapterAt, chaptersFromOutline, fromStarts, savedStarts } from './chapters'
@@ -30,20 +30,6 @@ function savedPage(course: string, file: string) {
 }
 function savePage(course: string, file: string, page: number) {
   try { localStorage.setItem(pageKey(course, file), String(page)) } catch { /* private window: not remembered */ }
-}
-
-type Outline = Array<{ title: string; dest: unknown; items: Outline }>
-
-async function resolveOutline(doc: PDFDocumentProxy, items: Outline | null): Promise<OutlineItem[]> {
-  if (!items) return []
-  return Promise.all(items.map(async item => {
-    let page: number | null = null
-    try {
-      const dest = typeof item.dest === 'string' ? await doc.getDestination(item.dest) : item.dest as unknown[] | null
-      if (Array.isArray(dest) && dest[0]) page = (await doc.getPageIndex(dest[0] as never)) + 1
-    } catch { /* a broken link in the book: no page */ }
-    return { title: item.title, page, items: await resolveOutline(doc, item.items) }
-  }))
 }
 
 /** One page: drawn when it comes near the screen, with a text layer so passages can be selected. */
@@ -162,7 +148,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
         const viewport = first.getViewport({ scale: 1 })
         setSize({ width: viewport.width, height: viewport.height })
         setDoc(loaded)
-        setOutline(await resolveOutline(loaded, await loaded.getOutline() as Outline | null))
+        setOutline(await resolveOutline(loaded, await loaded.getOutline() as Parameters<typeof resolveOutline>[1]))
       } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     })()
     return () => { cancelled = true; void loaded?.destroy() }
