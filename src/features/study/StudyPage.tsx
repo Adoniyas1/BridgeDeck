@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -18,6 +18,8 @@ import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
+// The PDF writer is large: it loads when Stitch PDFs is first opened.
+const StitchPdf = lazy(() => import('./StitchPdf').then(m => ({ default: m.StitchPdf })))
 import { ClassTimes, TermCard } from './ClassTimes'
 import { GradesCard } from './GradesCard'
 import { StudyPlanner } from './StudyPlanner'
@@ -107,6 +109,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   const events = useStore(eventsStore)
   const mine = useMemo(() => courseNotes(notes, name), [notes, name])
   const upcoming = useMemo(() => courseEvents(events, name, Date.now(), course.info.code).slice(0, 8), [events, name, course.info.code])
+  const [stitching, setStitching] = useState(false)
   const [examTitle, setExamTitle] = useState('Exam')
   const [examDate, setExamDate] = useState(() => dateInput(Date.now() + 14 * 86_400_000))
   const [examTime, setExamTime] = useState('09:00')
@@ -155,9 +158,10 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   const openExternally = (book: StudyBook) => void openPath(`${root}/${name}/${book.file}`).catch(e => onStatus(String(e)))
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return <div className="study-course">
+    {stitching && <Suspense fallback={null}><StitchPdf course={course} onClose={() => setStitching(false)} onStatus={onStatus} /></Suspense>}
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
     <Card><SectionTitle title={course.info.title && course.info.title !== name ? `${name} · ${course.info.title}` : name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
-      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
+      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
         {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
           : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />

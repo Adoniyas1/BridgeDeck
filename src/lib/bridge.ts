@@ -446,6 +446,12 @@ export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
+/** Saves a PDF made here (stitched pages) in a course; returns the file name it got. The bytes go as
+ *  the request body, not JSON. */
+export async function studySavePdf(course: string, name: string, bytes: Uint8Array): Promise<string> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<string>('study_save_pdf', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
+}
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
 /** Changes some of a course's settings; the rest stay as they are in the file now (so a change here
  *  doesn't undo one just synced from the other computer). null removes a setting. */

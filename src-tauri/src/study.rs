@@ -354,6 +354,37 @@ fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
     (start <= end && start <= last).then_some((start, end.min(start + MAX_PART - 1)))
 }
 
+// ---- PDFs made here ----
+
+const MAX_MADE_PDF: usize = 500 * 1024 * 1024;
+
+/// Saves a PDF made in the window (stitched pages) into a course as `<name>.pdf` (a free name, so
+/// nothing is replaced). Returns the file name it got.
+fn save_pdf(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
+    if !bytes.starts_with(b"%PDF-") || bytes.len() > MAX_MADE_PDF {
+        return Err("That isn't a PDF BridgeDeck can save".into());
+    }
+    let stem = clean_name(name.trim().trim_end_matches(".pdf").trim_end_matches(".PDF"))?;
+    let file = free_name(dir, &format!("{stem}.pdf"));
+    let path = dir.join(&file);
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save the PDF: {e}"))?;
+    Ok(file)
+}
+
+/// The PDF is sent as the request body (not JSON); the course and file name come in the
+/// `x-course` and `x-name` headers, URI-encoded.
+#[tauri::command]
+pub fn study_save_pdf(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |key: &str| request.headers().get(key).and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or_else(|| format!("Missing {key}"));
+    let (course, name) = (header("x-course")?, header("x-name")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the PDF as bytes".into()) };
+    let dir = course_dir(&current_root()?, &course)?;
+    let file = save_pdf(&dir, &name, bytes)?;
+    crate::activity::info("study", &format!("Saved {file} in {course}."));
+    Ok(file)
+}
+
 // ---- Export a semester ----
 
 /// The files a semester export carries, by path under `root`: every file of the courses being
@@ -895,5 +926,19 @@ mod tests {
         let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
         assert!(zip.by_name("Study/EE 310/Book.pdf").is_ok());
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn made_pdfs_are_saved_beside_the_books_without_replacing_any() {
+        let dir = std::env::temp_dir().join(format!("bd-save-pdf-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(save_pdf(&dir, "Homework 4", b"%PDF-1.7 x").unwrap(), "Homework 4.pdf");
+        assert_eq!(save_pdf(&dir, "Homework 4.pdf", b"%PDF-1.7 y").unwrap(), "Homework 4 (2).pdf");
+        assert_eq!(save_pdf(&dir, "../../x", b"%PDF-1.7").unwrap(), "-..-x.pdf");
+        assert!(save_pdf(&dir, "Not", b"<html>").is_err());
+        assert!(save_pdf(&dir, "  ", b"%PDF-").is_err());
+        assert_eq!(fs::read(dir.join("Homework 4.pdf")).unwrap(), b"%PDF-1.7 x");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
