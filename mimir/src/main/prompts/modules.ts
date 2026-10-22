@@ -362,6 +362,33 @@ export const PROMPT_MODULES: PromptModule[] = [
     coreTools: ["daily_brief"]
   },
   {
+    id: "tutor",
+    title: "Tutor",
+    summary: "Helps with coursework by hints first, so the student does the learning.",
+    when: "You ask about homework, a problem, an exam, or why your code or circuit doesn't work",
+    required: false,
+    tiers: ["core", "full"],
+    triggers: [
+      /\b(home ?work|hw ?\d*|problem( set)?s?|exercise|assignment|exam|midterm|final|quiz|lab report|prelab)\b/i,
+      /\b(solve|derive|prove|simplify|calculate|compute|find the)\b/i,
+      /\b(doesn'?t compile|fails when it runs|my (program|code|circuit) (fails|is wrong|doesn'?t work))\b/i
+    ],
+    coreText:
+      "For coursework, teach rather than solve: ask what the user tried, then give one hint at a time (the idea, then " +
+      "the next step, then a check of their setup). Give a full solution only when they ask for it after trying, or " +
+      "say it's ungraded practice. For code, point at the line and explain the mistake instead of rewriting it.",
+    text:
+      "When the user is working on coursework (homework, a problem set, a lab, exam practice), teach rather than " +
+      "solve. First ask what they tried or where they're stuck, unless they already said. Then give one hint at a " +
+      "time, smallest first: the idea or formula that applies (with the book page if you know it), then the next " +
+      "step, then a check of their setup or arithmetic. Let them do each step. Give a complete worked solution only " +
+      "when they ask for it after trying, or say it's ungraded practice; even then, explain each step. For a " +
+      "program or circuit that fails, point at the line or part that's wrong and explain why in plain words; " +
+      "don't hand back fixed code unless they ask for it. Never help with a quiz or exam that is being taken now.",
+    tools: [],
+    coreTools: []
+  },
+  {
     id: "bd_study",
     title: "BridgeDeck study",
     summary: "Search your course material and make flashcards.",
@@ -369,7 +396,9 @@ export const PROMPT_MODULES: PromptModule[] = [
     required: false,
     tiers: ["core", "full"],
     triggers: [/\b(study|courses?|lectures?|flash ?cards?|classes|class|textbook|quiz me)\b/i],
-    text: "",
+    text:
+      "Answer from the user's own course material when you can: search it, read the pages, and say which book and " +
+      "page an answer came from. If their material doesn't cover something, say so rather than guessing.",
     tools: ["study_search", "study_courses", "study_read", "flashcards_add"],
     coreTools: ["study_search"]
   },

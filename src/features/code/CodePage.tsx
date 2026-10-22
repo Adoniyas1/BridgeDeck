@@ -240,7 +240,7 @@ export default function CodePage({ active }: { active: boolean }) {
 
   function ask() {
     const name = info?.name ?? lang
-    void askMimir(`My ${name} program ${live?.compile && !live.compile.ok ? 'doesn’t compile' : 'fails when it runs'}. Explain what's wrong in plain words and show the fixed code.\n\n\`\`\`${lang}\n${draft.source}\n\`\`\`\n\nThe error:\n\`\`\`\n${problems.slice(-4000)}\n\`\`\``)
+    void askMimir(`My ${name} program ${live?.compile && !live.compile.ok ? 'doesn’t compile' : 'fails when it runs'}. Point at the line that's wrong and explain the mistake in plain words, as a hint. Don't rewrite the program; I'll fix it myself.\n\n\`\`\`${lang}\n${draft.source}\n\`\`\`\n\nThe error:\n\`\`\`\n${problems.slice(-4000)}\n\`\`\``)
   }
 
   return <div className="code-page">

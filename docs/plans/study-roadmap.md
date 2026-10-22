@@ -72,7 +72,7 @@ Visible improvements on the Windows PC after each merge: synced last page, stitc
   - BookTab.tsx (pageKey :19-25, :226, :230) and EpubTab.tsx (placeKey :14, :57, :66) write {page|cfi, at} to study state key 'reading' (1.1) with a ~2 s debounce, keeping localStorage as an instant cache. On open, use the newest entry across devices. One-time copy of existing localStorage positions.
 - [x] **2.5 Flashcards render math/symbols plus an 'Open p. N' button** (S). Items: 9. Needs: none.
   - Review UI (review.ts / the Study card view) renders $…$ and $$…$$ with KaTeX (already a dependency) and Unicode symbols; a card's existing [Book, p. N](book:…) source link becomes an 'Open p. N' button via openBookLink. No grammar change, so it stays compatible with mimir_api.rs card_parts.
-- [ ] **2.6 Hints-first tutor rules; Code's Ask Mimir points at the line** (S). Items: 2. Needs: none.
+- [x] **2.6 Hints-first tutor rules; Code's Ask Mimir points at the line** (S). Items: 2. Needs: none.
   - mimir/src/main/... modules.ts: a new 'tutor' prompt module, required whenever a study course or the Code/Logic tab is in context: hints first, no full solutions unless asked, point at the line and explain instead of rewriting. bd_study (:365-375) gets citation text. CodePage.tsx:243 prompt changes from 'show the fixed code' to 'point at the line and give a hint'. Reads aiPolicy when present (wired fully in 3.3).
 - [ ] **2.7 Mimir knows what you're reading; Ask Mimir on a highlighted passage** (S). Items: 3. Needs: none.
   - BookTab.tsx and EpubTab.tsx call useTabContext('study', {course, book, page, selection, pageText}) as CodePage.tsx:98 does. Add an 'Ask Mimir' action to the selection menu (next to highlight) through askMimir, carrying bookLink(course,file,page).
