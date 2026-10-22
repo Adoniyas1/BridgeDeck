@@ -73,3 +73,10 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - Recordings are m4a, mp3, webm, ogg or wav. Each has a sidecar `<file>.json`: `{segments: [{start, end, text}], markers: [{t, note?}], photos: [{t, file}], started?, note?}`. Times are in seconds.
 - Links in notes: `lecture:<course>/<file>#t=<seconds>`.
 - Course settings: `recording` (true lets the class be recorded; off by default) and `words` (a list of words, or `heard => written` fixes).
+
+## Ink (`<shared>/Ink/<id>/`, `src-tauri/src/ink.rs`, `src/features/notes/ink/model.ts`)
+
+- `doc.json`: `{v: 1, paper, size, pages, title?, pdf?}`, replaced as a whole.
+- `strokes-<device>.jsonl`: written only by its own device. Strokes are `{"s", "pg", "t", "tool", "c", "w", "p"}`, where `p` holds points as delta-encoded tenths of a point with pressure 0–100. Erasures are `{"e": [ids], "t"}`. A line that doesn't parse is skipped.
+- `bg/<page>.png`: a page's background.
+- An `ink` note block's text is the ink id. Markdown writes it as `![Ink](bridgedeck-ink:<id>)`.

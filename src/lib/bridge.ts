@@ -603,6 +603,18 @@ export const modelsRemove = (model: string) => native<ModelsStatus>('models_remo
 
 /** Drawings in notes, kept in the shared folder (src-tauri/src/drawings.rs). */
 export const drawingLoad = (id: string) => native<{ scene: string | null; svg: string | null }>('drawing_load', { id })
+/** Handwriting in notes (src-tauri/src/ink.rs): the page setup, every device's stroke log, and
+ *  which pages have a background picture. */
+export type InkFiles = { doc: string | null; logs: Array<[string, string[]]>; backgrounds: number[] }
+export const inkLoad = (id: string) => native<InkFiles>('ink_load', { id })
+export const inkSetDoc = (id: string, doc: string) => native<void>('ink_set_doc', { id, doc })
+export const inkAppend = (id: string, lines: string[]) => native<void>('ink_append', { id, lines })
+export const inkCompact = (id: string, lines: string[]) => native<void>('ink_compact', { id, lines })
+export const inkBackground = (id: string, page: number) => native<string | null>('ink_background', { id, page })
+export async function inkSetBackground(id: string, page: number, png: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<void>('ink_set_background', png, { headers: { 'x-id': id, 'x-page': String(page) } })
+}
 export const drawingSave = (id: string, scene: string, svg: string) => native<void>('drawing_save', { id, scene, svg })
 /** Daily backups of notes, the calendar and settings in the shared folder (src-tauri/src/backups.rs). */
 export type BackupInfo = { path: string; computer: string; date: string; made: number; notes: number; events: number; study: number; bytes: number; mine: boolean }

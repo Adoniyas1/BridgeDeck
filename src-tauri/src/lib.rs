@@ -46,6 +46,7 @@ mod study_slides;
 mod study_state;
 mod study_mimir;
 mod study_lectures;
+mod ink;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -662,6 +663,12 @@ pub fn run() {
             study::study_save_card_picture,
             study::study_save_csv,
             canvas::canvas_download_files,
+            ink::ink_load,
+            ink::ink_set_doc,
+            ink::ink_append,
+            ink::ink_compact,
+            ink::ink_set_background,
+            ink::ink_background,
             study_lectures::study_lectures,
             study_lectures::study_save_lecture,
             study_lectures::study_import_lecture,
