@@ -88,6 +88,8 @@ pub struct Ink {
     /// Every device's lines, by device, in file order.
     pub logs: Vec<(String, Vec<String>)>,
     pub backgrounds: Vec<u32>,
+    /// This device's log name in `logs`.
+    pub me: String,
 }
 
 pub fn load(dir: &Path) -> Ink {
@@ -105,7 +107,7 @@ pub fn load(dir: &Path) -> Ink {
     logs.sort();
     let mut backgrounds: Vec<u32> = fs::read_dir(dir.join("bg")).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".png")?.parse().ok()).collect();
     backgrounds.sort();
-    Ink { doc: fs::read_to_string(dir.join("doc.json")).ok(), logs, backgrounds }
+    Ink { doc: fs::read_to_string(dir.join("doc.json")).ok(), logs, backgrounds, me: String::new() }
 }
 
 pub fn set_background(dir: &Path, page: u32, png: &[u8]) -> Result<(), String> {
@@ -123,8 +125,8 @@ fn device(manager: &BridgeLinkManager) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn ink_load(app: AppHandle, id: String) -> Result<Ink, String> {
-    Ok(load(&folder(&app, &id)?))
+pub fn ink_load(app: AppHandle, manager: State<'_, BridgeLinkManager>, id: String) -> Result<Ink, String> {
+    Ok(Ink { me: device_name(&manager.instance_id()), ..load(&folder(&app, &id)?) })
 }
 
 #[tauri::command]

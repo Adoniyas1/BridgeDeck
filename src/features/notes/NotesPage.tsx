@@ -1,14 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Calculator, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
-import { noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Calculator, Signature, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
+import { inkSetDoc, noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
 import { MIMIR_MEMORY_ID, editableAsText, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink, openLectureLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
+import { InkBlock, inkOpenRequest } from './InkBlock'
+import { newDoc as newInkDoc } from './ink/model'
 import { CalcView, PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
 import { LockDialog, LockedNote } from './LockedNote'
@@ -17,7 +19,7 @@ import { lockText } from './lock'
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
   ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code], ['drawing', 'Drawing', PenTool],
-  ['graph', 'Graph', LineChart], ['python', 'Python', Terminal], ['calc', 'Calculator', Calculator],
+  ['ink', 'Handwriting', Signature], ['graph', 'Graph', LineChart], ['python', 'Python', Terminal], ['calc', 'Calculator', Calculator],
 ]
 
 /** Blocks typed like code: Enter is a new line (Shift+Enter a new block), no spell check. */
@@ -386,6 +388,13 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
 
   function setKind(kind: NoteBlockKind) {
     const id = lastKindTarget.current ?? blocks[blocks.length - 1]?.id
+    if (kind === 'ink') {
+      // Handwriting is a block of its own too; its pages start lined, and the pen page opens.
+      const ink = newId()
+      void inkSetDoc(ink, JSON.stringify(newInkDoc())).then(() => { insertAfter(id ?? null, { kind: 'ink', text: ink }); inkOpenRequest.set(ink) }).catch(() => undefined)
+      setFocus(null)
+      return
+    }
     if (kind === 'drawing') {
       // A drawing is a block of its own, after the current one (its text is the drawing's id).
       insertAfter(id ?? null, { kind: 'drawing', text: newId() })
@@ -573,7 +582,8 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     : null
   const overdue = block.due && !block.checked && block.due <= Date.now()
   if (block.kind === 'drawing') return <div className="notes-block kind-drawing"><span className="notes-fold-space" /><DrawingBlock id={block.text} /></div>
-  if (!editableAsText(block.kind)) return <div className="notes-block kind-other"><span className="notes-fold-space" /><p className="notes-other">{block.kind === 'ink' ? '✎ Handwriting' : block.kind === 'image' ? '🖼 Picture' : `A “${block.kind}” block`}, made with a newer BridgeDeck. Update BridgeDeck on this computer to see it; it’s kept as it is.</p></div>
+  if (block.kind === 'ink') return <div className="notes-block kind-ink"><span className="notes-fold-space" /><InkBlock id={block.text} /></div>
+  if (!editableAsText(block.kind)) return <div className="notes-block kind-other"><span className="notes-fold-space" /><p className="notes-other">{block.kind === 'image' ? '🖼 Picture' : `A “${block.kind}” block`}, made with a newer BridgeDeck. Update BridgeDeck on this computer to see it; it’s kept as it is.</p></div>
 
   return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`} style={{ paddingLeft: indentOf(block) * 26 }}>
     {folded !== null ? <button className="notes-fold" title={folded ? 'Show sub-tasks' : 'Hide sub-tasks'} onClick={onFold}>{folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button> : <span className="notes-fold-space" />}

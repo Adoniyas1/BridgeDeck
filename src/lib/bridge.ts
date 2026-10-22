@@ -605,7 +605,7 @@ export const modelsRemove = (model: string) => native<ModelsStatus>('models_remo
 export const drawingLoad = (id: string) => native<{ scene: string | null; svg: string | null }>('drawing_load', { id })
 /** Handwriting in notes (src-tauri/src/ink.rs): the page setup, every device's stroke log, and
  *  which pages have a background picture. */
-export type InkFiles = { doc: string | null; logs: Array<[string, string[]]>; backgrounds: number[] }
+export type InkFiles = { doc: string | null; logs: Array<[string, string[]]>; backgrounds: number[]; /** This device's log. */ me: string }
 export const inkLoad = (id: string) => native<InkFiles>('ink_load', { id })
 export const inkSetDoc = (id: string, doc: string) => native<void>('ink_set_doc', { id, doc })
 export const inkAppend = (id: string, lines: string[]) => native<void>('ink_append', { id, lines })

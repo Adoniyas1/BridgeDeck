@@ -25,3 +25,13 @@ describe('ink model', () => {
     expect(compacted([strokeLine(stroke('x', 1))], mergeLogs([['m', [strokeLine(stroke('x', 1))]]]))).toBeNull()
   })
 })
+
+describe('ink drawing helpers', () => {
+  it('makes an outline path and hits strokes for the eraser', async () => {
+    const { strokePath, touches } = await import('./render')
+    const s = stroke('a', 1)
+    expect(strokePath(s)).toMatch(/^M [\d.]+,[\d.]+ Q .* Z$/)
+    expect(touches(s, { x: 10.5, y: 20.5, p: 0 }, 2)).toBe(true)
+    expect(touches(s, { x: 40, y: 60, p: 0 }, 2)).toBe(false)
+  })
+})
