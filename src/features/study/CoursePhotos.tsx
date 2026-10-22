@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Camera, Crop, FileText, Image, Smartphone, Trash2 } from 'lucide-react'
+import { Camera, Crop, FileText, PenLine, Image, Smartphone, Trash2 } from 'lucide-react'
 import { ScanCrop } from './ScanCrop'
+import { ScanReview } from './ScanReview'
 import { isTauri, notesCreateMarkdown, studySavePhoto, openPath, pickTransferPaths, studyAddBooks, studyRemoveBook, type StudyBook } from '../../lib/bridge'
 import { activateTab } from '../../core/tabs'
 import { errorText } from '../../core/util'
@@ -53,6 +54,7 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
     try { await studyRemoveBook(course, photo.file); await refreshLibrary() } catch (e) { setStatus(errorText(e, 'Couldn’t remove it')) }
   }
   const [cropping, setCropping] = useState<StudyBook | null>(null)
+  const [reviewing, setReviewing] = useState<StudyBook | null>(null)
   /** A straightened, whitened copy of a page photo, added beside it (and read like any photo). */
   async function keepStraightened(photo: StudyBook, jpeg: Blob) {
     setCropping(null)
@@ -82,9 +84,11 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
       <figcaption><span title={p.file}>{p.title}</span>
         {note && <button className="cal-icon" title="Open its text in Notes" onClick={() => { openNoteRequest.set(note.id); activateTab('notes') }}><FileText size={12} /></button>}
         {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Straighten and whiten the page" onClick={() => setCropping(p)}><Crop size={12} /></button>}
+        {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Read the handwriting into a note (check it first)" onClick={() => setReviewing(p)}><PenLine size={12} /></button>}
         <button className="cal-icon" title="Remove" onClick={() => void remove(p)}><Trash2 size={12} /></button></figcaption>
     </figure> })}</div> : !waiting && <p className="hint"><Camera size={13} /> Snap a page of notes or the whiteboard after class; its text goes into a note for this course.</p>}
     {status && <p className="hint">{status}</p>}
+    {reviewing && <ScanReview course={course} file={reviewing.file} src={convertFileSrc(`${course}/${reviewing.file}`, 'bdbook')} onClose={() => setReviewing(null)} onStatus={setStatus} />}
     {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
   </Card>
 }
