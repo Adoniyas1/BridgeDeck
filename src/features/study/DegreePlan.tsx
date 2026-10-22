@@ -4,7 +4,8 @@ import { isTauri, studyAddCourse, studyArchiveCourse, studyPlanRead, studyPlanWr
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { courseKey } from './canvas'
-import { DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, GRADE_POINTS, majorIds, PLANS, plannedCode, planTotals, readPlanState, sameCourseTitle, withExpected, wrapUp, type CourseStatus, type PlanCourse, type PlanState } from './plans'
+import { Timetable } from './Timetable'
+import { codesOf, DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, GRADE_POINTS, majorIds, PLANS, plannedCode, planTotals, readPlanState, sameCourseTitle, withExpected, wrapUp, type CourseStatus, type PlanCourse, type PlanState } from './plans'
 import { currentPercent, letterFor, readGrading } from './grades'
 import { refreshLibrary } from './state'
 
@@ -128,7 +129,8 @@ export function DegreePlan({ courses, onOpen }: { courses: StudyCourse[]; onOpen
     {plan.notes.map(n => <p key={n} className="hint">{n}</p>)}
     {status && <p className="hint">{status}</p>}
   </Card>
-  <NextSemester state={state} onSave={save} /></>
+  <NextSemester state={state} onSave={save} />
+  <Timetable courses={courses} missing={code => eligibleNext(plan, state).find(n => codesOf(n.course, state).includes(code))?.missing ?? []} /></>
 }
 
 /** Next semester: the courses whose prerequisites are done (or being taken now), soonest in the

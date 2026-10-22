@@ -63,6 +63,7 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 
 - Each entry is `{kind, course, payload, from: "mimir", at}`. `kind` is `cards` (`payload.lines`: card lines), `deadline` (`title`, `due` ms or null) or `exam` (`title`, `start` ms, optional `end`, `room`, `covers`, `allowed`).
 - Study state `mistakes`: `m:<id>` → `{course, assignment, text, at}`, `p:<assignment id>` → `{course, assignment, predicted, at}`.
+- Study state `timetable`: `text` (pasted schedule) and `picked` (section keys `course|section|type`).
 - Study state `ratings`: problem id → `{rating: "help"|"stuck", course, assignment, section, number, at}`.
 - `syllabus` entries carry `weights` ([{name, weight}]), `people` ([{role, name, email, hours}]), `exams` ([{title, start, room?, covers?}]) and `aiPolicy`; accepting merges them into the course (nothing removed) after showing what changes.
 - The Study tab adds an entry when the user accepts it, and removes it (null) when it's accepted or turned down. Builds that don't know a kind leave it alone.

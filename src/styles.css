@@ -854,6 +854,18 @@ button.today-tile:hover{border-color:var(--accent)}
 .mistake button{padding:2px 7px;font-size:11px}
 .study-focus-for{width:100%;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:6px;font:inherit;font-size:12px;margin-bottom:6px}
 .notice-line{font-size:12px;padding:6px 10px;border-radius:var(--radius-sm);background:#facc1522;color:var(--text);margin:6px 0}
+.timetable textarea{width:100%;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:8px;font:12px ui-monospace,monospace;resize:vertical}
+.timetable-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:10px 0}
+.timetable-course{display:flex;flex-direction:column;gap:3px;font-size:12px}
+.timetable-course label{display:flex;gap:6px;align-items:center}
+.timetable-course label.clashes{color:#f87171}
+.timetable-course small{color:var(--muted)}
+.timetable-week{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:8px 0}
+.timetable-day>span{display:block;text-align:center;font-size:11px;color:var(--muted)}
+.timetable-col{position:relative;height:300px;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+.timetable-block{position:absolute;left:2px;right:2px;background:color-mix(in srgb,var(--accent) 30%,transparent);border-radius:4px;font-size:10px;padding:2px 4px;overflow:hidden;display:flex;flex-direction:column}
+.timetable-block.clash{background:#f8717155;outline:1px solid #f87171}
+.timetable-block small{color:var(--muted)}
 .hard-tag.stuck{background:#f8717133;color:#f87171}
 .problem-links button{padding:2px 7px;font-size:11px}
 .lecture-list{display:flex;flex-direction:column;gap:2px;margin-top:8px}

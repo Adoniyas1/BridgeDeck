@@ -195,8 +195,8 @@ Help with each homework problem without giving answers away, build exam prep fro
   - planner.ts: split long sets across days, reschedule skipped blocks, warn when the hours do not fit before the due date; uses learned hours from 7.8, Canvas due dates and exams. Plan stored in state key plan. Done: hours are scaled by how long finished work really took (median actual ÷ guess, from focus sessions) less what's already been spent; missed plan blocks (no study logged during them) are flagged and planning again fits the rest in; what doesn't fit says what to do. Plan blocks carry the task's [a:<id>]. The plan stays in the calendar (no separate 'plan' state).
 - [x] **7.10 Sleep and overload guard** (S). Items: 37. Needs: 7.9.
   - Planner and reminders warn on late-night blocks, too many hours in a day, or 3+ deadlines/exams in 48 h, and suggest moves. Done in the planner: late-night blocks, days over 10 hours of classes, events and study, and 3+ deadlines or exams in 48 hours, each with what to change.
-- [ ] **7.11 Next-semester timetable** (M). Items: 43. Needs: 1.2, 1.1.
-  - Paste sections from the CSULB schedule; parser plus a week grid with conflict highlighting and the existing prereq check; 'Use these' writes meetings into the new courses via patch. Draft stored in state key timetable.
+- [x] **7.11 Next-semester timetable** (M). Items: 43. Needs: 1.2, 1.1.
+  - Paste sections from the CSULB schedule; parser plus a week grid with conflict highlighting and the existing prereq check; 'Use these' writes meetings into the new courses via patch. Draft stored in state key timetable. Done under the degree plan: paste sections, pick one per course and type, a Mon–Fri grid with clashes in red, missing prerequisites from the plan, and 'Use these class times' writes meetings (making the course if needed). The draft is study state 'timetable' ({text, picked}).
 
 ## Phase 8: Books, handwriting and scanned notes
 

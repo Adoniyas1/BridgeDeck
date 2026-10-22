@@ -31,7 +31,7 @@ use crate::bridgelink::BridgeLinkManager;
 const VERSION: u32 = 1;
 const DIR: &str = ".state";
 /// The kinds of state kept this way; each is added by the change that first uses it.
-const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam", "inbox", "ratings", "mistakes"];
+const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam", "inbox", "ratings", "mistakes", "timetable"];
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_VALUE: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 20_000;
