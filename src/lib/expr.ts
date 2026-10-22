@@ -24,6 +24,8 @@ const PREFIX: Record<string, number> = { f: 1e-15, p: 1e-12, n: 1e-9, u: 1e-6, �
 /** Units to show a result in, in order of preference. */
 const SHOW = ['Ω', 'V', 'A', 'F', 'H', 'W', 'Hz', 's', 'J', 'C', 'S']
 
+/** Own keys only, so "constructor" or "toString" aren't names. */
+const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 const q = (re: number, im = 0, dim: Dim = NONE): Quantity => ({ re, im, dim })
 const sameDim = (a: Dim, b: Dim) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9)
 const addDim = (a: Dim, b: Dim, k = 1): Dim => a.map((v, i) => v + k * b[i]) as Dim
@@ -104,7 +106,7 @@ function tokenize(text: string, vars: Record<string, Quantity> = {}): Token[] {
           if (!word || !unit) return false
           const spaced = word[0].startsWith(' ')
           if (unit.dim === NONE && (spaced || !prefixOk)) return false
-          if (spaced && Object.hasOwn(vars, word[1])) return false
+          if (spaced && has(vars, word[1])) return false
           value *= unit.scale; dim = unit.dim; i += word[0].length
           return true
         }
@@ -121,7 +123,7 @@ function tokenize(text: string, vars: Record<string, Quantity> = {}): Token[] {
       out.push({ k: 'op', v: '°' }); i++
       // "10∠-30° V": the unit after the angle belongs to the whole phasor.
       const word = src.slice(i).match(/^\s?([a-zA-ZΩµμ]+)/)
-      const unit = word && !Object.hasOwn(vars, word[1]) ? readUnit(word[1]) : null
+      const unit = word && !has(vars, word[1]) ? readUnit(word[1]) : null
       if (word && unit && unit.dim !== NONE) { out.push({ k: 'num', v: q(unit.scale, 0, unit.dim) }); i += word[0].length }
       continue
     }
@@ -197,10 +199,10 @@ export function evaluate(text: string, vars: Record<string, Quantity> = {}): Qua
     if (t.k === 'op' && t.v === '(') { i++; const a = parallelExpr(); take(')'); return a }
     if (t.k === 'name') {
       i++
-      if (Object.hasOwn(vars, t.v)) return vars[t.v]
+      if (has(vars, t.v)) return vars[t.v]
       const fn = FUNCTIONS[t.v.toLowerCase()]
       if (fn && isOp('(')) { i++; const a = parallelExpr(); take(')'); return fn(a) }
-      if (Object.hasOwn(CONSTANTS, t.v)) return CONSTANTS[t.v]
+      if (has(CONSTANTS, t.v)) return CONSTANTS[t.v]
       // A unit on its own: "5j V", "(1+2j) kΩ".
       const unit = readUnit(t.v)
       if (unit && unit.dim !== NONE) return q(unit.scale, 0, unit.dim)
@@ -258,8 +260,8 @@ export function runLines(text: string): Array<{ line: string; result?: string; e
     if (bands) return { line: raw, result: bands }
     const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*(.+)$/)
     try {
-      if (m && !Object.hasOwn(FUNCTIONS, m[1].toLowerCase())) {
-        if (Object.hasOwn(CONSTANTS, m[1])) throw new Error(`“${m[1]}” is a constant`)
+      if (m && !has(FUNCTIONS, m[1].toLowerCase())) {
+        if (has(CONSTANTS, m[1])) throw new Error(`“${m[1]}” is a constant`)
         const value = evaluate(m[2], vars)
         vars[m[1]] = value
         return { line: raw, name: m[1], result: formatQuantity(value) }

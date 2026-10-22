@@ -94,7 +94,7 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
           <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} /></>}
       <button className="ghost" disabled={!ok}>Add</button>
     </form>
-    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {{num:4.7k ohm ±2%}}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {'{{num:4.7k ohm ±2%}}'}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
     {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
     {browsing && <CardList deck={deck} onStatus={onStatus} />}
     {stats.total > stats.fresh && <button className="ghost" onClick={() => setShowMastery(m => !m)}>{showMastery ? 'Hide what you know' : 'What you know, by chapter'}</button>}
@@ -193,9 +193,9 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
   const [typed, setTyped] = useState('')
   const [checked, setChecked] = useState<Checked | null>(null)
   useEffect(() => { shownAt.current = Date.now(); setTyped(''); setChecked(null) }, [queue[0]])
-  const spec = useMemo(() => card ? answerSpec(card.back) : null, [card])
   const card = queue[0]
   const times = useMemo(() => card ? intervals(card.card) : {}, [card])
+  const spec = useMemo(() => card ? answerSpec(card.back) : null, [card])
   const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
 
   async function answer(grade: (typeof GRADES)[number]['grade']) {
