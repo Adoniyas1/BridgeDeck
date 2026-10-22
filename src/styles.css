@@ -804,6 +804,7 @@ button.today-tile:hover{border-color:var(--accent)}
 .study-review-head{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
 .study-review-front{font-size:19px;line-height:1.45;margin:8px 0 0;white-space:pre-wrap}
 .study-review-back{font-size:16px;line-height:1.5;margin:0;padding-top:14px;border-top:1px solid var(--line);color:var(--text);white-space:pre-wrap}
+.study-review-source{align-self:flex-start;display:inline-flex;align-items:center;gap:6px}
 .study-review-show{border:1px solid var(--line-strong);background:var(--surface-3);color:var(--text);border-radius:var(--radius-sm);padding:12px;font-size:14px}
 .study-review-show small,.study-review-grades small{color:var(--muted);font-size:11px;margin-left:6px}
 .study-review-grades{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}

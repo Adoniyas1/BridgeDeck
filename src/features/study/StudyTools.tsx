@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { BookOpen, Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
 import { studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
@@ -10,7 +10,8 @@ import { cardLine, deckOf, deckStats, dueCards, GRADES, type FlashCard } from '.
 import { intervals, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
-import { openBook } from './open'
+import { openBook, openBookLink } from './open'
+import { CardText, cardSource } from './CardText'
 import { addCards, focusStore, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
@@ -79,6 +80,7 @@ function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () 
   const [done, setDone] = useState(0)
   const card = queue[0]
   const times = useMemo(() => card ? intervals(card.card) : {}, [card])
+  const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
 
   async function answer(grade: (typeof GRADES)[number]['grade']) {
     if (!card) return
@@ -108,8 +110,9 @@ function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () 
     <div className="study-review-card">
       <div className="study-review-head"><Brain size={15} /><span className="grow">{card ? `${done} done · ${queue.length} to go` : 'All done'}</span><button className="ghost" onClick={onClose}>Close</button></div>
       {card ? <>
-        <p className="study-review-front">{card.front}</p>
-        {shown ? <p className="study-review-back">{card.back.replace(/\s*\(\[[^\]]*\]\(book:[^)]*\)\)\s*$/, '')}</p> : null}
+        <CardText className="study-review-front" text={card.front} />
+        {shown ? <CardText className="study-review-back" text={card.back} /> : null}
+        {shown && source && <button className="ghost study-review-source" title={source.label} onClick={() => openBookLink(source.href)}><BookOpen size={14} />Open p. {source.page}</button>}
         {shown ? <div className="study-review-grades">{GRADES.map(g => <button key={g.grade} onClick={() => void answer(g.grade)}><strong>{g.label}</strong><small>{times[g.grade]} · {g.key}</small></button>)}</div>
           : <button className="study-review-show" onClick={() => setShown(true)}>Show answer <small>space</small></button>}
       </> : <p className="study-review-front">Nothing left to review. Well done.</p>}
