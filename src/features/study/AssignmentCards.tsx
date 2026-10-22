@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { BookCheck, BookOpen, CalendarClock, CheckCheck, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
+import { BookCheck, BookOpen, LifeBuoy, CalendarClock, CheckCheck, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri, studyPatchCourseInfo } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
-import { examStore, loadSharedExam } from '../../core/exam'
+import { aiAllowed, examStore, loadSharedExam } from '../../core/exam'
 import { setNotice } from '../../core/notice'
 import { notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -17,7 +17,8 @@ import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } fr
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { ExamNotices } from './ExamDay'
-import { expandProblems, problemId, problemLabel } from './problems'
+import { expandProblems, problemId, problemLabel, stuckPrompt } from './problems'
+import { askMimir } from '../mimir'
 import { libraryStore, loadProblems, loadRatings, problemsStore, rateProblem, ratingsStore, refreshLibrary, termStore, tickProblem } from './state'
 import { parseQuickAdd } from './quickAdd'
 import { meetingsOf } from './schedule'
@@ -107,6 +108,7 @@ export function HardProblemsCard({ course, info }: { course: string; info: { cod
       <span className={`hard-tag ${r.rating}`}>{r.rating === 'stuck' ? 'stuck' : 'help'}</span>
       <span className="grow">{r.section ? `${r.section} ` : ''}#{r.number} <small>{r.assignment}</small></span>
       {r.section && <SectionLinks assignment={{ course: r.course || course }} sections={[r.section]} answers={false} />}
+      {aiAllowed(course) && <button className="ghost" title="Mimir finds worked examples in your book and makes a twin problem with checked numbers; hints only for this one" onClick={() => void askMimir(stuckPrompt(course, r.assignment, r.section, r.number), true, course)}><LifeBuoy size={12} />Stuck?</button>}
       <button className="ghost" title="Solved it on my own now" onClick={() => rateProblem({ id: r.id.split('\u001f')[0], title: r.assignment, course: r.course }, { key: r.id.split('\u001f')[1], section: r.section, number: r.number }, null)}><Check size={12} />Got it</button>
     </div>)}</div>
   </Card>
