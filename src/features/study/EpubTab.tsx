@@ -8,6 +8,7 @@ import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { cardLine } from './cards'
 import { bookLink, courseFolder, highlightsTitle } from './model'
+import { flushPlaces, placeOf, rememberPlace } from './reading'
 import { addCards } from './state'
 import { loadBookBytes } from './pdf'
 
@@ -55,6 +56,7 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
         view.themes.register('bd-light', { body: { color: '#111 !important', background: '#fff !important' } })
         view.on('relocated', (where: { start: { cfi: string; href: string; percentage?: number } }) => {
           write(placeKey(course, file), where.start.cfi)
+          rememberPlace(course, file, { cfi: where.start.cfi })
           if (typeof where.start.percentage === 'number' && opened.locations.length()) setPercent(Math.round(where.start.percentage * 100))
           const item = opened.navigation?.get(where.start.href)
           setChapter(item?.label?.trim() ?? '')
@@ -63,7 +65,9 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
         view.on('keyup', (e: KeyboardEvent) => { if (e.key === 'ArrowRight') void view.next(); if (e.key === 'ArrowLeft') void view.prev() })
         await opened.ready
         setToc(opened.navigation.toc)
-        const start = askedChapter > 0 ? opened.spine.get(askedChapter - 1)?.href : read(placeKey(course, file)) || undefined
+        const left = askedChapter > 0 ? null : await placeOf(course, file, { cfi: read(placeKey(course, file)) ?? undefined })
+        if (cancelled) return
+        const start = askedChapter > 0 ? opened.spine.get(askedChapter - 1)?.href : left?.cfi || undefined
         await view.display(start)
         // Positions through the book, for "x% read" (in the background; large books take a moment).
         void opened.locations.generate(1600).then(() => { if (!cancelled) setPercent(p => p ?? 0) })
@@ -71,7 +75,7 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
         setError(e instanceof Error ? e.message : String(e))
       }
     })()
-    return () => { cancelled = true; rendition.current?.destroy(); book.current?.destroy(); rendition.current = null; book.current = null }
+    return () => { cancelled = true; flushPlaces(); rendition.current?.destroy(); book.current?.destroy(); rendition.current = null; book.current = null }
   }, [course, file, askedChapter, askedAt])
 
   useEffect(() => {

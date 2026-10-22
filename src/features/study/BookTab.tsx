@@ -14,6 +14,7 @@ import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
 import { isSlideFile, loadBook, pdfjs } from './pdf'
 import EpubTab from './EpubTab'
+import { flushPlaces, placeOf, rememberPlace } from './reading'
 
 const NO_MARKS: string[] = []
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
@@ -220,14 +221,27 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const zoomRef = useRef(scale)
   zoomRef.current = scale
 
-  // Open where it was asked (a highlight's link) or where it was left.
+  // Open where it was asked (a highlight's link) or where it was left, on this computer or the
+  // other one, whichever was later. Places are saved only once it's there (not page 1 on load).
+  const placed = useRef(false)
   useEffect(() => {
     if (!doc) return
-    const target = askedPage || savedPage(course, file)
-    window.setTimeout(() => goTo(target), 50)
+    placed.current = false
+    let cancelled = false
+    void (async () => {
+      const target = askedPage || (await placeOf(course, file, { page: savedPage(course, file) }))?.page || 1
+      if (cancelled) return
+      window.setTimeout(() => { goTo(target); placed.current = true }, 50)
+    })()
+    return () => { cancelled = true }
   }, [doc, askedPage, askedAt])
 
-  useEffect(() => { if (doc) savePage(course, file, page) }, [doc, page, course, file])
+  useEffect(() => {
+    if (!doc || !placed.current) return
+    savePage(course, file, page)
+    rememberPlace(course, file, { page })
+  }, [doc, page, course, file])
+  useEffect(() => () => flushPlaces(), [])
 
   useEffect(() => {
     const onSelect = () => {
