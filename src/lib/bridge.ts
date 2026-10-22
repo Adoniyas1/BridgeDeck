@@ -468,9 +468,12 @@ export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & 
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
-export type StudyStateKey = 'term' | 'problems' | 'reading'
+export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone'
 export const studyStateGet = (key: StudyStateKey) => native<Record<string, unknown>>('study_state_get', { key })
 export const studyStateSet = (key: StudyStateKey, changes: Record<string, unknown>) => native<void>('study_state_put', { key, changes })
+/** The newest copy of what Canvas sent, from either computer (study_state.rs), and keeping this one's. */
+export const studyCanvasGet = () => native<unknown>('study_canvas_get')
+export const studyCanvasPut = (data: unknown) => native<void>('study_canvas_put', { data })
 export const studyPlanRead = () => native<string>('study_plan_read')
 export const studyPlanWrite = (text: string) => native<void>('study_plan_write', { text })
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })

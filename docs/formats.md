@@ -30,3 +30,9 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - One JSON object. `code`, `title`, `canvasId` and `canvasCode` are text. Other keys (`meetings`, `grading`, `collections`, and later ones) are kept as written.
 - Changes are patches (`study_patch_course_info`): only the keys sent are replaced, on the file as it is when the change is saved.
 - A Syncthing conflict copy is merged back when the course is read. Keys only one copy has are kept; for a key both changed, the newer file wins. The copy then goes to the Trash.
+
+## Canvas copy (`Study/.canvas/<instance id>.json`)
+
+- Written by each computer that's signed in to Canvas, after a refresh with no errors: `{ at, feed, api, courses, announcements }`, at most 3 MB.
+- Readers take the file with the largest `at`. A computer that isn't signed in uses it, and so will the phone and Mimir.
+- Done ticks for Canvas items: study state key `canvasDone`, entry `<assignment id>` = `true`. This computer's settings list (`canvas.done`) is still written for older builds and read once to fill in the state.

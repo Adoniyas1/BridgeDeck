@@ -14,7 +14,7 @@ import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
 import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
-import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { expandProblems, problemLabel } from './problems'
 import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, tickProblem } from './state'
@@ -180,7 +180,7 @@ export function StudyBackground() {
   const exam = useStore(examStore)
   const canvas = useConfig().canvas
   const [, setTick] = useState(0)
-  usePeriodicRefresh(async () => { await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
+  usePeriodicRefresh(async () => { await loadSharedCanvas(); await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
     const timer = window.setInterval(() => { checkAssignmentReminders(); checkClassReminders(); setTick(t => t + 1) }, 60_000)
     return () => window.clearInterval(timer)

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studyPatchCourseInfo } from '../../lib/bridge'
+import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studyCanvasGet, studyCanvasPut, studyPatchCourseInfo, studyStateGet, studyStateSet } from '../../lib/bridge'
 import { configStore, setConfig } from '../../core/config'
 import { setExam } from '../../core/exam'
 import { notify } from '../../core/notify'
@@ -11,16 +11,29 @@ import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, a
 import { libraryStore, refreshLibrary, termStore } from './state'
 import { classesBetween, classRemindersDue } from './schedule'
 import { catalogTitle, sameCourseTitle } from './plans'
-import { CACHE, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
+import { CACHE, canvasDoneStore, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
 
 /** The calendar feed, or the Canvas site (read with an access token, or with the sign-in in BridgeDeck's browser). */
 export const canvasConnected = () => { const c = configStore.get().canvas; return !!c.feed.trim() || !!c.base.trim() }
 
 /** Reads the feed and the API. Course lists are read one course at a time in parallel. */
+/** The newer of this computer's Canvas copy and the other computer's (so a computer that isn't
+ *  signed in to Canvas still shows its assignments), and the items ticked done on either. */
+export async function loadSharedCanvas() {
+  if (!isTauri()) return
+  const shared = await studyCanvasGet().catch(() => null) as Partial<CanvasData> | null
+  if (shared && Array.isArray(shared.feed) && Array.isArray(shared.api) && (shared.at ?? 0) > canvasStore.get().at && !canvasStore.get().loading) {
+    canvasStore.set(c => ({ ...c, feed: shared.feed!, api: shared.api!, courses: Array.isArray(shared.courses) ? shared.courses : c.courses, announcements: Array.isArray(shared.announcements) ? shared.announcements : c.announcements, at: shared.at ?? c.at }))
+  }
+  const state = await studyStateGet('canvasDone').catch(() => ({} as Record<string, unknown>))
+  const legacy = configStore.get().canvas.done
+  canvasDoneStore.set([...new Set([...legacy.filter(id => !(id in state) || state[id] === true), ...Object.keys(state).filter(id => state[id] === true)])])
+}
+
 export async function refreshCanvas() {
   if (!isTauri() || canvasStore.get().loading) return
   const { feed, base, token } = configStore.get().canvas
-  if (!canvasConnected()) { canvasStore.set(emptyCanvas); return }
+  if (!canvasConnected()) { await loadSharedCanvas(); return }
   canvasStore.set(c => ({ ...c, loading: true }))
   const previous = canvasStore.get()
   const errors: string[] = []
@@ -45,6 +58,9 @@ export async function refreshCanvas() {
   const data: CanvasData = { ...next, at: errors.length ? previous.at : Date.now(), errors, loading: false }
   canvasStore.set(data)
   try { localStorage.setItem(CACHE, JSON.stringify({ ...data, errors: [] })) } catch { /* cache only */ }
+  // Shared with the other computer, the phone and Mimir.
+  if (!errors.length) void studyCanvasPut({ at: data.at, feed: data.feed, api: data.api, courses: data.courses, announcements: data.announcements }).catch(() => undefined)
+  else void loadSharedCanvas()
 }
 
 /** Each Canvas course becomes a Study course the first time it's seen (unless one already matches),
@@ -81,21 +97,24 @@ async function addCanvasCourses(courses: CanvasCourse[]) {
 }
 
 /** Canvas assignments with this computer's done marks, and the ones added here. */
-export function allAssignments(data = canvasStore.get(), notes = notesStore.get(), done = configStore.get().canvas.done): Assignment[] {
+export function allAssignments(data = canvasStore.get(), notes = notesStore.get(), done = canvasDoneStore.get()): Assignment[] {
   return [...mergeCanvas(data.feed, data.api, done), ...manualAssignments(notes)]
 }
 
 export function useAssignments() {
   const data = useStore(canvasStore)
   const notes = useStore(notesStore)
-  const done = useStore(configStore).canvas.done
+  const done = useStore(canvasDoneStore)
   return useMemo(() => allAssignments(data, notes, done), [data, notes, done])
 }
 
 /** Ticks an assignment off (or back on): Canvas ones on this computer, added ones in their note. */
 export async function toggleDone(a: Assignment) {
   if (a.source === 'canvas') {
+    canvasDoneStore.set(list => a.done ? list.filter(id => id !== a.id) : [...list.filter(id => id !== a.id), a.id])
+    // Older builds still read the done list from this computer's settings.
     setConfig(c => ({ ...c, canvas: { ...c.canvas, done: a.done ? c.canvas.done.filter(id => id !== a.id) : [...c.canvas.done.filter(id => id !== a.id), a.id].slice(-500) } }))
+    if (isTauri()) await studyStateSet('canvasDone', { [a.id]: a.done ? null : true }).catch(() => undefined)
     return
   }
   if (!a.noteId || !a.block) return

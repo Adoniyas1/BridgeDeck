@@ -87,7 +87,7 @@ Visible improvements on the Windows PC after each merge: synced last page, stitc
 
 Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a restart), keep one exam list everywhere, and make reminders and grades trustworthy.
 
-- [ ] **3.1 Canvas data readable by Rust; done marks synced** (M). Items: foundation (b) (used by 4, 21, 25, 29, 30, 32, 36, 41, 39). Needs: 1.1.
+- [x] **3.1 Canvas data readable by Rust; done marks synced** (M). Items: foundation (b) (used by 4, 21, 25, 29, 30, 32, 36, 41, 39). Needs: 1.1.
   - New src-tauri/src/study_canvas.rs: study_canvas_publish(data) writes <appdata>/canvas.json (per computer, never synced) and keeps an in-memory copy. assignments.ts refreshCanvas (:44-47) calls it; canvasStore.ts loads from it at start. apiAssignments keeps submission{submitted_at,workflow_state,score,missing,late}, points_possible, html_url. config.canvas.done moves to state key canvasDone with a one-time migration.
 - [ ] **3.2 Exam mode persisted in Rust (site block survives a restart)** (S). Items: 1 (part 1 of 2). Needs: none.
   - New src-tauri/src/exam.rs: static plus <appdata>/exam.json {course, until, sites}, exam_set/exam_get commands, restored at start-up and re-applying browser::exam_sites (browser.rs:123). src/core/exam.ts setExam calls exam_set; localStorage only as a dev fallback. Optional BridgeLink broadcast to the paired computer.

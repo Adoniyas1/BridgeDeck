@@ -661,6 +661,8 @@ pub fn run() {
             study::study_plan_write,
             study_state::study_state_get,
             study_state::study_state_put,
+            study_state::study_canvas_get,
+            study_state::study_canvas_put,
             study::study_save_index,
             study::study_search,
             study::study_slides_pdf,
