@@ -285,7 +285,6 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some(k) if BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) => found,
         _ => return fail(StatusCode::NOT_FOUND),
     };
-    let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
     let mime = match book_kind(&path).as_deref() {
         Some("epub") => "application/epub+zip",
         Some("jpg" | "jpeg") => "image/jpeg",
@@ -294,21 +293,65 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some("webp") => "image/webp",
         _ => "application/pdf",
     };
-    let total = data.len();
-    let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("bytes=")).and_then(|v| v.split_once('-')).and_then(|(a, b)| {
-        let start: usize = a.parse().ok()?;
-        let end: usize = if b.is_empty() { total.checked_sub(1)? } else { b.parse::<usize>().ok()?.min(total.checked_sub(1)?) };
-        (start <= end).then_some((start, end))
-    });
-    let builder = Response::builder().header(header::CONTENT_TYPE, mime).header(header::ACCEPT_RANGES, "bytes").header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-    match range {
-        Some((start, end)) => builder
-            .status(StatusCode::PARTIAL_CONTENT)
-            .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
-            .body(data[start..=end].to_vec())
-            .unwrap(),
-        None => builder.status(StatusCode::OK).body(data).unwrap(),
+    let Ok(mut file) = fs::File::open(&path) else { return fail(StatusCode::NOT_FOUND) };
+    let Ok(total) = file.metadata().map(|m| m.len()) else { return fail(StatusCode::NOT_FOUND) };
+    // pdf.js reads a big book in pieces: these let the window see that it can.
+    let builder = Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Accept-Ranges, Content-Range, Content-Length");
+    if request.method() == tauri::http::Method::OPTIONS {
+        return builder.status(StatusCode::NO_CONTENT).body(Vec::new()).unwrap();
     }
+    // A header that isn't a byte range is ignored, as HTTP says.
+    let header = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).filter(|h| h.trim().starts_with("bytes="));
+    match header.map(|h| parse_range(h, total)) {
+        // Only the part asked for is read, not the whole book.
+        Some(Some((start, end))) => {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut part = vec![0; (end - start + 1) as usize];
+            if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut part)).is_err() {
+                return fail(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            builder
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
+                .header(header::CONTENT_LENGTH, part.len())
+                .body(part)
+                .unwrap()
+        }
+        Some(None) => builder.status(StatusCode::RANGE_NOT_SATISFIABLE).header(header::CONTENT_RANGE, format!("bytes */{total}")).body(Vec::new()).unwrap(),
+        None => {
+            let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
+            builder.status(StatusCode::OK).header(header::CONTENT_LENGTH, data.len()).body(data).unwrap()
+        }
+    }
+}
+
+/// The bytes a `Range: bytes=…` header asks for in a file of `total` bytes, as an inclusive
+/// (start, end): "a-b", "a-" (to the end) or "-n" (the last n). One range only; past the end is cut
+/// to the end; None when nothing of the file is asked for. Parts are at most 16 MB.
+fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
+    const MAX_PART: u64 = 16 * 1024 * 1024;
+    let (a, b) = header.trim().strip_prefix("bytes=")?.split_once('-')?;
+    if total == 0 || b.contains(',') {
+        return None;
+    }
+    let last = total - 1;
+    let (start, end) = if a.trim().is_empty() {
+        let n: u64 = b.trim().parse().ok()?;
+        if n == 0 {
+            return None;
+        }
+        (total.saturating_sub(n), last)
+    } else {
+        let start: u64 = a.trim().parse().ok()?;
+        let end = if b.trim().is_empty() { last } else { b.trim().parse::<u64>().ok()?.min(last) };
+        (start, end)
+    };
+    (start <= end && start <= last).then_some((start, end.min(start + MAX_PART - 1)))
 }
 
 // ---- Page text and search ----
@@ -747,5 +790,22 @@ mod tests {
         assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2, "c": 3})), false), obj(serde_json::json!({"a": 1, "b": 1, "c": 3})));
         assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2})), true), obj(serde_json::json!({"a": 1, "b": 2})));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn byte_ranges_are_read() {
+        assert_eq!(parse_range("bytes=0-99", 1000), Some((0, 99)));
+        assert_eq!(parse_range("bytes=900-", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=950-5000", 1000), Some((950, 999)));
+        assert_eq!(parse_range("bytes=-100", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=-5000", 1000), Some((0, 999)));
+        assert_eq!(parse_range("bytes=1000-", 1000), None);
+        assert_eq!(parse_range("bytes=5-1", 1000), None);
+        assert_eq!(parse_range("bytes=-0", 1000), None);
+        assert_eq!(parse_range("bytes=0-1,5-9", 1000), None);
+        assert_eq!(parse_range("bytes=x-1", 1000), None);
+        assert_eq!(parse_range("bytes=0-", 0), None);
+        // A big ask is cut to 16 MB.
+        assert_eq!(parse_range("bytes=0-", 100_000_000), Some((0, 16 * 1024 * 1024 - 1)));
     }
 }
