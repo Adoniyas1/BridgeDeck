@@ -8,7 +8,8 @@ import { eventsStore, useItems } from '../calendar/state'
 import { DAY, dateInput, formatTime, fromInputs, startOfDay } from '../calendar/model'
 import { newId } from '../notes/model'
 import { useAssignments, useExams } from './assignments'
-import { DEFAULT_PLAN, guessHours, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
+import { DEFAULT_PLAN, guessHours, hoursLeft, learnedFactor, missedBlocks, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
+import { assignmentHours, assignmentTag } from './model'
 
 const PREFS_KEY = 'bridgedeck.study.planner'
 type Prefs = { options: PlanOptions; hours: Record<string, number>; skip: string[]; extra: StudyTask[] }
@@ -30,12 +31,16 @@ export function StudyPlanner() {
   const events = useStore(eventsStore)
   const assignments = useAssignments()
   const exams = useExams()
+  // How long things really take (from finished work with focus time), and what's been done already.
+  const factor = useMemo(() => learnedFactor(assignments.filter(a => a.done).map(a => ({ kind: a.kind, title: a.title, hours: assignmentHours(events, a.id) }))), [assignments, events])
+  const spent = (id: string) => assignmentHours(events, id)
+  const missed = useMemo(() => missedBlocks(events, now), [events, now])
   const tasks: StudyTask[] = useMemo(() => [
-    ...assignments.filter(a => !a.done && !a.submitted && a.due && a.due > now && a.due < now + HORIZON).map(a => ({ id: a.id, title: a.title, course: a.course, due: a.due!, hours: prefs.hours[a.id] ?? guessHours(a.kind, a.title) })),
+    ...assignments.filter(a => !a.done && !a.submitted && a.due && a.due > now && a.due < now + HORIZON).map(a => ({ id: a.id, title: a.title, course: a.course, due: a.due!, hours: prefs.hours[a.id] ?? hoursLeft(guessHours(a.kind, a.title) * (factor ?? 1), spent(a.id)) })),
     ...prefs.extra.filter(t => t.due > now),
     // Exams (from the calendar and Canvas) get study time before them too.
     ...exams.filter(e => e.source === 'calendar' && e.start > now && e.start < now + HORIZON).map(e => ({ id: e.id, title: `${e.course} ${e.title}`, course: e.course, due: e.start, hours: prefs.hours[e.id] ?? 6 })),
-  ].sort((a, b) => a.due - b.due), [assignments, prefs, now, exams])
+  ].sort((a, b) => a.due - b.due), [assignments, prefs, now, exams, factor, events])
   const chosen = tasks.filter(t => !prefs.skip.includes(t.id) && t.hours > 0)
   const last = Math.max(now + DAY, ...chosen.map(t => t.due))
   const items = useItems(startOfDay(now), last + DAY)
@@ -59,7 +64,7 @@ export function StudyPlanner() {
       const saved: CalEvent[] = []
       for (const b of plan.blocks) {
         const t = chosen.find(x => x.id === b.task)
-        saved.push(await calendarSave({ id: newId(), title: `Study: ${b.title}`, start: b.start, end: b.end, allDay: false, location: '', notes: `${t?.course ? `${t.course} · ` : ''}due ${t ? `${dayText(t.due)} ${formatTime(t.due)}` : ''}\n${PLAN_TAG}`, color: 'purple', repeat: null, skip: [], reminder: 10, updated: 0, by: '', deleted: false, seq: 0 }))
+        saved.push(await calendarSave({ id: newId(), title: `Study: ${b.title}`, start: b.start, end: b.end, allDay: false, location: '', notes: `${t?.course ? `${t.course} · ` : ''}due ${t ? `${dayText(t.due)} ${formatTime(t.due)}` : ''}${t ? ` ${assignmentTag(t.id)}` : ''}\n${PLAN_TAG}`, color: 'purple', repeat: null, skip: [], reminder: 10, updated: 0, by: '', deleted: false, seq: 0 }))
       }
       const gone = new Set(old.map(e => e.id))
       eventsStore.set(list => [...list.filter(e => !gone.has(e.id) && !saved.some(s => s.id === e.id)), ...saved])
@@ -70,6 +75,8 @@ export function StudyPlanner() {
   return <div className="study-course study-planner">
     <Card>
       <SectionTitle title="Study planner" subtitle="Study time for what's due in the next four weeks, fitted around your classes and calendar" />
+      {missed.length > 0 && <p className="notice-line">{missed.length} study block{missed.length === 1 ? '' : 's'} this week passed without study logged. Planning again fits the time that's left into the days ahead.</p>}
+      {factor && Math.abs(factor - 1) >= 0.2 && <p className="hint">Your assignments have taken about {factor}× the first guess, so the hours below are scaled to match (and less what you've already spent on each).</p>}
       <div className="planner-options">
         <label>Study from <select value={prefs.options.fromHour} onChange={e => opt({ fromHour: Number(e.target.value) })}>{Array.from({ length: 16 }, (_, h) => h + 6).map(h => <option key={h} value={h}>{formatTime(new Date(2026, 0, 1, h).getTime())}</option>)}</select></label>
         <label>to <select value={prefs.options.toHour} onChange={e => opt({ toHour: Number(e.target.value) })}>{Array.from({ length: 12 }, (_, h) => h + 13).map(h => <option key={h} value={h}>{h === 24 ? 'midnight' : formatTime(new Date(2026, 0, 1, h).getTime())}</option>)}</select></label>
@@ -82,7 +89,7 @@ export function StudyPlanner() {
           {tasks.map(t => { const off = prefs.skip.includes(t.id); const extra = prefs.extra.some(x => x.id === t.id); return <tr key={t.id} className={off ? 'off' : undefined}>
             <td><input type="checkbox" checked={!off} onChange={() => setPrefs({ ...prefs, skip: off ? prefs.skip.filter(x => x !== t.id) : [...prefs.skip, t.id] })} aria-label="Plan for this" /></td>
             <td>{dayText(t.due)}</td>
-            <td>{t.course && <small>{t.course}</small>} {t.title}{plan.short[t.id] ? <em className="planner-short"> {plan.short[t.id]} h didn’t fit</em> : null}</td>
+            <td>{t.course && <small>{t.course}</small>} {t.title}{spent(t.id) >= 0.25 ? <small> · {spent(t.id).toFixed(1)} h done</small> : null}{plan.short[t.id] ? <em className="planner-short"> {plan.short[t.id]} h didn’t fit before it’s due: start sooner, allow more hours a day, or ask for an extension</em> : null}</td>
             <td><input type="number" min={0} max={40} step={0.5} value={t.hours} onChange={e => { const h = Math.max(0, Number(e.target.value) || 0); setPrefs(extra ? { ...prefs, extra: prefs.extra.map(x => (x.id === t.id ? { ...x, hours: h } : x)) } : { ...prefs, hours: { ...prefs.hours, [t.id]: h } }) }} /></td>
             <td>{extra && <button className="ghost" title="Remove" onClick={() => setPrefs({ ...prefs, extra: prefs.extra.filter(x => x.id !== t.id) })}><Trash2 size={12} /></button>}</td>
           </tr> })}
