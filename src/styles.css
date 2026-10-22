@@ -1293,6 +1293,8 @@ main.fill .logic{height:auto}
 .notes-calc-line code{background:none;padding:0;color:var(--muted)}
 .notes-calc-line span{font-family:ui-monospace,monospace;color:var(--text)}
 .notes-calc-line.bad span{color:var(--danger,#f87171)}
+.notes-calc-line.good span{color:#4ade80}
+.notes-calc-line button{padding:1px 7px;font-size:11px}
 .notes-calc-line.note code{font-style:italic}
 .notes-calc-gap{height:6px}
 .notes-python-bar{display:flex;align-items:center;gap:8px;margin-top:6px}

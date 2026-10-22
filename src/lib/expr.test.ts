@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bandsFor, engineering, evaluate, formatQuantity, resistorFromBands, runLines } from './expr'
+import { bandsFor, engineering, evaluate, formatQuantity, resistorFromBands, runLines, sameExpression } from './expr'
 
 const show = (text: string) => formatQuantity(evaluate(text))
 
@@ -28,7 +28,7 @@ describe('engineering arithmetic', () => {
   })
   it('works through a block line by line', () => {
     const out = runLines('R1 = 4.7k ohm\nR2 = 10k ohm\nVin = 5V\n# divider\nVin * R2 / (R1 + R2)\nnope\nred red brown gold')
-    expect(out.map(l => l.result ?? l.error ?? '')).toEqual(['4.7 kΩ', '10 kΩ', '5 V', '', '3.401 V', 'Unknown name “nope”', '220 Ω ±5%'])
+    expect(out.map(l => l.result ?? l.error ?? '')).toEqual(['4.7 kΩ', '10 kΩ', '5 V', '', '3.401 V', 'in terms of nope', '220 Ω ±5%'])
   })
   it('reads and makes resistor colour bands', () => {
     expect(resistorFromBands('yellow violet red gold')).toBe('4.7 kΩ ±5%')
@@ -37,5 +37,16 @@ describe('engineering arithmetic', () => {
     expect(bandsFor(4700)).toBe('yellow violet red')
     expect(bandsFor(220)).toBe('red red brown')
     expect(engineering(0.000047, 'F')).toBe('47 µF')
+  })
+})
+
+describe('step checking', () => {
+  it('checks each "=" line against the one above for any values of the letters', () => {
+    const out = runLines('2(x+3) - x\n= x + 6\n= x + 7\n= (x^2 + 7x)/x')
+    expect(out.map(l => l.step ?? l.result)).toEqual(['in terms of x', 'ok', 'wrong', 'ok'])
+    expect(out[2].error).toMatch(/^✗ not equal to the line above: at x = /)
+    expect(sameExpression('(a+b)^2', 'a^2 + 2a b + b^2').same).toBe(true)
+    expect(sameExpression('1/(1/R1 + 1/R2)', 'R1 || R2').same).toBe(true)
+    expect(runLines('= 3')[0].error).toBe('Nothing above to compare this step with')
   })
 })

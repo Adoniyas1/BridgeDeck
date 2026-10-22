@@ -251,24 +251,80 @@ export function formatQuantity(v: Quantity, digits = 4): string {
 
 /** Lines of a calculator block worked out in order: "name = expression" sets a name for the lines
  *  after it. Each line gets its result or what's wrong with it; blank lines and "# notes" are skipped. */
-export function runLines(text: string): Array<{ line: string; result?: string; error?: string; name?: string }> {
+export function runLines(text: string): Array<{ line: string; result?: string; error?: string; name?: string; step?: 'ok' | 'wrong' }> {
   const vars: Record<string, Quantity> = {}
+  // The expression the next "= …" line is checked against.
+  let previous: string | null = null
   return text.split('\n').map(raw => {
     const line = raw.trim()
     if (!line || line.startsWith('#') || line.startsWith('//')) return { line: raw }
     const bands = resistorFromBands(line)
     if (bands) return { line: raw, result: bands }
+    if (line.startsWith('=') && !line.startsWith('==')) {
+      const expr = line.slice(1).trim()
+      if (previous === null) return { line: raw, error: 'Nothing above to compare this step with' }
+      try {
+        const check = sameExpression(previous, expr, vars)
+        previous = expr
+        return check.same ? { line: raw, result: '✓ same as the line above', step: 'ok' } : { line: raw, error: `✗ not equal to the line above: ${check.example}`, step: 'wrong' }
+      } catch (e) { return { line: raw, error: e instanceof Error ? e.message : String(e) } }
+    }
     const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*(.+)$/)
     try {
       if (m && !has(FUNCTIONS, m[1].toLowerCase())) {
         if (has(CONSTANTS, m[1])) throw new Error(`“${m[1]}” is a constant`)
+        const free = freeNames(m[2], vars)
+        if (free.length) { previous = m[2]; return { line: raw, name: m[1], result: `in terms of ${free.join(', ')}` } }
         const value = evaluate(m[2], vars)
         vars[m[1]] = value
+        previous = m[2]
         return { line: raw, name: m[1], result: formatQuantity(value) }
       }
+      previous = line
+      const free = freeNames(line, vars)
+      if (free.length) return { line: raw, result: `in terms of ${free.join(', ')}` }
       return { line: raw, result: formatQuantity(evaluate(line, vars)) }
     } catch (e) { return { line: raw, error: e instanceof Error ? e.message : String(e) } }
   })
+}
+
+/** Evaluates with any unknown names given values from `pick` (and returns which were unknown). */
+function evaluateWith(text: string, vars: Record<string, Quantity>, pick: (name: string) => number): { value: Quantity; free: string[] } {
+  const own = { ...vars }
+  const free: string[] = []
+  for (let tries = 0; tries < 12; tries++) {
+    try { return { value: evaluate(text, own), free } } catch (e) {
+      const name = e instanceof Error ? e.message.match(/^Unknown name “(.+)”$/)?.[1] : undefined
+      if (!name || has(own, name)) throw e
+      free.push(name)
+      own[name] = q(pick(name))
+    }
+  }
+  throw new Error('Too many unknown names')
+}
+
+/** Names in the expression that aren't set (letters to solve with). */
+export function freeNames(text: string, vars: Record<string, Quantity> = {}): string[] {
+  return evaluateWith(text, vars, () => 1.3).free
+}
+
+/** Whether two expressions are equal for any values of their letters, tried at a few values (as a
+ *  step check: not a proof, but a wrong step almost never passes). */
+export function sameExpression(a: string, b: string, vars: Record<string, Quantity> = {}): { same: boolean; example?: string } {
+  const seed = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7)
+  for (let trial = 0; trial < 4; trial++) {
+    const pick = (name: string) => 0.37 + ((seed(name) * (trial + 3) * 7919) % 1000) / 311
+    const x = evaluateWith(a, vars, pick), y = evaluateWith(b, vars, pick)
+    const size = Math.max(Math.hypot(x.value.re, x.value.im), Math.hypot(y.value.re, y.value.im), 1e-12)
+    const off = Math.hypot(x.value.re - y.value.re, x.value.im - y.value.im)
+    const unitsDiffer = unitName(x.value.dim) !== unitName(y.value.dim) && !(off === 0)
+    if (off / size > 1e-9 || unitsDiffer) {
+      const names = [...new Set([...x.free, ...y.free])]
+      const at = names.map(n => `${n} = ${Number(pick(n).toPrecision(3))}`).join(', ')
+      return { same: false, example: `${at ? `at ${at}, ` : ''}it’s ${formatQuantity(y.value)}, the line above is ${formatQuantity(x.value)}` }
+    }
+  }
+  return { same: true }
 }
 
 // ---- Resistor colour bands ----

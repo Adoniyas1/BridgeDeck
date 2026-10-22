@@ -181,8 +181,8 @@ Help with each homework problem without giving answers away, build exam prep fro
   - A rating per problem stored in state key ratings; 'stuck'/'help' problems come back in review sessions and before exams, optionally as cards. Done: right-click a problem for needed help → stuck → clear; a course's 'Problems to redo' card lists them with Read section and Got it. Not done: turning them into cards.
 - [x] **7.3 Stuck? button: book worked examples plus a twin problem checked in Python** (M). Items: 7. Needs: 5.1, 3.3, 7.1.
   - From a problem row: study_search finds worked examples in the book; Mimir writes a twin problem and checks its numbers with run_python (compute/tools.ts:36) before showing it. Follows aiPolicy (off under none and in exam mode). Done: 'Stuck?' on a problem to redo asks Mimir (beside) for the book's worked examples, a twin problem checked with run_python, and a first hint only; hidden when the course's AI help is off or in exam mode.
-- [ ] **7.4 Step checker for typed steps** (M). Items: 8. Needs: 4.1, 3.3.
-  - Typed steps are parsed with expr.ts; consecutive steps are checked numerically (random substitution with units); Mimir explains the first wrong step only in hints mode. Disabled under policy none and in exam mode.
+- [x] **7.4 Step checker for typed steps** (M). Items: 8. Needs: 4.1, 3.3.
+  - Typed steps are parsed with expr.ts; consecutive steps are checked numerically (random substitution with units); Mimir explains the first wrong step only in hints mode. Disabled under policy none and in exam mode. Done in the calculator block: '= …' lines are checked against the line above at several values of the letters; 'Why?' on the first wrong step asks Mimir for a hint (hidden when AI is off); step checks are off in exam mode.
 - [ ] **7.5 Exam countdown plan in the calendar** (M). Items: 28. Needs: 3.4, 4.6.
   - For each exam: chapter-scoped cards (tags from exams.chapters through the mastery map), a formula checklist, a crunch-week strip on Home, and study blocks written to the calendar.
 - [ ] **7.6 Practice exams** (M). Items: 29. Needs: 6.6, 2.1, 5.2.

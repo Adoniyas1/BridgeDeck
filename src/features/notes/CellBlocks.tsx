@@ -4,6 +4,16 @@ import { isTauri, pythonRun, type PythonRun } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { pathOf, plot, ticks } from './plot'
 import { runLines } from '../../lib/expr'
+import { aiAllowed, examOn } from '../../core/exam'
+import { askMimir } from '../mimir'
+
+/** Mimir is asked about the first wrong step only, and for a hint: what changed wrongly, not the
+ *  rest of the working. */
+const stepPrompt = (steps: string[]) => [
+  'Here is my working, one step per line (lines starting with "=" follow from the line above). BridgeDeck checked it and the last step is not equal to the one before it:',
+  '```', ...steps, '```',
+  'Point out what went wrong in that last step only, as a hint, without doing the rest for me.',
+].join('\n')
 
 const COLORS = ['#60a5fa', '#f87171', '#4ade80', '#facc15', '#c084fc', '#2dd4bf', '#fb923c', '#f472b6']
 const W = 560, H = 300, PAD = 34
@@ -56,13 +66,17 @@ export function PythonOutput({ code }: { code: string }) {
 /** A calculator block: each line worked out with units and complex numbers, its answer beside it.
  *  "name = …" lines set names for the lines below. */
 export function CalcView({ text, onClick }: { text: string; onClick?: () => void }) {
-  const lines = useMemo(() => runLines(text), [text])
-  if (!text.trim()) return <p className="hint" onClick={onClick}>Write a sum per line, like <code>12V / 2.2kΩ</code>, <code>1k || 4.7k</code>, <code>5∠53° + 3-2j</code> or <code>yellow violet red gold</code>.</p>
+  // Checking steps is help too: off during an exam (sums still work).
+  const exam = examOn()
+  const lines = useMemo(() => runLines(text).map(l => exam && l.step ? { ...l, step: undefined, error: undefined, result: 'step checks are off during exam mode' } : l), [text, exam])
+  const firstWrong = lines.findIndex(l => l.step === 'wrong')
+  if (!text.trim()) return <p className="hint" onClick={onClick}>Write a sum per line, like <code>12V / 2.2kΩ</code>, <code>1k || 4.7k</code>, <code>5∠53° + 3-2j</code> or <code>yellow violet red gold</code>. A line starting with <code>=</code> is checked against the line above.</p>
   return <div className={`notes-calc${onClick ? ' clickable' : ''}`} onClick={onClick} title={onClick ? 'Edit the sums' : undefined}>
     {lines.map((l, i) => !l.line.trim() ? <div key={i} className="notes-calc-gap" />
-      : <div key={i} className={`notes-calc-line${l.error ? ' bad' : ''}${!l.result && !l.error ? ' note' : ''}`}>
+      : <div key={i} className={`notes-calc-line${l.error ? ' bad' : ''}${l.step === 'ok' ? ' good' : ''}${!l.result && !l.error ? ' note' : ''}`}>
         <code>{l.line.trim()}</code>
-        {(l.result || l.error) && <span>{l.error ?? (l.name ? `${l.name} = ${l.result}` : `= ${l.result}`)}</span>}
+        {(l.result || l.error) && <span>{l.error ?? (l.step ? l.result : l.name ? `${l.name} = ${l.result}` : `= ${l.result}`)}</span>}
+        {l.step === 'wrong' && i === firstWrong && aiAllowed() && <button className="ghost" title="Mimir explains what went wrong in this step (a hint, not the answer)" onClick={e => { e.stopPropagation(); void askMimir(stepPrompt(lines.slice(0, i + 1).map(x => x.line.trim()).filter(Boolean)), true) }}>Why?</button>}
       </div>)}
   </div>
 }
