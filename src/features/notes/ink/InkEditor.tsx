@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Eraser, Highlighter, PenLine, Plus, Redo2, Undo2, X } from 'lucide-react'
+import { Eraser, FileDown, Highlighter, PenLine, Plus, Redo2, Undo2, X } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
-import { inkAppend, inkBackground, inkCompact, inkLoad, inkSetDoc } from '../../../lib/bridge'
+import { inkAppend, inkBackground, inkCompact, inkLoad, inkSetDoc, pickPdfSaveTo, studyDownloadPdf, studySavePdf } from '../../../lib/bridge'
 import { errorText } from '../../../core/util'
 import { compacted, eraseLine, mergeLogs, newStrokeId, readDoc, strokeLine, type InkDoc, type Paper, type Point, type Stroke, type Tool } from './model'
 import { drawPaper, drawStrokes, pageSize, strokePath, touches } from './render'
@@ -100,6 +100,26 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
     try { await inkSetDoc(id, JSON.stringify(next)) } catch (e) { setError(String(e)) }
   }
 
+  const [exporting, setExporting] = useState(false)
+  const [saved, setSaved] = useState('')
+  /** The writing as a PDF: on the original's pages (saved beside it in the course), or on paper. */
+  async function exportPdf() {
+    if (!doc) return
+    setExporting(true); setError('')
+    try {
+      const { annotatedPdf } = await import('./pdfInk')
+      if (doc.pdf) {
+        const original = await (await import('../../study/pdf')).loadBookBytes(doc.pdf.course, doc.pdf.file)
+        const name = `${doc.pdf.file.replace(/\.pdf$/i, '')} (annotated)`
+        const file = await studySavePdf(doc.pdf.course, name, await annotatedPdf(strokes, doc, original))
+        setSaved(`Saved ${file} in ${doc.pdf.course}.`)
+      } else {
+        const path = await pickPdfSaveTo(`${doc.title || 'Handwritten notes'}.pdf`)
+        if (path) { await studyDownloadPdf(path, await annotatedPdf(strokes, doc, null)); setSaved('Saved.') }
+      }
+    } catch (e) { setError(errorText(e, 'The PDF wasn’t made')) } finally { setExporting(false) }
+  }
+
   // Tidies this device's log when it's mostly erased strokes, on the way out.
   async function close() {
     const tidy = compacted(own.current, strokes)
@@ -135,6 +155,8 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
       </select>}
       <span className="grow" />
       {error && <small className="error-text">{error}</small>}
+      {saved && <small className="hint">{saved}</small>}
+      <button title={doc.pdf ? 'Save the PDF with your writing on it, in the course' : 'Save as a PDF'} disabled={exporting} onClick={() => void exportPdf()}><FileDown size={16} /></button>
       <button title="Done (Esc)" onClick={() => void close()}><X size={16} /></button>
     </div>
     <div className="ink-pages">

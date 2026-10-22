@@ -35,3 +35,12 @@ describe('ink drawing helpers', () => {
     expect(touches(s, { x: 40, y: 60, p: 0 }, 2)).toBe(false)
   })
 })
+
+describe('annotated PDF', () => {
+  it('draws strokes onto blank pages', async () => {
+    const { annotatedPdf } = await import('./pdfInk')
+    const bytes = await annotatedPdf([stroke('a', 1, 0), stroke('b', 2, 1)], { v: 1, paper: 'lines', size: 'letter', pages: 2 }, null)
+    const { PDFDocument } = await import('pdf-lib')
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2)
+  })
+})
