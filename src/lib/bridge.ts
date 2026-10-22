@@ -469,6 +469,11 @@ export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & 
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
 export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone' | 'exam'
+/** The flashcard review log (Study/.state/reviews) and FSRS weights fitted to it (study_reviews.rs). */
+export type ReviewEntry = { card: string; at: number; grade: number; ms: number }
+export const studyReviewLog = (review: ReviewEntry) => native<void>('study_review_log', { review })
+export const studyReviewHistory = () => native<ReviewEntry[]>('study_review_history')
+export const studyFsrsTune = () => native<{ weights: number[]; reviews: number; cards: number }>('study_fsrs_tune')
 export const studyStateGet = (key: StudyStateKey) => native<Record<string, unknown>>('study_state_get', { key })
 export const studyStateSet = (key: StudyStateKey, changes: Record<string, unknown>) => native<void>('study_state_put', { key, changes })
 /** The newest copy of what Canvas sent, from either computer (study_state.rs), and keeping this one's. */

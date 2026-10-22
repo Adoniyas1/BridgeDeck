@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { studySearch, type StudyHit } from '../../lib/bridge'
+import { isTauri, studyFsrsTune, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
-import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, type FlashCard } from './cards'
-import { intervals, review } from './review'
+import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
+import { savedStarts } from './chapters'
+import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
 import { openBook, openBookLink } from './open'
@@ -51,7 +52,7 @@ export function FocusCard({ course }: { course: string }) {
 const nextCloze = (text: string) => Math.max(0, ...[...text.matchAll(/\{\{c(\d+)::/g)].map(m => Number(m[1]))) + 1
 
 /** The course's flashcards: what's due, a review, and a quick way to add one. */
-export function FlashcardsCard({ course, onStatus }: { course: string; onStatus: (s: string) => void }) {
+export function FlashcardsCard({ course, info, onStatus }: { course: string; info?: { chapters?: unknown }; onStatus: (s: string) => void }) {
   const notes = useStore(notesStore)
   const deck = useMemo(() => deckOf(notes, course), [notes, course])
   const stats = deckStats(deck)
@@ -60,6 +61,7 @@ export function FlashcardsCard({ course, onStatus }: { course: string; onStatus:
   const [back, setBack] = useState('')
   const [kind, setKind] = useState<'qa' | 'both' | 'cloze'>('qa')
   const [browsing, setBrowsing] = useState(false)
+  const [showMastery, setShowMastery] = useState(false)
   const leeches = useMemo(() => new Set(deck.filter(isLeech).map(c => c.block.id)).size, [deck])
   const sentence = useRef<HTMLInputElement>(null)
   const ok = kind === 'cloze' ? parseCards(front).length > 0 : !!front.trim() && !!back.trim()
@@ -94,8 +96,38 @@ export function FlashcardsCard({ course, onStatus }: { course: string; onStatus:
     <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
     {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
     {browsing && <CardList deck={deck} onStatus={onStatus} />}
+    {stats.total > stats.fresh && <button className="ghost" onClick={() => setShowMastery(m => !m)}>{showMastery ? 'Hide what you know' : 'What you know, by chapter'}</button>}
+    {showMastery && <MasteryList deck={deck} info={info} onStatus={onStatus} />}
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
+}
+
+/** Each chapter's cards and the chance of remembering them now, and tuning the schedule to the
+ *  review log of both computers. */
+function MasteryList({ deck, info, onStatus }: { deck: FlashCard[]; info?: { chapters?: unknown }; onStatus: (s: string) => void }) {
+  const config = useConfig()
+  const [tuning, setTuning] = useState(false)
+  const rows = useMemo(() => masteryMap(deck, file => savedStarts(info ?? {}, file), card => retrievability(card)), [deck, info, config.study.fsrsWeights])
+  async function tune() {
+    setTuning(true)
+    try {
+      const tuned = await studyFsrsTune()
+      setConfig(c => ({ ...c, study: { ...c.study, fsrsWeights: tuned.weights } }))
+      onStatus(`Review times now fit your ${tuned.reviews} reviews of ${tuned.cards} cards.`)
+    } catch (e) { onStatus(String(e)) } finally { setTuning(false) }
+  }
+  return <div className="study-mastery">
+    {rows.map(r => <div key={r.label} className="study-mastery-row" title={`${r.learned} of ${r.cards} learned`}>
+      <span className="grow">{r.label}</span>
+      <span className="study-mastery-bar"><i style={{ width: `${Math.round(r.recall * 100)}%`, background: r.recall >= 0.85 ? '#4ade80' : r.recall >= 0.6 ? '#facc15' : '#f87171' }} /></span>
+      <small>{Math.round(r.recall * 100)}% · {r.cards}</small>
+    </div>)}
+    <div className="study-mastery-tune">
+      <button className="ghost" disabled={tuning || !isTauri()} onClick={() => void tune()}>{tuning ? 'Tuning…' : 'Tune review times to me'}</button>
+      {config.study.fsrsWeights?.length ? <button className="ghost" onClick={() => setConfig(c => ({ ...c, study: { ...c.study, fsrsWeights: [] } }))}>Use the defaults</button> : null}
+      <small className="hint">Fits the schedule to how you remember, from every review on both computers (needs about 400).</small>
+    </div>
+  </div>
 }
 
 /** Every card line of the course, to fix, put aside or remove; ones often forgotten first. */
@@ -155,6 +187,9 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
   const [queue, setQueue] = useState(cards)
   const [shown, setShown] = useState(false)
   const [done, setDone] = useState(0)
+  // When this card was put up, for the time spent on it in the review log.
+  const shownAt = useRef(Date.now())
+  useEffect(() => { shownAt.current = Date.now() }, [queue[0]])
   const card = queue[0]
   const times = useMemo(() => card ? intervals(card.card) : {}, [card])
   const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
@@ -162,7 +197,7 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
   async function answer(grade: (typeof GRADES)[number]['grade']) {
     if (!card) return
     const next = review(card.card, grade)
-    try { await saveReview(card, next) } catch (e) { onStatus(String(e)) }
+    try { await saveReview(card, next, grade, Date.now() - shownAt.current) } catch (e) { onStatus(String(e)) }
     setShown(false)
     setDone(d => d + 1)
     // Cards answered "Again" come back in this session when they're due within 20 minutes.

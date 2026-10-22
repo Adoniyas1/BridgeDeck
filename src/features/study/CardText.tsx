@@ -32,7 +32,4 @@ export function CardText({ text, className }: { text: string; className?: string
 }
 
 /** The book page a card came from (its "([Book, p. 214](book:…))" ending), if any. */
-export function cardSource(text: string): { label: string; href: string; page: number } | null {
-  const m = text.match(/\(\[([^\]]*)\]\((book:[^)]*#(\d+))\)\)\s*$/)
-  return m ? { label: m[1], href: m[2], page: Number(m[3]) } : null
-}
+export { cardSource } from './cards'

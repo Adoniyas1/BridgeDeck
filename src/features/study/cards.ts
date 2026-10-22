@@ -147,6 +147,39 @@ export function setMark(text: string, mark: 'suspended' | 'leech', on: boolean) 
 }
 export const isLeech = (c: FlashCard) => c.card.lapses >= LEECH_LAPSES || hasMark(c.block.text, 'leech')
 
+/** The book page a card came from: its trailing "([Title, p. 12](book:…#12))". */
+export function cardSource(text: string): { label: string; href: string; page: number } | null {
+  const m = text.match(/\(\[([^\]]*)\]\((book:[^)]*#(\d+))\)\)\s*$/)
+  return m ? { label: m[1], href: m[2], page: Number(m[3]) } : null
+}
+
+export type Mastery = { label: string; cards: number; learned: number; recall: number }
+
+/** How well each part of a course is known: cards grouped by the chapter they came from (from the
+ *  chapter starts saved for that book), else by book, with the average chance of remembering them
+ *  now (`recall`, 0-1; new cards count as 0). */
+export function masteryMap(deck: FlashCard[], chapterStarts: (file: string) => Array<{ title: string; page: number }>, retrievability: (c: Card) => number): Mastery[] {
+  const groups = new Map<string, { cards: number; learned: number; sum: number; order: number }>()
+  for (const c of deck) {
+    const source = cardSource(c.back) ?? cardSource(c.front)
+    let label = 'Other cards', order = Infinity
+    if (source) {
+      const file = decodeURIComponent(source.href.slice(5).split('#')[0].split('/').slice(1).join('/'))
+      const book = source.label.replace(/,\s*p\.\s*\d+$/, '').split(',')[0].trim() || file
+      const chapter = chapterStarts(file).filter(s => s.page <= source.page).sort((a, b) => b.page - a.page)[0]
+      label = chapter ? `${book}: ${chapter.title}` : book
+      order = chapter ? chapter.page : 0
+    }
+    const g = groups.get(label) ?? { cards: 0, learned: 0, sum: 0, order }
+    g.cards++
+    if (c.card.state === REVIEW) g.learned++
+    g.sum += c.card.state === NEW ? 0 : retrievability(c.card)
+    groups.set(label, g)
+  }
+  return [...groups.entries()].sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0]))
+    .map(([label, g]) => ({ label, cards: g.cards, learned: g.learned, recall: g.sum / g.cards }))
+}
+
 /** Cards to review now: those due, oldest due first, then new ones (up to `newLimit`). */
 export function dueCards(all: FlashCard[], now = Date.now(), newLimit = 20) {
   const deck = all.filter(c => !hasMark(c.block.text, 'suspended'))

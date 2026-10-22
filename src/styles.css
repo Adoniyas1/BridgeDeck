@@ -813,6 +813,13 @@ button.today-tile:hover{border-color:var(--accent)}
 .study-card-row .grow{flex:1;min-width:0}
 .study-card-row button{padding:3px 7px;font-size:11px}
 .study-card-tag{font-size:10px;padding:1px 6px;border-radius:9px;background:var(--line);color:var(--muted);white-space:nowrap}
+.study-mastery{display:flex;flex-direction:column;gap:5px;margin-top:8px;font-size:12px}
+.study-mastery-row{display:flex;gap:8px;align-items:center}
+.study-mastery-row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.study-mastery-bar{width:120px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:none}
+.study-mastery-bar i{display:block;height:100%}
+.study-mastery-row small{width:70px;text-align:right;color:var(--muted)}
+.study-mastery-tune{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
 .study-card-new input:focus{border-color:var(--accent)}
 .study-hits{display:flex;flex-direction:column;gap:4px;margin-top:10px;max-height:420px;overflow:auto}
 .study-hits button{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px}

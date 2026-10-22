@@ -45,3 +45,9 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - Builds before 0.9.2 don't count the new kinds as cards and leave those lines alone.
 - `#suspended` on a line leaves it out of reviews; `#leech` marks one forgotten 8 or more times.
 - Examples both sides are tested with: `src/features/study/card-vectors.json`.
+
+## Review log (`Study/.state/reviews/<instance>.jsonl`, `src-tauri/src/study_reviews.rs`)
+
+- One JSON object per line: `{card, at, grade, ms}`. `card` is `note/block` or `note/block/sub`, `at` is ms, `grade` 1–4.
+- Each computer only appends to its own file. Readers merge all files, skip lines they can't read, and count a `(card, at)` pair once.
+- Tuned FSRS weights are saved per computer in `config.study.fsrsWeights`. Both computers fit them from the same log.

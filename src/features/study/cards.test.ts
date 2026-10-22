@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Rating, State } from 'ts-fsrs'
 import type { Note } from '../../lib/bridge'
 import { inline } from '../notes/model'
-import { allDue, cardBody, cardLine, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
+import { allDue, cardBody, cardLine, masteryMap, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
 import vectors from './card-vectors.json'
 import { intervals, review } from './review'
 import { pageText } from './indexer'
@@ -117,5 +117,15 @@ describe('mixed review', () => {
       blocks: lines.map((text, i) => ({ id: `${id}${i}`, kind: 'p', text, checked: false, due: null, pos: String(i), updated: 0, by: '', deleted: false })) })
     const notes = [n('a', 'Study/EE 310', ['a1 :: x', 'a2 :: x', 'a3 :: x']), n('b', 'Study/MATH 370', ['b1 :: y'])]
     expect(allDue(notes, ['EE 310', 'MATH 370']).map(c => c.front)).toEqual(['a1', 'b1', 'a2', 'a3'])
+  })
+})
+
+describe('mastery map', () => {
+  it('groups cards by the chapter their page is in', () => {
+    const card = (front: string, page: number, state: number) => ({ id: front, noteId: 'n', sub: '', block: {} as Note['blocks'][number], front, back: `x ([Circuits, p. ${page}](book:EE/circuits.pdf#${page}))`,
+      card: { due: new Date(0), stability: 1, difficulty: 1, elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 1, lapses: 0, state: state as State, last_review: undefined } })
+    const deck = [card('a', 5, 2), card('b', 40, 2), card('c', 45, 0), { ...card('d', 1, 2), back: 'plain' }]
+    const map = masteryMap(deck, file => file === 'circuits.pdf' ? [{ title: '1 Basics', page: 1 }, { title: '2 Nodes', page: 30 }] : [], () => 0.9)
+    expect(map.map(m => [m.label, m.cards, m.learned, Number(m.recall.toFixed(2))])).toEqual([['Circuits: 1 Basics', 1, 1, 0.9], ['Circuits: 2 Nodes', 2, 1, 0.45], ['Other cards', 1, 1, 0.9]])
   })
 })

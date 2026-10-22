@@ -124,7 +124,7 @@ Build a single expression/units engine, then grow the card format (cloze, both-w
   - Study deck view: edit front/back inline (rewrites the block through the notes store), delete card, suspend. Leech list computed as lapses >= 8 (from the 4.6 log when present, otherwise the FSRS lapse field), tagged #leech in the line.
 - [x] **4.5 One interleaved review session across all courses from Home** (S). Items: 10. Needs: 4.3.
   - allDue(notes, library) in the lazy cards chunk, round-robin by course; a Home 'Review all (N)' button. Home imports only types (cards.ts:1 comment).
-- [ ] **4.6 Review log, personal FSRS tuning, per-chapter mastery map** (M). Items: 14. Needs: 4.3, 1.1.
+- [x] **4.6 Review log, personal FSRS tuning, per-chapter mastery map** (M). Items: 14. Needs: 4.3, 1.1.
   - saveReview (state.ts:228) appends {card,at,grade,elapsedDays,state,ms} to .state/reviews/<instanceId>.jsonl (1.1). Lazy optimizer: @open-spaced-repetition/binding (fallback fsrs-browser); weights in config.study.fsrsWeights; review.ts builds fsrs({w}). Mastery map: card page links map to chapters through the '<book> — chapters' note / outline, combined with retrievability.
 - [ ] **4.7 Type-your-answer mode with numeric tolerance and units** (S). Items: 12. Needs: 4.1, 4.3.
   - Answer spec {{num:4.7k Ω ±2%}} parsed by expr.ts; review shows an input, checks with equalWithin and unit match, and suggests a grade. Added to the shared card test vectors.
