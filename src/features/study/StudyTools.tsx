@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Brain, Download, ImagePlus, ListChecks, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, notesCreateMarkdown, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
+import { BookOpen, Brain, Download, FileText, ImagePlus, ListChecks, Sparkles, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, notesCreateMarkdown, studyFsrsTune, studySavePdf, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore, openNoteRequest } from '../notes/state'
 import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, examDeck, GRADES, masteryMap, type FlashCard } from './cards'
-import { useExams } from './assignments'
+import { allAssignments, useExams } from './assignments'
+import { isOldExam, practiceProblems, practiceQuestionsPrompt } from './practice'
+import { aiAllowed } from '../../core/exam'
+import { askMimir } from '../mimir'
 import { belongsTo } from './canvas'
 import { startOfDay } from '../calendar/model'
 import { courseFolder } from './model'
@@ -21,7 +24,7 @@ import { openBook, openBookLink, openLecture } from './open'
 import { clock as lectureClock } from './lecture'
 import { activateTab } from '../../core/tabs'
 import { CardText, cardSource, pictureRef } from './CardText'
-import { addCards, changeCardLine, focusStore, loadRatings, ratingsStore, saveReview, startFocus, stopFocus } from './state'
+import { addCards, changeCardLine, focusStore, libraryStore, loadRatings, ratingsStore, refreshLibrary, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -322,6 +325,8 @@ export function ExamPrepCard({ course, info, onStatus }: { course: string; info:
   const notes = useStore(notesStore)
   const ratings = useStore(ratingsStore)
   const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
+  const [making, setMaking] = useState(false)
+  const books = useStore(libraryStore).library?.courses.find(c => c.name === course)?.books ?? []
   useEffect(() => { void loadRatings() }, [])
   const now = Date.now()
   const exam = exams.find(e => e.course === course && e.start > now && e.start - now < 21 * 86_400_000)
@@ -332,6 +337,31 @@ export function ExamPrepCard({ course, info, onStatus }: { course: string; info:
   const ready = dueCards(scoped, now, 200)
   const hard = ratings.filter(r => r.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course)).length
   const sheetTitle = `${course} — formulas: ${exam.title}`
+
+  /** A practice paper: a front page of problems (stuck ones first, then a mix from the covered
+   *  chapters, in random order), then the course's old exams. Saved in the course and opened. */
+  async function practicePaper() {
+    setMaking(true)
+    try {
+      const assignments = allAssignments().filter(a => a.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, a.course))
+      const mine = ratings.filter(r => r.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course))
+      const problems = practiceProblems(assignments, mine, exam!.covers, 10, Date.now() % 100_000)
+      const old = books.filter(isOldExam)
+      if (!problems.length && !old.length) { onStatus('No old exams or homework problems for this course yet.'); return }
+      const { stitchPdf, textPdf } = await import('../../lib/pdfwrite')
+      const front = await textPdf(`Practice: ${course} ${exam!.title}`, [
+        `${new Date().toLocaleDateString()} · ${exam!.covers ? `covers ${exam!.covers} · ` : ''}time yourself: ${Math.round((exam!.end - exam!.start) / 60_000) || 120} minutes, closed book${exam!.allowed ? ` (allowed: ${exam!.allowed})` : ''}.`,
+        '',
+        ...(problems.length ? ['From your homework (in a random order, so you don’t know which section it is):', ...problems.map((p, i) => `${i + 1}. ${p}`), ''] : []),
+        ...(old.length ? [`Then: ${old.map(b => b.title).join('; ')}.`] : []),
+      ])
+      const parts = [{ bytes: front, kind: 'pdf' as const }]
+      for (const b of old.slice(0, 4)) parts.push({ bytes: await (await import('./pdf')).loadBookBytes(course, b.file), kind: 'pdf' as const })
+      const file = await studySavePdf(course, `Practice exam ${exam!.title} ${new Date().toISOString().slice(0, 10)}`, await stitchPdf(parts))
+      await refreshLibrary()
+      openBook(course, file, file.replace(/\.pdf$/i, ''))
+    } catch (e) { onStatus(String(e)) } finally { setMaking(false) }
+  }
 
   async function formulaSheet() {
     const existing = notes.find(n => !n.deleted && n.title === sheetTitle)
@@ -347,6 +377,8 @@ export function ExamPrepCard({ course, info, onStatus }: { course: string; info:
     <div className="exam-prep-row">
       <button className="ghost" disabled={!ready.length} onClick={() => setReviewing(ready)}><Layers size={14} />{exam.covers ? `Review ${ready.length} card${ready.length === 1 ? '' : 's'} from it` : 'No cards scoped yet'}</button>
       <button className="ghost" onClick={() => void formulaSheet()}><ListChecks size={14} />Formula sheet</button>
+      <button className="ghost" disabled={making || !isTauri()} title="Old exams in this course and homework problems from the chapters it covers, mixed, as one PDF" onClick={() => void practicePaper()}><FileText size={14} />{making ? 'Making…' : 'Practice exam'}</button>
+      {aiAllowed(course) && <button className="ghost" title="New questions like the exam's from Mimir, answers worked out in Python" onClick={() => void askMimir(practiceQuestionsPrompt(course, exam.title, exam.covers), true, course)}><Sparkles size={14} />Questions from Mimir</button>}
       {hard > 0 && <small>{hard} problem{hard === 1 ? '' : 's'} to redo below</small>}
     </div>
     {days > 2 && <p className="hint">Little and often: the planner (Study → Plan study time) puts study blocks for it in the calendar, more as it gets close.</p>}
