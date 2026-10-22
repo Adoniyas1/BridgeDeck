@@ -38,6 +38,19 @@ export function parseBookLink(href: string): { course: string; file: string; pag
   } catch { return null }
 }
 
+/** A link to a moment of a lecture recording: `lecture:<course>/<file>#t=<seconds>`. */
+export function lectureLink(course: string, file: string, seconds: number) {
+  return `lecture:${encode(course)}/${encode(file)}#t=${Math.max(0, Math.floor(seconds))}`
+}
+
+export function parseLectureLink(href: string): { course: string; file: string; t: number } | null {
+  const m = href.match(/^lecture:([^/#\s]+)\/([^#\s]+)#t=(\d+)$/)
+  if (!m) return null
+  try {
+    return { course: decodeURIComponent(m[1]), file: decodeURIComponent(m[2]), t: Number(m[3]) }
+  } catch { return null }
+}
+
 /** A highlight as note Markdown: the passage, then where it's from. */
 export function highlightMarkdown(text: string, book: string, course: string, file: string, page: number) {
   const passage = text.replace(/\s+/g, ' ').trim()

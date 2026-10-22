@@ -246,10 +246,15 @@ pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
     let parts: Vec<&str> = decoded.split('/').collect();
     // A book (`course/file`), or a flashcard picture (`course/Cards/file`, pictures only).
     let card_picture = parts.len() == 3 && parts[1] == CARDS_DIR;
-    if !(parts.len() == 2 || card_picture) || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
+    let lecture = parts.len() == 3 && parts[1] == crate::study_lectures::LECTURES_DIR;
+    if !(parts.len() == 2 || card_picture || lecture) || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
         return None;
     }
     let candidate = parts.iter().fold(root.to_path_buf(), |path, p| path.join(p));
+    if lecture {
+        let real = candidate.canonicalize().ok()?;
+        return (real.starts_with(root.canonicalize().ok()?) && real.is_file() && crate::study_lectures::is_audio(&real)).then_some(real);
+    }
     if card_picture && !candidate.extension().and_then(|e| e.to_str()).is_some_and(|e| CARD_PICTURES.contains(&e.to_ascii_lowercase().as_str())) {
         return None;
     }
@@ -258,7 +263,7 @@ pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
     (real.starts_with(&real_root) && real.is_file() && book_kind(&real).is_some()).then_some(real)
 }
 
-fn percent_decode(text: &str) -> Option<String> {
+pub(crate) fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -281,8 +286,10 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
     let Some(found) = resolve(&root, request.uri().path()) else { return fail(StatusCode::NOT_FOUND) };
+    let audio = crate::study_lectures::is_audio(&found);
     // A presentation is served as the PDF made from it (study_slides_pdf makes it first).
     let path = match book_kind(&found) {
+        _ if audio => found,
         Some(k) if SLIDE_EXTENSIONS.contains(&k.as_str()) => match crate::study_slides::cached(&found) {
             Some(pdf) => pdf,
             None => return fail(StatusCode::NOT_FOUND),
@@ -290,14 +297,14 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some(k) if BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) => found,
         _ => return fail(StatusCode::NOT_FOUND),
     };
-    let mime = match book_kind(&path).as_deref() {
+    let mime = if audio { crate::study_lectures::audio_mime(&path) } else { match book_kind(&path).as_deref() {
         Some("epub") => "application/epub+zip",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("png") => "image/png",
         Some("heic") => "image/heic",
         Some("webp") => "image/webp",
         _ => "application/pdf",
-    };
+    } };
     let Ok(mut file) = fs::File::open(&path) else { return fail(StatusCode::NOT_FOUND) };
     let Ok(total) = file.metadata().map(|m| m.len()) else { return fail(StatusCode::NOT_FOUND) };
     // pdf.js reads a big book in pieces: these let the window see that it can.
@@ -753,6 +760,14 @@ pub fn study_add_books(course: String, paths: Vec<String>) -> Result<Vec<Book>, 
 }
 
 /// The folder of a course in the library (it must be there).
+pub(crate) fn course_dir_in(root: &Path, name: &str) -> Result<PathBuf, String> {
+    course_dir(root, name)
+}
+
+pub(crate) fn free_name_in(dir: &Path, file: &str) -> String {
+    free_name(dir, file)
+}
+
 fn course_dir(root: &Path, name: &str) -> Result<PathBuf, String> {
     let dir = root.join(clean_name(name)?);
     if clean_name(name)? != name || !dir.is_dir() {
@@ -1068,6 +1083,10 @@ mod tests {
         assert!(resolve(&root, "/EE%20310/Cards/notes.pdf").is_none());
         assert!(resolve(&root, "/EE%20310/Other/circuit.png").is_none());
         assert!(resolve(&root, "/EE%20310/Cards/..%2F..%2Fx.png").is_none());
+        std::fs::create_dir_all(course.join("Lectures")).unwrap();
+        fs::write(course.join("Lectures").join("Lecture 1.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        assert!(resolve(&root, "/EE%20310/Lectures/Lecture%201.webm").is_some());
+        assert!(resolve(&root, "/EE%20310/Lectures/circuit.png").is_none());
         let _ = fs::remove_dir_all(&root);
     }
 

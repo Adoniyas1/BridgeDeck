@@ -63,3 +63,9 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 
 - Each entry is `{kind, course, payload, from: "mimir", at}`. `kind` is `cards` (`payload.lines`: card lines), `deadline` (`title`, `due` ms or null) or `exam` (`title`, `start` ms, optional `end`, `room`, `covers`, `allowed`).
 - The Study tab adds an entry when the user accepts it, and removes it (null) when it's accepted or turned down. Builds that don't know a kind leave it alone.
+
+## Lectures (`Study/<course>/Lectures/`, `src-tauri/src/study_lectures.rs`)
+
+- Recordings are m4a, mp3, webm, ogg or wav. Each has a sidecar `<file>.json`: `{segments: [{start, end, text}], markers: [{t, note?}], photos: [{t, file}], started?, note?}`. Times are in seconds.
+- Links in notes: `lecture:<course>/<file>#t=<seconds>`.
+- Course settings: `recording` (true lets the class be recorded; off by default) and `words` (a list of words, or `heard => written` fixes).

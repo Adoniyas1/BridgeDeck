@@ -45,6 +45,7 @@ mod scan_pdf;
 mod study_slides;
 mod study_state;
 mod study_mimir;
+mod study_lectures;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -660,6 +661,11 @@ pub fn run() {
             study::study_save_pdf,
             study::study_save_card_picture,
             study::study_save_csv,
+            study_lectures::study_lectures,
+            study_lectures::study_save_lecture,
+            study_lectures::study_import_lecture,
+            study_lectures::study_lecture_get,
+            study_lectures::study_lecture_put,
             study::study_download_pdf,
             study::study_plan_read,
             study::study_plan_write,

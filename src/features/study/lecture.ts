@@ -18,14 +18,15 @@ export function clock(seconds: number) {
 }
 
 /** The transcript as a note: paragraphs of about a minute, each starting with its time. */
-export function transcriptMarkdown(segments: Segment[], heading: string) {
+export function transcriptMarkdown(segments: Segment[], heading: string, link?: (seconds: number) => string) {
   const paragraphs: Array<{ start: number; text: string[] }> = []
   for (const s of segments) {
     const last = paragraphs[paragraphs.length - 1]
     if (!last || s.start - last.start >= 60) paragraphs.push({ start: s.start, text: [s.text] })
     else last.text.push(s.text)
   }
-  const body = paragraphs.map(p => `**[${clock(p.start)}]** ${p.text.join(' ').replace(/\s+/g, ' ').trim()}`).join('\n\n')
+  const time = (t: number) => link ? `[${clock(t)}](${link(t)})` : `**[${clock(t)}]**`
+  const body = paragraphs.map(p => `${time(p.start)} ${p.text.join(' ').replace(/\s+/g, ' ').trim()}`).join('\n\n')
   return `${heading}\n\n${body || '_Nothing was heard in the recording._'}\n`
 }
 
@@ -63,4 +64,40 @@ export function transcribe(audio: Float32Array, model: ModelId, onProgress: (don
     worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'Transcription stopped')) }
     worker.postMessage({ audio, repo, base, engine, loader }, [audio.buffer])
   })
+}
+
+/** A course's word list: words written as the course writes them ("Kirchhoff", "MOSFET"), and
+ *  fixes for what's misheard ("kirk off => Kirchhoff"). Kept in its settings as `words`. */
+export type WordFix = { heard: RegExp; written: string }
+export function wordFixes(raw: unknown): WordFix[] {
+  if (!Array.isArray(raw)) return []
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+  return raw.filter((w): w is string => typeof w === 'string' && !!w.trim()).slice(0, 500).flatMap(w => {
+    const [heard, written] = w.includes('=>') ? w.split('=>').map(x => x.trim()) : [w.trim(), w.trim()]
+    return heard && written ? [{ heard: new RegExp(`(?<![\\w])${escape(heard)}(?![\\w])`, 'gi'), written }] : []
+  })
+}
+
+/** The transcript with the course's words written its way. */
+export function correctWords(segments: Segment[], fixes: WordFix[]): Segment[] {
+  if (!fixes.length) return segments
+  return segments.map(s => ({ ...s, text: fixes.reduce((text, f) => text.replace(f.heard, f.written), s.text) }))
+}
+
+/** The dated note for a lecture: a place to write what you remember first (recall before
+ *  re-reading), room for a summary, and the transcript with times that play the recording. */
+export function lectureNoteMarkdown(started: Date, length: string, segments: Segment[], link: (seconds: number) => string) {
+  return [
+    `Recorded ${started.toLocaleString()} · about ${length} · [play](${link(0)})`,
+    '',
+    '## Brain dump',
+    '',
+    '_Before reading the transcript: write down everything you remember from the class._',
+    '',
+    '## Summary',
+    '',
+    '_Ask Mimir to summarise it, or write your own._',
+    '',
+    transcriptMarkdown(segments, '## Transcript', link),
+  ].join('\n')
 }

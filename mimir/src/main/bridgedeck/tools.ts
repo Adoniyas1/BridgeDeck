@@ -77,6 +77,7 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
     { name: "study_photo", description: "Look at a photo saved in one of the user's courses (a homework sheet, a whiteboard, a page of notes). The picture is attached for you to read.", inputSchema: object({ course: s("Course name"), file: s("The photo's file name in the course") }, ["course", "file"]) },
+    { name: "study_lecture", description: "The user's lecture recordings in a course, or one lecture's transcript with [mm:ss] times, the moments they marked as lost, and the id of its note (for notes_append).", inputSchema: object({ course: s("Course name"), file: s("Optional: the recording's file name, for its transcript") }, ["course"]) },
     { name: "study_suggest", description: "Suggest a deadline (homework, lab, project) or an exam for a course. It waits in BridgeDeck's Study tab under 'From Mimir' until the user adds it; tell them that.", inputSchema: object({ kind: { type: "string", enum: ["deadline", "exam"], description: "deadline or exam" }, course: s("Course name"), title: s("What it is, e.g. 'Problem set 5' or 'Midterm 2'"), when: s("Due time or exam start: 2026-10-03T15:00 (this computer's time) or 2026-10-03"), room: s("Exam room (optional)"), covers: s("What the exam covers (optional)"), allowed: s("What may be brought (optional)") }, ["kind", "course", "title"]) },
     { name: "flashcards_add", description: "Suggest flashcards for a course's deck in BridgeDeck; they wait in the Study tab under 'From Mimir' until the user adds them, then are reviewed with spaced repetition. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
     { name: "projects_list", description: "The user's BridgeDeck projects: each one's folder (the same folder list_project_files and read_project_file work in), notes (ids for note_read), task board columns with their cards, and upcoming milestones.", inputSchema: object({}) },
@@ -303,6 +304,17 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
       try {
         const photo = await call<{ mime: string; data: string; bytes: number }>("study/photo", { course: str(input, "course"), file: str(input, "file") });
         return { content: `The photo ${str(input, "file")} (${Math.round(photo.bytes / 1024)} KB) is attached for you to look at.`, modelImages: [{ mimeType: photo.mime, data: photo.data }] };
+      } catch (error) { return fail(error); }
+    },
+    study_lecture: async (input) => {
+      try {
+        if (!str(input, "file")) {
+          const list = await call<Array<{ file: string; modified: number; transcribed: boolean; note: string | null }>>("study/lectures", { course: str(input, "course") });
+          if (!list.length) return ok("No lectures in that course yet.");
+          return ok(list.map((l) => `- ${l.file} (${when(l.modified, true)}${l.transcribed ? "" : ", not transcribed yet"})`).join("\n"));
+        }
+        const l = await call<{ file: string; note: string | null; transcript: string; lostAt: string[] }>("study/lectures", { course: str(input, "course"), file: str(input, "file") });
+        return ok(`# ${l.file}${l.note ? ` (note id=${l.note})` : ""}${l.lostAt.length ? `\nThe user marked being lost at: ${l.lostAt.join(", ")}` : ""}\n\n${l.transcript}`);
       } catch (error) { return fail(error); }
     },
     study_suggest: async (input) => {

@@ -154,16 +154,16 @@ Let Mimir read assignments, grades, class times and plans, require approval befo
 
 Keep lecture audio with timestamps, live transcription and Mimir summaries; download Canvas files and read the syllabus; make search cover everything with precise citations.
 
-- [ ] **6.1 Lecture audio storage and streaming** (M). Items: foundation (j) (used by 5, 22, 23, 24). Needs: 1.3, 1.2.
+- [x] **6.1 Lecture audio storage and streaming** (M). Items: foundation (j) (used by 5, 22, 23, 24). Needs: 1.3, 1.2.
   - study.rs: audio kind in book_kind, resolve accepts Study/<course>/Lectures/<file> (3 levels), served by the 1.3 range reader. Sidecar <date> <title>.json {segments, markers, photos}. model.ts parses lecture:<course>/<file>#t=123 next to parseBookLink. Recording is blocked when courseSettings.recording is false.
-- [ ] **6.2 Import existing audio, per-course word list, dated note and brain dump, recording-allowed flag** (M). Items: 22 (part 1 of 2). Needs: 6.1.
+- [x] **6.2 Import existing audio, per-course word list, dated note and brain dump, recording-allowed flag** (M). Items: 22 (part 1 of 2). Needs: 6.1.
   - lecture.ts: import m4a/mp3/webm into Lectures/ and transcribe with the existing whisper worker; post-correction with the courseSettings wordList; create a dated lecture note with a brain-dump section; recording-allowed toggle in CourseSettings.
-- [ ] **6.3 Lecture player: clickable timestamps, '?' lost markers, whiteboard photos in the transcript** (M). Items: 23. Needs: 6.1.
-  - Lecture view: transcript segments seek the audio; a '?' button during recording stores a marker (sidecar plus state key for unresolved ones); phone/desktop photos taken during class are placed at their time in the transcript.
+- [x] **6.3 Lecture player: clickable timestamps, '?' lost markers, whiteboard photos in the transcript** (M). Items: 23. Needs: 6.1.
+  - Lecture view: transcript segments seek the audio; a '?' button during recording stores a marker (sidecar plus state key for unresolved ones); phone/desktop photos taken during class are placed at their time in the transcript. Done: player tab with clickable lines, the line being said marked, '?' marks while recording and while listening (kept in the sidecar, resolved with ×); photos show at their time when the sidecar lists them (placing class photos automatically is left).
 - [ ] **6.4 Live transcription during class** (M). Items: 24. Needs: 6.3, 3.2.
   - lecture.ts / whisper.worker.ts: chunked streaming (e.g. 10-20 s windows with overlap) while recording, a live transcript pane, the final pass replacing live text. Blocked in exam mode and when recording is not allowed. Watch CPU on the 8 GB Mac (tiny model by default).
-- [ ] **6.5 Mimir lecture summary, key terms and draft cards** (S). Items: 22 (part 2 of 2). Needs: 6.2, 5.3.
-  - /mimir/study/lectures route serving transcript segments; an action 'Summarise lecture' writes the summary and key terms into the dated note and sends draft cards and new words (kind 'words') to the inbox.
+- [x] **6.5 Mimir lecture summary, key terms and draft cards** (S). Items: 22 (part 2 of 2). Needs: 6.2, 5.3.
+  - /mimir/study/lectures route serving transcript segments; an action 'Summarise lecture' writes the summary and key terms into the dated note and sends draft cards and new words (kind 'words') to the inbox. Done: /mimir/study/lectures and study_lecture; 'Summarise' asks Mimir to add the summary and key terms to the note, suggest cards (inbox), and list misheard words for the course word list.
 - [ ] **6.6 Canvas files and modules download into the course folder, searchable** (M). Items: 25. Needs: 3.1.
   - Second Canvas pass for modules/files (canvas.rs proxy) into Study/<course>/Canvas/ (slides, old exams, syllabus), with size checks against Syncthing/backup limits and skip-if-unchanged. PDFs are indexed by the existing indexer.
 - [ ] **6.7 Search covers EPUBs, lecture transcripts and notes; timestamp citations; re-checks pages** (M). Items: 5. Needs: 6.1, 5.1.

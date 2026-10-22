@@ -195,7 +195,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
       <ExamCard course={name} />
     </div>
     <CanvasCard />
-    <LectureCard course={name} />
+    <LectureCard course={name} info={course.info} />
     <BookSearchCard course={name} books={books} />
     <div className="two-col">
       <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button>} />

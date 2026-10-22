@@ -7,7 +7,7 @@ import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
 import { MIMIR_MEMORY_ID, editableAsText, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
-import { openBookLink } from '../study/open'
+import { openBookLink, openLectureLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
 import { CalcView, PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
@@ -594,7 +594,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
                 case 'italic': return <em key={i}>{piece.text}</em>
                 case 'strike': return <s key={i}>{piece.text}</s>
                 case 'code': return <code key={i}>{piece.text}</code>
-                case 'link': return <a key={i} href={piece.href} onClick={e => { e.preventDefault(); e.stopPropagation(); if (piece.href!.startsWith('book:')) openBookLink(piece.href!); else void openExternal(piece.href!) }}>{piece.text}</a>
+                case 'link': return <a key={i} href={piece.href} onClick={e => { e.preventDefault(); e.stopPropagation(); if (piece.href!.startsWith('book:')) openBookLink(piece.href!); else if (piece.href!.startsWith('lecture:')) openLectureLink(piece.href!); else void openExternal(piece.href!) }}>{piece.text}</a>
                 case 'wikilink': return <a key={i} href="#" className={`notes-wikilink${findByTitle(nav.notes, piece.target!) ? '' : ' missing'}`} title={findByTitle(nav.notes, piece.target!) ? `Open ${piece.target}` : `Create ${piece.target}`} onClick={e => { e.preventDefault(); e.stopPropagation(); nav.openTitle(piece.target!) }}>{piece.text}</a>
                 case 'tag': return <a key={i} href="#" className="notes-tag" onClick={e => { e.preventDefault(); e.stopPropagation(); nav.filterTag(piece.text) }}>#{piece.text}</a>
                 case 'math': return <span key={i} className="notes-math" dangerouslySetInnerHTML={{ __html: renderMath(piece.text, false) }} />

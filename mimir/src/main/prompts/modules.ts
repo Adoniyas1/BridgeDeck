@@ -399,7 +399,7 @@ export const PROMPT_MODULES: PromptModule[] = [
     text:
       "Answer from the user's own course material when you can: search it, read the pages, and say which book and " +
       "page an answer came from. If their material doesn't cover something, say so rather than guessing.",
-    tools: ["study_search", "study_courses", "study_read", "flashcards_add"],
+    tools: ["study_search", "study_courses", "study_read", "flashcards_add", "study_lecture"],
     coreTools: ["study_search"]
   },
   {

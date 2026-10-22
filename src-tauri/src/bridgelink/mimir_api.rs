@@ -396,6 +396,28 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             use base64::Engine;
             Ok(json!({ "mime": mime, "data": base64::engine::general_purpose::STANDARD.encode(&bytes), "bytes": bytes.len() }))
         }
+        // A course's lecture recordings, or one lecture's transcript with times and "?" marks.
+        "/mimir/study/lectures" => {
+            let root = crate::study::root_or_default();
+            let library = crate::study::read_library(&root)?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?;
+            let dir = root.join(&course.name);
+            let lectures = crate::study_lectures::list(&dir);
+            match text(body, "file") {
+                None => Ok(json!(lectures.iter().map(|l| json!({ "file": l.file, "modified": l.modified, "transcribed": l.sidecar.as_ref().is_some_and(|s| s["segments"].is_array()), "note": l.sidecar.as_ref().map(|s| s["note"].clone()) })).collect::<Vec<_>>())),
+                Some(wanted) => {
+                    let w = wanted.to_lowercase();
+                    let lecture = lectures.iter().find(|l| l.file.to_lowercase() == w).or_else(|| lectures.iter().find(|l| l.file.to_lowercase().contains(&w))).ok_or("No such lecture")?;
+                    let sidecar = lecture.sidecar.clone().ok_or("That lecture hasn't been transcribed yet")?;
+                    let clock = |t: f64| { let s = t.max(0.0) as u64; if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) } };
+                    let lines: Vec<String> = sidecar["segments"].as_array().into_iter().flatten().map(|s| format!("[{}] {}", clock(s["start"].as_f64().unwrap_or(0.0)), s["text"].as_str().unwrap_or("").trim())).collect();
+                    let transcript = lines.join("\n");
+                    let cut = transcript.char_indices().nth(120_000).map(|(i, _)| i).unwrap_or(transcript.len());
+                    let marks: Vec<String> = sidecar["markers"].as_array().into_iter().flatten().map(|m| clock(m["t"].as_f64().unwrap_or(0.0))).collect();
+                    Ok(json!({ "file": lecture.file, "note": sidecar["note"], "transcript": &transcript[..cut], "lostAt": marks, "link": format!("lecture:{}/{}#t=0", course.name.replace(' ', "%20"), lecture.file.replace(' ', "%20")) }))
+                }
+            }
+        }
         "/mimir/study/search" => {
             let (library, dir) = crate::study::library_for_search()?;
             let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
@@ -754,6 +776,15 @@ mod tests {
         let photo = call(&manager, "/mimir/study/photo", json!({ "course": "ee 310", "file": "hw sheet.jpg" }));
         assert_eq!(photo["mime"], "image/jpeg");
         assert_eq!(photo["data"], "/9j/4A==");
+        std::fs::create_dir_all(course_dir.join("Lectures")).unwrap();
+        std::fs::write(course_dir.join("Lectures").join("2026-10-22 Lecture.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        crate::study_lectures::write_sidecar(&course_dir, "2026-10-22 Lecture.webm", &json!({ "segments": [{ "start": 65.2, "end": 70, "text": " Nodes first." }], "markers": [{ "t": 3725 }], "note": "n1" })).unwrap();
+        let listed = call(&manager, "/mimir/study/lectures", json!({ "course": "EE 310" }));
+        assert_eq!(listed[0]["transcribed"], true);
+        let lecture = call(&manager, "/mimir/study/lectures", json!({ "course": "EE 310", "file": "lecture" }));
+        assert_eq!(lecture["transcript"], "[1:05] Nodes first.");
+        assert_eq!(lecture["lostAt"], json!(["1:02:05"]));
+        assert_eq!(lecture["note"], "n1");
         for file in ["book.pdf", "../../etc/passwd", "missing.jpg"] {
             let (status, _) = route(&manager, "/mimir/study/photo", &json!({ "course": "EE 310", "file": file }).to_string());
             assert_ne!(status, 200, "{file}");
