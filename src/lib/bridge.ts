@@ -638,6 +638,8 @@ export const circuitDelete = (project: string, name: string) => native<void>('ci
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
 export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
+/** Downloads a Canvas course's files into its Study folder; unchanged ones are skipped (canvas.rs). */
+export const canvasDownloadFiles = (base: string, token: string, canvasId: string, course: string) => native<{ saved: string[]; failed: string[]; tooBig: number }>('canvas_download_files', { base, token, canvasId, course })
 export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
 export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })
 /** Crashes and errors on this computer (src-tauri/src/errorlog.rs). */

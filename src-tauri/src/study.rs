@@ -760,6 +760,27 @@ pub fn study_add_books(course: String, paths: Vec<String>) -> Result<Vec<Book>, 
 }
 
 /// The folder of a course in the library (it must be there).
+/// Whether a file name is one the library lists (a book, slides or a picture).
+pub fn is_library_file(name: &str) -> bool {
+    book_kind(Path::new(name)).is_some()
+}
+
+/// Saves a downloaded file in a course: over the copy it replaces (`previous`), else under a free
+/// name. Returns the file name.
+pub fn save_course_file(dir: &Path, previous: Option<&str>, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let clean = clean_name(name)?;
+    if !is_library_file(&clean) {
+        return Err("Not a file the Study tab keeps".into());
+    }
+    let file = match previous.and_then(|p| clean_name(p).ok()).filter(|p| dir.join(p).is_file()) {
+        Some(p) => p,
+        None => free_name(dir, &clean),
+    };
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save {file}: {e}"))?;
+    Ok(file)
+}
+
 pub(crate) fn course_dir_in(root: &Path, name: &str) -> Result<PathBuf, String> {
     course_dir(root, name)
 }

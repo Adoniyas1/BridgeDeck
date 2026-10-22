@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CloudDownload, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
-import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
+import { calendarSave, canvasDownloadFiles, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
@@ -18,6 +18,9 @@ import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
 import { MimirInbox } from './MimirInbox'
+import { canvasConnected } from './assignments'
+import { configStore } from '../../core/config'
+import { readCollections } from './collections'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
@@ -144,6 +147,25 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     try { await studyRemoveBook(name, file); await refreshLibrary() } catch (e) { onStatus(String(e)) }
   }
 
+  /** The course's files on Canvas (syllabus, slides, old exams) into its folder, grouped as
+   *  “From Canvas”. Only new or changed ones are downloaded. */
+  async function canvasFiles() {
+    const { base, token } = configStore.get().canvas
+    onStatus('Getting the course’s files from Canvas…')
+    try {
+      const result = await canvasDownloadFiles(base, token, course.info.canvasId, name)
+      if (result.saved.length) {
+        const collections = readCollections(course.info)
+        const group = collections.find(c => c.id === 'canvas') ?? { id: 'canvas', title: 'From Canvas', files: [] }
+        const files = [...new Set([...group.files, ...result.saved])]
+        const others = collections.filter(c => c.id !== 'canvas').map(c => ({ ...c, files: c.files.filter(f => !files.includes(f)) }))
+        await studyPatchCourseInfo(name, { collections: [...others, { ...group, files }] })
+      }
+      await refreshLibrary()
+      onStatus([`${result.saved.length ? `Downloaded ${result.saved.length} file${result.saved.length === 1 ? '' : 's'} from Canvas` : 'Nothing new on Canvas'}`, result.tooBig ? `${result.tooBig} too big to download` : '', result.failed.length ? `couldn’t get ${result.failed.join('; ')}` : ''].filter(Boolean).join(' · '))
+    } catch (e) { onStatus(String(e)) }
+  }
+
   async function newNote() {
     try {
       const note = await notesCreateMarkdown(`${name} notes`, courseFolder(name), 'note', '')
@@ -176,7 +198,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     {stitching && <Suspense fallback={null}><StitchPdf course={course} onClose={() => setStitching(false)} onStatus={onStatus} /></Suspense>}
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
     <Card><SectionTitle title={course.info.title && course.info.title !== name ? `${name} · ${course.info.title}` : name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
-      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
+      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button>{course.info.canvasId && canvasConnected() && <button className="secondary" title="Download the course’s files from Canvas (syllabus, slides, old exams) into this course" onClick={() => void canvasFiles()}><CloudDownload size={15} />Canvas files</button>}<button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
         {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
           : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />

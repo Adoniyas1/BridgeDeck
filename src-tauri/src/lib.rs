@@ -661,6 +661,7 @@ pub fn run() {
             study::study_save_pdf,
             study::study_save_card_picture,
             study::study_save_csv,
+            canvas::canvas_download_files,
             study_lectures::study_lectures,
             study_lectures::study_save_lecture,
             study_lectures::study_import_lecture,
