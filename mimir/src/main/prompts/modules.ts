@@ -413,7 +413,7 @@ export const PROMPT_MODULES: PromptModule[] = [
     text:
       "For deadlines, grades, class times and the study plan, look them up with the study tools rather than guessing, " +
       "and give times in the user's own time zone.",
-    tools: ["study_assignments", "study_grades", "study_schedule", "study_plan"],
+    tools: ["study_assignments", "study_grades", "study_schedule", "study_plan", "study_suggest"],
     coreTools: ["study_assignments"]
   },
   {

@@ -58,3 +58,8 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 
 - The header is `kind,front,back,state`. `kind` is `qa`, `both` or `cloze` (a cloze sentence is in `front`). `state` is the line's `<!--fsrs …-->` comment, or empty.
 - Import also takes two columns (term, definition; tab or comma) or one column of cloze sentences.
+
+## Mimir inbox (study state `inbox`)
+
+- Each entry is `{kind, course, payload, from: "mimir", at}`. `kind` is `cards` (`payload.lines`: card lines), `deadline` (`title`, `due` ms or null) or `exam` (`title`, `start` ms, optional `end`, `room`, `covers`, `allowed`).
+- The Study tab adds an entry when the user accepts it, and removes it (null) when it's accepted or turned down. Builds that don't know a kind leave it alone.

@@ -139,9 +139,9 @@ Let Mimir read assignments, grades, class times and plans, require approval befo
 
 - [x] **5.1 Mimir study routes and tools: assignments, grades, class times, plan** (M). Items: 4 (part 1 of 2). Needs: 3.1, 3.3, 3.4.
   - mimir_api.rs: /mimir/study/assignments (canvas.json + canvasDone + manual Assignments note), /grades, /schedule (meetings, term, cancelled), /plan. tools.ts defs and handlers; study_assignments and study_policy join the core tools (:309); new bd_assignments module in modules.ts triggered by due|grade|class|schedule.
-- [ ] **5.2 Approval inbox: Mimir deadlines wait for approval** (M). Items: 4 (part 2 of 2). Needs: 5.1, 1.1.
+- [x] **5.2 Approval inbox: Mimir deadlines wait for approval** (M). Items: 4 (part 2 of 2). Needs: 5.1, 1.1.
   - /mimir/study/inbox/add appends {kind:'card'|'deadline'|'exam'|'problems'|'syllabus'|'words', course, payload, from:'mimir'} to state key inbox. A Study 'From Mimir' card accepts or rejects; accepting calls the existing add paths. Mimir's deadline/exam writes go through it; confirm() stays only for instant actions.
-- [ ] **5.3 Mimir flashcards wait for approval** (S). Items: 11 (part 2 of 2). Needs: 5.2, 4.3.
+- [x] **5.3 Mimir flashcards wait for approval** (S). Items: 11 (part 2 of 2). Needs: 5.2, 4.3.
   - /mimir/study/flashcards/add (mimir_api.rs:333-363) writes to '<course> — draft cards' (not reviewed because the title lacks 'flashcards') and adds an inbox entry; accepting moves the block into the deck. /study/courses reports a pending count.
 - [ ] **5.4 Tutor evaluation harness with a fixed EE problem set** (S). Items: 6. Needs: 2.6.
   - New mimir/tests/tutor-eval/: fixed EE problems (circuits, signals, digital) with expected hint-only behaviour and leak checks, plus a vitest runner per configured model (Mac and PC plans in plan.ts) that writes a score report. Not run in CI by default.

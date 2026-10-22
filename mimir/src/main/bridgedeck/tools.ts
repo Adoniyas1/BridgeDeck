@@ -76,7 +76,8 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "study_plan", description: "The study blocks BridgeDeck's planner put in the calendar for the next days, and what each is for.", inputSchema: object({ days: { type: "number", description: "Days ahead (default 7)" } }) },
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
-    { name: "flashcards_add", description: "Add flashcards to a course's deck in BridgeDeck; the user reviews them with spaced repetition in the Study tab. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
+    { name: "study_suggest", description: "Suggest a deadline (homework, lab, project) or an exam for a course. It waits in BridgeDeck's Study tab under 'From Mimir' until the user adds it; tell them that.", inputSchema: object({ kind: { type: "string", enum: ["deadline", "exam"], description: "deadline or exam" }, course: s("Course name"), title: s("What it is, e.g. 'Problem set 5' or 'Midterm 2'"), when: s("Due time or exam start: 2026-10-03T15:00 (this computer's time) or 2026-10-03"), room: s("Exam room (optional)"), covers: s("What the exam covers (optional)"), allowed: s("What may be brought (optional)") }, ["kind", "course", "title"]) },
+    { name: "flashcards_add", description: "Suggest flashcards for a course's deck in BridgeDeck; they wait in the Study tab under 'From Mimir' until the user adds them, then are reviewed with spaced repetition. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
     { name: "projects_list", description: "The user's BridgeDeck projects: each one's folder (the same folder list_project_files and read_project_file work in), notes (ids for note_read), task board columns with their cards, and upcoming milestones.", inputSchema: object({}) },
     { name: "project_task_add", description: "Add a task card to a project's board in BridgeDeck (made with To do / Doing / Done columns if it has none). Optional due time shows it in the calendar.", inputSchema: object({ project: s("Project name"), task: s("The task"), column: s("Optional column; default the first (To do)"), due: s("Optional due time: 2026-10-03T15:00 or 2026-10-03") }, ["project", "task"]) },
     { name: "project_task_move", description: "Move a task card on a project's board to another column (e.g. Doing, Done); moving to Done ticks it.", inputSchema: object({ project: s("Project name"), task: s("The card's text (or a distinctive part)"), column: s("Column to move it to") }, ["project", "task", "column"]) },
@@ -297,12 +298,28 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
         return ok(`# ${result.book} (${result.course}, ${result.pages} pages)\n\n${result.read.map((p) => `--- p. ${p.page} link=${p.link} ---\n${p.text || "(no text on this page; it may be a scanned image)"}`).join("\n\n")}`);
       } catch (error) { return fail(error); }
     },
+    study_suggest: async (input) => {
+      const kind = str(input, "kind");
+      if (kind !== "deadline" && kind !== "exam") return fail("kind is deadline or exam.");
+      const time = parseTime(input.when);
+      if (input.when !== undefined && input.when !== "" && !time) return fail("I couldn't read that time; use 2026-10-03T15:00.");
+      if (kind === "exam" && !time) return fail("An exam needs its date and time.");
+      // A date alone: due at the end of that day; an exam on that day at 9.
+      const ms = time ? (time.dateOnly ? time.ms + (kind === "exam" ? 9 : 23.98) * 3_600_000 : time.ms) : null;
+      const payload = kind === "exam"
+        ? { title: str(input, "title"), start: Math.round(ms!), room: str(input, "room"), covers: str(input, "covers"), allowed: str(input, "allowed") }
+        : { title: str(input, "title"), due: ms == null ? null : Math.round(ms) };
+      try {
+        await call("study/inbox/add", { kind, course: str(input, "course"), payload });
+        return ok(`Suggested. It's waiting in the Study tab under "From Mimir" for the user to add${ms ? ` (${when(ms)})` : ""}.`);
+      } catch (error) { return fail(error); }
+    },
     flashcards_add: async (input) => {
       const cards = Array.isArray(input.cards) ? input.cards.filter((c): c is Record<string, unknown> => !!c && typeof c === "object") : [];
       if (!cards.length) return fail("Give at least one card.");
       try {
-        const result = await call<{ added: number }>("study/flashcards/add", { course: str(input, "course"), cards });
-        return ok(`Added ${result.added} card${result.added === 1 ? "" : "s"}; the user reviews them in the Study tab.`);
+        const result = await call<{ pending: number }>("study/flashcards/add", { course: str(input, "course"), cards });
+        return ok(`Suggested ${result.pending} card${result.pending === 1 ? "" : "s"}; they're waiting in the Study tab under "From Mimir" for the user to add.`);
       } catch (error) { return fail(error); }
     },
     projects_list: async () => {

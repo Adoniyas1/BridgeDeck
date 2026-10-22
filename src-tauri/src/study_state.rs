@@ -31,7 +31,7 @@ use crate::bridgelink::BridgeLinkManager;
 const VERSION: u32 = 1;
 const DIR: &str = ".state";
 /// The kinds of state kept this way; each is added by the change that first uses it.
-const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam"];
+const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam", "inbox"];
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_VALUE: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 20_000;
@@ -225,6 +225,14 @@ fn study_root() -> Result<PathBuf, String> {
 /// The merged state for `key` in the current Study folder (for Mimir's routes).
 pub fn current_values(key: &str) -> BTreeMap<String, Value> {
     study_root().map(|root| values(&read_all(&root, key))).unwrap_or_default()
+}
+
+/// Saves changes to `key` in the current Study folder as `device`'s (for Mimir's routes).
+pub fn put_current(key: &str, device: &str, changes: BTreeMap<String, Value>) -> Result<(), String> {
+    if device.is_empty() {
+        return Err("BridgeLink hasn't started yet".into());
+    }
+    put(&study_root()?, key, device, changes, now_ms())
 }
 
 /// The merged state for `key`: entry id to value.

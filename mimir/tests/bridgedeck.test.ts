@@ -33,7 +33,8 @@ function fakeBridgeDeck() {
         case "study/courses": return { courses: [{ name: "Math 221", flashcardsDue: 4 }] } as T;
         case "projects/list": return { projects: [] } as T;
         case "projects/task/add": return { markdown: `## To do\n\n- [ ] ${String(body.task)}` } as T;
-        case "study/flashcards/add": return { added: (body.cards as unknown[]).length } as T;
+        case "study/flashcards/add": return { pending: (body.cards as unknown[]).length } as T;
+        case "study/inbox/add": return { id: "x", pending: true } as T;
         default: return null as T;
       }
     }
@@ -83,7 +84,11 @@ describe("study tools", () => {
     expect(read.content).toContain("--- p. 3 link=book:Math%20221/calc.pdf#3 ---\n(no text on this page");
     expect((await tools.handlers.flashcards_add!({ course: "Math 221", cards: [] })).isError).toBe(true);
     const added = await tools.handlers.flashcards_add!({ course: "Math 221", cards: [{ front: "Chain rule?", back: "f'(g(x))g'(x)", book: "Calculus", page: 2 }] });
-    expect(added.content).toBe("Added 1 card; the user reviews them in the Study tab.");
+    expect(added.content).toBe("Suggested 1 card; they're waiting in the Study tab under \"From Mimir\" for the user to add.");
+    const exam = await tools.handlers.study_suggest!({ kind: "exam", course: "Math 221", title: "Midterm", when: "2026-10-30" });
+    expect(exam.content).toContain("waiting in the Study tab");
+    expect(calls.find(([path]) => path === "study/inbox/add")?.[1]).toMatchObject({ kind: "exam", payload: { title: "Midterm", start: new Date(2026, 9, 30, 9).getTime() } });
+    expect((await tools.handlers.study_suggest!({ kind: "exam", course: "x", title: "y" })).content).toContain("needs its date");
   });
 });
 

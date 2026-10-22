@@ -17,6 +17,7 @@ import { libraryStore, refreshLibrary, reviewAllRequest } from './state'
 import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
+import { MimirInbox } from './MimirInbox'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
@@ -103,6 +104,7 @@ export default function StudyPage({ active }: { active: boolean }) {
       </form>
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
+      <MimirInbox onStatus={setStatus} />
     </aside>
     {plannerOpen ? <StudyPlanner />
       : planOpen ? <div className="study-course"><DegreePlan courses={all} onOpen={name => { setSelected(name); setPlanOpen(false) }} /></div>
