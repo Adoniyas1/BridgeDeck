@@ -661,6 +661,7 @@ button.service-row:hover{border-color:var(--line-strong,#2a3545)}
 .feed-add{display:grid;grid-template-columns:140px 1fr auto;gap:8px;margin:10px 0}
 .feed-add input{background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:7px 9px}
 .class-times{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-4px 0 14px;font-size:12px;color:var(--muted)}
+.class-changes{margin-top:-10px}
 .class-times .hint{margin:0}
 .class-time{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px;color:var(--text)}
 .class-time b{font-weight:600;color:var(--accent)}

@@ -17,7 +17,17 @@ export const OCR_LANGUAGES: Array<[string, string]> = [
 /** Settings → Study: Canvas, exam mode's sites, which languages scanned book pages are read in, and
  *  saving the semester. */
 export function StudySettings() {
-  return <><CanvasSettings /><ExamSettings /><ScanSettings /><SemesterSettings /></>
+  return <><CanvasSettings /><ClassSettings /><ExamSettings /><ScanSettings /><SemesterSettings /></>
+}
+
+function ClassSettings() {
+  const config = useConfig()
+  const minutes = config.study.classRemindMinutes
+  return <Card><SectionTitle title="Class reminders" subtitle="A notification before each class, with the room (or where it moved) and what's due at the start of it" />
+    <label>Remind me<select value={minutes} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, classRemindMinutes: Number(e.target.value) } }))}>
+      {[0, 5, 10, 15, 20, 30, 45, 60].map(m => <option key={m} value={m}>{m ? `${m} minutes before` : 'Off'}</option>)}
+    </select></label>
+  </Card>
 }
 
 function SemesterSettings() {

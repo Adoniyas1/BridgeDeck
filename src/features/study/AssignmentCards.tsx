@@ -14,7 +14,7 @@ import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
 import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
-import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { expandProblems, problemLabel } from './problems'
 import { loadProblems, problemsStore, refreshLibrary, tickProblem } from './state'
@@ -171,7 +171,7 @@ export function StudyBackground() {
   const [, setTick] = useState(0)
   usePeriodicRefresh(async () => { await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
-    const timer = window.setInterval(() => { checkAssignmentReminders(); setTick(t => t + 1) }, 60_000)
+    const timer = window.setInterval(() => { checkAssignmentReminders(); checkClassReminders(); setTick(t => t + 1) }, 60_000)
     return () => window.clearInterval(timer)
   }, [])
   // Homework scanned on the phone lands in its course as a PDF: show it, and say so.

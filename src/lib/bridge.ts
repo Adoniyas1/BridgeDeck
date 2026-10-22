@@ -440,7 +440,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/courseSettings.ts). */ people?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })

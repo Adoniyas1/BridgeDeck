@@ -8,7 +8,8 @@ import { errorText } from '../../core/util'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
-import { libraryStore, refreshLibrary } from './state'
+import { libraryStore, refreshLibrary, termStore } from './state'
+import { classesBetween, classRemindersDue } from './schedule'
 import { catalogTitle, sameCourseTitle } from './plans'
 import { CACHE, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
 
@@ -126,6 +127,24 @@ export async function addAssignments(items: Array<{ course: string; title: strin
 }
 
 const announced = new Set<string>()
+
+const classesAnnounced = new Set<string>()
+/** Says where the next class is a little before it starts, with anything due at the start of it. */
+export function checkClassReminders(now = Date.now()) {
+  const library = libraryStore.get().library
+  const lead = configStore.get().study.classRemindMinutes
+  if (!library || lead <= 0) return
+  const courses = library.courses.filter(c => !c.archived)
+  for (const c of classRemindersDue(classesBetween(courses, termStore.get(), now, now + (lead + 1) * 60_000), now, lead, classesAnnounced)) {
+    classesAnnounced.add(`${c.course}@${c.start}`)
+    const info = courses.find(x => x.name === c.course)?.info
+    const names = { name: c.course, code: info?.code, canvasCode: info?.canvasCode }
+    const due = allAssignments().filter(a => !a.done && a.due != null && a.due > now - 3_600_000 && a.due <= c.end && belongsTo(names, a.course))
+    const minutes = Math.max(1, Math.round((c.start - now) / 60_000))
+    const where = c.room ? `${c.moved ? 'moved to ' : ''}${c.room}` : ''
+    notify('reminders', `${c.course}${c.kind ? ` ${c.kind.toLowerCase()}` : ''} in ${minutes} min`, [where, ...due.slice(0, 3).map(a => `${a.title} due`)].filter(Boolean).join(' · '))
+  }
+}
 
 export function checkAssignmentReminders(now = Date.now()) {
   for (const { assignment: a, lead } of assignmentRemindersDue(allAssignments(), now, configStore.get().canvas.remindHours, announced)) {

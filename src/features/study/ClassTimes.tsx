@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { CalendarRange, Clock, Plus, Trash2 } from 'lucide-react'
+import { CalendarRange, CalendarX, Clock, Plus, Trash2 } from 'lucide-react'
 import { studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
-import { DAY_LETTERS, meetingsOf, meetingText, type Meeting, type Term } from './schedule'
+import { classChangesOf, DAY_LETTERS, dayKey, meetingsOf, meetingText, type ClassChange, type Meeting, type Term } from './schedule'
 import { refreshLibrary, saveTerm, termStore } from './state'
 
 /** A course's weekly class times: they show in the Calendar and on Home, and date homework. */
@@ -15,7 +15,19 @@ export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus
     try { await studyPatchCourseInfo(course.name, { meetings: list }); await refreshLibrary() } catch (e) { onStatus(errorText(e, 'Couldn’t save the class times')) }
   }
   const toggleDay = (d: number) => setDraft(m => ({ ...m, days: m.days.includes(d) ? m.days.filter(x => x !== d) : [...m.days, d].sort() }))
-  return <div className="class-times">
+  // One-off changes: a class cancelled, or in another room, on one date.
+  const changes = classChangesOf(course.info)
+  const today = dayKey(Date.now())
+  const upcoming = changes.filter(c => c.date >= today).sort((a, b) => a.date.localeCompare(b.date))
+  const [changing, setChanging] = useState(false)
+  const [change, setChange] = useState<{ date: string; cancelled: boolean; room: string }>({ date: today, cancelled: true, room: '' })
+  async function saveChanges(list: ClassChange[]) {
+    // Changes more than a month old are dropped.
+    const keep = dayKey(Date.now() - 31 * 86_400_000)
+    try { await studyPatchCourseInfo(course.name, { classChanges: list.filter(c => c.date >= keep) }); await refreshLibrary() } catch (e) { onStatus(errorText(e, 'Couldn’t save the change')) }
+  }
+  const day = (d: string) => new Date(`${d}T00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  return <><div className="class-times">
     <Clock size={13} />
     {meetings.length ? meetings.map((m, i) => <span key={i} className="class-time">{m.kind ? <b>{m.kind} </b> : null}{meetingText(m)}
       <button className="cal-icon" title="Remove" onClick={() => void save(meetings.filter((_, j) => j !== i))}><Trash2 size={11} /></button></span>)
@@ -30,7 +42,20 @@ export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus
         <button disabled={!draft.days.length || draft.start >= draft.end}>Add</button>
         <button type="button" className="ghost" onClick={() => setEditing(false)}>Cancel</button>
       </form>}
+    {!!meetings.length && !changing && <button className="ghost" title="Cancel one class, or move it to another room, on one date" onClick={() => setChanging(true)}><CalendarX size={12} />Change a class</button>}
   </div>
+  {(!!upcoming.length || changing) && <div className="class-times class-changes">
+    {upcoming.map(c => <span key={c.date} className="class-time">{day(c.date)}: {c.cancelled ? <b>no class</b> : <>in <b>{c.room}</b></>}
+      <button className="cal-icon" title="Undo" onClick={() => void saveChanges(changes.filter(x => x.date !== c.date))}><Trash2 size={11} /></button></span>)}
+    {changing && <form className="class-time-add" onSubmit={e => { e.preventDefault(); if (!change.date || (!change.cancelled && !change.room.trim())) return; void saveChanges([...changes.filter(c => c.date !== change.date), change.cancelled ? { date: change.date, cancelled: true } : { date: change.date, room: change.room.trim() }]); setChanging(false) }}>
+      <input type="date" value={change.date} min={today} onChange={e => setChange(c => ({ ...c, date: e.target.value }))} />
+      <select value={change.cancelled ? 'cancel' : 'room'} onChange={e => setChange(c => ({ ...c, cancelled: e.target.value === 'cancel' }))}><option value="cancel">No class</option><option value="room">Another room</option></select>
+      {!change.cancelled && <input placeholder="Room" value={change.room} onChange={e => setChange(c => ({ ...c, room: e.target.value }))} />}
+      <button>Save</button>
+      <button type="button" className="ghost" onClick={() => setChanging(false)}>Cancel</button>
+    </form>}
+  </div>}
+  </>
 }
 
 const fmt = (d: string) => new Date(`${d}T00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' })
