@@ -17,7 +17,9 @@ import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { expandProblems, problemLabel } from './problems'
-import { loadProblems, problemsStore, refreshLibrary, tickProblem } from './state'
+import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, tickProblem } from './state'
+import { parseQuickAdd } from './quickAdd'
+import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
@@ -71,10 +73,17 @@ export function AssignmentsCard({ course, info, courses }: { course?: string; in
   const connected = useMemo(canvasConnected, [config.canvas])
   const open = groups.overdue.length + groups.today.length + groups.week.length + groups.later.length + groups.undated.length
 
+  // Typed in plain words: "EE 310 HW 5 due next class ~3h". The date boxes, when filled, win.
+  const library = useStore(libraryStore).library
+  const term = useStore(termStore)
+  const studyCourses = useMemo(() => library?.courses.filter(c => !c.archived) ?? [], [library])
+  const parsed = useMemo(() => parseQuickAdd(title, studyCourses, term, Date.now(), forCourse.trim()), [title, studyCourses, term, forCourse])
+  const chosen = studyCourses.find(c => c.name === (parsed.course || forCourse.trim()))
+  const chips = chosen ? ['class', ...new Set(meetingsOf(chosen.info).map(m => m.kind.toLowerCase()).filter(k => /lab|lecture|discussion/.test(k)))] : []
   async function add() {
-    if (!title.trim()) return
+    if (!parsed.title.trim()) return
     try {
-      await addAssignment(forCourse.trim(), title.trim(), date ? fromInputs(date, time || '23:59') : null)
+      await addAssignment(parsed.course || forCourse.trim(), parsed.title.trim(), date ? fromInputs(date, time || '23:59') : parsed.due)
       setTitle(''); setDate(''); setAdding(false)
     } catch (e) { setNotice(errorText(e, 'Couldn’t add it')) }
   }
@@ -95,12 +104,14 @@ export function AssignmentsCard({ course, info, courses }: { course?: string; in
     {data.errors.map(e => <p key={e} className="cal-error">{e}</p>)}
     {fromPhoto && course && <HomeworkImport course={course} onClose={() => setFromPhoto(false)} />}
     {adding && <form className="assignment-add" onSubmit={e => { e.preventDefault(); void add() }}>
-      <input autoFocus placeholder="Problem set 4, lab report…" value={title} onChange={e => setTitle(e.target.value)} />
+      <input autoFocus placeholder="EE 310 HW 5 due next class ~3h" title="Type it in plain words: the course, what it is, “due next class / next lab / fri 5pm / 10/31”, and ~hours" value={title} onChange={e => setTitle(e.target.value)} />
       <input list="assignment-courses" placeholder="Course" value={forCourse} onChange={e => setForCourse(e.target.value)} />
       <datalist id="assignment-courses">{courses.map(c => <option key={c} value={c} />)}</datalist>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} />
       <input type="time" value={time} onChange={e => setTime(e.target.value)} />
-      <button disabled={!title.trim()}>Add</button>
+      <button disabled={!parsed.title.trim()}>Add</button>
+      {title.trim() && <p className="hint assignment-preview">{parsed.course || 'No course'} · {parsed.title || '…'} · {date ? 'due as set' : parsed.due ? `due ${new Date(parsed.due).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${parsed.dueText.startsWith('next') ? ` (${parsed.dueText})` : ''}` : 'no due date'}</p>}
+      {!!chips.length && <span className="assignment-chips">{chips.map(k => <button type="button" key={k} className="ghost" onClick={() => setTitle(t => `${t.replace(/\s+(due|by)\s+.*$/i, '')} due next ${k}`)}>next {k}</button>)}</span>}
     </form>}
     {section('Overdue', groups.overdue)}
     {section('Today', groups.today)}

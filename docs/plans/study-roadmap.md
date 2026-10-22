@@ -76,7 +76,7 @@ Visible improvements on the Windows PC after each merge: synced last page, stitc
   - mimir/src/main/... modules.ts: a new 'tutor' prompt module, required whenever a study course or the Code/Logic tab is in context: hints first, no full solutions unless asked, point at the line and explain instead of rewriting. bd_study (:365-375) gets citation text. CodePage.tsx:243 prompt changes from 'show the fixed code' to 'point at the line and give a hint'. Reads aiPolicy when present (wired fully in 3.3).
 - [x] **2.7 Mimir knows what you're reading; Ask Mimir on a highlighted passage** (S). Items: 3. Needs: none.
   - BookTab.tsx and EpubTab.tsx call useTabContext('study', {course, book, page, selection, pageText}) as CodePage.tsx:98 does. Add an 'Ask Mimir' action to the selection menu (next to highlight) through askMimir, carrying bookLink(course,file,page).
-- [ ] **2.8 Quick-add in plain words with next-class/lab chips** (S). Items: 33. Needs: 1.2.
+- [x] **2.8 Quick-add in plain words with next-class/lab chips** (S). Items: 33. Needs: 1.2.
   - Quick-add parser for phrases like 'HW 4 due next lab'. Chips computed from schedule.ts meetings (next class, next lab, next week same day). Optional per-course 'auto lab deadline' (weekly due N hours before lab), stored via study_course_patch.
 - [x] **2.9 Class reminders with room; cancel or move one class date** (S). Items: 34. Needs: 1.2.
   - schedule.ts: reminder N minutes before each meeting, with the room in the text (notify.ts). ClassTimes.tsx: 'Cancel this date' / 'Move to…' saving the courseSettings `cancelled` key via patch; calendar projection and reminders skip or move that date.

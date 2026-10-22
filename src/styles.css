@@ -1172,6 +1172,7 @@ main.fill .logic{height:auto}
 .assignment-row.done strong{text-decoration:line-through;color:var(--muted)}
 .assignment-add{display:grid;grid-template-columns:2fr 1fr auto auto auto;gap:8px;margin:8px 0}
 @media(max-width:800px){.assignment-add{grid-template-columns:1fr 1fr}}
+.assignment-preview{grid-column:1/-1;margin:0}.assignment-chips{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap}
 .assignment-done-toggle{margin-top:8px}
 .canvas-grades{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px 14px;margin-bottom:10px}
 .canvas-grade{display:flex;gap:8px;font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)}
