@@ -114,7 +114,7 @@ Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a res
 
 Build a single expression/units engine, then grow the card format (cloze, both-ways, images, typed answers) with a review log, personal FSRS tuning and import/export, keeping the TS and Rust card parsers identical.
 
-- [ ] **4.1 Units and complex expression engine (src/lib/expr.ts)** (M). Items: foundation (i) (used by 8, 12, 45, 46, 47, 48). Needs: none.
+- [x] **4.1 Units and complex expression engine (src/lib/expr.ts)** (M). Items: foundation (i) (used by 8, 12, 45, 46, 47, 48). Needs: none.
   - Move the plot.ts:12-120 tokenizer/parser into src/lib/expr.ts. Value Q={re,im,dim:Int8Array(7)}; SI prefixes only before a unit; Ω ohm V A W F H Hz s S; j/i, ∠deg, ||, 0b/0x/0o; abs/arg/conj/re/im/sqrt; equalWithin(a,b,relTol,units). plot.ts evaluates with im=0. Test table covering the m/milli and e rules. No new dependency.
 - [ ] **4.2 Engineering calculator block** (S). Items: 46. Needs: 4.1, 1.4.
   - New note block or Study tool using expr.ts: unit-aware results with automatic prefixes, resistor color code to and from value (E-series), complex/phasor display (rectangular and polar), parallel ||. Uses an existing block kind (e.g. a python-like 'calc' fenced code) or adds a kind on top of 1.4.
