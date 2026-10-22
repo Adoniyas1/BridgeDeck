@@ -18,6 +18,7 @@ import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
+import { CoursePeople } from './CoursePeople'
 // The PDF writer is large: it loads when Stitch PDFs is first opened.
 const StitchPdf = lazy(() => import('./StitchPdf').then(m => ({ default: m.StitchPdf })))
 import { ClassTimes, TermCard } from './ClassTimes'
@@ -168,6 +169,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
       {status && <p className="book-status">{status}</p>}
       <CourseDetails course={course} onStatus={onStatus} />
       <ClassTimes course={course} onStatus={onStatus} />
+      <CoursePeople course={course} onStatus={onStatus} />
       <CourseFiles course={course} books={books} onOpen={open} onOpenExternally={openExternally} onRemove={book => void removeBook(book.file, book.title)} onStatus={onStatus} />
     </Card>
     <AssignmentsCard course={name} info={course.info} courses={courses} />

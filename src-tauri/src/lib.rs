@@ -138,13 +138,16 @@ fn probe_tcp(host: String, port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(850)).is_ok()
 }
 
-/// Opens an http(s) link in the default browser. The URL is parsed and re-serialized, and the opener
-/// plugin launches it without a shell, so shell metacharacters in a link can't run commands.
+/// Opens an http(s) link in the default browser, or a mailto: link in the mail app. The URL is parsed
+/// and re-serialized, and the opener plugin launches it without a shell, so shell metacharacters in a
+/// link can't run commands.
 #[tauri::command]
 fn open_external(app: AppHandle, target: String) -> Result<(), String> {
     let url = reqwest::Url::parse(target.trim()).map_err(|_| "Not a valid URL".to_string())?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("Only http/https URLs are allowed".into());
+    let web = matches!(url.scheme(), "http" | "https") && url.host_str().is_some();
+    let mail = url.scheme() == "mailto" && url.path().contains('@') && !url.path().contains(['\\', '\n', '\r']);
+    if !web && !mail {
+        return Err("Only http/https and mailto links are allowed".into());
     }
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }

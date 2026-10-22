@@ -80,7 +80,7 @@ Visible improvements on the Windows PC after each merge: synced last page, stitc
   - Quick-add parser for phrases like 'HW 4 due next lab'. Chips computed from schedule.ts meetings (next class, next lab, next week same day). Optional per-course 'auto lab deadline' (weekly due N hours before lab), stored via study_course_patch.
 - [x] **2.9 Class reminders with room; cancel or move one class date** (S). Items: 34. Needs: 1.2.
   - schedule.ts: reminder N minutes before each meeting, with the room in the text (notify.ts). ClassTimes.tsx: 'Cancel this date' / 'Move to…' saving the courseSettings `cancelled` key via patch; calendar projection and reminders skip or move that date.
-- [ ] **2.10 Office hours, contacts, email professor, office-hours question list** (S). Items: 44. Needs: 1.2.
+- [x] **2.10 Office hours, contacts, email professor, office-hours question list** (S). Items: 44. Needs: 1.2.
   - CourseSettings UI for officeHours (Meeting[]) and contacts [{role,name,email}] via patch. 'Email professor' opens mailto: with the course code in the subject. A per-course 'Questions for office hours' list (a note section), shown as a reminder before office hours.
 
 ## Phase 3: Canvas, exams, exam mode and grades in one place
