@@ -93,11 +93,11 @@ Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a res
   - New src-tauri/src/exam.rs: static plus <appdata>/exam.json {course, until, sites}, exam_set/exam_get commands, restored at start-up and re-applying browser::exam_sites (browser.rs:123). src/core/exam.ts setExam calls exam_set; localStorage only as a dev fallback. Optional BridgeLink broadcast to the paired computer.
 - [x] **3.3 Exam mode turns all AI off; per-course AI policy none/hints/full** (M). Items: 1 (part 2 of 2). Needs: 3.2, 1.2, 2.6.
   - courseSettings aiPolicy UI. mimir_api::route returns 423 'Exam mode: AI is off' for every /mimir/* route except calendar/notes reads; new /mimir/study/policy returns {exam, policies}. mimir/src/main/agent/session.ts checks policy before each turn and ends the turn in code when exam is on or the policy is none. BridgeDeck hides the Mimir and ChatGPT tabs, the chatgpt.rs side panel and askMimir in exam mode. The tutor module (2.6) switches to hints-only under 'hints'. The UI states that 'hints' is prompt-level only.
-- [ ] **3.4 One exam list everywhere** (M). Items: 27 (part 1 of 2). Needs: 1.2.
+- [x] **3.4 One exam list everywhere** (M). Items: 27 (part 1 of 2). Needs: 1.2.
   - New src/features/study/exams.ts (Exam type with source manual|canvas|syllabus|finals) stored in .course.json exams via patch. ensureExamEvents() upserts calendar events with id exam-<id>. Replace the heuristics in brief.ts:37, planner.ts:29, StudyPage.tsx:138 and Mimir daily_brief (tools.ts:205-233) with lookups. One-time import of red '<course>: …exam…' events; Canvas quizzes offered as exams. Rust study::exams_of plus /mimir/study/exams.
-- [ ] **3.5 CSULB finals table with room** (S). Items: 27 (part 2 of 2). Needs: 3.4.
+- [ ] **3.5 (left: needs each term's CSULB finals table; for now the exam form has a room field and finals are entered by hand) CSULB finals table with room** (S). Items: 27 (part 2 of 2). Needs: 3.4.
   - New src/features/study/finals.ts mapping meeting pattern (days + start time) to a final slot for the current term, with source URL and date in the file. A 'Add my finals' action creates source:'finals' exams with the room taken from the course's meeting room.
-- [ ] **3.6 Exam-day card** (S). Items: 31. Needs: 3.4, 1.1.
+- [x] **3.6 Exam-day card** (S). Items: 31. Needs: 3.4, 1.1.
   - Home and Study card the day before and the day of an exam: room, allowed items (exam.allowed), bring-list (courseSettings bring), leave-by time (start minus a travel setting), suggested bedtime. Checklist ticks are stored in state key examDay.
 - [x] **3.7 Reminders include Canvas work everywhere; 24h/1h warnings for hand-added items** (S). Items: 32. Needs: 3.1.
   - Reminder pass reads the Canvas data (3.1) and manual assignments; 24 h and 1 h notifications for hand-added items; done marks (canvasDone) suppress them; muted in exam mode. Pushed into the phone SNAPSHOT (phone.rs phone_publish).

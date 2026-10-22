@@ -16,6 +16,7 @@ import { fromInputs } from '../calendar/model'
 import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
+import { ExamNotices } from './ExamDay'
 import { expandProblems, problemLabel } from './problems'
 import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, tickProblem } from './state'
 import { parseQuickAdd } from './quickAdd'
@@ -218,6 +219,6 @@ export function StudyBackground() {
     }).then(fn => { if (closed) fn(); else unlisten = fn })
     return () => { closed = true; unlisten?.() }
   }, [])
-  if (!exam) return null
-  return <div className="notice exam-banner"><ShieldCheck size={15} /><span>Exam mode for {exam.course}: {clock(exam.until - Date.now())} left. Only reminders notify; distracting sites are closed.</span><button className="secondary" onClick={() => void endExam()}>End</button></div>
+  if (!exam) return <ExamNotices />
+  return <><ExamNotices /><div className="notice exam-banner"><ShieldCheck size={15} /><span>Exam mode for {exam.course}: {clock(exam.until - Date.now())} left. Only reminders notify; distracting sites are closed.</span><button className="secondary" onClick={() => void endExam()}>End</button></div></>
 }

@@ -1847,3 +1847,4 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .ai-speed__tip{position:absolute;top:0;transform:translateX(-50%);pointer-events:none;display:flex;flex-direction:column;gap:1px;padding:6px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);box-shadow:0 6px 20px rgba(0,0,0,.35);font-size:11.5px;color:var(--muted);white-space:nowrap}
 .ai-speed__tip strong{color:var(--text);font-size:12.5px}
 .study-folder-chapters{margin:4px 0 8px}
+.exam-day{border-color:var(--accent)}.study-exam{flex-wrap:wrap}

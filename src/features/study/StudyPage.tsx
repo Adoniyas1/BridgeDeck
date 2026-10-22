@@ -19,6 +19,7 @@ import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
+import { examNotesText } from './exams'
 import { CoursePeople } from './CoursePeople'
 // The PDF writer is large: it loads when Stitch PDFs is first opened.
 const StitchPdf = lazy(() => import('./StitchPdf').then(m => ({ default: m.StitchPdf })))
@@ -115,6 +116,9 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   const [examTitle, setExamTitle] = useState('Exam')
   const [examDate, setExamDate] = useState(() => dateInput(Date.now() + 14 * 86_400_000))
   const [examTime, setExamTime] = useState('09:00')
+  const [examRoom, setExamRoom] = useState('')
+  const [examAllowed, setExamAllowed] = useState('')
+  const [examCovers, setExamCovers] = useState('')
 
   async function addBooks() {
     const paths = (await pickTransferPaths(false)).filter(p => /\.(pdf|epub)$/i.test(p) || SLIDES.test(p))
@@ -142,7 +146,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
 
   async function addExam() {
     const start = fromInputs(examDate, examTime)
-    const event: CalEvent = { id: newId(), title: `${name}: ${examTitle.trim() || 'Exam'}`, start, end: start + 2 * 3_600_000, allDay: false, location: '', notes: '', color: 'red', repeat: null, skip: [], reminder: 1440, updated: 0, by: '', deleted: false, seq: 0 }
+    const event: CalEvent = { id: newId(), title: `${name}: ${examTitle.trim() || 'Exam'}`, start, end: start + 2 * 3_600_000, allDay: false, location: examRoom.trim(), notes: examNotesText(examAllowed, examCovers), color: 'red', repeat: null, skip: [], reminder: 1440, updated: 0, by: '', deleted: false, seq: 0 }
     try {
       const saved = await calendarSave(event)
       eventsStore.set(list => [...list, saved])
@@ -192,7 +196,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
           {total > 0 && <small>{done}/{total}</small>}
         </button>)}</div> : <p className="hint">Open a book and use “Chapter checklist” to track chapters, or “Save highlight” to keep passages.</p>}
       </Card>
-      <Card><SectionTitle title="Exams and deadlines" subtitle="From your calendar (events with the course name)" />
+      <Card><SectionTitle title="Exams and deadlines" subtitle="From your calendar (events with the course name) and Canvas; exams get study time in the planner and a card on Home the day before" />
         {upcoming.length ? <div className="agenda-list">{upcoming.map(e => <button key={e.id} className="agenda-row" onClick={() => activateTab('calendar')}>
           <i style={{ background: '#f07178' }} /><span className="agenda-time">{new Date(e.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} {formatRange(e)}</span><span className="grow agenda-title">{e.title}</span></button>)}</div>
           : <p className="hint">Nothing coming up.</p>}
@@ -200,6 +204,9 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
           <input value={examTitle} onChange={e => setExamTitle(e.target.value)} placeholder="Exam, quiz, essay due…" />
           <input type="date" value={examDate} onChange={e => setExamDate(e.target.value)} />
           <input type="time" value={examTime} onChange={e => setExamTime(e.target.value)} />
+          <input value={examRoom} onChange={e => setExamRoom(e.target.value)} placeholder="Room (finals are often elsewhere)" />
+          <input value={examAllowed} onChange={e => setExamAllowed(e.target.value)} placeholder="Allowed: calculator, 1 formula sheet…" />
+          <input value={examCovers} onChange={e => setExamCovers(e.target.value)} placeholder="Covers: Ch 4–6" />
           <button className="ghost"><CalendarPlus size={14} /> Add</button>
         </form>
       </Card>

@@ -10,6 +10,8 @@ import { notesStore } from '../notes/state'
 import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, notHandedIn, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
 import { libraryStore, refreshLibrary, termStore } from './state'
 import { classesBetween, classRemindersDue } from './schedule'
+import { examsFrom } from './exams'
+import { eventsStore } from '../calendar/state'
 import { catalogTitle, sameCourseTitle } from './plans'
 import { CACHE, canvasDoneStore, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
 
@@ -189,4 +191,12 @@ export async function startExam(course: string, minutes: number) {
 export async function endExam() {
   setExam(null)
   if (isTauri()) await examSites([]).catch(() => undefined)
+}
+
+/** Every exam coming up (exams.ts), from the calendar and Canvas. */
+export function useExams() {
+  const events = useStore(eventsStore)
+  const all = useAssignments()
+  const library = useStore(libraryStore).library
+  return useMemo(() => examsFrom(events, all.filter(a => a.source === 'canvas'), library?.courses ?? []), [events, all, library])
 }

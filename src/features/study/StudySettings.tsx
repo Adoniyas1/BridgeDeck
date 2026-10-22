@@ -27,6 +27,7 @@ function ClassSettings() {
     <label>Remind me<select value={minutes} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, classRemindMinutes: Number(e.target.value) } }))}>
       {[0, 5, 10, 15, 20, 30, 45, 60].map(m => <option key={m} value={m}>{m ? `${m} minutes before` : 'Off'}</option>)}
     </select></label>
+    <label>Getting to campus takes (minutes; for an exam's leave-by time)<input type="number" min={0} max={240} value={config.study.commuteMinutes} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, commuteMinutes: Math.max(0, Math.min(240, Number(e.target.value) || 0)) } }))} /></label>
   </Card>
 }
 
