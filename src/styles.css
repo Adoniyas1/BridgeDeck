@@ -776,6 +776,15 @@ button.today-tile:hover{border-color:var(--accent)}
 .book-status{font-size:12px;color:var(--ok);margin:0}
 .book-body{flex:1;min-height:0;display:flex;gap:10px}
 .book-outline{width:280px;flex:none;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px}
+.book-chapters{margin:8px 12px;padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow:auto}
+.book-chapters-label{font-size:12px;color:var(--muted)}
+.book-chapter-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.book-chapter-list li{display:flex;align-items:center;gap:4px}
+.book-chapter-list button:first-child{flex:1;display:flex;align-items:center;gap:8px;justify-content:space-between;text-align:left;border:0;background:transparent;color:var(--text);padding:6px 8px;border-radius:var(--radius-sm)}
+.book-chapter-list button:first-child:hover{background:var(--surface-2)}.book-chapter-list button.current{background:var(--surface-3);font-weight:600}
+.book-chapter-list small{color:var(--muted);font-weight:400}
+.book-chapters-actions{align-items:center;flex-wrap:wrap}.book-range{width:110px}
+.book-chapter-button{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .book-outline ul{list-style:none;margin:0;padding-left:12px}.book-outline>ul{padding-left:0}
 .book-outline button{display:flex;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;color:var(--text);text-align:left;padding:4px 6px;border-radius:5px;font-size:12px}
 .book-outline button:hover{background:var(--surface-3)}.book-outline small{color:var(--faint)}
@@ -1837,3 +1846,4 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .ai-speed__dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}
 .ai-speed__tip{position:absolute;top:0;transform:translateX(-50%);pointer-events:none;display:flex;flex-direction:column;gap:1px;padding:6px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);box-shadow:0 6px 20px rgba(0,0,0,.35);font-size:11.5px;color:var(--muted);white-space:nowrap}
 .ai-speed__tip strong{color:var(--text);font-size:12.5px}
+.study-folder-chapters{margin:4px 0 8px}

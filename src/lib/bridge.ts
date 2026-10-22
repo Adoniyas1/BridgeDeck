@@ -440,7 +440,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/courseSettings.ts). */ people?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -448,6 +448,15 @@ export const studyAddCourse = (name: string) => native<void>('study_add_course',
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 /** Saves a PDF made here (stitched pages) in a course; returns the file name it got. The bytes go as
  *  the request body, not JSON. */
+/** Writes a PDF where the person chose (a book, chapter or pages to download). */
+export async function studyDownloadPdf(path: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  await invoke('study_download_pdf', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
+}
+export async function pickPdfSaveTo(name: string): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `${name.replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Book'}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] })) ?? null
+}
 export async function studySavePdf(course: string, name: string, bytes: Uint8Array): Promise<string> {
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_pdf', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })

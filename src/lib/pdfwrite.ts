@@ -66,3 +66,20 @@ export async function stitchPdf(parts: StitchPart[]): Promise<Uint8Array> {
   if (!out.getPageCount()) throw new Error('Pick at least one page.')
   return out.save()
 }
+
+/** One PDF cut into parts by page ranges (from 1, inclusive), loading it only once. */
+export async function splitPdf(bytes: ArrayBuffer, ranges: Array<{ start: number; end: number }>, onPart?: (done: number) => void): Promise<Uint8Array[]> {
+  let source: PDFDocument
+  try { source = await PDFDocument.load(bytes, { ignoreEncryption: true }) } catch { throw new Error('The PDF couldn’t be read.') }
+  const count = source.getPageCount()
+  const out: Uint8Array[] = []
+  for (const r of ranges) {
+    const part = await PDFDocument.create()
+    const wanted = Array.from({ length: Math.max(0, Math.min(r.end, count) - r.start + 1) }, (_, i) => r.start - 1 + i)
+    if (!wanted.length) throw new Error(`Pages ${r.start}–${r.end} aren’t in this book.`)
+    for (const page of await part.copyPages(source, wanted)) part.addPage(page)
+    out.push(await part.save())
+    onPart?.(out.length)
+  }
+  return out
+}

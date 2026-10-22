@@ -3,7 +3,7 @@ import type { CourseInfo, StudyBook } from '../../lib/bridge'
 /** A course's files grouped into a bigger book ("Midterm 1", "Lab manual"), in reading order. Kept in
  *  the course's `.course.json` (as `collections`), so both computers see the same groups. A file is
  *  in at most one collection; files in none are listed on their own. */
-export type Collection = { id: string; title: string; files: string[] }
+export type Collection = { id: string; title: string; files: string[]; /** Shown as one book: its files are the chapters. */ book?: boolean }
 
 export const MAX_TITLE = 80
 
@@ -15,11 +15,11 @@ export function readCollections(info: CourseInfo | undefined): Collection[] {
   const out: Collection[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
-    const { id, title, files } = item as Record<string, unknown>
+    const { id, title, files, book } = item as Record<string, unknown>
     if (typeof id !== 'string' || !id || typeof title !== 'string') continue
     const list = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string' && !seen.has(f)) : []
     list.forEach(f => seen.add(f))
-    out.push({ id, title: title.slice(0, MAX_TITLE), files: list })
+    out.push({ id, title: title.slice(0, MAX_TITLE), files: list, ...(book === true ? { book: true } : {}) })
   }
   return out
 }
@@ -48,6 +48,17 @@ export function addCollection(collections: Collection[], title: string, id: stri
 export function renameCollection(collections: Collection[], id: string, title: string): Collection[] {
   const clean = title.trim().slice(0, MAX_TITLE)
   return clean ? collections.map(c => c.id === id ? { ...c, title: clean } : c) : collections
+}
+
+/** Shows a collection as one book (its files are the chapters) or as files. */
+export function setBook(collections: Collection[], id: string, book: boolean): Collection[] {
+  return collections.map(c => c.id === id ? (book ? { ...c, book: true } : { id: c.id, title: c.title, files: c.files }) : c)
+}
+
+/** The book folder a file is a chapter of, with its chapters in order (existing files only). */
+export function bookOf(collections: Collection[], file: string, existing: Set<string>) {
+  const c = collections.find(x => x.book && x.files.includes(file))
+  return c ? { ...c, files: c.files.filter(f => existing.has(f)) } : null
 }
 
 /** Removes a collection; its files stay in the course, just not grouped. */

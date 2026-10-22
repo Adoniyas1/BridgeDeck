@@ -372,6 +372,28 @@ fn save_pdf(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
     Ok(file)
 }
 
+/// Writes a PDF made here (a book, a chapter, some pages) where the person chose in the save dialog.
+/// Only a .pdf file in a folder that exists, and only PDF bytes.
+fn write_download(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if !bytes.starts_with(b"%PDF-") || bytes.len() > MAX_MADE_PDF {
+        return Err("That isn't a PDF".into());
+    }
+    let pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    if !path.is_absolute() || !pdf || !path.parent().is_some_and(Path::is_dir) {
+        return Err("Choose where to save it as a .pdf file".into());
+    }
+    let partial = path.with_extension("pdf.partial");
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, path)).map_err(|e| format!("Couldn't save it: {e}"))
+}
+
+/// The bytes are the request body; the path (from the save dialog) is in `x-path`, URI-encoded.
+#[tauri::command]
+pub fn study_download_pdf(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = request.headers().get("x-path").and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or("Missing x-path")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the PDF as bytes".into()) };
+    write_download(Path::new(&path), bytes)
+}
+
 /// The courses being taken (not archived), for the phone's scan page.
 pub fn course_names() -> Vec<String> {
     read_library(&root_or_default()).map(|l| l.courses.into_iter().filter(|c| !c.archived).map(|c| c.name).collect()).unwrap_or_default()
@@ -950,6 +972,20 @@ mod tests {
         assert!(save_pdf(&dir, "Not", b"<html>").is_err());
         assert!(save_pdf(&dir, "  ", b"%PDF-").is_err());
         assert_eq!(fs::read(dir.join("Homework 4.pdf")).unwrap(), b"%PDF-1.7 x");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn downloads_go_only_where_chosen_as_pdfs() {
+        let dir = std::env::temp_dir().join(format!("bd-download-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        write_download(&dir.join("Ch 3.pdf"), b"%PDF-1.7 x").unwrap();
+        assert_eq!(fs::read(dir.join("Ch 3.pdf")).unwrap(), b"%PDF-1.7 x");
+        assert!(write_download(&dir.join("x.exe"), b"%PDF-1.7").is_err());
+        assert!(write_download(&dir.join("x.pdf"), b"MZ").is_err());
+        assert!(write_download(Path::new("x.pdf"), b"%PDF-").is_err());
+        assert!(write_download(&dir.join("missing/x.pdf"), b"%PDF-").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -4,7 +4,9 @@ import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../li
 import { newId } from '../notes/model'
 import { fmtBytes } from './model'
 import { refreshLibrary } from './state'
-import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, type Collection } from './collections'
+import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, setBook, type Collection } from './collections'
+import { openTab } from '../../core/tabs'
+import { placeOf } from './reading'
 
 export const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].includes(book.kind)
 
@@ -42,6 +44,15 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
     setAdding(false)
     void save(next)
   }
+
+  /** A book folder opens at the chapter file and page read last (on either computer). */
+  async function openFolder(collection: Collection, files: StudyBook[]) {
+    if (!files.length) return
+    const places = await Promise.all(files.map(async b => ({ b, at: (await placeOf(course.name, b.file, { page: 1 }))?.at ?? 0 })))
+    const last = places.reduce((a, b) => b.at > a.at ? b : a).b
+    openTab({ id: `bookfolder:${course.name}/${collection.id}`, kind: 'study-book', title: collection.title, params: { course: course.name, file: last.file, title: last.file.replace(/\.[^.]+$/, ''), page: '0', at: String(Date.now()) } })
+  }
+  const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set())
 
   function remove(collection: Collection) {
     if (!window.confirm(`Remove the collection “${collection.title}”? Its files stay in ${course.name}.`)) return
@@ -95,13 +106,17 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
             <button disabled={!renaming.title.trim()}>Save</button>
           </form>
           : <strong className="grow">{collection.title}</strong>}
-        <small>{items.length} {items.length === 1 ? 'file' : 'files'}</small>
+        <small>{items.length} {collection.book ? (items.length === 1 ? 'chapter' : 'chapters') : items.length === 1 ? 'file' : 'files'}</small>
+        {collection.book && <button className="ghost" disabled={!items.length} title="Open at the chapter and page you read last" onClick={() => void openFolder(collection, items)}><BookOpen size={14} />Open book</button>}
+        <button className="cal-icon" title={collection.book ? 'Show its files' : 'Show as one book (its files are the chapters)'} onClick={() => void save(setBook(collections, collection.id, !collection.book))}>{collection.book ? <Library size={14} /> : <BookOpen size={14} />}</button>
         <button className="cal-icon" title="Rename" onClick={() => setRenaming({ id: collection.id, title: collection.title })}><Pencil size={14} /></button>
         <button className="cal-icon" title="Move up" disabled={index === 0} onClick={() => void save(reorderCollection(collections, collection.id, -1))}><ChevronUp size={14} /></button>
         <button className="cal-icon" title="Move down" disabled={index === groups.length - 1} onClick={() => void save(reorderCollection(collections, collection.id, 1))}><ChevronDown size={14} /></button>
         <button className="cal-icon" title="Remove the collection (its files stay)" onClick={() => remove(collection)}><Trash2 size={14} /></button>
       </div>
-      {items.length
+      {collection.book && !unfolded.has(collection.id)
+        ? <button className="ghost study-folder-chapters" onClick={() => setUnfolded(s => new Set(s).add(collection.id))}>{items.length ? `Show the ${items.length} chapter files` : 'No chapters yet'}</button>
+        : items.length
         ? <div className="study-books">{items.map((b, i) => card(b, collection, { first: i === 0, last: i === items.length - 1 }))}</div>
         : <p className="hint">Empty. Choose “{collection.title}” in a file’s collection menu below to put it here.</p>}
     </section>)}

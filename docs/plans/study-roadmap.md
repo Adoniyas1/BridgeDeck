@@ -202,11 +202,11 @@ Help with each homework problem without giving answers away, build exam prep fro
 
 Make huge books into clickable chapter books with download, write with a pen or Apple Pencil (also on PDFs), and turn photos of paper notes into a clean typed notes PDF.
 
-- [ ] **8.1 Book folders in the library with chapter navigation** (M). Items: B1 (part 2 of 4: chapter list and one-book folders). Needs: 1.3, 2.4.
+- [x] **8.1 Book folders in the library with chapter navigation** (M). Items: B1 (part 2 of 4: chapter list and one-book folders). Needs: 1.3, 2.4.
   - study.rs: Book gains folder/chapters; read_library accepts subdirectories with a valid .book.json (skips ones with missing chapters, i.e. still syncing); resolve accepts course/bookdir/chapter.pdf only when the manifest exists. pdf.ts loadChapter. BookTab.tsx: global page numbers, prev/next across chapter files, Contents from manifest.outline. Index key <course>/<bookdir>.json joining chapters. CourseFiles.tsx folder badge with chapter count.
-- [ ] **8.2 Split a huge PDF into per-chapter files that still act as one book** (M). Items: B1 (part 3 of 4). Needs: 8.1.
+- [x] **8.2 Split a huge PDF into per-chapter files that still act as one book** (M). Items: B1 (part 3 of 4). Needs: 8.1.
   - Cargo.toml lopdf (pinned, default features off). study_split_book(course,file,chapters) in spawn_blocking: delete_pages/prune_objects/compress per range, .partial then rename, .book.json last with source, splitBy and the global outline, page counts checked, original sent to trash. 'Split into chapters…' toolbar UI prefilled from resolveOutline. openBookLink redirects old book:<file.pdf>#N links via the manifest source; the reading position moves too.
-- [ ] **8.3 Download/export a whole book, a chapter or pages** (S). Items: B1 (part 4 of 4). Needs: 8.2.
+- [x] **8.3 Download/export a whole book, a chapter or pages** (S). Items: B1 (part 4 of 4). Needs: 8.2.
   - study_export(course,file,chapter?,page_range?,dest): fs::copy for whole files, lopdf range extract for a chapter of an unsplit PDF, lopdf merge for a whole split folder, EPUB whole-file only. A 'Download' menu in BookTab and an Export icon on CourseFiles cards, using plugin-dialog save() like pickBackupFile.
 - [ ] **8.4 Ink data model and storage (per-device stroke logs)** (M). Items: B3 (part 1 of 4). Needs: 1.4.
   - New src-tauri/src/ink.rs (modelled on drawings.rs): <Shared>/Ink/<id>/doc.json plus strokes-<deviceId>.jsonl, append-only, delta-encoded, ignores a cut-off last line; commands ink_create, ink_load, ink_append, ink_set_doc, ink_set_background; registered in lib.rs. src/features/notes/ink/model.ts with merge/encode and vitest. Compaction of a device's own log.
