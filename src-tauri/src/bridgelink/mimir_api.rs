@@ -414,15 +414,26 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                     let transcript = lines.join("\n");
                     let cut = transcript.char_indices().nth(120_000).map(|(i, _)| i).unwrap_or(transcript.len());
                     let marks: Vec<String> = sidecar["markers"].as_array().into_iter().flatten().map(|m| clock(m["t"].as_f64().unwrap_or(0.0))).collect();
-                    Ok(json!({ "file": lecture.file, "note": sidecar["note"], "transcript": &transcript[..cut], "lostAt": marks, "link": format!("lecture:{}/{}#t=0", course.name.replace(' ', "%20"), lecture.file.replace(' ', "%20")) }))
+                    Ok(json!({ "file": lecture.file, "note": sidecar["note"], "transcript": &transcript[..cut], "lostAt": marks, "link": lecture_link(&course.name, &lecture.file, 0) }))
                 }
             }
         }
         "/mimir/study/search" => {
             let (library, dir) = crate::study::library_for_search()?;
             let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
-            let hits = crate::study::search(&library, &dir, need(body, "query")?, text(body, "course"), limit);
-            Ok(json!(hits.into_iter().map(|h| { let link = book_link(&h.course, &h.file, h.page); json!({ "course": h.course, "book": h.book, "file": h.file, "page": h.page, "text": h.snippet, "link": link }) }).collect::<Vec<_>>()))
+            let notes = crate::study::course_notes(&manager.lock()?.notes.list());
+            let hits = crate::study::search(&library, &dir, need(body, "query")?, text(body, "course"), limit, &notes);
+            Ok(json!(hits
+                .into_iter()
+                .map(|h| {
+                    let link = match h.kind {
+                        "lecture" => lecture_link(&h.course, &h.file, h.t.unwrap_or(0)),
+                        "note" => String::new(),
+                        _ => book_link(&h.course, &h.file, h.page),
+                    };
+                    json!({ "course": h.course, "book": h.book, "file": h.file, "page": h.page, "kind": h.kind, "t": h.t, "text": h.snippet, "link": link })
+                })
+                .collect::<Vec<_>>()))
         }
         "/mimir/study/read" => {
             let (library, dir) = crate::study::library_for_search()?;
@@ -559,6 +570,12 @@ fn study_folder(course: &str) -> String {
 fn book_link(course: &str, file: &str, page: usize) -> String {
     let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
     format!("book:{}/{}#{page}", encode(course), encode(file))
+}
+
+/// `lecture:<course>/<file>#t=<seconds>`, as the Notes tab opens it (see study/model.ts).
+fn lecture_link(course: &str, file: &str, t: u64) -> String {
+    let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+    format!("lecture:{}/{}#t={t}", encode(course), encode(file))
 }
 
 /// Flashcards live in notes whose title says so; each card is a line `front :: back`.

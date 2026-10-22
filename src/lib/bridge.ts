@@ -501,7 +501,7 @@ export const studyPlanWrite = (text: string) => native<void>('study_plan_write',
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
-export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
+export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number; /** A book page, a minute of a lecture (`t`: seconds), or a course note (`file`: its id). */ kind?: 'book' | 'lecture' | 'note'; t?: number }
 export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })
 /** Makes the PDF the reader shows for a presentation (src-tauri/src/study_slides.rs); the first time takes a few seconds. */
 export const studySlidesPdf = (course: string, file: string) => native<void>('study_slides_pdf', { course, file })

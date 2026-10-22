@@ -397,8 +397,10 @@ export const PROMPT_MODULES: PromptModule[] = [
     tiers: ["core", "full"],
     triggers: [/\b(study|courses?|lectures?|flash ?cards?|classes|class|textbook|quiz me)\b/i],
     text:
-      "Answer from the user's own course material when you can: search it, read the pages, and say which book and " +
-      "page an answer came from. If their material doesn't cover something, say so rather than guessing.",
+      "Answer from the user's own course material when you can: search it (books, lecture transcripts and their notes), " +
+      "read the pages, and cite each thing you use: (Book, p. N) for a book, [mm:ss] with the lecture's name for a lecture. " +
+      "Before quoting a page, read it with study_read rather than relying on a search snippet. If their material doesn't " +
+      "cover something, say so rather than guessing.",
     tools: ["study_search", "study_courses", "study_read", "flashcards_add", "study_lecture"],
     coreTools: ["study_search"]
   },

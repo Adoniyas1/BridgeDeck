@@ -5,7 +5,7 @@ import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
-import { notesStore } from '../notes/state'
+import { notesStore, openNoteRequest } from '../notes/state'
 import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
 import { savedStarts } from './chapters'
 import { importLines, toCsv } from './deckio'
@@ -13,7 +13,9 @@ import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
-import { openBook, openBookLink } from './open'
+import { openBook, openBookLink, openLecture } from './open'
+import { clock as lectureClock } from './lecture'
+import { activateTab } from '../../core/tabs'
 import { CardText, cardSource, pictureRef } from './CardText'
 import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
 
@@ -303,8 +305,8 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
       <button className="cal-icon" title="Search" disabled={!query.trim()}><Search size={15} /></button>
     </form>
     {error && <p className="cal-error">{error}</p>}
-    {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.file}-${h.page}`} onClick={() => openBook(h.course, h.file, h.book, h.page)}>
-      <strong>{h.book}, p. {h.page}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">No pages match.</p>)}
+    {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.kind}-${h.file}-${h.page}`} onClick={() => h.kind === 'lecture' ? openLecture(h.course, h.file, h.t ?? 0) : h.kind === 'note' ? (openNoteRequest.set(h.file), activateTab('notes')) : openBook(h.course, h.file, h.book, h.page)}>
+      <strong>{h.kind === 'lecture' ? `${h.book} [${lectureClock(h.t ?? 0)}]` : h.kind === 'note' ? `Note: ${h.book}` : `${h.book}, p. ${h.page}`}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">Nothing matches.</p>)}
     <p className="hint">Scanned books are searchable too: pages that are pictures of text are read by text recognition on this computer, which takes a few seconds a page the first time. Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
   </Card>
 }

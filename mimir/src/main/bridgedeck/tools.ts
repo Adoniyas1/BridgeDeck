@@ -289,9 +289,12 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     },
     study_search: async (input) => {
       try {
-        const hits = await call<Array<{ course: string; book: string; page: number; text: string; link: string }>>("study/search", { query: str(input, "query"), course: str(input, "course") || undefined, limit: typeof input.limit === "number" ? input.limit : undefined });
+        const hits = await call<Array<{ course: string; book: string; file: string; page: number; kind?: string; t?: number | null; text: string; link: string }>>("study/search", { query: str(input, "query"), course: str(input, "course") || undefined, limit: typeof input.limit === "number" ? input.limit : undefined });
         if (!hits.length) return ok("No pages match. Try other key terms, or check study_courses for books that aren't searchable yet.");
-        return ok(hits.map((h) => `### ${h.book}, p. ${h.page} (${h.course}) link=${h.link}\n${h.text}`).join("\n\n"));
+        const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+        return ok(hits.map((h) => h.kind === "lecture" ? `### Lecture ${h.book} [${clock(h.t ?? 0)}] (${h.course}) link=${h.link}\n${h.text}`
+          : h.kind === "note" ? `### Note "${h.book}" (${h.course}) id=${h.file}\n${h.text}`
+          : `### ${h.book}, p. ${h.page} (${h.course}) link=${h.link}\n${h.text}`).join("\n\n"));
       } catch (error) { return fail(error); }
     },
     study_read: async (input) => {

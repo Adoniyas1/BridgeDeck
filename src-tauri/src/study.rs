@@ -629,6 +629,46 @@ pub struct Hit {
     pub page: usize,
     pub snippet: String,
     pub score: f64,
+    /// "book", "lecture" (`t`: seconds into the recording) or "note" (`file` is the note's id).
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t: Option<u64>,
+}
+
+/// A course note to search with the books: its course, title, id and text.
+pub struct NoteDoc {
+    pub course: String,
+    pub title: String,
+    pub id: String,
+    pub text: String,
+}
+
+/// One searchable piece: a book page, a minute of a lecture, or a note.
+struct Piece {
+    course: String,
+    title: String,
+    file: String,
+    page: usize,
+    kind: &'static str,
+    t: Option<u64>,
+    text: Arc<str>,
+}
+
+/// A lecture's transcript in pieces of about a minute, each with its start (seconds).
+fn lecture_minutes(sidecar: &serde_json::Value) -> Vec<(u64, String)> {
+    let mut out: Vec<(u64, String)> = Vec::new();
+    for s in sidecar["segments"].as_array().into_iter().flatten() {
+        let start = s["start"].as_f64().unwrap_or(0.0).max(0.0) as u64;
+        let text = s["text"].as_str().unwrap_or("").trim();
+        match out.last_mut() {
+            Some((at, body)) if start < *at + 60 => {
+                body.push(' ');
+                body.push_str(text);
+            }
+            _ => out.push((start, text.to_string())),
+        }
+    }
+    out
 }
 
 /// The passage of `text` around the first of `terms` it contains.
@@ -648,31 +688,41 @@ fn snippet(text: &str, terms: &HashSet<String>, width: usize) -> String {
     format!("{}{body}{}", if start > 0 { "…" } else { "" }, if end < text.len() { "…" } else { "" })
 }
 
-/// The pages that best answer `query`, best first (BM25 over every page of the books in scope).
-pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, limit: usize) -> Vec<Hit> {
+/// The pages that best answer `query`, best first (BM25 over every page of the books in scope, each
+/// minute of their lecture transcripts, and the course notes given).
+pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, limit: usize, notes: &[NoteDoc]) -> Vec<Hit> {
     let terms: HashSet<String> = words(query).into_iter().collect();
     if terms.is_empty() {
         return Vec::new();
     }
     let wanted = course.map(str::to_lowercase).filter(|c| !c.trim().is_empty());
-    let mut pages: Vec<(&Course, &Book, usize, Arc<BookText>)> = Vec::new();
-    for c in &library.courses {
-        if wanted.as_ref().is_some_and(|w| !c.name.to_lowercase().contains(w.as_str())) {
-            continue;
-        }
+    let in_scope = |name: &str| wanted.as_ref().is_none_or(|w| name.to_lowercase().contains(w.as_str()));
+    let mut pieces: Vec<Piece> = Vec::new();
+    let root = Path::new(&library.root);
+    for c in library.courses.iter().filter(|c| in_scope(&c.name)) {
         for b in &c.books {
             if let Some(text) = load_text(dir, &c.name, &b.file) {
-                for i in 0..text.pages.len() {
-                    pages.push((c, b, i, text.clone()));
+                for (i, page) in text.pages.iter().enumerate() {
+                    pieces.push(Piece { course: c.name.clone(), title: b.title.clone(), file: b.file.clone(), page: i + 1, kind: "book", t: None, text: Arc::from(page.as_str()) });
                 }
             }
         }
+        for lecture in crate::study_lectures::list(&root.join(&c.name)) {
+            let Some(sidecar) = lecture.sidecar else { continue };
+            let title = lecture.file.rsplit_once('.').map(|(stem, _)| stem.to_string()).unwrap_or_else(|| lecture.file.clone());
+            for (i, (t, text)) in lecture_minutes(&sidecar).into_iter().enumerate() {
+                pieces.push(Piece { course: c.name.clone(), title: title.clone(), file: lecture.file.clone(), page: i + 1, kind: "lecture", t: Some(t), text: Arc::from(text.as_str()) });
+            }
+        }
     }
-    let counted: Vec<HashMap<String, usize>> = pages
+    for n in notes.iter().filter(|n| in_scope(&n.course)) {
+        pieces.push(Piece { course: n.course.clone(), title: n.title.clone(), file: n.id.clone(), page: 1, kind: "note", t: None, text: Arc::from(n.text.as_str()) });
+    }
+    let counted: Vec<HashMap<String, usize>> = pieces
         .iter()
-        .map(|(_, _, i, text)| {
+        .map(|piece| {
             let mut counts = HashMap::new();
-            let all = words(&text.pages[*i]);
+            let all = words(&piece.text);
             counts.insert(String::new(), all.len());
             for w in all.into_iter().filter(|w| terms.contains(w)) {
                 *counts.entry(w).or_insert(0) += 1;
@@ -680,7 +730,7 @@ pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, 
             counts
         })
         .collect();
-    let n = pages.len() as f64;
+    let n = pieces.len() as f64;
     let average = (counted.iter().map(|c| c[""] as f64).sum::<f64>() / n.max(1.0)).max(1.0);
     let (k1, b) = (1.2, 0.75);
     let mut scored: Vec<(f64, usize)> = counted
@@ -709,8 +759,8 @@ pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, 
         .into_iter()
         .take(limit)
         .map(|(score, index)| {
-            let (c, b, i, text) = &pages[index];
-            Hit { course: c.name.clone(), book: b.title.clone(), file: b.file.clone(), page: i + 1, snippet: snippet(&text.pages[*i], &terms, 360), score: (score * 100.0).round() / 100.0 }
+            let p = &pieces[index];
+            Hit { course: p.course.clone(), book: p.title.clone(), file: p.file.clone(), page: p.page, snippet: snippet(&p.text, &terms, 360), score: (score * 100.0).round() / 100.0, kind: p.kind, t: p.t }
         })
         .collect()
 }
@@ -911,9 +961,23 @@ pub fn study_save_index(course: String, file: String, bytes: u64, pages: Vec<Str
 
 /// Pages of the library's books that match `query`, best first.
 #[tauri::command]
-pub fn study_search(query: String, course: Option<String>) -> Result<Vec<Hit>, String> {
+pub fn study_search(manager: tauri::State<'_, crate::bridgelink::BridgeLinkManager>, query: String, course: Option<String>) -> Result<Vec<Hit>, String> {
     let (library, dir) = library_for_search()?;
-    Ok(search(&library, &dir, &query, course.as_deref(), 30))
+    let notes = course_notes(&crate::bridgelink::notes::notes_list(manager)?);
+    Ok(search(&library, &dir, &query, course.as_deref(), 30, &notes))
+}
+
+/// The notes kept in courses (`Study/<course>`), as search documents. Flashcard notes are left out.
+pub fn course_notes(notes: &[crate::bridgelink::notes::Note]) -> Vec<NoteDoc> {
+    notes
+        .iter()
+        .filter(|n| !n.deleted && !n.title.to_lowercase().contains("flashcards"))
+        .filter_map(|n| {
+            let course = n.folder.strip_prefix("Study/")?.split('/').next()?.to_string();
+            let text = n.blocks.iter().filter(|b| !b.deleted).map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+            Some(NoteDoc { course, title: crate::bridgelink::notes::display_title(n), id: n.id.clone(), text })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -960,6 +1024,24 @@ mod tests {
     }
 
     #[test]
+    fn lecture_transcripts_are_searched_a_minute_at_a_time() {
+        let root = std::env::temp_dir().join(format!("bd-study-lectures-{}", uuid::Uuid::new_v4()));
+        let course = root.join("EE 310");
+        std::fs::create_dir_all(course.join("Lectures")).unwrap();
+        std::fs::write(course.join("Lectures").join("Lecture 4.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        crate::study_lectures::write_sidecar(&course, "Lecture 4.webm", &serde_json::json!({ "segments": [
+            { "start": 0, "end": 5, "text": "Today, nodes." }, { "start": 30, "end": 35, "text": "Kirchhoff's current law says" },
+            { "start": 75, "end": 80, "text": "Mesh analysis next." },
+        ] })).unwrap();
+        let library = Library { root: root.to_string_lossy().to_string(), courses: vec![Course { name: "EE 310".into(), books: vec![], archived: false, info: CourseInfo::default() }] };
+        let hits = search(&library, &root.join("index"), "Kirchhoff current", None, 5, &[]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].kind, hits[0].t, hits[0].book.as_str(), hits[0].page), ("lecture", Some(0), "Lecture 4", 1));
+        assert_eq!(search(&library, &root.join("index"), "mesh", None, 5, &[])[0].t, Some(75));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn pages_are_found_by_relevance_with_a_passage_around_the_words() {
         let dir = std::env::temp_dir().join(format!("bd-study-index-{}", uuid::Uuid::new_v4()));
         let book = |file: &str, title: &str| Book { file: file.into(), title: title.into(), kind: "pdf".into(), bytes: 10, indexed: true };
@@ -978,13 +1060,17 @@ mod tests {
         ], version: INDEX_VERSION }).unwrap();
         save_text(&dir, "Biology", "bio.pdf", &BookText { bytes: 10, pages: vec![format!("Mitochondria make ATP. {filler}")], version: INDEX_VERSION }).unwrap();
 
-        let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5);
+        let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5, &[]);
         assert_eq!((hits[0].book.as_str(), hits[0].page), ("Calculus", 2));
         assert!(hits[0].snippet.starts_with('…') && hits[0].snippet.contains("chain rule"), "{}", hits[0].snippet);
         assert_eq!(hits.len(), 2, "page 3 mentions the derivative too");
-        assert!(search(&library, &dir, "mitochondria", Some("math"), 5).is_empty());
-        assert_eq!(search(&library, &dir, "Mitochondria", Some("bio"), 5)[0].course, "Biology");
-        assert!(search(&library, &dir, "the of and", None, 5).is_empty());
+        assert!(search(&library, &dir, "mitochondria", Some("math"), 5, &[]).is_empty());
+        assert_eq!(search(&library, &dir, "Mitochondria", Some("bio"), 5, &[])[0].course, "Biology");
+        assert!(search(&library, &dir, "the of and", None, 5, &[]).is_empty());
+        // Course notes are searched too.
+        let notes = [NoteDoc { course: "Biology".into(), title: "Cell notes".into(), id: "n1".into(), text: "Ribosomes build proteins.".into() }];
+        let hit = &search(&library, &dir, "ribosomes", None, 5, &notes)[0];
+        assert_eq!((hit.kind, hit.file.as_str(), hit.book.as_str()), ("note", "n1", "Cell notes"));
         // A new edition (different size) shows as not indexed; a reload after a change is seen.
         assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 10);
         std::thread::sleep(std::time::Duration::from_millis(20));
