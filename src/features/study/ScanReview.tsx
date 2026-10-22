@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import katex from 'katex'
 import { Check, Sparkles, X } from 'lucide-react'
-import { notesCreateMarkdown } from '../../lib/bridge'
+import { handwritingVision, notesCreateMarkdown } from '../../lib/bridge'
+import { useStore } from '../../core/store'
+import { libraryStore } from './state'
 import { aiAllowed } from '../../core/exam'
 import { errorText } from '../../core/util'
 import { notesStore } from '../notes/state'
@@ -18,12 +20,20 @@ const typesets = (tex: string, display: boolean) => { try { katex.renderToString
 export function ScanReview({ course, file, src, onClose, onStatus }: { course: string; file: string; src: string; onClose: () => void; onStatus: (s: string) => void }) {
   const [text, setText] = useState('')
   const [reading, setReading] = useState(true)
+  const [unsure, setUnsure] = useState<number[]>([])
+  const info = useStore(libraryStore).library?.courses.find(c => c.name === course)?.info
   useEffect(() => {
     let live = true
-    void recogniseImage(src).then(t => { if (live) setText(t.trim()) }).catch(e => { if (live) onStatus(`The text couldn’t be read here: ${errorText(e, 'unknown error')}`) }).finally(() => { if (live) setReading(false); void stopRecognition() })
+    // On the Mac, Apple's Vision reads handwriting far better than text recognition in the window.
+    const words = (Array.isArray(info?.words) ? info!.words as string[] : []).map(w => w.split('=>').pop()!.trim()).filter(Boolean)
+    const vision = handwritingVision(course, file, words).then(lines => {
+      setUnsure(lines.flatMap((l, i) => l.confidence < 0.5 ? [i] : []))
+      return lines.map(l => l.text).join('\n')
+    })
+    void vision.catch(() => recogniseImage(src)).then(t => { if (live) setText(t.trim()) }).catch(e => { if (live) onStatus(`The text couldn’t be read here: ${errorText(e, 'unknown error')}`) }).finally(() => { if (live) setReading(false); void stopRecognition() })
     return () => { live = false }
   }, [src])
-  const flagged = useMemo(() => new Set([...badMathLines(text, typesets), ...doubtfulLines(text)]), [text])
+  const flagged = useMemo(() => new Set([...badMathLines(text, typesets), ...doubtfulLines(text), ...unsure]), [text, unsure])
 
   async function save() {
     try {

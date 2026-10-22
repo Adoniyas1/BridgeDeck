@@ -470,6 +470,8 @@ export async function studySavePhoto(course: string, name: string, bytes: Uint8A
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_photo', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** Apple Vision's reading of a course photo, line by line (Mac only; study/handwriting_mac.rs). */
+export const handwritingVision = (course: string, file: string, words: string[]) => native<Array<{ text: string; confidence: number }>>('handwriting_vision', { course, file, words })
 export const studySaveCsv = (course: string, name: string, text: string) => native<string>('study_save_csv', { course, name, text })
 /** Lecture recordings in a course's Lectures folder, with their transcripts (study_lectures.rs). */
 export type LectureSidecar = { segments?: Array<{ start: number; end: number; text: string }>; markers?: Array<{ t: number; note?: string }>; photos?: Array<{ t: number; file: string }>; started?: number; note?: string; summary?: string }

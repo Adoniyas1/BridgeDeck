@@ -47,6 +47,7 @@ mod study_state;
 mod study_mimir;
 mod study_lectures;
 mod ink;
+mod handwriting_mac;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -664,6 +665,7 @@ pub fn run() {
             study::study_save_csv,
             study::study_save_photo,
             canvas::canvas_download_files,
+            handwriting_mac::handwriting_vision,
             ink::ink_load,
             ink::ink_set_doc,
             ink::ink_append,
