@@ -5,6 +5,7 @@ import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAd
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
+import { aiPolicyOf } from '../../core/exam'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore, refreshEvents } from '../calendar/state'
 import { dateInput, formatRange, fromInputs } from '../calendar/model'
@@ -226,6 +227,11 @@ function CourseDetails({ course, onStatus }: { course: StudyCourse; onStatus: (s
       <option value="">{canvas.courses.length ? 'Not linked' : 'Connect Canvas in Settings → Study'}</option>
       {canvas.courses.map(c => <option key={c.id} value={c.id}>{c.code}{c.name && c.name !== c.code ? ` · ${c.name}` : ''}</option>)}
       {course.info.canvasId && !linked && <option value={course.info.canvasId}>{course.info.canvasCode || 'Linked course'}</option>}
+    </select></label>
+    <label title="What the syllabus allows: Mimir and ChatGPT follow it for this course"><span>AI help</span><select value={aiPolicyOf(course.info)} onChange={e => void save({ aiPolicy: e.target.value })}>
+      <option value="hints">Hints only (Mimir teaches)</option>
+      <option value="full">Full answers allowed</option>
+      <option value="none">No AI for this course</option>
     </select></label>
   </div>
 }

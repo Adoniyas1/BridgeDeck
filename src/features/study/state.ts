@@ -1,7 +1,7 @@
 import type { Card } from 'ts-fsrs'
 import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyStateGet, studyStateSet, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
 import { configStore } from '../../core/config'
-import { quietUntilStore } from '../../core/exam'
+import { aiPolicyOf, aiPolicyStore, quietUntilStore } from '../../core/exam'
 import { notify } from '../../core/notify'
 import { createStore } from '../../core/store'
 import { eventsStore } from '../calendar/state'
@@ -21,7 +21,9 @@ export const termStore = createStore<Term | null>(null)
 export async function refreshLibrary() {
   if (!isTauri()) return
   try {
-    libraryStore.set({ library: await studyLibrary(configStore.get().syncthing.sharedFolderPath), error: '' })
+    const library = await studyLibrary(configStore.get().syncthing.sharedFolderPath)
+    libraryStore.set({ library, error: '' })
+    aiPolicyStore.set(Object.fromEntries(library.courses.map(c => [c.name, aiPolicyOf(c.info)])))
     const term = readTerm(JSON.stringify((await studyStateGet('term').catch(() => ({} as Record<string, unknown>))).term ?? {}))
     if (JSON.stringify(term) !== JSON.stringify(termStore.get())) termStore.set(term)
   } catch (e) {

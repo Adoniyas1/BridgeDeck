@@ -31,7 +31,7 @@ use crate::bridgelink::BridgeLinkManager;
 const VERSION: u32 = 1;
 const DIR: &str = ".state";
 /// The kinds of state kept this way; each is added by the change that first uses it.
-const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone"];
+const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam"];
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_VALUE: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 20_000;
@@ -237,6 +237,15 @@ pub fn study_state_put(manager: State<'_, BridgeLinkManager>, key: String, chang
         return Err("BridgeLink hasn't started yet".into());
     }
     put(&study_root()?, &key, &device, changes, now_ms())
+}
+
+// ---- Exam mode ----
+
+/// Exam mode, if it's on now on either computer: `{course, until}` (ms).
+pub fn exam_now(now: u64) -> Option<Value> {
+    let study = study_root().ok()?;
+    let exam = values(&read_all(&study, "exam")).remove("exam")?;
+    (exam.get("until").and_then(Value::as_u64)? > now).then_some(exam)
 }
 
 // ---- What Canvas sent last ----

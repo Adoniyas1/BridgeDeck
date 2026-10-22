@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { BookCheck, CalendarClock, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
-import { examStore } from '../../core/exam'
+import { examStore, loadSharedExam } from '../../core/exam'
 import { setNotice } from '../../core/notice'
 import { notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -182,7 +182,8 @@ export function StudyBackground() {
   const [, setTick] = useState(0)
   usePeriodicRefresh(async () => { await loadSharedCanvas(); await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
-    const timer = window.setInterval(() => { checkAssignmentReminders(); checkClassReminders(); setTick(t => t + 1) }, 60_000)
+    const timer = window.setInterval(() => { void loadSharedExam(); checkAssignmentReminders(); checkClassReminders(); setTick(t => t + 1) }, 60_000)
+    void loadSharedExam()
     return () => window.clearInterval(timer)
   }, [])
   // Homework scanned on the phone lands in its course as a PDF: show it, and say so.

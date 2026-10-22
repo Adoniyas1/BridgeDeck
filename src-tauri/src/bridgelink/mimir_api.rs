@@ -288,6 +288,11 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
         }
 
         // ---- Study: the user's textbooks, searched by page ----
+        // Exam mode on either computer: Mimir stays out of it until it ends.
+        "/mimir/exam" => Ok(match crate::study_state::exam_now(now_ms()) {
+            Some(exam) => json!({ "on": true, "course": exam["course"], "until": exam["until"] }),
+            None => json!({ "on": false }),
+        }),
         "/mimir/study/courses" => {
             let (library, dir) = crate::study::library_for_search()?;
             let all_notes = manager.lock()?.notes.list();

@@ -5,6 +5,7 @@ import { notesCreateMarkdown, notesSave, type NoteBlock } from '../../lib/bridge
 import type { DynamicTab } from '../../core/tabs'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
 import { useTabContext } from '../../core/tabContext'
+import { aiPolicyStore } from '../../core/exam'
 import { askMimir } from '../mimir'
 import { mimirPassagePrompt, readingContext } from './model'
 import { between, newId, visible } from '../notes/model'
@@ -43,7 +44,7 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
   const [question, setQuestion] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
-  useTabContext(tab.id, () => ({ title: chapter ? `${title}: ${chapter}` : title, text: readingContext({ course, title, where: [chapter && `chapter “${chapter}”`, percent != null && `${percent}% through`].filter(Boolean).join(', ') || 'open', selection, text: '' }) }))
+  useTabContext(tab.id, () => ({ title: chapter ? `${title}: ${chapter}` : title, text: readingContext({ policy: aiPolicyStore.get()[course], course, title, where: [chapter && `chapter “${chapter}”`, percent != null && `${percent}% through`].filter(Boolean).join(', ') || 'open', selection, text: '' }) }))
 
   useEffect(() => {
     const el = area.current
@@ -152,7 +153,7 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
       <span className="grow book-title">{title}{chapter ? ` · ${chapter}` : ''}{percent !== null ? ` · ${percent}%` : ''}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
       <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onClick={() => setCard(selection.replace(/\s+/g, ' '))}><Layers size={14} /> Flashcard</button>
-      <button className="ghost" disabled={!selection} title="Ask Mimir to explain this passage (opens beside the book)" onClick={() => void askMimir(mimirPassagePrompt(title, 0, selection, chapter), true)}><Brain size={14} /> Ask Mimir</button>
+      <button className="ghost" disabled={!selection} title="Ask Mimir to explain this passage (opens beside the book)" onClick={() => void askMimir(mimirPassagePrompt(title, 0, selection, chapter), true, course)}><Brain size={14} /> Ask Mimir</button>
       <button className="ghost" disabled={!selection} title="Open ChatGPT with this passage, ready for you to send" onClick={() => void askChatGPT(passagePrompt(title, 0, selection).replace(' from page 0', chapter ? ` from “${chapter}”` : ''), courseFolder(course))}><MessageCircleQuestion size={14} /> Ask ChatGPT</button>
     </div>
     {card && <form className="book-card-form" onSubmit={e => { e.preventDefault(); void saveCard() }}>

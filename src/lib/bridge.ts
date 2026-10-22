@@ -440,7 +440,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown; /** 'none', 'hints' (default) or 'full': how much AI help this course allows (core/exam.ts). */ aiPolicy?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -468,7 +468,7 @@ export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & 
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
-export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone'
+export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone' | 'exam'
 export const studyStateGet = (key: StudyStateKey) => native<Record<string, unknown>>('study_state_get', { key })
 export const studyStateSet = (key: StudyStateKey, changes: Record<string, unknown>) => native<void>('study_state_put', { key, changes })
 /** The newest copy of what Canvas sent, from either computer (study_state.rs), and keeping this one's. */

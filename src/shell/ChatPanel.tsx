@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { BookmarkCheck, BookmarkPlus, MessageCircleQuestion, SquarePen, X } from 'lucide-react'
+import { examStore } from '../core/exam'
 import { useStore } from '../core/store'
 import { chatPanelStore, PANEL_MIN, saveWidth } from '../core/chatgpt'
 import { useOverlayOpen } from '../core/shortcuts'
@@ -20,6 +21,9 @@ export default function ChatPanel() {
   // "Save to BridgeDeck": idle, saving, or how the last save went (shown for a moment).
   const [saving, setSaving] = useState<{ state: 'idle' | 'saving' | 'done' | 'failed'; message: string }>({ state: 'idle', message: '' })
   const resetTimer = useRef<number>()
+  // Exam mode closes the panel (and keeps it closed until it ends).
+  const exam = useStore(examStore)
+  useEffect(() => { if (exam && exam.until > Date.now() && open) chatPanelStore.set(s => ({ ...s, open: false })) }, [exam, open])
 
   useEffect(() => {
     if (!isTauri()) return

@@ -130,9 +130,10 @@ export function inHighlight(line: string, quotes: string[]) {
 }
 
 /** What a book tab tells Mimir about what's being read. */
-export function readingContext(r: { course: string; title: string; where: string; selection: string; text: string }) {
+export function readingContext(r: { course: string; title: string; where: string; selection: string; text: string; policy?: string }) {
   return [
     `Reading “${r.title}” (course: ${r.course}), ${r.where}.`,
+    r.policy === 'full' ? 'This course allows full worked answers.' : r.policy === 'none' ? 'This course allows no AI help: say so and don\'t help with its material.' : 'For this course, teach by hints: don\'t give full solutions to its problems.',
     r.selection.trim() && `Selected passage:\n"${r.selection.replace(/\s+/g, ' ').trim().slice(0, 3000)}"`,
     r.text.trim() && `Text of the page:\n${r.text.trim()}`,
   ].filter(Boolean).join('\n\n')

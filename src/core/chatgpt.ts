@@ -1,4 +1,5 @@
 import { createStore } from './store'
+import { aiAllowed, courseOfFolder } from './exam'
 
 /** The ChatGPT side panel: open or not, its width, and text waiting to go in its message box. */
 export const chatPanelStore = createStore<{ open: boolean; width: number; ask: { text: string | null; folder: string | null; at: number } | null }>({
@@ -12,10 +13,12 @@ export const chatPanelStore = createStore<{ open: boolean; width: number; ask: {
  * "Save to BridgeDeck" button become notes in `folder` (the course or project), else "ChatGPT".
  */
 export async function askChatGPT(text?: string, folder?: string) {
+  if (!aiAllowed(courseOfFolder(folder))) return
   chatPanelStore.set(s => ({ ...s, open: true, ask: text || folder ? { text: text ?? null, folder: folder ?? null, at: Date.now() } : s.ask }))
 }
 
 export function toggleChatPanel() {
+  if (!chatPanelStore.get().open && !aiAllowed()) return
   chatPanelStore.set(s => ({ ...s, open: !s.open }))
 }
 
