@@ -8,6 +8,7 @@ import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
 import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
 import { savedStarts } from './chapters'
+import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
@@ -93,7 +94,7 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
           <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} /></>}
       <button className="ghost" disabled={!ok}>Add</button>
     </form>
-    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {{num:4.7k ohm ±2%}}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
     {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
     {browsing && <CardList deck={deck} onStatus={onStatus} />}
     {stats.total > stats.fresh && <button className="ghost" onClick={() => setShowMastery(m => !m)}>{showMastery ? 'Hide what you know' : 'What you know, by chapter'}</button>}
@@ -189,7 +190,10 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
   const [done, setDone] = useState(0)
   // When this card was put up, for the time spent on it in the review log.
   const shownAt = useRef(Date.now())
-  useEffect(() => { shownAt.current = Date.now() }, [queue[0]])
+  const [typed, setTyped] = useState('')
+  const [checked, setChecked] = useState<Checked | null>(null)
+  useEffect(() => { shownAt.current = Date.now(); setTyped(''); setChecked(null) }, [queue[0]])
+  const spec = useMemo(() => card ? answerSpec(card.back) : null, [card])
   const card = queue[0]
   const times = useMemo(() => card ? intervals(card.card) : {}, [card])
   const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
@@ -223,9 +227,14 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
       <div className="study-review-head"><Brain size={15} /><span className="grow">{card ? `${done} done · ${queue.length} to go` : 'All done'}</span><button className="ghost" onClick={onClose}>Close</button></div>
       {card ? <>
         <CardText className="study-review-front" text={card.front} />
-        {shown ? <CardText className="study-review-back" text={card.back} /> : null}
+        {spec && !shown && <form className="study-review-type" onSubmit={e => { e.preventDefault(); if (typed.trim()) { setChecked(checkAnswer(spec, typed)); setShown(true) } }}>
+          <input autoFocus placeholder="Your answer, e.g. 4.7k ohm" value={typed} onChange={e => setTyped(e.target.value)} />
+          <button className="ghost" disabled={!typed.trim()}>Check</button>
+        </form>}
+        {shown && checked && <p className={`study-review-checked ${checked.right ? 'right' : 'wrong'}`}>{checked.message}</p>}
+        {shown ? <CardText className="study-review-back" text={showAnswer(card.back)} /> : null}
         {shown && source && <button className="ghost study-review-source" title={source.label} onClick={() => openBookLink(source.href)}><BookOpen size={14} />Open p. {source.page}</button>}
-        {shown ? <div className="study-review-grades">{GRADES.map(g => <button key={g.grade} onClick={() => void answer(g.grade)}><strong>{g.label}</strong><small>{times[g.grade]} · {g.key}</small></button>)}</div>
+        {shown ? <div className="study-review-grades">{GRADES.map(g => <button key={g.grade} className={checked?.grade === g.grade ? 'suggested' : undefined} onClick={() => void answer(g.grade)}><strong>{g.label}</strong><small>{times[g.grade]} · {g.key}</small></button>)}</div>
           : <button className="study-review-show" onClick={() => setShown(true)}>Show answer <small>space</small></button>}
       </> : <p className="study-review-front">Nothing left to review. Well done.</p>}
     </div>

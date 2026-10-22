@@ -117,8 +117,15 @@ function tokenize(text: string, vars: Record<string, Quantity> = {}): Token[] {
     }
     if (src.startsWith('||', i)) { out.push({ k: 'op', v: '||' }); i += 2; continue }
     if (c === '∠' || (c === '<' && src[i + 1] !== '=')) { out.push({ k: 'op', v: '∠' }); i++; continue }
-    if (c === '°') { out.push({ k: 'op', v: '°' }); i++; continue }
-    const name = src.slice(i).match(/^[a-zA-Zπ_][a-zA-Z0-9_]*/)
+    if (c === '°') {
+      out.push({ k: 'op', v: '°' }); i++
+      // "10∠-30° V": the unit after the angle belongs to the whole phasor.
+      const word = src.slice(i).match(/^\s?([a-zA-ZΩµμ]+)/)
+      const unit = word && !Object.hasOwn(vars, word[1]) ? readUnit(word[1]) : null
+      if (word && unit && unit.dim !== NONE) { out.push({ k: 'num', v: q(unit.scale, 0, unit.dim) }); i += word[0].length }
+      continue
+    }
+    const name = src.slice(i).match(/^[a-zA-ZπΩµμ_][a-zA-Z0-9_Ωµμ]*/)
     if (name) { out.push({ k: 'name', v: name[0] }); i += name[0].length; continue }
     if ('+-*/^()='.includes(c)) { out.push({ k: 'op', v: c }); i++; continue }
     throw new Error(`Can’t read “${c}”`)
@@ -194,7 +201,9 @@ export function evaluate(text: string, vars: Record<string, Quantity> = {}): Qua
       const fn = FUNCTIONS[t.v.toLowerCase()]
       if (fn && isOp('(')) { i++; const a = parallelExpr(); take(')'); return fn(a) }
       if (Object.hasOwn(CONSTANTS, t.v)) return CONSTANTS[t.v]
-      // "j2" and "j 2pi": j times what follows.
+      // A unit on its own: "5j V", "(1+2j) kΩ".
+      const unit = readUnit(t.v)
+      if (unit && unit.dim !== NONE) return q(unit.scale, 0, unit.dim)
       throw new Error(`Unknown name “${t.v}”`)
     }
     throw new Error(`Unexpected “${t.v}”`)

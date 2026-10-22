@@ -14,5 +14,7 @@
       { "sub": "c1", "front": "The […] is positive", "back": "The [anode] is positive", "due": null },
       { "sub": "c2", "front": "The anode is [sign]", "back": "The anode is [positive]", "due": 3 }] },
   { "text": "{{c1::Kirchhoff}} said currents into a node sum to {{c1::zero}}",
-    "cards": [{ "sub": "c1", "front": "[…] said currents into a node sum to […]", "back": "[Kirchhoff] said currents into a node sum to [zero]", "due": null }] }
+    "cards": [{ "sub": "c1", "front": "[…] said currents into a node sum to […]", "back": "[Kirchhoff] said currents into a node sum to [zero]", "due": null }] },
+  { "text": "Thevenin resistance? :: {{num:4.7k ohm ±2%}}",
+    "cards": [{ "sub": "", "front": "Thevenin resistance?", "back": "{{num:4.7k ohm ±2%}}", "due": null }] }
 ]

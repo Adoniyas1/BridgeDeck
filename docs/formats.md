@@ -43,6 +43,7 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - `front :: back` is one card; its state is `<!--fsrs due=… s=… …-->`, as in every build.
 - `front ::: back` is two cards (`f`, `b`), and a line with `{{cN::answer}}` or `{{cN::answer::hint}}` is one card per N (`c1`, `c2`, …). Their state is `<!--fsrs b: due=… | f: due=…-->`, one group per card.
 - Builds before 0.9.2 don't count the new kinds as cards and leave those lines alone.
+- A back side `{{num:4.7k ohm ±2%}}` asks for a typed number (units, complex numbers; 1% when no tolerance is given).
 - `#suspended` on a line leaves it out of reviews; `#leech` marks one forgotten 8 or more times.
 - Examples both sides are tested with: `src/features/study/card-vectors.json`.
 

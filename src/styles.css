@@ -820,6 +820,12 @@ button.today-tile:hover{border-color:var(--accent)}
 .study-mastery-bar i{display:block;height:100%}
 .study-mastery-row small{width:70px;text-align:right;color:var(--muted)}
 .study-mastery-tune{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.study-review-type{display:flex;gap:6px;margin:10px 0}
+.study-review-type input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font:inherit}
+.study-review-checked{margin:6px 0;font-size:13px}
+.study-review-checked.right{color:#4ade80}
+.study-review-checked.wrong{color:#f87171}
+.study-review-grades button.suggested{outline:2px solid var(--accent)}
 .study-card-new input:focus{border-color:var(--accent)}
 .study-hits{display:flex;flex-direction:column;gap:4px;margin-top:10px;max-height:420px;overflow:auto}
 .study-hits button{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px}

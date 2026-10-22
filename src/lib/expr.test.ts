@@ -19,6 +19,7 @@ describe('engineering arithmetic', () => {
     expect(show('5∠90°')).toBe('j5 = 5 ∠ 90°')
     expect(show('1k || 1k')).toBe('500')
     expect(show('-5∠-90')).toBe('j5 = 5 ∠ 90°')
+    expect(show('(3+4j) kΩ')).toBe('3000 + j4000 Ω = 5 kΩ ∠ 53.13°')
     expect(show('1kΩ || 1kΩ')).toBe('500 Ω')
     expect(show('100Ω || 1/(j 2pi 1kHz 1uF)')).toMatch(/Ω = .* ∠ -32\.14°$/)
   })
