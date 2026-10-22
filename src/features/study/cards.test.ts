@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Rating, State } from 'ts-fsrs'
 import type { Note } from '../../lib/bridge'
 import { inline } from '../notes/model'
-import { cardLine, deckOf, deckStats, dueCards, parseCard, span, withState } from './cards'
+import { cardLine, deckOf, deckStats, dueCards, makeCloze, parseCard, parseCards, span, withState } from './cards'
+import vectors from './card-vectors.json'
 import { intervals, review } from './review'
 import { pageText } from './indexer'
 import { bookLink, parseBookLink, studyMinutes, weekStart } from './model'
@@ -71,5 +72,28 @@ describe('study search and progress', () => {
     expect(studyMinutes([ev('Studied Math 221', t, 25), ev('Studied Math 221', t + 3_600_000, 50), ev('Studied Physics', t, 25), ev('Math 221 exam', t, 120)], 'Math 221', t - 1, t + 86_400_000)).toBe(75)
     const monday = new Date(weekStart(Date.parse('2026-10-04T12:00:00')))
     expect([monday.getDay(), monday.getHours(), monday.getDate()]).toEqual([1, 0, 28])
+  })
+})
+
+describe('card grammar (shared with Rust)', () => {
+  it('reads every example the same way', () => {
+    for (const v of vectors as Array<{ text: string; cards: Array<{ sub: string; front: string; back: string; due: number | null }> }>) {
+      const got = parseCards(v.text).map(c => ({ sub: c.sub, front: c.front, back: c.back, due: c.card.due.getTime() || null }))
+      expect(got, v.text).toEqual(v.cards)
+    }
+  })
+  it('saves one sub-card without touching the others', () => {
+    const line = 'Anode ::: positive electrode <!--fsrs b: due=7 s=2-->'
+    const [f] = parseCards(line)
+    const saved = withState(line, { ...f.card, due: new Date(11), stability: 3, state: State.Review }, 'f')
+    expect(saved).toMatch(/<!--fsrs b: due=7 s=2 \| f: due=11 s=3 /)
+    expect(parseCards(saved).map(c => c.card.due.getTime())).toEqual([11, 7])
+    // A one-card line keeps the old form, which older builds read.
+    expect(withState('a :: b', f.card)).toMatch(/^a :: b <!--fsrs due=0 /)
+  })
+  it('makes cloze deletions', () => {
+    expect(makeCloze('The anode is positive', 'anode')).toBe('The {{c1::anode}} is positive')
+    expect(makeCloze('The {{c1::anode}} is positive', 'positive')).toBe('The {{c1::anode}} is {{c2::positive}}')
+    expect(makeCloze('x', 'y')).toBe('x')
   })
 })

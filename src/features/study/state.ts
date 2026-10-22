@@ -79,7 +79,9 @@ export async function addCards(course: string, lines: string[]) {
 
 /** Saves a card's new review state into its note line. */
 export async function saveReview(card: FlashCard, next: Card) {
-  const saved = await notesSave({ id: card.noteId, blocks: [{ ...card.block, text: withState(card.block.text, next) }] })
+  // The block as it is now: another sub-card of the same line may have been reviewed already.
+  const block = notesStore.get().find(n => n.id === card.noteId)?.blocks.find(b => b.id === card.block.id) ?? card.block
+  const saved = await notesSave({ id: card.noteId, blocks: [{ ...block, text: withState(block.text, next, card.sub) }] })
   notesStore.set(list => list.map(n => n.id === saved.id ? saved : n))
 }
 

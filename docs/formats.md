@@ -37,3 +37,10 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - Written by each computer that's signed in to Canvas, after a refresh with no errors: `{ at, feed, api, courses, announcements }`, at most 3 MB.
 - Readers take the file with the largest `at`. A computer that isn't signed in uses it, and so will the phone and Mimir.
 - Done ticks for Canvas items: study state key `canvasDone`, entry `<assignment id>` = `true`. This computer's settings list (`canvas.done`) is still written for older builds and read once to fill in the state.
+
+## Flashcard lines (`src/features/study/cards.ts`, `mimir_api.rs card_subs`)
+
+- `front :: back` is one card; its state is `<!--fsrs due=… s=… …-->`, as in every build.
+- `front ::: back` is two cards (`f`, `b`), and a line with `{{cN::answer}}` or `{{cN::answer::hint}}` is one card per N (`c1`, `c2`, …). Their state is `<!--fsrs b: due=… | f: due=…-->`, one group per card.
+- Builds before 0.9.2 don't count the new kinds as cards and leave those lines alone.
+- Examples both sides are tested with: `src/features/study/card-vectors.json`.

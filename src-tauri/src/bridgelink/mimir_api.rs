@@ -302,8 +302,8 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .map(|c| {
                     let folder = study_folder(&c.name).to_lowercase();
                     let mine: Vec<&Note> = all_notes.iter().filter(|n| !n.deleted && n.folder.to_lowercase() == folder).collect();
-                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && card_parts(&b.text).is_some())).collect::<Vec<_>>();
-                    let due = cards.iter().filter(|b| card_due(&b.text).is_none_or(|d| d <= now_ms())).count();
+                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted).flat_map(|b| card_subs(&b.text))).collect::<Vec<_>>();
+                    let due = cards.iter().filter(|(_, due)| due.is_none_or(|d| d <= now_ms())).count();
                     json!({
                         "name": c.name,
                         "books": c.books.iter().map(|b| json!({ "title": b.title, "file": b.file, "kind": b.kind, "searchable": b.indexed, "pages": crate::study::load_text(&dir, &c.name, &b.file).map(|t| t.pages.len()) })).collect::<Vec<_>>(),
@@ -451,15 +451,46 @@ fn is_card_note(note: &Note) -> bool {
     note.title.to_lowercase().contains("flashcards")
 }
 
-fn card_parts(text: &str) -> Option<(&str, &str)> {
+/// The sub-cards of a card line and when each is next due (`None`: never reviewed), read the same
+/// way as the Study tab (cards.ts; shared examples in card-vectors.json): `front :: back` is one
+/// card, `front ::: back` two (`f`, `b`), and `{{cN::answer}}` one per N.
+fn card_subs(text: &str) -> Vec<(String, Option<u64>)> {
     let body = text.split("<!--").next().unwrap_or(text);
-    body.split_once(" :: ").filter(|(f, b)| !f.trim().is_empty() && !b.trim().is_empty())
+    let subs: Vec<String> = if let Some((f, b)) = body.split_once(" ::: ") {
+        if f.trim().is_empty() || b.trim().is_empty() { vec![] } else { vec!["f".into(), "b".into()] }
+    } else if let Some((f, b)) = body.split_once(" :: ") {
+        if f.trim().is_empty() || b.trim().is_empty() { vec![] } else { vec![String::new()] }
+    } else {
+        let mut found: Vec<String> = Vec::new();
+        for part in body.split("{{c").skip(1) {
+            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() && part[digits.len()..].starts_with("::") && part.contains("}}") {
+                let sub = format!("c{digits}");
+                if !found.contains(&sub) {
+                    found.push(sub);
+                }
+            }
+        }
+        found
+    };
+    let states = card_states(text);
+    subs.into_iter().map(|sub| { let due = states.iter().find(|(k, _)| *k == sub).and_then(|(_, d)| *d); (sub, due) }).collect()
 }
 
-/// When a card is next due, from its review state `<!--fsrs due=… -->`; never reviewed has none.
-fn card_due(text: &str) -> Option<u64> {
-    let state = text.split("<!--fsrs ").nth(1)?;
-    state.split_whitespace().find_map(|kv| kv.strip_prefix("due=")).and_then(|v| v.trim_end_matches("-->").parse().ok())
+/// `<!--fsrs due=… -->` (one card) or `<!--fsrs f: due=… | b: due=…-->`: each sub-card's due time.
+fn card_states(text: &str) -> Vec<(String, Option<u64>)> {
+    let Some(state) = text.split("<!--fsrs ").nth(1).and_then(|s| s.split("-->").next()) else { return vec![] };
+    state
+        .split('|')
+        .map(|group| {
+            let group = group.trim();
+            let (sub, rest) = match group.split_once(':') {
+                Some((k, rest)) if !k.contains('=') && !k.contains(' ') => (k.to_string(), rest),
+                _ => (String::new(), group),
+            };
+            (sub, rest.split_whitespace().find_map(|kv| kv.strip_prefix("due=")).and_then(|v| v.parse().ok()))
+        })
+        .collect()
 }
 
 fn find_note(manager: &BridgeLinkManager, id: &str) -> Result<Note, String> {
@@ -591,9 +622,12 @@ mod tests {
     #[test]
     fn flashcards_and_book_links_match_the_study_tab() {
         assert_eq!(book_link("Math 221", "Calculus (8th ed).pdf", 4), "book:Math%20221/Calculus%20%288th%20ed%29.pdf#4");
-        assert_eq!(card_parts("What is ATP? :: The cell's energy currency <!--fsrs due=5 s=1-->"), Some(("What is ATP?", "The cell's energy currency ")));
-        assert_eq!(card_parts("No card here"), None);
-        assert_eq!(card_due("Q :: A <!--fsrs due=1700000000000 s=2.1 d=5-->"), Some(1_700_000_000_000));
-        assert_eq!(card_due("Q :: A"), None);
+        assert_eq!(card_subs("Q :: A <!--fsrs due=1700000000000 s=2.1 d=5-->"), vec![(String::new(), Some(1_700_000_000_000))]);
+        // The same examples the Study tab is tested with.
+        let vectors: Value = serde_json::from_str(include_str!("../../../src/features/study/card-vectors.json")).unwrap();
+        for v in vectors.as_array().unwrap() {
+            let want: Vec<(String, Option<u64>)> = v["cards"].as_array().unwrap().iter().map(|c| (c["sub"].as_str().unwrap().to_string(), c["due"].as_u64())).collect();
+            assert_eq!(card_subs(v["text"].as_str().unwrap()), want, "{}", v["text"]);
+        }
     }
 }

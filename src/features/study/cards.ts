@@ -5,27 +5,68 @@ import type { Note, NoteBlock } from '../../lib/bridge'
 import { courseFolder } from './model'
 
 /**
- * Flashcards are lines in a course's "… flashcards" note: `front :: back`, the same format the
- * Obsidian spaced-repetition plugins read. Review state rides along in an HTML comment
- * (`<!--fsrs due=… -->`), hidden in Notes and Obsidian's preview, so the schedule syncs with the note.
+ * Flashcards are lines in a course's "… flashcards" note:
+ *
+ *    front :: back                      one card
+ *    front ::: back                     two cards, one each way (sub-cards "f" and "b")
+ *    The {{c1::anode}} is {{c2::positive::sign}}   one card per cN, answer hidden (the hint shows)
+ *
+ * Review state rides along in an HTML comment, hidden in Notes: `<!--fsrs due=… s=…-->` for a
+ * one-card line, and `<!--fsrs f: due=… s=… | b: due=…-->` (one group per sub-card) otherwise.
+ * Builds before this one read only `front :: back`, which is written exactly as before. The shared
+ * examples in card-vectors.json are checked here and in Rust (mimir_api.rs).
  */
-export type FlashCard = { noteId: string; block: NoteBlock; front: string; back: string; card: Card }
+export type FlashCard = { id: string; noteId: string; block: NoteBlock; sub: string; front: string; back: string; card: Card }
+export type ParsedCard = { sub: string; front: string; back: string; card: Card }
 
 /** ts-fsrs's State values. */
 const NEW = 0 as State, REVIEW = 2 as State
 const STATE = /\s*<!--fsrs ([^>]*?)-->/
+const CLOZE = /\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g
 
 export const flashcardsTitle = (course: string) => `${course} — flashcards`
 export const isCardNote = (note: Note) => note.title.toLowerCase().includes('flashcards')
 
-export function parseCard(text: string): { front: string; back: string; card: Card } | null {
+/** The review state of each sub-card ("" for a one-card line). */
+function statesOf(text: string): Record<string, string> {
+  const raw = text.match(STATE)?.[1] ?? ''
+  const out: Record<string, string> = {}
+  for (const group of raw.split('|')) {
+    const m = group.trim().match(/^([a-z0-9]+):\s*(.*)$/i)
+    if (m) out[m[1]] = m[2]
+    else if (group.trim()) out[''] = group.trim()
+  }
+  return out
+}
+
+/** The cards in one line: none, one, two (both ways) or one per cloze. */
+export function parseCards(text: string): ParsedCard[] {
   const body = text.replace(/<!--[\s\S]*?-->/g, '')
+  const states = statesOf(text)
+  const both = body.indexOf(' ::: ')
+  if (both >= 0) {
+    const front = body.slice(0, both).trim(), back = body.slice(both + 5).trim()
+    if (!front || !back) return []
+    return [{ sub: 'f', front, back, card: decodeState(states.f ?? '') }, { sub: 'b', front: back, back: front, card: decodeState(states.b ?? '') }]
+  }
   const split = body.indexOf(' :: ')
-  if (split < 0) return null
-  const front = body.slice(0, split).trim()
-  const back = body.slice(split + 4).trim()
-  if (!front || !back) return null
-  return { front, back, card: decodeState(text.match(STATE)?.[1] ?? '') }
+  if (split >= 0) {
+    const front = body.slice(0, split).trim(), back = body.slice(split + 4).trim()
+    return front && back ? [{ sub: '', front, back, card: decodeState(states[''] ?? '') }] : []
+  }
+  const numbers = [...new Set([...body.matchAll(CLOZE)].map(m => m[1]))]
+  return numbers.map(n => ({
+    sub: `c${n}`,
+    front: body.replace(CLOZE, (_, k, answer, hint) => k === n ? `[${hint?.trim() || '…'}]` : answer).trim(),
+    back: body.replace(CLOZE, (_, k, answer) => k === n ? `[${answer}]` : answer).trim(),
+    card: decodeState(states[`c${n}`] ?? ''),
+  }))
+}
+
+/** A one-card line (`front :: back`), as older code reads it. */
+export function parseCard(text: string): { front: string; back: string; card: Card } | null {
+  const cards = parseCards(text)
+  return cards.length === 1 && cards[0].sub === '' ? cards[0] : null
 }
 
 function decodeState(raw: string): Card {
@@ -40,33 +81,50 @@ function decodeState(raw: string): Card {
   }
 }
 
-export function encodeState(card: Card) {
+function stateText(card: Card) {
   const round = (n: number) => Math.round(n * 1000) / 1000
   const parts = [`due=${card.due.getTime()}`, `s=${round(card.stability)}`, `d=${round(card.difficulty)}`, `sd=${card.scheduled_days}`, `ls=${card.learning_steps}`, `r=${card.reps}`, `l=${card.lapses}`, `st=${card.state}`]
   if (card.last_review) parts.push(`lr=${card.last_review.getTime()}`)
-  return `<!--fsrs ${parts.join(' ')}-->`
+  return parts.join(' ')
 }
 
-/** The block's text with the card's new review state. */
-export function withState(text: string, card: Card) {
-  return `${text.replace(STATE, '').trimEnd()} ${encodeState(card)}`
+export const encodeState = (card: Card) => `<!--fsrs ${stateText(card)}-->`
+
+/** The line's text with one sub-card's new review state (the others kept). */
+export function withState(text: string, card: Card, sub = '') {
+  if (!sub) return `${text.replace(STATE, '').trimEnd()} ${encodeState(card)}`
+  const states = statesOf(text)
+  delete states['']
+  states[sub] = stateText(card)
+  const groups = Object.keys(states).sort().map(k => `${k}: ${states[k]}`)
+  return `${text.replace(STATE, '').trimEnd()} <!--fsrs ${groups.join(' | ')}-->`
+}
+
+/** The sentence with {{cN::…}} around `answer` (the next free number), for "Make cloze". */
+export function makeCloze(text: string, answer: string): string {
+  const at = text.indexOf(answer)
+  if (!answer.trim() || at < 0) return text
+  const used = [...text.matchAll(CLOZE)].map(m => Number(m[1]))
+  const n = (used.length ? Math.max(...used) : 0) + 1
+  return `${text.slice(0, at)}{{c${n}::${answer}}}${text.slice(at + answer.length)}`
 }
 
 /** A card line for a note (one line; " :: " inside a side would split it wrongly). */
-export function cardLine(front: string, back: string, source = '') {
-  const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/ :: /g, ' : ').trim()
-  return `${clean(front)} :: ${clean(back)}${source ? ` (${source})` : ''}`
+export function cardLine(front: string, back: string, source = '', bothWays = false) {
+  const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/ :::? /g, ' : ').trim()
+  return `${clean(front)} ${bothWays ? ':::' : '::'} ${clean(back)}${source ? ` (${source})` : ''}`
 }
 
-/** Every card of a course: lines `front :: back` in its flashcard notes. */
+/** A fill-in-the-blank line (one line, no "::" so it stays a cloze card). */
+export const clozeLine = (text: string, source = '') => `${text.replace(/\s+/g, ' ').replace(/ :::? /g, ' : ').trim()}${source ? ` (${source})` : ''}`
+
+/** Every card of a course, from the lines of its flashcard notes. */
 export function deckOf(notes: Note[], course: string): FlashCard[] {
   const folder = courseFolder(course).toLowerCase()
   return notes
     .filter(n => !n.deleted && n.folder.toLowerCase() === folder && isCardNote(n))
-    .flatMap(n => n.blocks.filter(b => !b.deleted).flatMap(block => {
-      const parsed = parseCard(block.text)
-      return parsed ? [{ noteId: n.id, block, ...parsed }] : []
-    }))
+    .flatMap(n => n.blocks.filter(b => !b.deleted).flatMap(block =>
+      parseCards(block.text).map(c => ({ id: `${n.id}/${block.id}${c.sub ? `/${c.sub}` : ''}`, noteId: n.id, block, ...c }))))
 }
 
 /** Cards to review now: those due, oldest due first, then new ones (up to `newLimit`). */

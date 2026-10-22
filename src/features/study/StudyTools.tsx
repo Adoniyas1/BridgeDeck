@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
 import { studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
@@ -6,7 +6,7 @@ import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
-import { cardLine, deckOf, deckStats, dueCards, GRADES, type FlashCard } from './cards'
+import { cardLine, clozeLine, deckOf, parseCards, deckStats, dueCards, GRADES, type FlashCard } from './cards'
 import { intervals, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
@@ -47,6 +47,9 @@ export function FocusCard({ course }: { course: string }) {
   </Card>
 }
 
+/** The next cloze number in a sentence. */
+const nextCloze = (text: string) => Math.max(0, ...[...text.matchAll(/\{\{c(\d+)::/g)].map(m => Number(m[1]))) + 1
+
 /** The course's flashcards: what's due, a review, and a quick way to add one. */
 export function FlashcardsCard({ course, onStatus }: { course: string; onStatus: (s: string) => void }) {
   const notes = useStore(notesStore)
@@ -55,21 +58,38 @@ export function FlashcardsCard({ course, onStatus }: { course: string; onStatus:
   const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
+  const [kind, setKind] = useState<'qa' | 'both' | 'cloze'>('qa')
+  const sentence = useRef<HTMLInputElement>(null)
+  const ok = kind === 'cloze' ? parseCards(front).length > 0 : !!front.trim() && !!back.trim()
 
   async function add() {
-    if (!front.trim() || !back.trim()) return
-    try { await addCards(course, [cardLine(front, back)]); setFront(''); setBack('') } catch (e) { onStatus(String(e)) }
+    if (!ok) return
+    try { await addCards(course, [kind === 'cloze' ? clozeLine(front) : cardLine(front, back, '', kind === 'both')]); setFront(''); setBack('') } catch (e) { onStatus(String(e)) }
+  }
+
+  /** Hides the selected words of the sentence: {{cN::words}}. */
+  function hide() {
+    const el = sentence.current
+    if (!el || el.selectionStart === null || el.selectionEnd === null || el.selectionStart === el.selectionEnd) return
+    const words = front.slice(el.selectionStart, el.selectionEnd)
+    setFront(`${front.slice(0, el.selectionStart)}{{c${nextCloze(front)}::${words}}}${front.slice(el.selectionEnd)}`)
   }
 
   const ready = stats.due + Math.min(stats.fresh, 20)
   return <Card><SectionTitle title="Flashcards" subtitle={stats.total ? `${stats.total} cards · ${stats.due} due · ${stats.fresh} new · ${stats.learned} learned` : 'Spaced repetition (FSRS)'}
     action={<button className="ghost" disabled={!ready} onClick={() => setReviewing(dueCards(deck))}><Layers size={14} /> Review {ready || ''}</button>} />
     <form className="study-card-new" onSubmit={e => { e.preventDefault(); void add() }}>
-      <input placeholder="Question" value={front} onChange={e => setFront(e.target.value)} />
-      <input placeholder="Answer" value={back} onChange={e => setBack(e.target.value)} />
-      <button className="ghost" disabled={!front.trim() || !back.trim()}>Add</button>
+      <select value={kind} onChange={e => setKind(e.target.value as typeof kind)} title="Kind of card">
+        <option value="qa">Question</option><option value="both">Both ways</option><option value="cloze">Fill in the blank</option>
+      </select>
+      {kind === 'cloze'
+        ? <><input ref={sentence} placeholder="A sentence; select words and press Hide" value={front} onChange={e => setFront(e.target.value)} />
+          <button type="button" className="ghost" onClick={hide}>Hide</button></>
+        : <><input placeholder={kind === 'both' ? 'Term' : 'Question'} value={front} onChange={e => setFront(e.target.value)} />
+          <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} /></>}
+      <button className="ghost" disabled={!ok}>Add</button>
     </form>
-    <p className="hint">Cards are lines “question :: answer” in the note “{course} — flashcards”. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
 }
