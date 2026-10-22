@@ -13,9 +13,10 @@ import { newId, noteTitle } from '../notes/model'
 import { notesStore, openNoteRequest } from '../notes/state'
 import { courseEvents, courseFolder, courseNotes } from './model'
 import { openBook } from './open'
-import { libraryStore, refreshLibrary } from './state'
+import { libraryStore, refreshLibrary, reviewAllRequest } from './state'
 import { indexLibrary } from './indexer'
-import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
+import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
+import { allDue } from './cards'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
@@ -47,6 +48,11 @@ export default function StudyPage({ active }: { active: boolean }) {
   const [showArchived, setShowArchived] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
   const [plannerOpen, setPlannerOpen] = useState(false)
+  const reviewAll = useStore(reviewAllRequest)
+  const allNotes = useStore(notesStore)
+  const [mixed, setMixed] = useState<ReturnType<typeof allDue> | null>(null)
+  // Asked for from Home: every course's due cards in one session.
+  useEffect(() => { if (reviewAll && library) { setMixed(allDue(allNotes, library.courses.filter(c => !c.archived).map(c => c.name))); reviewAllRequest.set(0) } }, [reviewAll, library])
   const all = library?.courses ?? []
   const courses = all.filter(c => !c.archived)
   const archived = all.filter(c => c.archived)
@@ -74,6 +80,7 @@ export default function StudyPage({ active }: { active: boolean }) {
   }
 
   return <div className="study-layout">
+    {mixed && <Review cards={mixed} onClose={() => setMixed(null)} onStatus={setStatus} />}
     <aside className="card study-courses">
       <SectionTitle title="Courses" subtitle="Each has its books, notes, checklists and exams" />
       <div className="study-course-list">

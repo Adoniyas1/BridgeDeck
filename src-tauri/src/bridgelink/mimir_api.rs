@@ -302,7 +302,7 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .map(|c| {
                     let folder = study_folder(&c.name).to_lowercase();
                     let mine: Vec<&Note> = all_notes.iter().filter(|n| !n.deleted && n.folder.to_lowercase() == folder).collect();
-                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted).flat_map(|b| card_subs(&b.text))).collect::<Vec<_>>();
+                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && !b.text.contains("#suspended")).flat_map(|b| card_subs(&b.text))).collect::<Vec<_>>();
                     let due = cards.iter().filter(|(_, due)| due.is_none_or(|d| d <= now_ms())).count();
                     json!({
                         "name": c.name,

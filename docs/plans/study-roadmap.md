@@ -120,9 +120,9 @@ Build a single expression/units engine, then grow the card format (cloze, both-w
   - New note block or Study tool using expr.ts: unit-aware results with automatic prefixes, resistor color code to and from value (E-series), complex/phasor display (rectangular and polar), parallel ||. Uses an existing block kind (e.g. a python-like 'calc' fenced code) or adds a kind on top of 1.4.
 - [x] **4.3 Card grammar v2: cloze and both-ways cards (TS and Rust in lockstep)** (M). Items: 13. Needs: 2.5.
   - cards.ts and mimir_api.rs (card_parts, card_due, is_card_note :445-458): front ::: back gives two sub-cards; {{c1::text}} gives one sub-card per cN; FSRS state <!--fsrs c1:due=…;s=…|c2:…--> while the un-prefixed form stays. Card id ${noteId}/${blockId}/${sub}. Shared test vectors JSON used by vitest and cargo test. 'Make cloze' action from notes, highlights and transcript text.
-- [ ] **4.4 Edit and delete cards in Study; leech list** (S). Items: 11 (part 1 of 2). Needs: 4.3.
+- [x] **4.4 Edit and delete cards in Study; leech list** (S). Items: 11 (part 1 of 2). Needs: 4.3.
   - Study deck view: edit front/back inline (rewrites the block through the notes store), delete card, suspend. Leech list computed as lapses >= 8 (from the 4.6 log when present, otherwise the FSRS lapse field), tagged #leech in the line.
-- [ ] **4.5 One interleaved review session across all courses from Home** (S). Items: 10. Needs: 4.3.
+- [x] **4.5 One interleaved review session across all courses from Home** (S). Items: 10. Needs: 4.3.
   - allDue(notes, library) in the lazy cards chunk, round-robin by course; a Home 'Review all (N)' button. Home imports only types (cards.ts:1 comment).
 - [ ] **4.6 Review log, personal FSRS tuning, per-chapter mastery map** (M). Items: 14. Needs: 4.3, 1.1.
   - saveReview (state.ts:228) appends {card,at,grade,elapsedDays,state,ms} to .state/reviews/<instanceId>.jsonl (1.1). Lazy optimizer: @open-spaced-repetition/binding (fallback fsrs-browser); weights in config.study.fsrsWeights; review.ts builds fsrs({w}). Mastery map: card page links map to chapters through the '<book> — chapters' note / outline, combined with retrievability.

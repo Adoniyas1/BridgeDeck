@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Rating, State } from 'ts-fsrs'
 import type { Note } from '../../lib/bridge'
 import { inline } from '../notes/model'
-import { cardLine, deckOf, deckStats, dueCards, makeCloze, parseCard, parseCards, span, withState } from './cards'
+import { allDue, cardBody, cardLine, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
 import vectors from './card-vectors.json'
 import { intervals, review } from './review'
 import { pageText } from './indexer'
@@ -95,5 +95,27 @@ describe('card grammar (shared with Rust)', () => {
     expect(makeCloze('The anode is positive', 'anode')).toBe('The {{c1::anode}} is positive')
     expect(makeCloze('The {{c1::anode}} is positive', 'positive')).toBe('The {{c1::anode}} is {{c2::positive}}')
     expect(makeCloze('x', 'y')).toBe('x')
+  })
+})
+
+describe('editing card lines', () => {
+  it('keeps the review state and handles marks', () => {
+    const line = 'Q :: A <!--fsrs due=5 s=1-->'
+    expect(withBody(line, 'Q2 :: A2')).toBe('Q2 :: A2 <!--fsrs due=5 s=1-->')
+    const put = setMark(line, 'suspended', true)
+    expect(put).toBe('Q :: A #suspended <!--fsrs due=5 s=1-->')
+    expect(hasMark(put, 'suspended')).toBe(true)
+    expect(parseCards(put)[0].back).toBe('A')
+    expect(setMark(put, 'suspended', false)).toBe(line)
+    expect(cardBody(put)).toBe('Q :: A #suspended')
+  })
+})
+
+describe('mixed review', () => {
+  it('takes cards from each course in turn', () => {
+    const n = (id: string, folder: string, lines: string[]): Note => ({ id, title: 'flashcards', folder, pinned: false, kind: 'note', created: 0, titleUpdated: 0, metaUpdated: 0, deleted: false, seq: 0,
+      blocks: lines.map((text, i) => ({ id: `${id}${i}`, kind: 'p', text, checked: false, due: null, pos: String(i), updated: 0, by: '', deleted: false })) })
+    const notes = [n('a', 'Study/EE 310', ['a1 :: x', 'a2 :: x', 'a3 :: x']), n('b', 'Study/MATH 370', ['b1 :: y'])]
+    expect(allDue(notes, ['EE 310', 'MATH 370']).map(c => c.front)).toEqual(['a1', 'b1', 'a2', 'a3'])
   })
 })

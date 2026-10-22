@@ -24,6 +24,11 @@ const NEW = 0 as State, REVIEW = 2 as State
 const STATE = /\s*<!--fsrs ([^>]*?)-->/
 const CLOZE = /\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g
 
+/** Tags on a line that aren't part of the card: put aside, or one that keeps being forgotten. */
+const MARKS = /\s#(suspended|leech)\b/g
+/** Forgotten this many times: a leech, better rewritten than reviewed again. */
+export const LEECH_LAPSES = 8
+
 export const flashcardsTitle = (course: string) => `${course} — flashcards`
 export const isCardNote = (note: Note) => note.title.toLowerCase().includes('flashcards')
 
@@ -41,7 +46,7 @@ function statesOf(text: string): Record<string, string> {
 
 /** The cards in one line: none, one, two (both ways) or one per cloze. */
 export function parseCards(text: string): ParsedCard[] {
-  const body = text.replace(/<!--[\s\S]*?-->/g, '')
+  const body = text.replace(/<!--[\s\S]*?-->/g, '').replace(MARKS, '')
   const states = statesOf(text)
   const both = body.indexOf(' ::: ')
   if (both >= 0) {
@@ -127,14 +132,40 @@ export function deckOf(notes: Note[], course: string): FlashCard[] {
       parseCards(block.text).map(c => ({ id: `${n.id}/${block.id}${c.sub ? `/${c.sub}` : ''}`, noteId: n.id, block, ...c }))))
 }
 
+/** A card line without its review state, as it's edited. */
+export const cardBody = (text: string) => text.replace(/<!--[\s\S]*?-->/g, '').trim()
+/** The line with new words and the same review state. */
+export function withBody(text: string, body: string) {
+  const state = text.match(STATE)
+  return state ? `${body.trim()} ${state[0].trim()}` : body.trim()
+}
+export const hasMark = (text: string, mark: 'suspended' | 'leech') => new RegExp(`(^|\\s)#${mark}\\b`).test(cardBody(text))
+/** Adds or removes #suspended or #leech on a line. */
+export function setMark(text: string, mark: 'suspended' | 'leech', on: boolean) {
+  const body = cardBody(text).replace(new RegExp(`\\s*#${mark}\\b`, 'g'), '')
+  return withBody(text, on ? `${body} #${mark}` : body)
+}
+export const isLeech = (c: FlashCard) => c.card.lapses >= LEECH_LAPSES || hasMark(c.block.text, 'leech')
+
 /** Cards to review now: those due, oldest due first, then new ones (up to `newLimit`). */
-export function dueCards(deck: FlashCard[], now = Date.now(), newLimit = 20) {
+export function dueCards(all: FlashCard[], now = Date.now(), newLimit = 20) {
+  const deck = all.filter(c => !hasMark(c.block.text, 'suspended'))
   const due = deck.filter(c => c.card.state !== NEW && c.card.due.getTime() <= now).sort((a, b) => a.card.due.getTime() - b.card.due.getTime())
   const fresh = deck.filter(c => c.card.state === NEW).slice(0, newLimit)
   return [...due, ...fresh]
 }
 
-export function deckStats(deck: FlashCard[], now = Date.now()) {
+/** Due cards from every course, taken in turn (one from each course, then again), so a session
+ *  mixes subjects. */
+export function allDue(notes: Note[], courses: string[], now = Date.now(), newLimit = 20): FlashCard[] {
+  const queues = courses.map(course => dueCards(deckOf(notes, course), now, newLimit))
+  const out: FlashCard[] = []
+  for (let i = 0; queues.some(q => i < q.length); i++) for (const q of queues) if (i < q.length) out.push(q[i])
+  return out
+}
+
+export function deckStats(all: FlashCard[], now = Date.now()) {
+  const deck = all.filter(c => !hasMark(c.block.text, 'suspended'))
   return {
     total: deck.length,
     fresh: deck.filter(c => c.card.state === NEW).length,

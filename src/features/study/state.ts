@@ -7,7 +7,7 @@ import { createStore } from '../../core/store'
 import { eventsStore } from '../calendar/state'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
-import { flashcardsTitle, withState, type FlashCard } from './cards'
+import { flashcardsTitle, hasMark, LEECH_LAPSES, setMark, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
 import { readTerm, type Term } from './schedule'
 import { problemId, problemsFromState } from './problems'
@@ -77,11 +77,25 @@ export async function addCards(course: string, lines: string[]) {
   notesStore.set(list => list.map(n => n.id === saved.id ? saved : n))
 }
 
+/** Set from Home: review the due cards of every course, mixed. */
+export const reviewAllRequest = createStore(0)
+
+/** Rewrites, removes, or marks a card line in its note. */
+export async function changeCardLine(noteId: string, blockId: string, text: string | null) {
+  const block = notesStore.get().find(n => n.id === noteId)?.blocks.find(b => b.id === blockId)
+  if (!block) throw new Error('That card is gone')
+  const saved = await notesSave(text === null ? { id: noteId, removed: [blockId] } : { id: noteId, blocks: [{ ...block, text }] })
+  notesStore.set(list => list.map(n => n.id === saved.id ? saved : n))
+}
+
 /** Saves a card's new review state into its note line. */
 export async function saveReview(card: FlashCard, next: Card) {
   // The block as it is now: another sub-card of the same line may have been reviewed already.
   const block = notesStore.get().find(n => n.id === card.noteId)?.blocks.find(b => b.id === card.block.id) ?? card.block
-  const saved = await notesSave({ id: card.noteId, blocks: [{ ...block, text: withState(block.text, next, card.sub) }] })
+  let text = withState(block.text, next, card.sub)
+  // Forgotten too often: marked so it's easy to find and rewrite.
+  if (next.lapses >= LEECH_LAPSES && !hasMark(text, 'leech')) text = setMark(text, 'leech', true)
+  const saved = await notesSave({ id: card.noteId, blocks: [{ ...block, text }] })
   notesStore.set(list => list.map(n => n.id === saved.id ? saved : n))
 }
 

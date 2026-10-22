@@ -6,13 +6,13 @@ import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
-import { cardLine, clozeLine, deckOf, parseCards, deckStats, dueCards, GRADES, type FlashCard } from './cards'
+import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, type FlashCard } from './cards'
 import { intervals, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
 import { openBook, openBookLink } from './open'
 import { CardText, cardSource } from './CardText'
-import { addCards, focusStore, saveReview, startFocus, stopFocus } from './state'
+import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -59,6 +59,8 @@ export function FlashcardsCard({ course, onStatus }: { course: string; onStatus:
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [kind, setKind] = useState<'qa' | 'both' | 'cloze'>('qa')
+  const [browsing, setBrowsing] = useState(false)
+  const leeches = useMemo(() => new Set(deck.filter(isLeech).map(c => c.block.id)).size, [deck])
   const sentence = useRef<HTMLInputElement>(null)
   const ok = kind === 'cloze' ? parseCards(front).length > 0 : !!front.trim() && !!back.trim()
 
@@ -90,11 +92,66 @@ export function FlashcardsCard({ course, onStatus }: { course: string; onStatus:
       <button className="ghost" disabled={!ok}>Add</button>
     </form>
     <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
+    {browsing && <CardList deck={deck} onStatus={onStatus} />}
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
 }
 
-function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () => void; onStatus: (s: string) => void }) {
+/** Every card line of the course, to fix, put aside or remove; ones often forgotten first. */
+function CardList({ deck, onStatus }: { deck: FlashCard[]; onStatus: (s: string) => void }) {
+  const [query, setQuery] = useState('')
+  const [onlyLeeches, setOnlyLeeches] = useState(false)
+  const [editing, setEditing] = useState<{ key: string; text: string } | null>(null)
+  // One row per line (a both-ways or cloze line has several cards).
+  const lines = useMemo(() => {
+    const byLine = new Map<string, { noteId: string; blockId: string; text: string; leech: boolean; lapses: number }>()
+    for (const c of deck) {
+      const key = `${c.noteId}/${c.block.id}`
+      const row = byLine.get(key) ?? { noteId: c.noteId, blockId: c.block.id, text: c.block.text, leech: false, lapses: 0 }
+      row.leech ||= isLeech(c)
+      row.lapses = Math.max(row.lapses, c.card.lapses)
+      byLine.set(key, row)
+    }
+    const q = query.trim().toLowerCase()
+    return [...byLine.entries()].map(([key, row]) => ({ key, ...row }))
+      .filter(r => (!onlyLeeches || r.leech) && (!q || cardBody(r.text).toLowerCase().includes(q)))
+      .sort((a, b) => Number(b.leech) - Number(a.leech) || b.lapses - a.lapses)
+  }, [deck, query, onlyLeeches])
+
+  async function change(noteId: string, blockId: string, text: string | null) {
+    try { await changeCardLine(noteId, blockId, text); setEditing(null) } catch (e) { onStatus(String(e)) }
+  }
+
+  return <div className="study-card-list">
+    <div className="study-card-list-bar">
+      <input placeholder="Find a card" value={query} onChange={e => setQuery(e.target.value)} />
+      <label><input type="checkbox" checked={onlyLeeches} onChange={e => setOnlyLeeches(e.target.checked)} /> Often forgotten</label>
+    </div>
+    {lines.slice(0, 200).map(r => {
+      const suspended = hasMark(r.text, 'suspended')
+      return <div key={r.key} className={`study-card-row${suspended ? ' off' : ''}`}>
+        {editing?.key === r.key
+          ? <form className="grow" onSubmit={e => { e.preventDefault(); if (parseCards(editing.text).length) void change(r.noteId, r.blockId, withBody(r.text, editing.text)) }}>
+            <input autoFocus value={editing.text} onChange={e => setEditing({ key: r.key, text: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setEditing(null) }} />
+          </form>
+          : <CardText className="grow" text={cardBody(r.text).replace(/\s#(suspended|leech)\b/g, '')} />}
+        {r.leech && <span className="study-card-tag" title={`Forgotten ${r.lapses} times; rewriting it or splitting it up usually helps`}>often forgotten</span>}
+        {suspended && <span className="study-card-tag">set aside</span>}
+        {editing?.key === r.key
+          ? <button className="ghost" disabled={!parseCards(editing.text).length} onClick={() => void change(r.noteId, r.blockId, withBody(r.text, editing.text))}>Save</button>
+          : <button className="ghost" onClick={() => setEditing({ key: r.key, text: cardBody(r.text) })}>Edit</button>}
+        <button className="ghost" title={suspended ? 'Review it again' : 'Leave it out of reviews'} onClick={() => void change(r.noteId, r.blockId, setMark(r.text, 'suspended', !suspended))}>{suspended ? 'Bring back' : 'Set aside'}</button>
+        {r.leech && <button className="ghost" title="It stays, without the mark" onClick={() => void change(r.noteId, r.blockId, setMark(r.text, 'leech', false))}>Unmark</button>}
+        <button className="ghost danger" onClick={() => { if (window.confirm('Delete this card?')) void change(r.noteId, r.blockId, null) }}>Delete</button>
+      </div>
+    })}
+    {lines.length > 200 && <p className="hint">Showing 200 of {lines.length}. Search to narrow it down.</p>}
+    {!lines.length && <p className="hint">No cards match.</p>}
+  </div>
+}
+
+export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () => void; onStatus: (s: string) => void }) {
   const [queue, setQueue] = useState(cards)
   const [shown, setShown] = useState(false)
   const [done, setDone] = useState(0)
