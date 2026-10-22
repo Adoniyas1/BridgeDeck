@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expandProblems, problemId, problemsFromState } from './problems'
+import { expandProblems, nextRating, problemId, problemsFromState, ratingsFromState } from './problems'
 
 const keys = (text: string) => expandProblems(text).map(p => p.key)
 
@@ -19,5 +19,13 @@ describe('homework problems', () => {
   it('reads saved ticks', () => {
     expect(problemsFromState({ [problemId('a', '10.1#3')]: true, [problemId('a', '4')]: true, [problemId('b', 'x')]: false, nosep: true })).toEqual({ a: ['10.1#3', '4'] })
     expect(problemsFromState({})).toEqual({})
+  })
+})
+
+describe('problem ratings', () => {
+  it('reads ratings, stuck ones first, and cycles them', () => {
+    const list = ratingsFromState({ a: { rating: 'help', number: '3', section: '10.1', course: 'EE', assignment: 'HW', at: 2 }, b: { rating: 'stuck', number: '5', at: 1 }, c: { rating: 'meh', number: '1' }, d: null })
+    expect(list.map(r => [r.id, r.rating])).toEqual([['b', 'stuck'], ['a', 'help']])
+    expect([nextRating(undefined), nextRating('help'), nextRating('stuck')]).toEqual(['help', 'stuck', null])
   })
 })

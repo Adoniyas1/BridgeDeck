@@ -177,8 +177,8 @@ Help with each homework problem without giving answers away, build exam prep fro
 
 - [x] **7.1 Read section and Check answer for each homework problem** (M). Items: 17. Needs: 1.1.
   - Problem rows get 'Read section' (opens the book at the mapped section via the outline) and 'Check answer' (opens the book's answers page in a split view beside the user's work). The mapping problem→page is stored in the problems state. Done: pages come from the textbook's contents (biggest non-slide PDF first) and are kept in the course setting sectionPages; Check answers opens beside the work.
-- [ ] **7.2 Rate problems solved/help/stuck; hard ones resurface** (S). Items: 18. Needs: 1.1, 7.1.
-  - A rating per problem stored in state key ratings; 'stuck'/'help' problems come back in review sessions and before exams, optionally as cards.
+- [x] **7.2 Rate problems solved/help/stuck; hard ones resurface** (S). Items: 18. Needs: 1.1, 7.1.
+  - A rating per problem stored in state key ratings; 'stuck'/'help' problems come back in review sessions and before exams, optionally as cards. Done: right-click a problem for needed help → stuck → clear; a course's 'Problems to redo' card lists them with Read section and Got it. Not done: turning them into cards.
 - [ ] **7.3 Stuck? button: book worked examples plus a twin problem checked in Python** (M). Items: 7. Needs: 5.1, 3.3, 7.1.
   - From a problem row: study_search finds worked examples in the book; Mimir writes a twin problem and checks its numbers with run_python (compute/tools.ts:36) before showing it. Follows aiPolicy (off under none and in exam mode).
 - [ ] **7.4 Step checker for typed steps** (M). Items: 8. Needs: 4.1, 3.3.

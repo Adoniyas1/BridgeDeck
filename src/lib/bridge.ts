@@ -485,7 +485,7 @@ export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & 
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
-export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone' | 'exam' | 'inbox'
+export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone' | 'exam' | 'inbox' | 'ratings'
 /** The flashcard review log (Study/.state/reviews) and FSRS weights fitted to it (study_reviews.rs). */
 export type ReviewEntry = { card: string; at: number; grade: number; ms: number }
 export const studyReviewLog = (review: ReviewEntry) => native<void>('study_review_log', { review })

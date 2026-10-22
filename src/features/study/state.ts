@@ -10,7 +10,7 @@ import { notesStore } from '../notes/state'
 import { flashcardsTitle, hasMark, LEECH_LAPSES, setMark, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
 import { readTerm, type Term } from './schedule'
-import { problemId, problemsFromState } from './problems'
+import { nextRating, problemId, problemsFromState, ratingsFromState, type Problem, type RatedProblem, type Rating } from './problems'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
 /** The semester's dates and breaks (Study → courses → Semester). */
@@ -49,6 +49,24 @@ export function tickProblem(assignment: string, key: string) {
     return next
   })
   if (isTauri()) void studyStateSet('problems', { [problemId(assignment, key)]: ticked ? true : null }).catch(() => undefined)
+}
+
+/** Problems marked as needing help or stuck, from both computers. */
+export const ratingsStore = createStore<RatedProblem[]>([])
+let ratingsLoaded = false
+export async function loadRatings(force = false) {
+  if ((ratingsLoaded && !force) || !isTauri()) return
+  ratingsLoaded = true
+  ratingsStore.set(ratingsFromState(await studyStateGet('ratings').catch(() => ({}))))
+}
+/** Moves a problem's rating on (none → help → stuck → none). */
+export function rateProblem(assignment: { id: string; title: string; course: string }, problem: Problem, to?: Rating | null) {
+  const id = problemId(assignment.id, problem.key)
+  const current = ratingsStore.get().find(r => r.id === id)
+  const next = to !== undefined ? to : nextRating(current?.rating)
+  const entry = next ? { id, rating: next, course: assignment.course, assignment: assignment.title, section: problem.section, number: problem.number, at: Date.now() } : null
+  ratingsStore.set(list => ratingsFromState(Object.fromEntries([...list.filter(r => r.id !== id), ...(entry ? [entry] : [])].map(r => [r.id, r]))))
+  if (isTauri()) void studyStateSet('ratings', { [id]: entry }).catch(() => undefined)
 }
 
 export async function saveTerm(term: Term | null) {

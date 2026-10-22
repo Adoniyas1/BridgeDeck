@@ -17,8 +17,8 @@ import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } fr
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { ExamNotices } from './ExamDay'
-import { expandProblems, problemLabel } from './problems'
-import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, tickProblem } from './state'
+import { expandProblems, problemId, problemLabel } from './problems'
+import { libraryStore, loadProblems, loadRatings, problemsStore, rateProblem, ratingsStore, refreshLibrary, termStore, tickProblem } from './state'
 import { parseQuickAdd } from './quickAdd'
 import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
@@ -33,7 +33,8 @@ function Row({ a, now }: { a: Assignment; now: number }) {
   const [open, setOpen] = useState(false)
   const problems = useMemo(() => expandProblems(a.title), [a.title])
   const ticked = useStore(problemsStore)[a.id] ?? []
-  useEffect(() => { if (problems.length > 1) void loadProblems() }, [problems.length])
+  const ratings = useStore(ratingsStore)
+  useEffect(() => { if (problems.length > 1) { void loadProblems(); void loadRatings() } }, [problems.length])
   const doneCount = problems.filter(p => ticked.includes(p.key)).length
   const overdue = !a.done && a.due != null && a.due < now
   const toggle = () => { setBusy(true); void toggleDone(a).catch(e => setNotice(errorText(e, 'Couldn’t change it'))).finally(() => setBusy(false)) }
@@ -48,7 +49,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
       {notHandedIn([a], now).length > 0 && <small className="cal-error">Ticked done, but Canvas has no submission: upload it?</small>}
       {open && <SectionLinks assignment={a} sections={[...new Set(problems.map(p => p.section).filter(Boolean))]} />}
-      {open && <div className="problem-grid">{problems.map(p => <button key={p.key} className={ticked.includes(p.key) ? 'on' : ''} onClick={() => tickProblem(a.id, p.key)}>{problemLabel(p, sections)}</button>)}
+      {open && <div className="problem-grid">{problems.map(p => { const rating = ratings.find(r => r.id === problemId(a.id, p.key))?.rating; return <button key={p.key} className={`${ticked.includes(p.key) ? 'on' : ''}${rating ? ` rated-${rating}` : ''}`} title={`Click: done. Right-click: ${rating === 'help' ? 'stuck' : rating === 'stuck' ? 'clear' : 'needed help'}${rating ? ` (now: ${rating === 'help' ? 'needed help' : 'stuck'})` : ''}`} onClick={() => tickProblem(a.id, p.key)} onContextMenu={e => { e.preventDefault(); rateProblem(a, p) }}>{problemLabel(p, sections)}{rating === 'stuck' ? ' ✗' : rating === 'help' ? ' ?' : ''}</button> })}
         {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
     </div>
     {problems.length > 1 && <button className={`problem-count${open ? ' open' : ''}`} title="Problems to tick off" onClick={() => setOpen(v => !v)}>
@@ -60,7 +61,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
 
 /** "Read 10.1" opens the textbook at the section; "Answers" opens the answers at the back beside
  *  the work (split screen). Pages come from the book's contents and are remembered for the course. */
-function SectionLinks({ assignment, sections }: { assignment: Assignment; sections: string[] }) {
+function SectionLinks({ assignment, sections, answers = true }: { assignment: { course: string }; sections: string[]; answers?: boolean }) {
   const library = useStore(libraryStore).library
   const course = library?.courses.find(c => belongsTo({ name: c.name, code: c.info.code, canvasCode: c.info.canvasCode }, assignment.course))
   const [places, setPlaces] = useState<Record<string, Place>>({})
@@ -90,8 +91,25 @@ function SectionLinks({ assignment, sections }: { assignment: Assignment; sectio
 
   return <div className="problem-links">
     {sections.map(s => <button key={s} className="ghost" disabled={looking === s} title={`Open the book at section ${s}`} onClick={() => void go(s, false)}><BookOpen size={12} />{looking === s ? 'Looking…' : `Read ${s}`}</button>)}
-    <button className="ghost" disabled={looking === ANSWERS} title="The answers at the back of the book, beside your work" onClick={() => void go(ANSWERS, true)}><CheckCheck size={12} />{looking === ANSWERS ? 'Looking…' : 'Check answers'}</button>
+    {answers && <button className="ghost" disabled={looking === ANSWERS} title="The answers at the back of the book, beside your work" onClick={() => void go(ANSWERS, true)}><CheckCheck size={12} />{looking === ANSWERS ? 'Looking…' : 'Check answers'}</button>}
   </div>
+}
+
+/** Problems marked as needing help or stuck in this course's homework, to go over again (before an
+ *  exam above all). Right-click a problem in an assignment to mark it. */
+export function HardProblemsCard({ course, info }: { course: string; info: { code: string; canvasCode: string } }) {
+  const all = useStore(ratingsStore)
+  useEffect(() => { void loadRatings() }, [])
+  const mine = all.filter(r => belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course) || r.course === course)
+  if (!mine.length) return null
+  return <Card><SectionTitle title="Problems to redo" subtitle={`${mine.filter(r => r.rating === 'stuck').length} stuck · ${mine.filter(r => r.rating === 'help').length} needed help`} />
+    <div className="hard-problems">{mine.slice(0, 30).map(r => <div key={r.id} className="hard-problem">
+      <span className={`hard-tag ${r.rating}`}>{r.rating === 'stuck' ? 'stuck' : 'help'}</span>
+      <span className="grow">{r.section ? `${r.section} ` : ''}#{r.number} <small>{r.assignment}</small></span>
+      {r.section && <SectionLinks assignment={{ course: r.course || course }} sections={[r.section]} answers={false} />}
+      <button className="ghost" title="Solved it on my own now" onClick={() => rateProblem({ id: r.id.split('\u001f')[0], title: r.assignment, course: r.course }, { key: r.id.split('\u001f')[1], section: r.section, number: r.number }, null)}><Check size={12} />Got it</button>
+    </div>)}</div>
+  </Card>
 }
 
 /** Everything due, from Canvas and added here: overdue, today, this week, later. */
