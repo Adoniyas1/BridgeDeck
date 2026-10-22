@@ -827,6 +827,8 @@ button.today-tile:hover{border-color:var(--accent)}
 .study-card-io{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .mimir-inbox{display:flex;flex-direction:column;gap:8px}
 .lecture-list{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.lecture-live-text{max-height:220px;overflow:auto;font-size:13px;line-height:1.5;border:1px solid var(--line);border-radius:6px;padding:6px;margin:6px 0}
+.lecture-live-text p{margin:0 0 3px}
 .lecture-row{display:flex;gap:6px;align-items:center;font-size:12px}
 .lecture-row .grow{flex:1;justify-content:flex-start;text-align:left}
 .lecture-words{margin-top:8px;font-size:12px}

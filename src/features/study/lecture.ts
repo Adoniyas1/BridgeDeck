@@ -48,12 +48,78 @@ export async function toSamples(recording: Blob): Promise<Float32Array> {
   }
 }
 
-/** Transcribes samples in a background worker; `onProgress` gets 0..1. */
-export function transcribe(audio: Float32Array, model: ModelId, onProgress: (done: number) => void): Promise<Segment[]> {
+function workerSetup(model: ModelId) {
   const repo = MODELS.find(m => m.id === model)!.repo
   const base = convertFileSrc('', 'bdmodel').replace(/\/?$/, '/')
   const engine = `${base}ort/${ORT_VERSION}/ort-wasm-simd-threaded.jsep.wasm`
   const loader = new URL('/ort/ort-wasm-simd-threaded.jsep.mjs', location.href).href
+  return { repo, base, engine, loader }
+}
+
+/** Seconds of sound sent at a time while recording. */
+export const LIVE_WINDOW = 20
+
+/** A transcript while the class goes on: sound from the microphone in 20-second pieces, each
+ *  transcribed in the background as it comes. A piece that arrives while one is still being worked
+ *  on waits; when the computer can't keep up, the oldest waiting pieces are skipped (the full pass
+ *  at the end fills them in). */
+export class LiveTranscriber {
+  private worker: Worker
+  private queue: Array<{ window: Float32Array; offset: number }> = []
+  private busy = true
+  constructor(model: ModelId, private onSegments: (segments: Segment[]) => void, private onError: (message: string) => void) {
+    this.worker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
+    this.worker.onmessage = (e: MessageEvent<{ live?: Segment[]; error?: string }>) => {
+      if (e.data.error) { this.onError(e.data.error); return }
+      if (e.data.live) this.onSegments(e.data.live)
+      this.busy = false
+      this.next()
+    }
+    this.worker.onerror = e => this.onError(e.message || 'Live transcription stopped')
+    this.worker.postMessage({ live: true, ...workerSetup(model) })
+    // The model loading counts as busy; a short wait before the first piece goes.
+    window.setTimeout(() => { this.busy = false; this.next() }, 3000)
+  }
+  push(window: Float32Array, offset: number) {
+    this.queue.push({ window, offset })
+    if (this.queue.length > 3) this.queue.splice(0, this.queue.length - 3)
+    this.next()
+  }
+  private next() {
+    if (this.busy || !this.queue.length) return
+    const item = this.queue.shift()!
+    this.busy = true
+    this.worker.postMessage(item, [item.window.buffer])
+  }
+  stop() { this.worker.terminate() }
+}
+
+/** Microphone sound as 16 kHz mono pieces of `seconds` each, handed to `onWindow` with their start
+ *  (seconds from now). Returns a function that stops listening. */
+export function listenInWindows(stream: MediaStream, seconds: number, onWindow: (samples: Float32Array, offset: number) => void): () => void {
+  const context = new AudioContext({ sampleRate: 16000 })
+  const source = context.createMediaStreamSource(stream)
+  const node = context.createScriptProcessor(4096, 1, 1)
+  const size = seconds * 16000
+  let buffer = new Float32Array(size), filled = 0, offset = 0
+  node.onaudioprocess = e => {
+    const input = e.inputBuffer.getChannelData(0)
+    let at = 0
+    while (at < input.length) {
+      const take = Math.min(size - filled, input.length - at)
+      buffer.set(input.subarray(at, at + take), filled)
+      filled += take; at += take
+      if (filled === size) { onWindow(buffer, offset); offset += seconds; buffer = new Float32Array(size); filled = 0 }
+    }
+  }
+  source.connect(node)
+  node.connect(context.destination)
+  return () => { node.disconnect(); source.disconnect(); void context.close() }
+}
+
+/** Transcribes samples in a background worker; `onProgress` gets 0..1. */
+export function transcribe(audio: Float32Array, model: ModelId, onProgress: (done: number) => void): Promise<Segment[]> {
+  const setup = workerSetup(model)
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (e: MessageEvent<{ progress?: number; segments?: Segment[]; error?: string }>) => {
@@ -62,7 +128,7 @@ export function transcribe(audio: Float32Array, model: ModelId, onProgress: (don
       if (e.data.error) { worker.terminate(); reject(new Error(e.data.error)) }
     }
     worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'Transcription stopped')) }
-    worker.postMessage({ audio, repo, base, engine, loader }, [audio.buffer])
+    worker.postMessage({ audio, ...setup }, [audio.buffer])
   })
 }
 

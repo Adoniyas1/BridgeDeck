@@ -7,7 +7,7 @@ import { examOn } from '../../core/exam'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { notesStore } from '../notes/state'
-import { clock, correctWords, lectureNoteMarkdown, MODELS, toSamples, transcribe, wordFixes, type ModelId, type Segment } from './lecture'
+import { clock, correctWords, lectureNoteMarkdown, listenInWindows, LiveTranscriber, LIVE_WINDOW, MODELS, toSamples, transcribe, wordFixes, type ModelId, type Segment } from './lecture'
 import { courseFolder, lectureLink } from './model'
 import { openLecture } from './open'
 import { refreshLibrary } from './state'
@@ -33,6 +33,13 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
   const recorder = useRef<MediaRecorder | null>(null)
   const parts = useRef<Blob[]>([])
   const marks = useRef<number[]>([])
+  // The transcript while recording (the full pass at the end replaces it).
+  const [liveOn, setLiveOn] = useState(() => { try { return localStorage.getItem('bd-lecture-live') !== 'off' } catch { return true } })
+  const [heard, setHeard] = useState<Segment[]>([])
+  const live = useRef<{ stop: () => void } | null>(null)
+  const liveBox = useRef<HTMLDivElement>(null)
+  useEffect(() => { liveBox.current?.scrollTo({ top: liveBox.current.scrollHeight }) }, [heard])
+  useEffect(() => () => live.current?.stop(), [])
   const allowed = info.recording === true
 
   const reload = () => { if (isTauri()) void studyLectures(course).then(setLectures).catch(() => undefined) }
@@ -75,7 +82,14 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
       parts.current = []; marks.current = []
       const at = Date.now()
       rec.ondataavailable = e => { if (e.data.size) parts.current.push(e.data) }
-      rec.onstop = () => { stream.getTracks().forEach(t => t.stop()); void finishRecording(new Blob(parts.current, { type: rec.mimeType }), at) }
+      setHeard([])
+      if (liveOn) {
+        const fixes = wordFixes(info.words)
+        const transcriber = new LiveTranscriber(model, s => setHeard(h => [...h, ...correctWords(s, fixes)]), m => setMessage(`Live transcript stopped: ${m}`))
+        const stopListening = listenInWindows(stream, LIVE_WINDOW, (samples, offset) => { if (!examOn()) transcriber.push(samples, offset) })
+        live.current = { stop: () => { stopListening(); transcriber.stop() } }
+      }
+      rec.onstop = () => { live.current?.stop(); live.current = null; stream.getTracks().forEach(t => t.stop()); void finishRecording(new Blob(parts.current, { type: rec.mimeType }), at) }
       rec.start(10_000)
       recorder.current = rec
       setStarted(at)
@@ -140,8 +154,10 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
     {phase === 'recording' && <div className="lecture-live"><span className="lecture-dot" /> Recording {clock((Date.now() - started) / 1000)}
       <button className="ghost" title="Mark a moment you got lost, to come back to" onClick={() => { marks.current.push((Date.now() - started) / 1000); setMessage(`Marked ${clock((Date.now() - started) / 1000)}.`) }}><HelpCircle size={14} /> Lost here</button>
       <button className="danger" onClick={() => recorder.current?.stop()}><Square size={14} /> Stop and transcribe</button></div>}
+    {phase === 'recording' && liveOn && <div ref={liveBox} className="lecture-live-text">{heard.length ? heard.map((s, i) => <p key={i}><span className="lecture-time">{clock(s.start)}</span>{s.text}</p>) : <p className="hint">The transcript appears here about every {LIVE_WINDOW} seconds.</p>}</div>}
     {phase === 'transcribing' && <p className="hint">Transcribing… {Math.round(progress * 100)}% (keep BridgeDeck open; an hour of audio takes a while)</p>}
     {phase === 'idle' && <>
+      <label className="study-quiet"><input type="checkbox" checked={liveOn} onChange={e => { setLiveOn(e.target.checked); try { localStorage.setItem('bd-lecture-live', e.target.checked ? 'on' : 'off') } catch { /* not remembered */ } }} /> Show the transcript while recording (uses more of the computer; Fast is best on the Mac)</label>
       <div className="lecture-models">{MODELS.map(m => <label key={m.id}><input type="radio" name={`lecture-model-${course}`} checked={model === m.id} onChange={() => choose(m.id)} /> {m.label} <small>({m.size} MB{status?.models.includes(m.id) ? ', downloaded' : ''})</small></label>)}</div>
       {!isTauri() ? <p className="hint">Lectures work in the BridgeDeck app.</p>
         : ready ? <div className="actions">
