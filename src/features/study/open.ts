@@ -1,9 +1,11 @@
-import { openTab } from '../../core/tabs'
+import { openBeside, openTab } from '../../core/tabs'
 import { parseBookLink } from './model'
 
-/** Opens a book in its own tab, at a page. */
-export function openBook(course: string, file: string, title: string, page = 0) {
-  openTab({ id: `book:${course}/${file}`, kind: 'study-book', title, params: { course, file, title, page: String(page), at: String(Date.now()) } })
+/** Opens a book in its own tab, at a page; with `beside`, on the right of a split screen. */
+export function openBook(course: string, file: string, title: string, page = 0, beside = false) {
+  const tab = { id: `book:${course}/${file}`, kind: 'study-book', title, params: { course, file, title, page: String(page), at: String(Date.now()) } }
+  if (beside) openBeside(tab)
+  else openTab(tab)
 }
 
 /** A `book:` link from a note. */

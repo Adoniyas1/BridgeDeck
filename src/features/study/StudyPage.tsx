@@ -151,7 +151,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   const readable = books.filter(b => !isSlides(b))
   const slides = books.filter(isSlides)
   // Slides open in the reader too (as the PDF made from them); the icon beside them opens their own app.
-  const open = (book: StudyBook) => openBook(name, book.file, book.title)
+  const open = (book: StudyBook, beside = false) => openBook(name, book.file, book.title, 0, beside)
   const openExternally = (book: StudyBook) => void openPath(`${root}/${name}/${book.file}`).catch(e => onStatus(String(e)))
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return <div className="study-course">

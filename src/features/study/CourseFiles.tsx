@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronUp, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
 import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { newId } from '../notes/model'
 import { fmtBytes } from './model'
@@ -11,7 +11,8 @@ export const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].inclu
 type Props = {
   course: StudyCourse
   books: StudyBook[]
-  onOpen: (book: StudyBook) => void
+  /** `beside`: on the right of a split screen. */
+  onOpen: (book: StudyBook, beside?: boolean) => void
   onOpenExternally: (book: StudyBook) => void
   onRemove: (book: StudyBook) => void
   onStatus: (s: string) => void
@@ -61,6 +62,7 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
       <div className="study-book-actions">
         <button className="ghost" title={isSlides(book) ? 'Read the slides here' : undefined} onClick={() => onOpen(book)}>Open</button>
         <div className="study-book-icons">
+          <button className="cal-icon" title="Open beside what's showing (split screen)" onClick={() => onOpen(book, true)}><Columns2 size={14} /></button>
           {inCollection && position && <>
             <button className="cal-icon" title="Earlier in the collection" disabled={position.first} onClick={() => void save(reorder(collections, inCollection.id, book.file, -1, existing))}><ChevronUp size={14} /></button>
             <button className="cal-icon" title="Later in the collection" disabled={position.last} onClick={() => void save(reorder(collections, inCollection.id, book.file, 1, existing))}><ChevronDown size={14} /></button>

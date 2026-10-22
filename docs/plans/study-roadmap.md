@@ -61,6 +61,7 @@ Make study data merge cleanly between the PC and the Mac, make it impossible to 
 
 Visible improvements on the Windows PC after each merge: synced last page, stitching PDFs, phone photos to a PDF, nicer flashcards, safer tutoring, Mimir knowing what you read, faster adding, and class/office-hour info.
 
+- [x] **2.0 Split screen** (M). Added at the user's request: any two tabs side by side (two books, a book and its notes, a book and Code). Open beside from a book's split button, a tab's split button or right-click, or the split button in a tab group's menu. Ctrl/⌘ \ toggles. Drag the bar to resize (remembered), double-click it for half and half.
 - [ ] **2.1 PDF writer chunk (pdf-lib) and raw-body study_save_pdf** (S). Items: foundation (h) (used by B2, 20, 29, 47, B3). Needs: 1.3.
   - package.json: pdf-lib@1.17.1. New lazy src/lib/pdfwrite.ts with imagesToPdf(jpegs/pngs,{title,pageSize}) and mergePdfs(parts, order, rotations). Rust study.rs: study_save_pdf(course,name) reading tauri::ipc::Request InvokeBody::Raw (headers course/name); checks %PDF-, caps size, uses clean_name/free_name, writes .partial then renames, then refreshLibrary(). Also study_read_source(path) limited to dialog-returned paths and <Shared>/From phone. HEIC detection with a clear message on Windows.
 - [ ] **2.2 Stitch PDFs together in a chosen order** (M). Items: B2. Needs: 2.1.
