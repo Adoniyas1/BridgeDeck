@@ -15,7 +15,7 @@ import { courseEvents, courseFolder, courseNotes } from './model'
 import { openBook } from './open'
 import { libraryStore, refreshLibrary, reviewAllRequest } from './state'
 import { indexLibrary } from './indexer'
-import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
+import { BookSearchCard, ExamPrepCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
 import { MimirInbox } from './MimirInbox'
 import { syllabusPrompt } from './syllabus'
@@ -210,6 +210,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
       <CoursePeople course={course} onStatus={onStatus} />
       <CourseFiles course={course} books={books} onOpen={open} onOpenExternally={openExternally} onRemove={book => void removeBook(book.file, book.title)} onStatus={onStatus} />
     </Card>
+    <ExamPrepCard course={name} info={course.info} onStatus={onStatus} />
     <AssignmentsCard course={name} info={course.info} courses={courses} />
     <HardProblemsCard course={name} info={course.info} />
     <GradesCard course={course} onStatus={onStatus} />

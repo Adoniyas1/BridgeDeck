@@ -835,6 +835,13 @@ button.today-tile:hover{border-color:var(--accent)}
 .hard-problem small{color:var(--muted)}
 .hard-problem .problem-links{margin:0}
 .hard-tag{font-size:10px;padding:1px 6px;border-radius:9px;background:#facc1533;color:#facc15}
+.crunch-strip{display:flex;gap:8px;flex-wrap:wrap;grid-column:1/-1}
+.crunch{display:flex;align-items:baseline;gap:5px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);font-size:12px;cursor:pointer}
+.crunch strong{font-size:20px}
+.crunch small{color:var(--muted)}
+.crunch.close{border-color:#f87171}
+.crunch.close strong{color:#f87171}
+.exam-prep-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .hard-tag.stuck{background:#f8717133;color:#f87171}
 .problem-links button{padding:2px 7px;font-size:11px}
 .lecture-list{display:flex;flex-direction:column;gap:2px;margin-top:8px}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Backpack, Clock, MapPin, Moon, ShieldCheck } from 'lucide-react'
 import { useConfig } from '../../core/config'
 import { notify } from '../../core/notify'
+import { activateTab } from '../../core/tabs'
 import { Card, SectionTitle } from '../../ui'
 import { formatTime } from '../calendar/model'
 import { startExam, useExams } from './assignments'
@@ -36,6 +37,20 @@ export function ExamDayCard() {
         <button className="secondary" title="AI off, distracting sites closed, only reminders" onClick={() => void startExam(exam.course, Math.max(60, Math.round((exam.end - exam.start) / 60_000) + 30))}>Exam mode at the exam</button></div>
     </div>
   </Card>)}</>
+}
+
+/** On Home: exams in the next two weeks, as a strip of days left, so the crunch is seen coming. */
+export function CrunchStrip() {
+  const exams = useExams()
+  const now = Date.now()
+  const coming = exams.filter(e => e.start - now > 36 * 3_600_000 && e.start - now < 14 * 86_400_000).slice(0, 5)
+  if (!coming.length) return null
+  return <div className="crunch-strip">{coming.map(e => {
+    const days = Math.ceil((e.start - now) / 86_400_000)
+    return <button key={e.id} className={`crunch${days <= 4 ? ' close' : ''}`} title={`${when(e)}${e.covers ? ` · covers ${e.covers}` : ''}`} onClick={() => activateTab('study')}>
+      <strong>{days}</strong><span>days</span><small>{e.course}: {e.title}</small>
+    </button>
+  })}</div>
 }
 
 /** The notices for exams: the evening before, and when to leave. */

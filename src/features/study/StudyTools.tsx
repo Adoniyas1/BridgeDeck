@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Brain, Download, ImagePlus, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
+import { BookOpen, Brain, Download, ImagePlus, ListChecks, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, notesCreateMarkdown, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore, openNoteRequest } from '../notes/state'
-import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
+import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, examDeck, GRADES, masteryMap, type FlashCard } from './cards'
+import { useExams } from './assignments'
+import { belongsTo } from './canvas'
+import { startOfDay } from '../calendar/model'
+import { courseFolder } from './model'
 import { savedStarts } from './chapters'
 import { importLines, toCsv } from './deckio'
 import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
@@ -17,7 +21,7 @@ import { openBook, openBookLink, openLecture } from './open'
 import { clock as lectureClock } from './lecture'
 import { activateTab } from '../../core/tabs'
 import { CardText, cardSource, pictureRef } from './CardText'
-import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
+import { addCards, changeCardLine, focusStore, loadRatings, ratingsStore, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -308,5 +312,44 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
     {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.kind}-${h.file}-${h.page}`} onClick={() => h.kind === 'lecture' ? openLecture(h.course, h.file, h.t ?? 0) : h.kind === 'note' ? (openNoteRequest.set(h.file), activateTab('notes')) : openBook(h.course, h.file, h.book, h.page)}>
       <strong>{h.kind === 'lecture' ? `${h.book} [${lectureClock(h.t ?? 0)}]` : h.kind === 'note' ? `Note: ${h.book}` : `${h.book}, p. ${h.page}`}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">Nothing matches.</p>)}
     <p className="hint">Scanned books are searchable too: pages that are pictures of text are read by text recognition on this computer, which takes a few seconds a page the first time. Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
+  </Card>
+}
+
+/** The next exam of the course (within three weeks): days left, the cards from the chapters it
+ *  covers, the problems to redo, and a formula sheet to fill in. */
+export function ExamPrepCard({ course, info, onStatus }: { course: string; info: { code: string; canvasCode: string; chapters?: unknown }; onStatus: (s: string) => void }) {
+  const exams = useExams()
+  const notes = useStore(notesStore)
+  const ratings = useStore(ratingsStore)
+  const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
+  useEffect(() => { void loadRatings() }, [])
+  const now = Date.now()
+  const exam = exams.find(e => e.course === course && e.start > now && e.start - now < 21 * 86_400_000)
+  const deck = useMemo(() => deckOf(notes, course), [notes, course])
+  const scoped = useMemo(() => exam ? examDeck(deck, exam.covers, file => savedStarts(info, file)) : [], [deck, exam?.covers, info])
+  if (!exam) return null
+  const days = Math.ceil((startOfDay(exam.start) - startOfDay(now)) / 86_400_000)
+  const ready = dueCards(scoped, now, 200)
+  const hard = ratings.filter(r => r.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course)).length
+  const sheetTitle = `${course} — formulas: ${exam.title}`
+
+  async function formulaSheet() {
+    const existing = notes.find(n => !n.deleted && n.title === sheetTitle)
+    try {
+      const note = existing ?? await notesCreateMarkdown(sheetTitle, courseFolder(course), 'list', `## ${exam!.title}${exam!.covers ? ` (${exam!.covers})` : ''}\n\n- [ ] `)
+      if (!existing) notesStore.set(list => [note, ...list])
+      openNoteRequest.set(note.id)
+      activateTab('notes')
+    } catch (e) { onStatus(String(e)) }
+  }
+
+  return <Card className="exam-prep"><SectionTitle title={`${exam.title}: ${days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}`} subtitle={exam.covers ? `Covers ${exam.covers}` : 'Add what it covers to the exam to scope the cards'} action={<Timer size={18} />} />
+    <div className="exam-prep-row">
+      <button className="ghost" disabled={!ready.length} onClick={() => setReviewing(ready)}><Layers size={14} />{exam.covers ? `Review ${ready.length} card${ready.length === 1 ? '' : 's'} from it` : 'No cards scoped yet'}</button>
+      <button className="ghost" onClick={() => void formulaSheet()}><ListChecks size={14} />Formula sheet</button>
+      {hard > 0 && <small>{hard} problem{hard === 1 ? '' : 's'} to redo below</small>}
+    </div>
+    {days > 2 && <p className="hint">Little and often: the planner (Study → Plan study time) puts study blocks for it in the calendar, more as it gets close.</p>}
+    {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
 }
