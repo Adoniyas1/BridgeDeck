@@ -45,3 +45,16 @@ describe('brief', () => {
     expect(awayIsEmpty(whileAway(at(3), 'mac', changed, [], []))).toBe(true)
   })
 })
+
+describe('the brief counts Canvas work', () => {
+  it('lists Canvas items due today in the brief and due tomorrow in the evening nudge', () => {
+    const now = new Date(2026, 9, 22, 9).getTime()
+    const brief = buildBrief({ now, events: [], notes: [], courses: [], projects: [], canvas: [
+      { title: 'Quiz 3', course: 'EE 310', due: new Date(2026, 9, 22, 23, 59).getTime(), kind: 'quiz' },
+      { title: 'HW 5 (~3h)', course: 'EE 310', due: new Date(2026, 9, 23, 10).getTime(), kind: 'assignment' },
+    ] })
+    expect(brief.due.map(d => d.text)).toEqual(['Quiz 3'])
+    expect(brief.tomorrow.map(d => d.text)).toEqual(['HW 5 (~3h)'])
+    expect(eveningNudge(brief)).toBe('Due tomorrow: HW 5')
+  })
+})

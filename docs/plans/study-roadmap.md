@@ -99,9 +99,9 @@ Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a res
   - New src/features/study/finals.ts mapping meeting pattern (days + start time) to a final slot for the current term, with source URL and date in the file. A 'Add my finals' action creates source:'finals' exams with the room taken from the course's meeting room.
 - [ ] **3.6 Exam-day card** (S). Items: 31. Needs: 3.4, 1.1.
   - Home and Study card the day before and the day of an exam: room, allowed items (exam.allowed), bring-list (courseSettings bring), leave-by time (start minus a travel setting), suggested bedtime. Checklist ticks are stored in state key examDay.
-- [ ] **3.7 Reminders include Canvas work everywhere; 24h/1h warnings for hand-added items** (S). Items: 32. Needs: 3.1.
+- [x] **3.7 Reminders include Canvas work everywhere; 24h/1h warnings for hand-added items** (S). Items: 32. Needs: 3.1.
   - Reminder pass reads the Canvas data (3.1) and manual assignments; 24 h and 1 h notifications for hand-added items; done marks (canvasDone) suppress them; muted in exam mode. Pushed into the phone SNAPSHOT (phone.rs phone_publish).
-- [ ] **3.8 Warning: ticked done but not submitted on Canvas** (S). Items: 21. Needs: 3.1.
+- [x] **3.8 Warning: ticked done but not submitted on Canvas** (S). Items: 21. Needs: 3.1.
   - Compare canvasDone / problem ticks with submission.workflow_state/submitted_at; a 'Not submitted yet' badge plus a notification before the due time, with a link to html_url.
 - [ ] **3.9 Canvas scores into the grade sheet with an at-risk alert** (M). Items: 41 (part 1 of 2). Needs: 3.1, 1.2.
   - GradesCard / grades.ts fill category scores from Canvas submission.score/points_possible, with manual override kept. At-risk alert when the projected letter drops below the target (letters without +/-, as at CSULB, grades.ts:10).

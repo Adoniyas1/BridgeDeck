@@ -10,6 +10,7 @@ import { eventsLoadedStore, eventsStore } from '../calendar/state'
 import { transfersStore } from '../files/state'
 import { notesLoadedStore, notesStore, openNoteRequest } from '../notes/state'
 import { projectsStore, refreshProjects } from '../projects/state'
+import { allAssignments } from '../study/assignments'
 import { libraryStore, refreshLibrary } from '../study/state'
 import { awayIsEmpty, briefLine, buildBrief, dailyDue, eveningNudge, whileAway, type Away } from './brief'
 
@@ -29,6 +30,7 @@ function currentBrief(now = Date.now()) {
     now, events: eventsStore.get(), notes: notesStore.get(),
     courses: libraryStore.get().library?.courses.map(c => c.name) ?? [],
     projects: projectsStore.get().list?.projects.map(p => p.name) ?? [],
+    canvas: allAssignments().filter(a => a.source === 'canvas' && !a.done),
   })
 }
 

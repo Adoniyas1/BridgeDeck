@@ -7,7 +7,7 @@ import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, notHandedIn, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
 import { libraryStore, refreshLibrary, termStore } from './state'
 import { classesBetween, classRemindersDue } from './schedule'
 import { catalogTitle, sameCourseTitle } from './plans'
@@ -165,7 +165,13 @@ export function checkClassReminders(now = Date.now()) {
   }
 }
 
+const warnedUpload = new Set<string>()
 export function checkAssignmentReminders(now = Date.now()) {
+  for (const a of notHandedIn(allAssignments(), now)) {
+    if (warnedUpload.has(a.id)) continue
+    warnedUpload.add(a.id)
+    notify('reminders', `Not handed in on Canvas: ${a.title}`, `${a.course ? `${a.course} · ` : ''}it's ticked done here, but Canvas has no submission (${dueText(a.due, now)}).`)
+  }
   for (const { assignment: a, lead } of assignmentRemindersDue(allAssignments(), now, configStore.get().canvas.remindHours, announced)) {
     notify('reminders', `${lead <= 60 ? 'Due within the hour' : 'Due soon'}: ${a.title}`, `${a.course ? `${a.course} · ` : ''}${dueText(a.due, now)}`)
   }

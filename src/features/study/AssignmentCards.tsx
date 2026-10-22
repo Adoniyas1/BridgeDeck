@@ -13,7 +13,7 @@ import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
-import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
+import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { expandProblems, problemLabel } from './problems'
@@ -42,6 +42,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
     <div className="grow">
       <strong>{a.title}</strong>
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
+      {notHandedIn([a], now).length > 0 && <small className="cal-error">Ticked done, but Canvas has no submission: upload it?</small>}
       {open && <div className="problem-grid">{problems.map(p => <button key={p.key} className={ticked.includes(p.key) ? 'on' : ''} onClick={() => tickProblem(a.id, p.key)}>{problemLabel(p, sections)}</button>)}
         {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
     </div>

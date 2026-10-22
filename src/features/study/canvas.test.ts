@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Note } from '../../lib/bridge'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, studyNameFor, courseKey, belongsTo, type Assignment } from './canvas'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, courseMatches, notHandedIn, feedAssignments, groupAssignments, htmlText, manualAssignments, mergeCanvas, splitCourse, studyNameFor, courseKey, belongsTo, type Assignment } from './canvas'
 
 const FEED = [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Instructure//Canvas//EN',
@@ -136,5 +136,20 @@ describe('course codes', () => {
     expect(belongsTo({ name: 'Calc 3', code: 'MATH 224' }, 'MATH 224 Sec 07')).toBe(true)
     expect(belongsTo({ name: 'Calc 3', canvasCode: 'Calculus III - Fall 26' }, 'Calculus III - Fall 26')).toBe(true)
     expect(belongsTo({ name: 'Calc 3' }, 'E E 201 Sec05')).toBe(false)
+  })
+})
+
+describe('handed in on Canvas', () => {
+  const base = { source: 'canvas' as const, kind: 'assignment' as const, title: 'HW 4', course: 'EE 310', url: '', points: 10, missing: false, grade: '' }
+  const now = Date.UTC(2026, 9, 22, 12)
+  it('warns about work ticked done here that Canvas has no submission for', () => {
+    const list = [
+      { ...base, id: 'a', due: now - 3_600_000, submitted: false, done: true, online: true },
+      { ...base, id: 'b', due: now - 3_600_000, submitted: true, done: true, online: true },
+      { ...base, id: 'c', due: now - 3_600_000, submitted: false, done: true, online: false },
+      { ...base, id: 'd', due: now + 86_400_000, submitted: false, done: true, online: true },
+      { ...base, id: 'e', due: now - 30 * 86_400_000, submitted: false, done: true, online: true },
+    ]
+    expect(notHandedIn(list, now).map(a => a.id)).toEqual(['a'])
   })
 })
