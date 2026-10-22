@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, CircleDot, GraduationCap, Plus, Route } from 'lucide-react'
-import { isTauri, studyAddCourse, studyPlanRead, studyPlanWrite, studySetCourseInfo, type StudyCourse } from '../../lib/bridge'
+import { isTauri, studyAddCourse, studyPlanRead, studyPlanWrite, studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { courseKey } from './canvas'
@@ -29,7 +29,7 @@ export function DegreePlan({ courses, onOpen }: { courses: StudyCourse[]; onOpen
     unnamed.forEach(s => tried.current.add(s.name))
     const fixes = unnamed.flatMap(s => { const p = plan.semesters.flat().find(c => c.code && sameCourseTitle(s.name, c.title)); return p ? [{ s, p }] : [] })
     if (!fixes.length) return
-    void Promise.all(fixes.map(({ s, p }) => studySetCourseInfo(s.name, { ...s.info, code: p.code, title: p.title.replace(/\s*\(\+.*\)$/, '') }))).then(() => refreshLibrary()).catch(() => undefined)
+    void Promise.all(fixes.map(({ s, p }) => studyPatchCourseInfo(s.name, { code: p.code, title: p.title.replace(/\s*\(\+.*\)$/, '') }))).then(() => refreshLibrary()).catch(() => undefined)
   }, [courses, plan])
   if (!state) return <Card><p className="hint">Reading the plan…</p></Card>
   const totals = planTotals(plan, state)
@@ -58,7 +58,7 @@ export function DegreePlan({ courses, onOpen }: { courses: StudyCourse[]; onOpen
     if (!code) { choose(course); return }
     try {
       await studyAddCourse(code)
-      await studySetCourseInfo(code, { code: courseKey(code) ?? code, title: course.code ? course.title.replace(/\s*\(\+.*\)$/, '') : '', canvasId: '', canvasCode: '' })
+      await studyPatchCourseInfo(code, { code: courseKey(code) ?? code, title: course.code ? course.title.replace(/\s*\(\+.*\)$/, '') : '', canvasId: '', canvasCode: '' })
       await refreshLibrary()
       setStatus(`Added ${code} to your courses.`)
     } catch (e) { setStatus(errorText(e, 'Couldn’t add it')) }

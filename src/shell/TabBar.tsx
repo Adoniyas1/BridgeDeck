@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AppWindow, MessageCircleQuestion, Pin, PinOff, RefreshCw, Search, Settings, X } from 'lucide-react'
+import { AppWindow, Columns2, MessageCircleQuestion, Pin, PinOff, RefreshCw, Search, Settings, X } from 'lucide-react'
 import { chatPanelStore, toggleChatPanel } from '../core/chatgpt'
 import { hydratedStore } from '../core/config'
 import { lastInGroupStore, pinsStore, togglePin } from '../core/pins'
 import { refreshAll } from '../core/refresh'
 import { MOD, runShortcut, tabMenuStore } from '../core/shortcuts'
 import { useStore, type Store } from '../core/store'
-import { activateTab, closeTab, tabsStore } from '../core/tabs'
+import { activateTab, closeTab, splitTab, tabsStore, unsplit } from '../core/tabs'
 import { features } from '../features/registry'
 import { GROUPS, groupOf, type TabGroup } from '../features/groups'
 import type { FeatureManifest } from '../features/features'
@@ -81,6 +81,7 @@ function GroupTab({ group, active }: { group: TabGroup; active: string }) {
     {open && <div className="tab-menu" role="menu" aria-label={group.title} style={at}>
       {items.map(({ id, title, icon: ItemIcon, badge }) => <div key={id} className={id === active ? 'tab-menu__item active' : 'tab-menu__item'}>
         <button role="menuitem" onClick={() => go(id)}><ItemIcon size={15} /><span>{title}</span>{badge && <Badge store={badge} />}</button>
+        <button className="tab-menu__pin" onClick={() => { splitTab(id); setOpen(false) }} title={`Open ${title} beside what's showing (split screen)`} aria-label={`Open ${title} beside`}><Columns2 size={13} /></button>
         <button className="tab-menu__pin" onClick={() => togglePin(id)} title={pins.includes(id) ? `Unpin ${title}` : `Pin ${title} to the bar`} aria-label={pins.includes(id) ? `Unpin ${title}` : `Pin ${title}`}>
           {pins.includes(id) ? <PinOff size={13} /> : <Pin size={13} />}
         </button>
@@ -92,7 +93,7 @@ function GroupTab({ group, active }: { group: TabGroup; active: string }) {
 /** The bar: Search and the checklist, the main tabs (groups), pinned pages, open dynamic tabs, then the
  *  window's actions. */
 export default function TabBar() {
-  const { active, dynamic } = useStore(tabsStore)
+  const { active, dynamic, split } = useStore(tabsStore)
   const hydrated = useStore(hydratedStore)
   const chatOpen = useStore(chatPanelStore).open
   const pins = useStore(pinsStore).map(byId).filter((f): f is FeatureManifest => !!f)
@@ -128,15 +129,18 @@ export default function TabBar() {
         {GROUPS.map(group => <GroupTab key={group.id} group={group} active={active} />)}
         {!!pins.length && <span className="tab-divider" aria-hidden="true" />}
         {pins.map(({ id, title, icon: Icon, badge }) => (
-          <button key={id} role="tab" aria-selected={active === id} className={active === id ? 'tab pinned active' : 'tab pinned'} onClick={() => activateTab(id)} onAuxClick={event => { if (event.button === 1) togglePin(id) }} title={`${title} (pinned; middle-click to unpin)`}>
+          <button key={id} role="tab" aria-selected={active === id} className={`tab pinned${active === id ? ' active' : ''}${split === id ? ' beside' : ''}`} onClick={() => activateTab(id)} onAuxClick={event => { if (event.button === 1) togglePin(id) }}
+            onContextMenu={event => { event.preventDefault(); splitTab(id) }} title={`${title} (pinned; middle-click to unpin, right-click to open beside)`}>
             <Icon size={15} /><span>{title}</span>{badge && <Badge store={badge} />}
           </button>
         ))}
         {!!dynamic.length && <span className="tab-divider" aria-hidden="true" />}
         {dynamic.map(tab => { const Icon = iconFor(tab.kind); return (
-          <div key={tab.id} role="tab" aria-selected={active === tab.id} className={active === tab.id ? 'tab dynamic active' : 'tab dynamic'}
-            onClick={() => activateTab(tab.id)} onAuxClick={event => { if (event.button === 1) closeTab(tab.id) }} title={tab.title}>
+          <div key={tab.id} role="tab" aria-selected={active === tab.id} className={`tab dynamic${active === tab.id ? ' active' : ''}${split === tab.id ? ' beside' : ''}`}
+            onClick={() => activateTab(tab.id)} onAuxClick={event => { if (event.button === 1) closeTab(tab.id) }}
+            onContextMenu={event => { event.preventDefault(); if (split === tab.id) unsplit(); else splitTab(tab.id) }} title={`${tab.title} (right-click to open beside)`}>
             <Icon size={15} /><span>{tab.title}</span>
+            <button className="tab-close tab-split" aria-label={split === tab.id ? 'Close split screen' : `Open ${tab.title} beside`} title={split === tab.id ? 'Close split screen' : 'Open beside what’s showing (split screen)'} onClick={event => { event.stopPropagation(); if (split === tab.id) unsplit(); else splitTab(tab.id) }}><Columns2 size={12} /></button>
             <button className="tab-close" aria-label={`Close ${tab.title}`} onClick={event => { event.stopPropagation(); closeTab(tab.id) }}><X size={13} /></button>
           </div>
         ) })}

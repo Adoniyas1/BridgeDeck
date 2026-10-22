@@ -86,7 +86,48 @@ const PLAN: &str = ".degree-plan.json";
 const MAX_PLAN: usize = 256 * 1024;
 
 fn read_info(dir: &Path) -> CourseInfo {
+    merge_info_conflicts(dir);
     fs::read(dir.join(INFO)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn read_info_map(path: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
+    fs::read(path).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()).and_then(|v| v.as_object().cloned())
+}
+
+/// The two computers changed a course's settings while apart, so Syncthing kept both
+/// (`.course.sync-conflict-<date>-<time>-<device>.json`). Settings only one of them has are kept;
+/// for a setting both changed, the newer file's wins. The copy then goes to the Trash.
+fn merge_info_conflicts(dir: &Path) {
+    let main = dir.join(INFO);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if crate::sync_conflicts::original_name(&name).as_deref() != Some(INFO) {
+            continue;
+        }
+        let Some(theirs) = read_info_map(&entry.path()) else { continue };
+        let mine = read_info_map(&main).unwrap_or_default();
+        let time = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+        let merged = merge_info(mine, theirs, time(&entry.path()) > time(&main));
+        let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(merged)) else { continue };
+        if write_atomic(&main, &bytes).is_ok() {
+            let _ = trash::delete(entry.path());
+        }
+    }
+}
+
+/// `mine` with the settings only `theirs` has; where both have one, `theirs` when it's newer.
+fn merge_info(mut mine: serde_json::Map<String, serde_json::Value>, theirs: serde_json::Map<String, serde_json::Value>, theirs_newer: bool) -> serde_json::Map<String, serde_json::Value> {
+    for (key, value) in theirs {
+        if theirs_newer || !mine.contains_key(&key) {
+            mine.insert(key, value);
+        }
+    }
+    mine
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let partial = path.with_extension("json.partial");
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, path)).map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -244,7 +285,6 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some(k) if BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) => found,
         _ => return fail(StatusCode::NOT_FOUND),
     };
-    let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
     let mime = match book_kind(&path).as_deref() {
         Some("epub") => "application/epub+zip",
         Some("jpg" | "jpeg") => "image/jpeg",
@@ -253,21 +293,164 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some("webp") => "image/webp",
         _ => "application/pdf",
     };
-    let total = data.len();
-    let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("bytes=")).and_then(|v| v.split_once('-')).and_then(|(a, b)| {
-        let start: usize = a.parse().ok()?;
-        let end: usize = if b.is_empty() { total.checked_sub(1)? } else { b.parse::<usize>().ok()?.min(total.checked_sub(1)?) };
-        (start <= end).then_some((start, end))
-    });
-    let builder = Response::builder().header(header::CONTENT_TYPE, mime).header(header::ACCEPT_RANGES, "bytes").header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-    match range {
-        Some((start, end)) => builder
-            .status(StatusCode::PARTIAL_CONTENT)
-            .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
-            .body(data[start..=end].to_vec())
-            .unwrap(),
-        None => builder.status(StatusCode::OK).body(data).unwrap(),
+    let Ok(mut file) = fs::File::open(&path) else { return fail(StatusCode::NOT_FOUND) };
+    let Ok(total) = file.metadata().map(|m| m.len()) else { return fail(StatusCode::NOT_FOUND) };
+    // pdf.js reads a big book in pieces: these let the window see that it can.
+    let builder = Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Accept-Ranges, Content-Range, Content-Length");
+    if request.method() == tauri::http::Method::OPTIONS {
+        return builder.status(StatusCode::NO_CONTENT).body(Vec::new()).unwrap();
     }
+    // A header that isn't a byte range is ignored, as HTTP says.
+    let header = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).filter(|h| h.trim().starts_with("bytes="));
+    match header.map(|h| parse_range(h, total)) {
+        // Only the part asked for is read, not the whole book.
+        Some(Some((start, end))) => {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut part = vec![0; (end - start + 1) as usize];
+            if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut part)).is_err() {
+                return fail(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            builder
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
+                .header(header::CONTENT_LENGTH, part.len())
+                .body(part)
+                .unwrap()
+        }
+        Some(None) => builder.status(StatusCode::RANGE_NOT_SATISFIABLE).header(header::CONTENT_RANGE, format!("bytes */{total}")).body(Vec::new()).unwrap(),
+        None => {
+            let Ok(data) = fs::read(&path) else { return fail(StatusCode::NOT_FOUND) };
+            builder.status(StatusCode::OK).header(header::CONTENT_LENGTH, data.len()).body(data).unwrap()
+        }
+    }
+}
+
+/// The bytes a `Range: bytes=…` header asks for in a file of `total` bytes, as an inclusive
+/// (start, end): "a-b", "a-" (to the end) or "-n" (the last n). One range only; past the end is cut
+/// to the end; None when nothing of the file is asked for. Parts are at most 16 MB.
+fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
+    const MAX_PART: u64 = 16 * 1024 * 1024;
+    let (a, b) = header.trim().strip_prefix("bytes=")?.split_once('-')?;
+    if total == 0 || b.contains(',') {
+        return None;
+    }
+    let last = total - 1;
+    let (start, end) = if a.trim().is_empty() {
+        let n: u64 = b.trim().parse().ok()?;
+        if n == 0 {
+            return None;
+        }
+        (total.saturating_sub(n), last)
+    } else {
+        let start: u64 = a.trim().parse().ok()?;
+        let end = if b.trim().is_empty() { last } else { b.trim().parse::<u64>().ok()?.min(last) };
+        (start, end)
+    };
+    (start <= end && start <= last).then_some((start, end.min(start + MAX_PART - 1)))
+}
+
+// ---- PDFs made here ----
+
+const MAX_MADE_PDF: usize = 500 * 1024 * 1024;
+
+/// Saves a PDF made in the window (stitched pages) into a course as `<name>.pdf` (a free name, so
+/// nothing is replaced). Returns the file name it got.
+fn save_pdf(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
+    if !bytes.starts_with(b"%PDF-") || bytes.len() > MAX_MADE_PDF {
+        return Err("That isn't a PDF BridgeDeck can save".into());
+    }
+    let stem = clean_name(name.trim().trim_end_matches(".pdf").trim_end_matches(".PDF"))?;
+    let file = free_name(dir, &format!("{stem}.pdf"));
+    let path = dir.join(&file);
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save the PDF: {e}"))?;
+    Ok(file)
+}
+
+/// The PDF is sent as the request body (not JSON); the course and file name come in the
+/// `x-course` and `x-name` headers, URI-encoded.
+#[tauri::command]
+pub fn study_save_pdf(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |key: &str| request.headers().get(key).and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or_else(|| format!("Missing {key}"));
+    let (course, name) = (header("x-course")?, header("x-name")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the PDF as bytes".into()) };
+    let dir = course_dir(&current_root()?, &course)?;
+    let file = save_pdf(&dir, &name, bytes)?;
+    crate::activity::info("study", &format!("Saved {file} in {course}."));
+    Ok(file)
+}
+
+// ---- Export a semester ----
+
+/// The files a semester export carries, by path under `root`: every file of the courses being
+/// taken (not archived), and the Study-wide state (the term, degree plan, `.state`). Hidden
+/// folders inside a course (caches) and partial writes are left out.
+fn semester_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for name in [".term.json", ".degree-plan.json"] {
+        if root.join(name).is_file() {
+            out.push(PathBuf::from(name));
+        }
+    }
+    let walk = |dir: &Path, out: &mut Vec<PathBuf>, skip_hidden_dirs: bool| {
+        for entry in walkdir::WalkDir::new(dir).follow_links(false).into_iter().filter_entry(|e| e.depth() == 0 || !skip_hidden_dirs || !e.file_type().is_dir() || !e.file_name().to_string_lossy().starts_with('.')).flatten() {
+            let name = entry.file_name().to_string_lossy();
+            if entry.file_type().is_file() && !name.ends_with(".partial") && !name.contains(".sync-conflict-") {
+                if let Ok(rel) = entry.path().strip_prefix(root) {
+                    out.push(rel.to_path_buf());
+                }
+            }
+        }
+    };
+    walk(&root.join(".state"), &mut out, false);
+    for course in fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = course.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || !course.path().is_dir() || course.path().join(ARCHIVED).exists() {
+            continue;
+        }
+        walk(&course.path(), &mut out, true);
+    }
+    out.sort();
+    out
+}
+
+/// Writes the semester (see `semester_files`) as a zip at `to`. Returns how many files went in.
+fn export_semester(root: &Path, to: &Path) -> Result<usize, String> {
+    use std::io::Write;
+    let files = semester_files(root);
+    let file = fs::File::create(to).map_err(|e| format!("Couldn't write {}: {e}", to.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    for rel in &files {
+        // Books, pictures and recordings are compressed already.
+        let packed = book_kind(rel).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) || matches!(k.as_str(), "mp3" | "m4a" | "webm" | "mp4" | "zip"));
+        let method = if packed { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+        let opts = zip::write::SimpleFileOptions::default().compression_method(method).large_file(true);
+        let mut source = fs::File::open(root.join(rel)).map_err(|e| format!("Couldn't read {}: {e}", rel.display()))?;
+        zip.start_file(format!("Study/{}", rel.to_string_lossy().replace('\\', "/")), opts).map_err(|e| e.to_string())?;
+        std::io::copy(&mut source, &mut zip).map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?.flush().map_err(|e| e.to_string())?;
+    Ok(files.len())
+}
+
+/// Saves this semester's courses (books, notes files, recordings, settings) and Study's state in
+/// one .zip at `path`: for keeping before finals, or moving to a new computer.
+#[tauri::command]
+pub async fn study_export_semester(path: String) -> Result<String, String> {
+    let root = current_root()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let n = export_semester(&root, Path::new(&path))?;
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        crate::activity::info("study", &format!("Exported the semester to {path} ({n} files)."));
+        Ok(format!("Saved {n} file{} ({:.1} MB) in {path}.", if n == 1 { "" } else { "s" }, size as f64 / 1_048_576.0))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---- Page text and search ----
@@ -495,17 +678,38 @@ pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> 
     }
 }
 
-/// Sets a course's code, title and Canvas course.
+/// Changes some of a course's settings (code, title, Canvas course, class times, grading…): the
+/// settings in `patch` replace those in the file as it is now (null removes one), and the rest stay
+/// as they are, so a change here doesn't undo one just synced from the other computer.
 #[tauri::command]
-pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), String> {
-    let short = |s: &str| s.trim().chars().take(120).collect::<String>();
-    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code), more: info.more };
-    let bytes = serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?;
+pub fn study_patch_course_info(name: String, patch: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let dir = course_dir(&current_root()?, &name)?;
+    patch_info(&dir, patch)
+}
+
+fn patch_info(dir: &Path, patch: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    merge_info_conflicts(dir);
+    let mut info = read_info_map(&dir.join(INFO)).unwrap_or_default();
+    for (key, value) in patch {
+        if key.is_empty() || key.len() > 64 {
+            return Err("Not a course setting".into());
+        }
+        match value {
+            serde_json::Value::Null => { info.remove(&key); }
+            // The names are short text.
+            serde_json::Value::String(text) if matches!(key.as_str(), "code" | "title" | "canvasId" | "canvasCode") => {
+                info.insert(key, serde_json::Value::String(text.trim().chars().take(120).collect()));
+            }
+            value => { info.insert(key, value); }
+        }
+    }
+    // Still a course's settings (the names are text).
+    serde_json::from_value::<CourseInfo>(serde_json::Value::Object(info.clone())).map_err(|_| "Not a course setting")?;
+    let bytes = serde_json::to_vec_pretty(&serde_json::Value::Object(info)).map_err(|e| e.to_string())?;
     if bytes.len() > MAX_PLAN {
         return Err("Too much to keep for one course".into());
     }
-    let dir = course_dir(&current_root()?, &name)?;
-    fs::write(dir.join(INFO), bytes).map_err(|e| e.to_string())
+    write_atomic(&dir.join(INFO), &bytes)
 }
 
 // The term and ticked problems are kept in study_state.rs.
@@ -662,5 +866,79 @@ mod tests {
     fn indexes_from_before_text_recognition_are_read_again() {
         let old: BookText = serde_json::from_str(r#"{"bytes":10,"pages":[""]}"#).unwrap();
         assert!(old.version < INDEX_VERSION);
+    }
+
+    #[test]
+    fn course_settings_change_one_at_a_time_and_conflict_copies_merge() {
+        let dir = std::env::temp_dir().join(format!("bd-course-info-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let obj = |v: serde_json::Value| v.as_object().unwrap().clone();
+        patch_info(&dir, obj(serde_json::json!({"code": "  EE 310 ", "meetings": [1]}))).unwrap();
+        // Another computer's change to the grading arrives; a later change here to the code keeps it.
+        let mut on_disk = read_info_map(&dir.join(INFO)).unwrap();
+        on_disk.insert("grading".into(), serde_json::json!({"a": 1}));
+        fs::write(dir.join(INFO), serde_json::to_vec(&on_disk).unwrap()).unwrap();
+        patch_info(&dir, obj(serde_json::json!({"title": "Electronics", "meetings": null}))).unwrap();
+        let info = read_info(&dir);
+        assert_eq!((info.code.as_str(), info.title.as_str()), ("EE 310", "Electronics"));
+        assert_eq!(info.more.get("grading"), Some(&serde_json::json!({"a": 1})));
+        assert!(!info.more.contains_key("meetings"));
+        assert!(patch_info(&dir, obj(serde_json::json!({"code": 5}))).is_err());
+        // A Syncthing conflict copy: its new setting comes in, and for one both changed the newer wins.
+        assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2, "c": 3})), false), obj(serde_json::json!({"a": 1, "b": 1, "c": 3})));
+        assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2})), true), obj(serde_json::json!({"a": 1, "b": 2})));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn byte_ranges_are_read() {
+        assert_eq!(parse_range("bytes=0-99", 1000), Some((0, 99)));
+        assert_eq!(parse_range("bytes=900-", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=950-5000", 1000), Some((950, 999)));
+        assert_eq!(parse_range("bytes=-100", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=-5000", 1000), Some((0, 999)));
+        assert_eq!(parse_range("bytes=1000-", 1000), None);
+        assert_eq!(parse_range("bytes=5-1", 1000), None);
+        assert_eq!(parse_range("bytes=-0", 1000), None);
+        assert_eq!(parse_range("bytes=0-1,5-9", 1000), None);
+        assert_eq!(parse_range("bytes=x-1", 1000), None);
+        assert_eq!(parse_range("bytes=0-", 0), None);
+        // A big ask is cut to 16 MB.
+        assert_eq!(parse_range("bytes=0-", 100_000_000), Some((0, 16 * 1024 * 1024 - 1)));
+    }
+
+    #[test]
+    fn a_semester_export_has_the_courses_being_taken_and_the_study_state() {
+        let base = std::env::temp_dir().join(format!("bd-semester-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("Study");
+        for d in ["EE 310/Lectures", "EE 310/.cache", "Old/x", ".state/problems"] {
+            fs::create_dir_all(root.join(d)).unwrap();
+        }
+        for (f, t) in [(".term.json", "{}"), (".state/problems/pc.json", "{}"), ("EE 310/.course.json", "{}"), ("EE 310/Book.pdf", "%PDF"), ("EE 310/Lectures/Oct 14.webm", "a"), ("EE 310/.cache/x", "no"), ("EE 310/n.json.partial", "no"), ("Old/x/a.pdf", "no"), ("Old/.archived", "")] {
+            fs::write(root.join(f), t).unwrap();
+        }
+        let names: Vec<String> = semester_files(&root).iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(names, [".state/problems/pc.json", ".term.json", "EE 310/.course.json", "EE 310/Book.pdf", "EE 310/Lectures/Oct 14.webm"]);
+        let zip_path = base.join("semester.zip");
+        assert_eq!(export_semester(&root, &zip_path).unwrap(), 5);
+        let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        assert!(zip.by_name("Study/EE 310/Book.pdf").is_ok());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn made_pdfs_are_saved_beside_the_books_without_replacing_any() {
+        let dir = std::env::temp_dir().join(format!("bd-save-pdf-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(save_pdf(&dir, "Homework 4", b"%PDF-1.7 x").unwrap(), "Homework 4.pdf");
+        assert_eq!(save_pdf(&dir, "Homework 4.pdf", b"%PDF-1.7 y").unwrap(), "Homework 4 (2).pdf");
+        assert_eq!(save_pdf(&dir, "../../x", b"%PDF-1.7").unwrap(), "-..-x.pdf");
+        assert!(save_pdf(&dir, "Not", b"<html>").is_err());
+        assert!(save_pdf(&dir, "  ", b"%PDF-").is_err());
+        assert_eq!(fs::read(dir.join("Homework 4.pdf")).unwrap(), b"%PDF-1.7 x");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

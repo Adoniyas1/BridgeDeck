@@ -1,10 +1,10 @@
 import { askChatGPT, toggleChatPanel } from './chatgpt'
 import { createStore, useStore } from './store'
-import { activateTab, tabsStore } from './tabs'
+import { activateTab, splitTab, tabsStore, unsplit } from './tabs'
 
 /** Shortcuts that work all over BridgeDeck, web pages included (src-tauri/src/webkeys.rs passes
  *  them on from a focused page). `key` is what's pressed with ⌘ on a Mac, Ctrl on Windows. */
-export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address' | 'code'
+export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address' | 'code' | 'split'
 export const SHORTCUTS: Array<{ keys: string; what: string; name?: ShortcutName; shift?: boolean; key?: string }> = [
   { keys: 'K', what: 'Search everything: tabs, notes, books, bookmarks, history', name: 'search', key: 'k' },
   { keys: 'J', what: 'Open or close the ChatGPT panel', name: 'chatgpt', key: 'j' },
@@ -12,6 +12,7 @@ export const SHORTCUTS: Array<{ keys: string; what: string; name?: ShortcutName;
   { keys: 'Shift O', what: 'Fill in the latest verification code from Messages (and copy it)', name: 'code', shift: true, key: 'o' },
   { keys: '/', what: 'This list of shortcuts', name: 'shortcuts', key: '/' },
   { keys: '1–9', what: 'Go to the first, second… tab' },
+  { keys: '\\', what: 'Split screen: the tab used before this one beside it (again: one tab)', name: 'split', key: '\\' },
   { keys: 'T', what: 'Browser: new tab', name: 'new-tab', key: 't' },
   { keys: 'W', what: 'Browser: close the tab', name: 'close-tab', key: 'w' },
   { keys: 'L', what: 'Browser: go to the address bar', name: 'address', key: 'l' },
@@ -70,6 +71,13 @@ export function runShortcut(name: ShortcutName, from: { text?: string; url?: str
     case 'shortcuts': paletteStore.set(false); shortcutsHelpStore.set(open => !open); return true
     case 'chatgpt': toggleChatPanel(); return true
     case 'code': codeRequestStore.set(Date.now()); return true
+    case 'split': {
+      const { split, history, active } = tabsStore.get()
+      const previous = history.find(id => id !== active)
+      if (split) unsplit()
+      else if (previous) splitTab(previous)
+      return true
+    }
     case 'ask': {
       const text = (from.text ?? (typeof window !== 'undefined' ? String(window.getSelection() ?? '') : '')).trim()
       void askChatGPT(text ? askPrompt(text, from.url) : undefined)

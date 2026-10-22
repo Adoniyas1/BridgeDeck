@@ -446,12 +446,20 @@ export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
+/** Saves a PDF made here (stitched pages) in a course; returns the file name it got. The bytes go as
+ *  the request body, not JSON. */
+export async function studySavePdf(course: string, name: string, bytes: Uint8Array): Promise<string> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<string>('study_save_pdf', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
+}
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
-export const studySetCourseInfo = (name: string, info: CourseInfo) => native<void>('study_set_course_info', { name, info })
+/** Changes some of a course's settings; the rest stay as they are in the file now (so a change here
+ *  doesn't undo one just synced from the other computer). null removes a setting. */
+export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & Record<string, unknown>) => native<void>('study_patch_course_info', { name, patch })
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
-export type StudyStateKey = 'term' | 'problems'
+export type StudyStateKey = 'term' | 'problems' | 'reading'
 export const studyStateGet = (key: StudyStateKey) => native<Record<string, unknown>>('study_state_get', { key })
 export const studyStateSet = (key: StudyStateKey, changes: Record<string, unknown>) => native<void>('study_state_put', { key, changes })
 export const studyPlanRead = () => native<string>('study_plan_read')
@@ -569,6 +577,13 @@ export const backupsList = () => native<BackupInfo[]>('backups_list')
 /** Everything (notes, calendar, settings, circuits, programs) in one .zip, and bringing one back. */
 export const backupExport = (path: string) => native<string>('backup_export', { path })
 export const backupImport = (path: string, settings: boolean) => native<BackupRestored>('backup_import', { path, settings })
+/** This semester's courses and Study state in one .zip (study.rs). */
+export const studyExportSemester = (path: string) => native<string>('study_export_semester', { path })
+export async function pickSemesterZip(): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `Semester ${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: 'Zip', extensions: ['zip'] }] })) ?? null
+}
+
 export async function pickBackupFile(mode: 'open' | 'save'): Promise<string | null> {
   if (!isTauri()) return null
   const filters = [{ name: 'BridgeDeck export', extensions: ['zip'] }]

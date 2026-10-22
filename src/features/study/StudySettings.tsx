@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { GraduationCap, Languages, LogIn, ShieldCheck } from 'lucide-react'
-import { canvasApi, canvasFeed, isTauri, ocrLanguagesDownload, ocrLanguagesStatus } from '../../lib/bridge'
+import { Archive, GraduationCap, Languages, LogIn, ShieldCheck } from 'lucide-react'
+import { canvasApi, canvasFeed, isTauri, ocrLanguagesDownload, ocrLanguagesStatus, pickSemesterZip, studyExportSemester } from '../../lib/bridge'
 import { feedAssignments } from './canvas'
 import { refreshCanvas } from './assignments'
 import { setConfig, useConfig } from '../../core/config'
@@ -14,9 +14,26 @@ export const OCR_LANGUAGES: Array<[string, string]> = [
   ['ara', 'Arabic'], ['hin', 'Hindi'], ['chi_sim', 'Chinese (simplified)'], ['jpn', 'Japanese'], ['kor', 'Korean'], ['amh', 'Amharic'],
 ]
 
-/** Settings → Study: Canvas, exam mode's sites, and which languages scanned book pages are read in. */
+/** Settings → Study: Canvas, exam mode's sites, which languages scanned book pages are read in, and
+ *  saving the semester. */
 export function StudySettings() {
-  return <><CanvasSettings /><ExamSettings /><ScanSettings /></>
+  return <><CanvasSettings /><ExamSettings /><ScanSettings /><SemesterSettings /></>
+}
+
+function SemesterSettings() {
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  async function exportIt() {
+    const path = await pickSemesterZip()
+    if (!path) return
+    setBusy(true); setMessage('')
+    try { setMessage(await studyExportSemester(path)) } catch (e) { setMessage(errorText(e, 'The semester didn’t export')) } finally { setBusy(false) }
+  }
+  return <Card><SectionTitle title="Save the semester" subtitle="Every course you’re taking (books, slides, recordings, course settings) and your ticks, term and degree plan, in one .zip: to keep before finals or move to a new computer" action={<Archive size={18} />} />
+    <div className="actions"><button disabled={busy || !isTauri()} onClick={() => void exportIt()}>{busy ? 'Saving…' : 'Export semester…'}</button></div>
+    {message && <p className="hint">{message}</p>}
+    <p className="hint">Notes and flashcards are in Settings → Sync → Backups.</p>
+  </Card>
 }
 
 function ScanSettings() {

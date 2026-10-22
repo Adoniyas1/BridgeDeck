@@ -18,7 +18,15 @@ export async function loadBookBytes(course: string, file: string) {
   return response.arrayBuffer()
 }
 
-/** A PDF book from the library. */
+/** A PDF book from the library. Read in pieces as pages are shown (study.rs serves byte ranges), so
+ *  a 400 MB textbook opens at once; if that doesn't work in this window, the whole file is loaded. */
 export async function loadBook(course: string, file: string) {
-  return pdfjs.getDocument({ data: new Uint8Array(await loadBookBytes(course, file)), isEvalSupported: false }).promise
+  if (isSlideFile(file)) await studySlidesPdf(course, file)
+  const task = pdfjs.getDocument({ url: convertFileSrc(`${course}/${file}`, 'bdbook'), rangeChunkSize: 1 << 20, disableAutoFetch: true, disableStream: true, isEvalSupported: false })
+  try {
+    return await task.promise
+  } catch {
+    void task.destroy()
+    return pdfjs.getDocument({ data: new Uint8Array(await loadBookBytes(course, file)), isEvalSupported: false }).promise
+  }
 }
