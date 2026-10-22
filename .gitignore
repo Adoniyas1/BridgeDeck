@@ -11,3 +11,4 @@ vendor/
 runtime/*/
 src-tauri/gen/
 *.tsbuildinfo
+mimir/tests/tutor-eval/report-*.md
