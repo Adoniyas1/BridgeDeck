@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, Brain, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -12,6 +12,9 @@ import { bookLink, chaptersTitle, courseFolder, currentPath, highlightsByPage, h
 import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
+import { useTabContext } from '../../core/tabContext'
+import { askMimir } from '../mimir'
+import { mimirPassagePrompt, readingContext } from './model'
 import { isSlideFile, loadBook, pdfjs } from './pdf'
 import EpubTab from './EpubTab'
 import { flushPlaces, placeOf, rememberPlace } from './reading'
@@ -129,6 +132,18 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const allNotes = useStore(notesStore)
   const highlightNote = allNotes.find(n => n.title === highlightsTitle(title) && n.folder === courseFolder(course))
   const marks = useMemo(() => highlightsByPage(highlightNote, course, file), [highlightNote, course, file])
+
+  // Mimir sees what's being read: the book, the page, what's selected and the page's text.
+  const pageText = useRef('')
+  useEffect(() => {
+    if (!doc) return
+    let cancelled = false
+    void doc.getPage(page).then(p => p.getTextContent()).then(content => {
+      if (!cancelled) pageText.current = content.items.map(item => 'str' in item ? item.str : '').join(' ').replace(/\s+/g, ' ').slice(0, 6000)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [doc, page])
+  useTabContext(tab.id, () => ({ title: `${title}, page ${page}`, text: readingContext({ course, title, where: `page ${page} of ${doc?.numPages ?? '?'}`, selection, text: pageText.current }) }))
 
   useEffect(() => {
     if (isEpub) return
@@ -313,6 +328,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <span className="grow book-title">{title}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onMouseDown={e => e.preventDefault()} onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
       <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onMouseDown={e => e.preventDefault()} onClick={() => { setCard({ back: selection.replace(/\s+/g, ' '), page }); window.getSelection()?.removeAllRanges() }}><Layers size={14} /> Flashcard</button>
+      <button className="ghost" disabled={!selection} title="Ask Mimir to explain this passage (opens beside the book)" onMouseDown={e => e.preventDefault()} onClick={() => void askMimir(mimirPassagePrompt(title, page, selection), true)}><Brain size={14} /> Ask Mimir</button>
       <button className="ghost" disabled={!selection} title="Open ChatGPT with this passage, ready for you to send" onMouseDown={e => e.preventDefault()} onClick={() => void askChatGPT(passagePrompt(title, page, selection), courseFolder(course)).catch(e => setStatus(String(e)))}><MessageCircleQuestion size={14} /> Ask ChatGPT</button>
       <button className="ghost" onClick={() => void chapterChecklist()}><ListChecks size={14} /> Chapter checklist</button>
     </div>

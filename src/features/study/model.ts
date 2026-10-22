@@ -128,3 +128,18 @@ export function inHighlight(line: string, quotes: string[]) {
     return k >= 12 && (q.includes(a.slice(0, k)) || q.includes(a.slice(-k)) || a.includes(q.slice(0, k)) || a.includes(q.slice(-k)))
   })
 }
+
+/** What a book tab tells Mimir about what's being read. */
+export function readingContext(r: { course: string; title: string; where: string; selection: string; text: string }) {
+  return [
+    `Reading “${r.title}” (course: ${r.course}), ${r.where}.`,
+    r.selection.trim() && `Selected passage:\n"${r.selection.replace(/\s+/g, ' ').trim().slice(0, 3000)}"`,
+    r.text.trim() && `Text of the page:\n${r.text.trim()}`,
+  ].filter(Boolean).join('\n\n')
+}
+
+/** Asking Mimir about a passage: explain it, with an example, then check understanding. */
+export function mimirPassagePrompt(book: string, page: number, passage: string, chapter = '') {
+  const where = page > 0 ? `page ${page}` : chapter ? `“${chapter}”` : 'the book'
+  return `I'm reading "${book}", ${where}. Explain this passage in plain words, give one short example, then ask me one question to check I understood it.\n\n"${passage.replace(/\s+/g, ' ').trim().slice(0, 3000)}"`
+}

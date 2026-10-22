@@ -5,7 +5,7 @@ import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksIn
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
-import { activateTab } from '../../core/tabs'
+import { activateTab, splitTab, tabsStore } from '../../core/tabs'
 import { workContext } from '../../core/tabContext'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
@@ -63,9 +63,11 @@ if (typeof window !== 'undefined') window.addEventListener('message', event => {
 })
 
 /** Opens the Mimir tab and asks it `text` (started first if it isn't running). The page needs a
- *  moment after it appears before it listens, so the question is sent once it's there. */
-export async function askMimir(text: string) {
-  activateTab('mimir')
+ *  moment after it appears before it listens, so the question is sent once it's there. With
+ *  `beside`, Mimir opens on the right of a split screen, so what's being asked about stays in view. */
+export async function askMimir(text: string, beside = false) {
+  if (beside && tabsStore.get().active !== 'mimir') splitTab('mimir')
+  else activateTab('mimir')
   if (!mimirStore.get().url && isTauri()) {
     setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))
     await mimirStart().then(mimirStore.set).catch(() => undefined)
