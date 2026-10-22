@@ -4,7 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { cleanSetupConfig, cmdPath, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, sharedNames, swapYaml } from "../src/main/setup/plan.js";
+import { cleanSetupConfig, cmdPath, mmprojBeside, mergeSetupConfig, defaultSetup, isLocalModel, localSwapUrl, MAC_ARGS, memoryNeeded, PC_ARGS, pickAssets, releaseTool, sharedNames, swapYaml } from "../src/main/setup/plan.js";
 import { checkRoom, parseVmStat } from "../src/main/setup/memory.js";
 import { explainLoadFailure, findLocal, installRelease, isPrismBuild, modelCached, pickModels, storageItems, teamUsesSetup, useLocalCopies } from "../src/main/setup/index.js";
 import { DEFAULT_TEAM, presetConfig } from "../src/main/team/config.js";
@@ -297,3 +297,15 @@ describe("setup I/O", () => {
   });
 });
 
+
+describe("vision projector", () => {
+  it("passes the mmproj beside a local model to llama-server", () => {
+    const files: Record<string, string[]> = { "/m": ["Qwen3.5-9B-Q4_K_M.gguf", "mmproj-Qwen3.5-9B-F16.gguf", "mmproj-other.gguf"], "/n": ["a.gguf"] };
+    const list = (dir: string) => files[dir] ?? [];
+    expect(mmprojBeside("/m/Qwen3.5-9B-Q4_K_M.gguf", list)).toBe(path.join("/m", "mmproj-Qwen3.5-9B-F16.gguf"));
+    expect(mmprojBeside("/n/a.gguf", list)).toBeNull();
+    const config = { ...defaultSetup("pc") };
+    config.models = { ...config.models, head: { ...config.models.head, source: "/m/Qwen3.5-9B-Q4_K_M.gguf", args: "" } };
+    expect(swapYaml(config, "llama-server", {}, (m) => mmprojBeside(m, list))).toContain("--mmproj /m/mmproj-Qwen3.5-9B-F16.gguf");
+  });
+});

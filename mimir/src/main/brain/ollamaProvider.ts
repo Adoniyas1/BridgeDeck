@@ -56,7 +56,7 @@ export class OllamaProvider implements BrainProvider {
   }
 
   supportsVision(): boolean {
-    return /llava|vision|bakllava/i.test(this.model);
+    return /llava|vision|bakllava|moondream|minicpm-v|gemma3|qwen2\.5vl|qwen3?-?vl|[-_:]vl\b/i.test(this.model);
   }
 
   async *chat(
