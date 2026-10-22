@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { BookCheck, BookOpen, LifeBuoy, CalendarClock, CheckCheck, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
+import { BookCheck, BookOpen, LifeBuoy, CalendarClock, CheckCheck, Layers, X, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri, studyPatchCourseInfo } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
 import { aiAllowed, examStore, loadSharedExam } from '../../core/exam'
@@ -19,10 +19,12 @@ import { HomeworkImport } from './HomeworkImport'
 import { ExamNotices } from './ExamDay'
 import { expandProblems, problemId, problemLabel, stuckPrompt } from './problems'
 import { askMimir } from '../mimir'
-import { libraryStore, loadProblems, loadRatings, problemsStore, rateProblem, ratingsStore, refreshLibrary, termStore, tickProblem } from './state'
+import { addCards, addMistake, libraryStore, loadMistakes, loadProblems, loadRatings, mistakesStore, predictScore, removeMistake, problemsStore, rateProblem, ratingsStore, refreshLibrary, termStore, tickProblem } from './state'
 import { parseQuickAdd } from './quickAdd'
 import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
+import { calibration } from './mistakes'
+import { cardLine } from './cards'
 import { ANSWERS, findPlaces, savedPlaces, textbooks, type Place } from './sections'
 import { openBook } from './open'
 
@@ -49,6 +51,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
       <strong>{a.title}</strong>
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
       {notHandedIn([a], now).length > 0 && <small className="cal-error">Ticked done, but Canvas has no submission: upload it?</small>}
+      {a.source === 'canvas' && !!a.points && <ScoreLine a={a} />}
       {open && <SectionLinks assignment={a} sections={[...new Set(problems.map(p => p.section).filter(Boolean))]} />}
       {open && <div className="problem-grid">{problems.map(p => { const rating = ratings.find(r => r.id === problemId(a.id, p.key))?.rating; return <button key={p.key} className={`${ticked.includes(p.key) ? 'on' : ''}${rating ? ` rated-${rating}` : ''}`} title={`Click: done. Right-click: ${rating === 'help' ? 'stuck' : rating === 'stuck' ? 'clear' : 'needed help'}${rating ? ` (now: ${rating === 'help' ? 'needed help' : 'stuck'})` : ''}`} onClick={() => tickProblem(a.id, p.key)} onContextMenu={e => { e.preventDefault(); rateProblem(a, p) }}>{problemLabel(p, sections)}{rating === 'stuck' ? ' ✗' : rating === 'help' ? ' ?' : ''}</button> })}
         {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
@@ -58,6 +61,45 @@ function Row({ a, now }: { a: Assignment; now: number }) {
     </button>}
     {a.url && <button className="ghost" title="Open in Canvas (Browser tab)" onClick={() => openInNewTab(a.url)}><ExternalLink size={14} /></button>}
   </div>
+}
+
+/** Before handing in: the score you expect. Once graded: expected against got, and a quick way to
+ *  log what went wrong. */
+function ScoreLine({ a }: { a: Assignment }) {
+  const { predictions } = useStore(mistakesStore)
+  const [mistake, setMistake] = useState<string | null>(null)
+  useEffect(() => { void loadMistakes() }, [])
+  const predicted = predictions.find(p => p.assignmentId === a.id)?.predicted
+  const got = a.score != null && a.points ? Math.round((a.score / a.points) * 1000) / 10 : null
+  const save = (text: string) => { const n = Number(text.replace('%', '')); void predictScore(a.id, a.course, a.title, text.trim() && Number.isFinite(n) ? Math.max(0, Math.min(150, n)) : null).catch(e => setNotice(String(e))) }
+  return <div className="score-line">
+    {got == null
+      ? !a.done && <label>Expect <input key={predicted ?? 'none'} defaultValue={predicted ?? ''} placeholder="%" inputMode="decimal" onBlur={e => save(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />%</label>
+      : <><small>{predicted != null ? `Expected ${predicted}% · got ${got}%` : `Got ${got}%`}</small>
+        {mistake === null ? <button className="ghost" onClick={() => setMistake('')}>Log a mistake</button>
+          : <form onSubmit={e => { e.preventDefault(); if (mistake.trim()) void addMistake(a.course, a.title, mistake).then(() => setMistake(null)).catch(err => setNotice(String(err))) }}>
+            <input autoFocus value={mistake} placeholder="What went wrong, to avoid next time" onChange={e => setMistake(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setMistake(null) }} />
+          </form>}</>}
+  </div>
+}
+
+/** The course's mistake log, and how your expected scores compare with what you got. */
+export function MistakesCard({ course, info }: { course: string; info: { code: string; canvasCode: string } }) {
+  const { mistakes, predictions } = useStore(mistakesStore)
+  const all = useAssignments()
+  useEffect(() => { void loadMistakes() }, [])
+  const mine = (c: string) => c === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, c)
+  const list = mistakes.filter(m => mine(m.course))
+  const scores = Object.fromEntries(all.filter(a => a.score != null && a.points).map(a => [a.id, (a.score! / a.points!) * 100]))
+  const cal = calibration(predictions.filter(p => mine(p.course)), scores)
+  if (!list.length && !cal) return null
+  return <Card><SectionTitle title="Mistakes to avoid" subtitle={cal ? `Your guesses are ${Math.abs(cal.gap) < 3 ? 'about right' : cal.gap > 0 ? `${Math.round(cal.gap)}% high` : `${Math.round(-cal.gap)}% low`} on average (${cal.count} graded)` : 'From graded work'} />
+    <div className="mistakes">{list.slice(0, 30).map(m => <div key={m.id} className="mistake">
+      <span className="grow">{m.text} <small>{m.assignment}</small></span>
+      <button className="ghost" title="A flashcard to remember it" onClick={() => void addCards(course, [cardLine(`A mistake to avoid from ${m.assignment || 'graded work'}?`, m.text)]).then(() => setNotice('Added it to the flashcards.')).catch(e => setNotice(String(e)))}><Layers size={12} />Card</button>
+      <button className="ghost" title="Remove" onClick={() => void removeMistake(m.id)}><X size={12} /></button>
+    </div>)}</div>
+  </Card>
 }
 
 /** "Read 10.1" opens the textbook at the section; "Answers" opens the answers at the back beside

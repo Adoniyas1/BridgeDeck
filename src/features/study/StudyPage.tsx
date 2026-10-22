@@ -24,7 +24,7 @@ import { canvasConnected } from './assignments'
 import { configStore } from '../../core/config'
 import { readCollections } from './collections'
 import { LectureCard } from './LectureCard'
-import { AssignmentsCard, CanvasCard, ExamCard, HardProblemsCard } from './AssignmentCards'
+import { AssignmentsCard, CanvasCard, ExamCard, HardProblemsCard, MistakesCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
 import { examNotesText } from './exams'
 import { CoursePeople } from './CoursePeople'
@@ -213,6 +213,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     <ExamPrepCard course={name} info={course.info} onStatus={onStatus} />
     <AssignmentsCard course={name} info={course.info} courses={courses} />
     <HardProblemsCard course={name} info={course.info} />
+    <MistakesCard course={name} info={course.info} />
     <GradesCard course={course} onStatus={onStatus} />
     <CoursePhotos course={name} photos={photos} root={root} />
     <div className="study-tools">

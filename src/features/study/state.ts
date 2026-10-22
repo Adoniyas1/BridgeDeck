@@ -10,6 +10,7 @@ import { notesStore } from '../notes/state'
 import { flashcardsTitle, hasMark, LEECH_LAPSES, setMark, withState, type FlashCard } from './cards'
 import { courseFolder, studiedTitle } from './model'
 import { readTerm, type Term } from './schedule'
+import { readMistakes, type Mistake, type Prediction } from './mistakes'
 import { nextRating, problemId, problemsFromState, ratingsFromState, type Problem, type RatedProblem, type Rating } from './problems'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
@@ -68,6 +69,23 @@ export function rateProblem(assignment: { id: string; title: string; course: str
   ratingsStore.set(list => ratingsFromState(Object.fromEntries([...list.filter(r => r.id !== id), ...(entry ? [entry] : [])].map(r => [r.id, r]))))
   if (isTauri()) void studyStateSet('ratings', { [id]: entry }).catch(() => undefined)
 }
+
+/** Mistakes from graded work and the scores expected before handing in (study/mistakes.ts). */
+export const mistakesStore = createStore<{ mistakes: Mistake[]; predictions: Prediction[] }>({ mistakes: [], predictions: [] })
+let mistakesLoaded = false
+export async function loadMistakes(force = false) {
+  if ((mistakesLoaded && !force) || !isTauri()) return
+  mistakesLoaded = true
+  mistakesStore.set(readMistakes(await studyStateGet('mistakes').catch(() => ({}))))
+}
+async function putMistakes(changes: Record<string, unknown>) {
+  await studyStateSet('mistakes', changes)
+  mistakesLoaded = false
+  await loadMistakes()
+}
+export const addMistake = (course: string, assignment: string, text: string) => putMistakes({ [`m:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`]: { course, assignment, text: text.trim(), at: Date.now() } })
+export const removeMistake = (id: string) => putMistakes({ [id]: null })
+export const predictScore = (assignmentId: string, course: string, assignment: string, predicted: number | null) => putMistakes({ [`p:${assignmentId}`]: predicted == null ? null : { course, assignment, predicted, at: Date.now() } })
 
 export async function saveTerm(term: Term | null) {
   termStore.set(term)
