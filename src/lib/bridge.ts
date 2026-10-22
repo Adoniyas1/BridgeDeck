@@ -571,6 +571,13 @@ export const backupsList = () => native<BackupInfo[]>('backups_list')
 /** Everything (notes, calendar, settings, circuits, programs) in one .zip, and bringing one back. */
 export const backupExport = (path: string) => native<string>('backup_export', { path })
 export const backupImport = (path: string, settings: boolean) => native<BackupRestored>('backup_import', { path, settings })
+/** This semester's courses and Study state in one .zip (study.rs). */
+export const studyExportSemester = (path: string) => native<string>('study_export_semester', { path })
+export async function pickSemesterZip(): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `Semester ${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: 'Zip', extensions: ['zip'] }] })) ?? null
+}
+
 export async function pickBackupFile(mode: 'open' | 'save'): Promise<string | null> {
   if (!isTauri()) return null
   const filters = [{ name: 'BridgeDeck export', extensions: ['zip'] }]

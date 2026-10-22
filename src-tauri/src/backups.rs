@@ -37,19 +37,18 @@ pub struct Backup {
 
 /// The Study files a backup carries: what can't be got back from the books themselves.
 const STUDY_FILES: &[&str] = &[".course.json", ".term.json", ".problems.json", ".degree-plan.json"];
-const MAX_STUDY_FILE: u64 = 2 * 1024 * 1024;
+const MAX_STUDY_FILE: u64 = 4 * 1024 * 1024;
 
-/// A path under the Study folder that a backup may write: plain names, no "..", at most 3 deep
-/// (archived courses are `.archived/<course>/`), ending in one of `STUDY_FILES`.
+/// A path under the Study folder that a backup may write: plain names, no "..", at most 3 deep,
+/// either one of `STUDY_FILES` (in Study, a course, or `.archived/<course>/`) or a computer's study
+/// state file (`.state/<key>/<computer>.json`, study_state.rs).
 fn study_rel_ok(rel: &Path) -> bool {
-    let parts: Vec<_> = rel.components().collect();
-    let plain = parts.iter().all(|c| matches!(c, std::path::Component::Normal(_)));
-    let name = rel.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let dirs_ok = parts.len() <= 3 && parts.iter().rev().skip(1).all(|c| {
-        let d = c.as_os_str().to_string_lossy();
-        !d.starts_with('.') || d == ".archived"
-    });
-    plain && dirs_ok && STUDY_FILES.contains(&name)
+    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
+    let plain = rel.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    let name = parts.last().map(String::as_str).unwrap_or("");
+    let state = parts.len() == 3 && parts[0] == ".state" && !parts[1].starts_with('.') && name.ends_with(".json") && !name.starts_with('.');
+    let dirs_ok = parts.len() <= 3 && parts.iter().rev().skip(1).all(|d| !d.starts_with('.') || d == ".archived");
+    plain && (state || (dirs_ok && STUDY_FILES.contains(&name)))
 }
 
 /// Study's small files under `study`, by path ("EE 310/.course.json", forward slashes).
@@ -60,7 +59,7 @@ fn study_files(study: &Path) -> BTreeMap<String, String> {
             let Ok(rel) = p.strip_prefix(base) else { continue };
             if p.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if depth < 2 && (!name.starts_with('.') || name == ".archived") {
+                if depth < 2 && (!name.starts_with('.') || name == ".archived" || (depth == 0 && name == ".state")) {
                     walk(&p, base, depth + 1, out);
                 }
             } else if study_rel_ok(rel) && entry.metadata().is_ok_and(|m| m.len() <= MAX_STUDY_FILE) {
@@ -477,9 +476,11 @@ mod tests {
         fs::write(study.join("EE 310/Lectures/.course.json"), "{}").unwrap();
         fs::write(study.join(".archived/EE 210/.course.json"), "{\"code\":\"EE 210\"}").unwrap();
         fs::write(study.join(".state/pc/.term.json"), "not carried").unwrap();
+        fs::write(study.join(".state/pc/mac.json"), "{}").unwrap();
+        fs::write(study.join(".state/pc/notes.txt"), "not carried").unwrap();
         let files = study_files(&study);
         let names: Vec<&str> = files.keys().map(String::as_str).collect();
-        assert_eq!(names, [".archived/EE 210/.course.json", ".degree-plan.json", ".term.json", "EE 310/.course.json", "EE 310/.problems.json", "EE 310/Lectures/.course.json"]);
+        assert_eq!(names, [".archived/EE 210/.course.json", ".degree-plan.json", ".state/pc/mac.json", ".term.json", "EE 310/.course.json", "EE 310/.problems.json", "EE 310/Lectures/.course.json"]);
         // Old backups (without Study) still read.
         let old: Backup = serde_json::from_str(r#"{"version":1,"made":1,"computer":"PC","notes":[],"events":[],"settings":null}"#).unwrap();
         assert!(old.study.is_empty());
@@ -487,14 +488,14 @@ mod tests {
         let other = base.join("Other");
         fs::create_dir_all(other.join("EE 310")).unwrap();
         fs::write(other.join("EE 310/.course.json"), "{\"code\":\"mine\"}").unwrap();
-        assert_eq!(restore_study(&other, &files, false).unwrap(), 5);
+        assert_eq!(restore_study(&other, &files, false).unwrap(), 6);
         assert_eq!(fs::read_to_string(other.join("EE 310/.course.json")).unwrap(), "{\"code\":\"mine\"}");
         assert_eq!(restore_study(&other, &files, true).unwrap(), 1);
         assert_eq!(fs::read_to_string(other.join("EE 310/.course.json")).unwrap(), "{\"code\":\"EE 310\"}");
         assert_eq!(restore_study(&other, &files, true).unwrap(), 0);
         // Nothing outside the Study folder or under .state can be written.
         let mut bad = BTreeMap::new();
-        for rel in ["../escape/.term.json", "/abs/.term.json", ".state/pc/.term.json", "EE 310/notes.txt", "a/b/c/.course.json"] {
+        for rel in ["../escape/.term.json", "/abs/.term.json", ".state/pc/.term.json", ".state/../x.json", ".state/a/b/c.json", ".state/.x/a.json", "EE 310/notes.txt", "a/b/c/.course.json"] {
             bad.insert(rel.to_string(), "x".to_string());
         }
         assert_eq!(restore_study(&other, &bad, true).unwrap(), 0);

@@ -354,6 +354,74 @@ fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
     (start <= end && start <= last).then_some((start, end.min(start + MAX_PART - 1)))
 }
 
+// ---- Export a semester ----
+
+/// The files a semester export carries, by path under `root`: every file of the courses being
+/// taken (not archived), and the Study-wide state (the term, degree plan, `.state`). Hidden
+/// folders inside a course (caches) and partial writes are left out.
+fn semester_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for name in [".term.json", ".degree-plan.json"] {
+        if root.join(name).is_file() {
+            out.push(PathBuf::from(name));
+        }
+    }
+    let walk = |dir: &Path, out: &mut Vec<PathBuf>, skip_hidden_dirs: bool| {
+        for entry in walkdir::WalkDir::new(dir).follow_links(false).into_iter().filter_entry(|e| e.depth() == 0 || !skip_hidden_dirs || !e.file_type().is_dir() || !e.file_name().to_string_lossy().starts_with('.')).flatten() {
+            let name = entry.file_name().to_string_lossy();
+            if entry.file_type().is_file() && !name.ends_with(".partial") && !name.contains(".sync-conflict-") {
+                if let Ok(rel) = entry.path().strip_prefix(root) {
+                    out.push(rel.to_path_buf());
+                }
+            }
+        }
+    };
+    walk(&root.join(".state"), &mut out, false);
+    for course in fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = course.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || !course.path().is_dir() || course.path().join(ARCHIVED).exists() {
+            continue;
+        }
+        walk(&course.path(), &mut out, true);
+    }
+    out.sort();
+    out
+}
+
+/// Writes the semester (see `semester_files`) as a zip at `to`. Returns how many files went in.
+fn export_semester(root: &Path, to: &Path) -> Result<usize, String> {
+    use std::io::Write;
+    let files = semester_files(root);
+    let file = fs::File::create(to).map_err(|e| format!("Couldn't write {}: {e}", to.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    for rel in &files {
+        // Books, pictures and recordings are compressed already.
+        let packed = book_kind(rel).is_some_and(|k| BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) || matches!(k.as_str(), "mp3" | "m4a" | "webm" | "mp4" | "zip"));
+        let method = if packed { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+        let opts = zip::write::SimpleFileOptions::default().compression_method(method).large_file(true);
+        let mut source = fs::File::open(root.join(rel)).map_err(|e| format!("Couldn't read {}: {e}", rel.display()))?;
+        zip.start_file(format!("Study/{}", rel.to_string_lossy().replace('\\', "/")), opts).map_err(|e| e.to_string())?;
+        std::io::copy(&mut source, &mut zip).map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?.flush().map_err(|e| e.to_string())?;
+    Ok(files.len())
+}
+
+/// Saves this semester's courses (books, notes files, recordings, settings) and Study's state in
+/// one .zip at `path`: for keeping before finals, or moving to a new computer.
+#[tauri::command]
+pub async fn study_export_semester(path: String) -> Result<String, String> {
+    let root = current_root()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let n = export_semester(&root, Path::new(&path))?;
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        crate::activity::info("study", &format!("Exported the semester to {path} ({n} files)."));
+        Ok(format!("Saved {n} file{} ({:.1} MB) in {path}.", if n == 1 { "" } else { "s" }, size as f64 / 1_048_576.0))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---- Page text and search ----
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -807,5 +875,25 @@ mod tests {
         assert_eq!(parse_range("bytes=0-", 0), None);
         // A big ask is cut to 16 MB.
         assert_eq!(parse_range("bytes=0-", 100_000_000), Some((0, 16 * 1024 * 1024 - 1)));
+    }
+
+    #[test]
+    fn a_semester_export_has_the_courses_being_taken_and_the_study_state() {
+        let base = std::env::temp_dir().join(format!("bd-semester-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("Study");
+        for d in ["EE 310/Lectures", "EE 310/.cache", "Old/x", ".state/problems"] {
+            fs::create_dir_all(root.join(d)).unwrap();
+        }
+        for (f, t) in [(".term.json", "{}"), (".state/problems/pc.json", "{}"), ("EE 310/.course.json", "{}"), ("EE 310/Book.pdf", "%PDF"), ("EE 310/Lectures/Oct 14.webm", "a"), ("EE 310/.cache/x", "no"), ("EE 310/n.json.partial", "no"), ("Old/x/a.pdf", "no"), ("Old/.archived", "")] {
+            fs::write(root.join(f), t).unwrap();
+        }
+        let names: Vec<String> = semester_files(&root).iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(names, [".state/problems/pc.json", ".term.json", "EE 310/.course.json", "EE 310/Book.pdf", "EE 310/Lectures/Oct 14.webm"]);
+        let zip_path = base.join("semester.zip");
+        assert_eq!(export_semester(&root, &zip_path).unwrap(), 5);
+        let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        assert!(zip.by_name("Study/EE 310/Book.pdf").is_ok());
+        let _ = fs::remove_dir_all(&base);
     }
 }
