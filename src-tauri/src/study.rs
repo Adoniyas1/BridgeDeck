@@ -244,10 +244,15 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
 pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
     let decoded = percent_decode(url_path.trim_start_matches('/'))?;
     let parts: Vec<&str> = decoded.split('/').collect();
-    if parts.len() != 2 || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
+    // A book (`course/file`), or a flashcard picture (`course/Cards/file`, pictures only).
+    let card_picture = parts.len() == 3 && parts[1] == CARDS_DIR;
+    if !(parts.len() == 2 || card_picture) || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
         return None;
     }
-    let candidate = root.join(parts[0]).join(parts[1]);
+    let candidate = parts.iter().fold(root.to_path_buf(), |path, p| path.join(p));
+    if card_picture && !candidate.extension().and_then(|e| e.to_str()).is_some_and(|e| CARD_PICTURES.contains(&e.to_ascii_lowercase().as_str())) {
+        return None;
+    }
     let real = candidate.canonicalize().ok()?;
     let real_root = root.canonicalize().ok()?;
     (real.starts_with(&real_root) && real.is_file() && book_kind(&real).is_some()).then_some(real)
@@ -403,6 +408,48 @@ pub fn course_names() -> Vec<String> {
 pub fn save_pdf_in(course: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
     let dir = course_dir(&root_or_default(), course)?;
     save_pdf(&dir, name, bytes)
+}
+
+// ---- Flashcard pictures ----
+
+/// A course's folder of pictures used on flashcards.
+pub const CARDS_DIR: &str = "Cards";
+const CARD_PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const MAX_CARD_PICTURE: usize = 15 * 1024 * 1024;
+
+/// The picture's kind from its first bytes (the name isn't trusted).
+fn picture_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
+/// Saves a picture in `<course>/Cards/` and returns its file name.
+fn save_card_picture(course_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let kind = picture_kind(bytes).filter(|_| bytes.len() <= MAX_CARD_PICTURE).ok_or("Only PNG, JPEG or WebP pictures up to 15 MB")?;
+    let dir = course_dir.join(CARDS_DIR);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = Path::new(name.trim()).file_stem().and_then(|s| s.to_str()).unwrap_or("picture");
+    let file = free_name(&dir, &format!("{}.{kind}", clean_name(stem).unwrap_or_else(|_| "picture".into())));
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save the picture: {e}"))?;
+    Ok(file)
+}
+
+/// A picture for a flashcard, sent as the request body; the course and a name come in the
+/// `x-course` and `x-name` headers, URI-encoded.
+#[tauri::command]
+pub fn study_save_card_picture(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |key: &str| request.headers().get(key).and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or_else(|| format!("Missing {key}"));
+    let (course, name) = (header("x-course")?, header("x-name")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the picture as bytes".into()) };
+    save_card_picture(&course_dir(&current_root()?, &course)?, &name, bytes)
 }
 
 /// The PDF is sent as the request body (not JSON); the course and file name come in the
@@ -987,5 +1034,23 @@ mod tests {
         assert!(write_download(Path::new("x.pdf"), b"%PDF-").is_err());
         assert!(write_download(&dir.join("missing/x.pdf"), b"%PDF-").is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn card_pictures_are_saved_and_served_only_from_cards() {
+        let root = std::env::temp_dir().join(format!("bd-cardpics-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let course = root.join("EE 310");
+        fs::create_dir_all(&course).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        let file = save_card_picture(&course, "../../circuit.svg", png).unwrap();
+        assert_eq!(file, "circuit.png");
+        assert!(save_card_picture(&course, "x.png", b"<svg/>").is_err());
+        assert!(resolve(&root, &format!("/EE%20310/Cards/{file}")).is_some());
+        fs::write(course.join("Cards").join("notes.pdf"), b"%PDF-").unwrap();
+        assert!(resolve(&root, "/EE%20310/Cards/notes.pdf").is_none());
+        assert!(resolve(&root, "/EE%20310/Other/circuit.png").is_none());
+        assert!(resolve(&root, "/EE%20310/Cards/..%2F..%2Fx.png").is_none());
+        let _ = fs::remove_dir_all(&root);
     }
 }

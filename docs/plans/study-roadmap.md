@@ -128,8 +128,8 @@ Build a single expression/units engine, then grow the card format (cloze, both-w
   - saveReview (state.ts:228) appends {card,at,grade,elapsedDays,state,ms} to .state/reviews/<instanceId>.jsonl (1.1). Lazy optimizer: @open-spaced-repetition/binding (fallback fsrs-browser); weights in config.study.fsrsWeights; review.ts builds fsrs({w}). Mastery map: card page links map to chapters through the '<book> — chapters' note / outline, combined with retrievability.
 - [x] **4.7 Type-your-answer mode with numeric tolerance and units** (S). Items: 12. Needs: 4.1, 4.3.
   - Answer spec {{num:4.7k Ω ±2%}} parsed by expr.ts; review shows an input, checks with equalWithin and unit match, and suggests a grade. Added to the shared card test vectors.
-- [ ] **4.8 Pictures and circuit drawings on cards** (S). Items: 16. Needs: 4.3, 1.3.
-  - ![](bdimg:<course>/<file>) on either side; files in Study/<course>/Cards/; resolve() accepts this 3-level path (canonicalize + starts_with kept); 'Add drawing' exports the Excalidraw/Logic SVG/PNG into Cards/.
+- [x] **4.8 Pictures and circuit drawings on cards** (S). Items: 16. Needs: 4.3, 1.3.
+  - ![](bdimg:<course>/<file>) on either side; files in Study/<course>/Cards/; resolve() accepts this 3-level path (canonicalize + starts_with kept); 'Add drawing' exports the Excalidraw/Logic SVG/PNG into Cards/. Done: pictures are added by picking or pasting (a Logic or drawing export pastes in as a picture).
 - [ ] **4.9 Anki / CSV / Quizlet import and export** (M). Items: 15. Needs: 4.3, 4.8.
   - New src/features/study/deckio.ts. Rust study_anki_import(path) using rusqlite + zip (already in Cargo.toml), mapping Basic, Reversed and Cloze notes and media into Cards/. CSV/TSV and Quizlet tab/newline parsers. Export to CSV and .apkg (or CSV only first if .apkg writing is too large).
 

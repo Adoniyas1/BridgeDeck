@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, studyFsrsTune, studySearch, type StudyHit } from '../../lib/bridge'
+import { BookOpen, Brain, ImagePlus, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, studyFsrsTune, studySaveCardPicture, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
@@ -13,7 +13,7 @@ import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
 import { openBook, openBookLink } from './open'
-import { CardText, cardSource } from './CardText'
+import { CardText, cardSource, pictureRef } from './CardText'
 import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
@@ -72,6 +72,21 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
     try { await addCards(course, [kind === 'cloze' ? clozeLine(front) : cardLine(front, back, '', kind === 'both')]); setFront(''); setBack('') } catch (e) { onStatus(String(e)) }
   }
 
+  // Pictures go on the side last typed in: pasted, or picked with the picture button.
+  const side = useRef<'front' | 'back'>('front')
+  const picker = useRef<HTMLInputElement>(null)
+  async function addPicture(file: File) {
+    try {
+      const saved = await studySaveCardPicture(course, file.name || 'picture', new Uint8Array(await file.arrayBuffer()))
+      const ref = pictureRef(course, saved)
+      if (side.current === 'back' && kind !== 'cloze') setBack(b => `${b} ${ref}`.trim()); else setFront(f => `${f} ${ref}`.trim())
+    } catch (e) { onStatus(String(e)) }
+  }
+  const onPaste = (where: 'front' | 'back') => (e: React.ClipboardEvent) => {
+    const file = [...e.clipboardData.files].find(f => f.type.startsWith('image/'))
+    if (file) { e.preventDefault(); side.current = where; void addPicture(file) }
+  }
+
   /** Hides the selected words of the sentence: {{cN::words}}. */
   function hide() {
     const el = sentence.current
@@ -88,10 +103,12 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
         <option value="qa">Question</option><option value="both">Both ways</option><option value="cloze">Fill in the blank</option>
       </select>
       {kind === 'cloze'
-        ? <><input ref={sentence} placeholder="A sentence; select words and press Hide" value={front} onChange={e => setFront(e.target.value)} />
+        ? <><input ref={sentence} placeholder="A sentence; select words and press Hide" value={front} onChange={e => setFront(e.target.value)} onPaste={onPaste('front')} />
           <button type="button" className="ghost" onClick={hide}>Hide</button></>
-        : <><input placeholder={kind === 'both' ? 'Term' : 'Question'} value={front} onChange={e => setFront(e.target.value)} />
-          <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} /></>}
+        : <><input placeholder={kind === 'both' ? 'Term' : 'Question'} value={front} onChange={e => setFront(e.target.value)} onFocus={() => { side.current = 'front' }} onPaste={onPaste('front')} />
+          <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} onFocus={() => { side.current = 'back' }} onPaste={onPaste('back')} /></>}
+      <button type="button" className="ghost" title="Add a picture (or paste one) to the side you were typing in" disabled={!isTauri()} onClick={() => picker.current?.click()}><ImagePlus size={14} /></button>
+      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addPicture(f); e.target.value = '' }} />
       <button className="ghost" disabled={!ok}>Add</button>
     </form>
     <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {'{{num:4.7k ohm ±2%}}'}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>

@@ -1,4 +1,5 @@
 import katex from 'katex'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import 'katex/dist/katex.min.css'
 import { displayMath, inline } from '../notes/model'
 
@@ -17,9 +18,31 @@ const math = (tex: string, displayMode: boolean) => katex.renderToString(tex, { 
  *  KaTeX escapes text and links are never followed from here. */
 export function CardText({ text, className }: { text: string; className?: string }) {
   const clean = text.replace(/\s*\(\[[^\]]*\]\(book:[^)]*\)\)\s*$/, '').trim()
-  const display = displayMath(clean)
+  const pictures = [...clean.matchAll(PICTURE)].map(m => ({ alt: m[1], src: pictureSrc(m[2]) })).filter(p => p.src)
+  const words = clean.replace(PICTURE, '').trim()
+  if (!pictures.length) return <Words text={words} className={className} />
+  return <div className={className}>
+    {words && <Words text={words} />}
+    {pictures.map((p, i) => <img key={i} className="card-picture" src={p.src!} alt={p.alt || 'Picture'} />)}
+  </div>
+}
+
+/** `![alt](bdimg:<course>/<file>)`: a picture in the course's Cards folder. */
+const PICTURE = /!\[([^\]]*)\]\(bdimg:([^)\s]+)\)/g
+
+/** The address the book scheme serves a card picture at (study.rs only serves Cards/ images). */
+function pictureSrc(ref: string): string | null {
+  let decoded: string
+  try { decoded = decodeURIComponent(ref) } catch { return null }
+  const [course, file, ...rest] = decoded.split('/')
+  if (!course || !file || rest.length || !/\.(png|jpe?g|webp)$/i.test(file)) return null
+  return convertFileSrc(`${course}/Cards/${file}`, 'bdbook')
+}
+
+function Words({ text, className }: { text: string; className?: string }) {
+  const display = displayMath(text)
   if (display) return <div className={className} dangerouslySetInnerHTML={{ __html: math(display, true) }} />
-  return <p className={className}>{inline(clean).map((piece, i) => {
+  return <p className={className}>{inline(text).map((piece, i) => {
     switch (piece.kind) {
       case 'math': return <span key={i} dangerouslySetInnerHTML={{ __html: math(piece.text, false) }} />
       case 'bold': return <strong key={i}>{symbols(piece.text)}</strong>
@@ -30,6 +53,9 @@ export function CardText({ text, className }: { text: string; className?: string
     }
   })}</p>
 }
+
+/** A picture reference for a card line. */
+export const pictureRef = (course: string, file: string) => `![](bdimg:${encodeURIComponent(course)}/${encodeURIComponent(file)})`
 
 /** The book page a card came from (its "([Book, p. 214](book:…))" ending), if any. */
 export { cardSource } from './cards'

@@ -657,6 +657,7 @@ pub fn run() {
             study::study_patch_course_info,
             study::study_export_semester,
             study::study_save_pdf,
+            study::study_save_card_picture,
             study::study_download_pdf,
             study::study_plan_read,
             study::study_plan_write,
