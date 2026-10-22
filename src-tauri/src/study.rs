@@ -452,6 +452,23 @@ pub fn study_save_card_picture(request: tauri::ipc::Request<'_>) -> Result<Strin
     save_card_picture(&course_dir(&current_root()?, &course)?, &name, bytes)
 }
 
+/// Saves a course's flashcards as a CSV file in its folder and returns the file name.
+#[tauri::command]
+pub fn study_save_csv(course: String, name: String, text: String) -> Result<String, String> {
+    save_csv(&course_dir(&current_root()?, &course)?, &name, &text)
+}
+
+fn save_csv(dir: &Path, name: &str, text: &str) -> Result<String, String> {
+    if text.len() > 20 * 1024 * 1024 {
+        return Err("That's too much to save".into());
+    }
+    let stem = clean_name(name.trim().trim_end_matches(".csv"))?;
+    let file = free_name(dir, &format!("{stem}.csv"));
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, text).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save it: {e}"))?;
+    Ok(file)
+}
+
 /// The PDF is sent as the request body (not JSON); the course and file name come in the
 /// `x-course` and `x-name` headers, URI-encoded.
 #[tauri::command]
@@ -1052,5 +1069,16 @@ mod tests {
         assert!(resolve(&root, "/EE%20310/Other/circuit.png").is_none());
         assert!(resolve(&root, "/EE%20310/Cards/..%2F..%2Fx.png").is_none());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn card_lists_are_saved_as_csv_beside_the_books() {
+        let dir = std::env::temp_dir().join(format!("bd-csv-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(save_csv(&dir, "EE 310 flashcards.csv", "kind,front\r\n").unwrap(), "EE 310 flashcards.csv");
+        assert_eq!(save_csv(&dir, "EE 310 flashcards", "x").unwrap(), "EE 310 flashcards (2).csv");
+        assert_eq!(fs::read_to_string(dir.join("EE 310 flashcards.csv")).unwrap(), "kind,front\r\n");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

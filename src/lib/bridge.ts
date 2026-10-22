@@ -466,6 +466,7 @@ export async function studySaveCardPicture(course: string, name: string, bytes: 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+export const studySaveCsv = (course: string, name: string, text: string) => native<string>('study_save_csv', { course, name, text })
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
 /** Changes some of a course's settings; the rest stay as they are in the file now (so a change here
  *  doesn't undo one just synced from the other computer). null removes a setting. */

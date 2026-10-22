@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Brain, ImagePlus, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, studyFsrsTune, studySaveCardPicture, studySearch, type StudyHit } from '../../lib/bridge'
+import { BookOpen, Brain, Download, ImagePlus, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
@@ -8,6 +8,7 @@ import { eventsStore } from '../calendar/state'
 import { notesStore } from '../notes/state'
 import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
 import { savedStarts } from './chapters'
+import { importLines, toCsv } from './deckio'
 import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
@@ -63,6 +64,20 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
   const [kind, setKind] = useState<'qa' | 'both' | 'cloze'>('qa')
   const [browsing, setBrowsing] = useState(false)
   const [showMastery, setShowMastery] = useState(false)
+  const importer = useRef<HTMLInputElement>(null)
+  const [pasting, setPasting] = useState(false)
+  const [pasted, setPasted] = useState('')
+
+  async function importText(text: string) {
+    const { lines, skipped, duplicates } = importLines(text, deck)
+    try {
+      if (lines.length) await addCards(course, lines)
+      onStatus([`Added ${lines.length} card${lines.length === 1 ? '' : 's'}`, duplicates ? `${duplicates} already there` : '', skipped ? `${skipped} line${skipped === 1 ? '' : 's'} weren’t cards` : ''].filter(Boolean).join(' · '))
+    } catch (e) { onStatus(String(e)) }
+  }
+  async function exportCsv() {
+    try { onStatus(`Saved ${await studySaveCsv(course, `${course} flashcards`, toCsv(deck))} in the ${course} folder.`) } catch (e) { onStatus(String(e)) }
+  }
   const leeches = useMemo(() => new Set(deck.filter(isLeech).map(c => c.block.id)).size, [deck])
   const sentence = useRef<HTMLInputElement>(null)
   const ok = kind === 'cloze' ? parseCards(front).length > 0 : !!front.trim() && !!back.trim()
@@ -114,6 +129,16 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
     <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {'{{num:4.7k ohm ±2%}}'}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
     {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
     {browsing && <CardList deck={deck} onStatus={onStatus} />}
+    <div className="study-card-io">
+      <button className="ghost" title="Cards from a CSV file, a spreadsheet saved as CSV, or a Quizlet export (term, tab, definition)" onClick={() => importer.current?.click()}><Upload size={14} />Import</button>
+      <button className="ghost" title="Paste a list: one card a line, term and definition separated by a tab" onClick={() => setPasting(p => !p)}>Paste a list</button>
+      {stats.total > 0 && <button className="ghost" disabled={!isTauri()} title={`Saves a CSV in the ${course} folder, with review progress`} onClick={() => void exportCsv()}><Download size={14} />Export</button>}
+      <input ref={importer} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void f.text().then(importText); e.target.value = '' }} />
+    </div>
+    {pasting && <form className="study-card-paste" onSubmit={e => { e.preventDefault(); void importText(pasted).then(() => { setPasted(''); setPasting(false) }) }}>
+      <textarea rows={5} placeholder={'Capacitor\tStores charge\nInductor\tStores energy in a magnetic field'} value={pasted} onChange={e => setPasted(e.target.value)} />
+      <button className="ghost" disabled={!pasted.trim()}>Add these</button>
+    </form>}
     {stats.total > stats.fresh && <button className="ghost" onClick={() => setShowMastery(m => !m)}>{showMastery ? 'Hide what you know' : 'What you know, by chapter'}</button>}
     {showMastery && <MasteryList deck={deck} info={info} onStatus={onStatus} />}
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}

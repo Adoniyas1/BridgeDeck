@@ -53,3 +53,8 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - One JSON object per line: `{card, at, grade, ms}`. `card` is `note/block` or `note/block/sub`, `at` is ms, `grade` 1–4.
 - Each computer only appends to its own file. Readers merge all files, skip lines they can't read, and count a `(card, at)` pair once.
 - Tuned FSRS weights are saved per computer in `config.study.fsrsWeights`. Both computers fit them from the same log.
+
+## Flashcard CSV (`src/features/study/deckio.ts`)
+
+- The header is `kind,front,back,state`. `kind` is `qa`, `both` or `cloze` (a cloze sentence is in `front`). `state` is the line's `<!--fsrs …-->` comment, or empty.
+- Import also takes two columns (term, definition; tab or comma) or one column of cloze sentences.
