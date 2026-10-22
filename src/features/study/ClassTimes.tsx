@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CalendarRange, Clock, Plus, Trash2 } from 'lucide-react'
-import { studySetCourseInfo, type StudyCourse } from '../../lib/bridge'
+import { studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { DAY_LETTERS, meetingsOf, meetingText, type Meeting, type Term } from './schedule'
@@ -12,7 +12,7 @@ export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Meeting>({ days: [], start: '10:00', end: '11:15', room: '', kind: '' })
   async function save(list: Meeting[]) {
-    try { await studySetCourseInfo(course.name, { ...course.info, meetings: list }); await refreshLibrary() } catch (e) { onStatus(errorText(e, 'Couldn’t save the class times')) }
+    try { await studyPatchCourseInfo(course.name, { meetings: list }); await refreshLibrary() } catch (e) { onStatus(errorText(e, 'Couldn’t save the class times')) }
   }
   const toggleDay = (d: number) => setDraft(m => ({ ...m, days: m.days.includes(d) ? m.days.filter(x => x !== d) : [...m.days, d].sort() }))
   return <div className="class-times">

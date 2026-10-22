@@ -86,7 +86,48 @@ const PLAN: &str = ".degree-plan.json";
 const MAX_PLAN: usize = 256 * 1024;
 
 fn read_info(dir: &Path) -> CourseInfo {
+    merge_info_conflicts(dir);
     fs::read(dir.join(INFO)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn read_info_map(path: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
+    fs::read(path).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()).and_then(|v| v.as_object().cloned())
+}
+
+/// The two computers changed a course's settings while apart, so Syncthing kept both
+/// (`.course.sync-conflict-<date>-<time>-<device>.json`). Settings only one of them has are kept;
+/// for a setting both changed, the newer file's wins. The copy then goes to the Trash.
+fn merge_info_conflicts(dir: &Path) {
+    let main = dir.join(INFO);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if crate::sync_conflicts::original_name(&name).as_deref() != Some(INFO) {
+            continue;
+        }
+        let Some(theirs) = read_info_map(&entry.path()) else { continue };
+        let mine = read_info_map(&main).unwrap_or_default();
+        let time = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+        let merged = merge_info(mine, theirs, time(&entry.path()) > time(&main));
+        let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(merged)) else { continue };
+        if write_atomic(&main, &bytes).is_ok() {
+            let _ = trash::delete(entry.path());
+        }
+    }
+}
+
+/// `mine` with the settings only `theirs` has; where both have one, `theirs` when it's newer.
+fn merge_info(mut mine: serde_json::Map<String, serde_json::Value>, theirs: serde_json::Map<String, serde_json::Value>, theirs_newer: bool) -> serde_json::Map<String, serde_json::Value> {
+    for (key, value) in theirs {
+        if theirs_newer || !mine.contains_key(&key) {
+            mine.insert(key, value);
+        }
+    }
+    mine
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let partial = path.with_extension("json.partial");
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, path)).map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -495,17 +536,38 @@ pub fn study_archive_course(name: String, archived: bool) -> Result<(), String> 
     }
 }
 
-/// Sets a course's code, title and Canvas course.
+/// Changes some of a course's settings (code, title, Canvas course, class times, grading…): the
+/// settings in `patch` replace those in the file as it is now (null removes one), and the rest stay
+/// as they are, so a change here doesn't undo one just synced from the other computer.
 #[tauri::command]
-pub fn study_set_course_info(name: String, info: CourseInfo) -> Result<(), String> {
-    let short = |s: &str| s.trim().chars().take(120).collect::<String>();
-    let info = CourseInfo { code: short(&info.code), title: short(&info.title), canvas_id: short(&info.canvas_id), canvas_code: short(&info.canvas_code), more: info.more };
-    let bytes = serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?;
+pub fn study_patch_course_info(name: String, patch: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let dir = course_dir(&current_root()?, &name)?;
+    patch_info(&dir, patch)
+}
+
+fn patch_info(dir: &Path, patch: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    merge_info_conflicts(dir);
+    let mut info = read_info_map(&dir.join(INFO)).unwrap_or_default();
+    for (key, value) in patch {
+        if key.is_empty() || key.len() > 64 {
+            return Err("Not a course setting".into());
+        }
+        match value {
+            serde_json::Value::Null => { info.remove(&key); }
+            // The names are short text.
+            serde_json::Value::String(text) if matches!(key.as_str(), "code" | "title" | "canvasId" | "canvasCode") => {
+                info.insert(key, serde_json::Value::String(text.trim().chars().take(120).collect()));
+            }
+            value => { info.insert(key, value); }
+        }
+    }
+    // Still a course's settings (the names are text).
+    serde_json::from_value::<CourseInfo>(serde_json::Value::Object(info.clone())).map_err(|_| "Not a course setting")?;
+    let bytes = serde_json::to_vec_pretty(&serde_json::Value::Object(info)).map_err(|e| e.to_string())?;
     if bytes.len() > MAX_PLAN {
         return Err("Too much to keep for one course".into());
     }
-    let dir = course_dir(&current_root()?, &name)?;
-    fs::write(dir.join(INFO), bytes).map_err(|e| e.to_string())
+    write_atomic(&dir.join(INFO), &bytes)
 }
 
 // The term and ticked problems are kept in study_state.rs.
@@ -662,5 +724,28 @@ mod tests {
     fn indexes_from_before_text_recognition_are_read_again() {
         let old: BookText = serde_json::from_str(r#"{"bytes":10,"pages":[""]}"#).unwrap();
         assert!(old.version < INDEX_VERSION);
+    }
+
+    #[test]
+    fn course_settings_change_one_at_a_time_and_conflict_copies_merge() {
+        let dir = std::env::temp_dir().join(format!("bd-course-info-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let obj = |v: serde_json::Value| v.as_object().unwrap().clone();
+        patch_info(&dir, obj(serde_json::json!({"code": "  EE 310 ", "meetings": [1]}))).unwrap();
+        // Another computer's change to the grading arrives; a later change here to the code keeps it.
+        let mut on_disk = read_info_map(&dir.join(INFO)).unwrap();
+        on_disk.insert("grading".into(), serde_json::json!({"a": 1}));
+        fs::write(dir.join(INFO), serde_json::to_vec(&on_disk).unwrap()).unwrap();
+        patch_info(&dir, obj(serde_json::json!({"title": "Electronics", "meetings": null}))).unwrap();
+        let info = read_info(&dir);
+        assert_eq!((info.code.as_str(), info.title.as_str()), ("EE 310", "Electronics"));
+        assert_eq!(info.more.get("grading"), Some(&serde_json::json!({"a": 1})));
+        assert!(!info.more.contains_key("meetings"));
+        assert!(patch_info(&dir, obj(serde_json::json!({"code": 5}))).is_err());
+        // A Syncthing conflict copy: its new setting comes in, and for one both changed the newer wins.
+        assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2, "c": 3})), false), obj(serde_json::json!({"a": 1, "b": 1, "c": 3})));
+        assert_eq!(merge_info(obj(serde_json::json!({"a": 1, "b": 1})), obj(serde_json::json!({"b": 2})), true), obj(serde_json::json!({"a": 1, "b": 2})));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

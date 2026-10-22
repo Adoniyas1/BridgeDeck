@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studySetCourseInfo } from '../../lib/bridge'
+import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studyPatchCourseInfo } from '../../lib/bridge'
 import { configStore, setConfig } from '../../core/config'
 import { setExam } from '../../core/exam'
 import { notify } from '../../core/notify'
@@ -64,7 +64,7 @@ async function addCanvasCourses(courses: CanvasCourse[]) {
     if (study) {
       // Linked, so its assignments land in it whatever the names.
       if (study.info.canvasId !== course.id || study.info.canvasCode !== course.code) {
-        await studySetCourseInfo(study.name, { ...study.info, ...link, code: study.info.code || code, title: study.info.title || catalogTitle(code) })
+        await studyPatchCourseInfo(study.name, { ...link, ...(study.info.code ? {} : { code }), ...(study.info.title ? {} : { title: catalogTitle(code) }) })
         changed = true
       }
       continue
@@ -72,7 +72,7 @@ async function addCanvasCourses(courses: CanvasCourse[]) {
     if (added.has(course.id)) continue
     const name = studyNameFor(course)
     await studyAddCourse(name)
-    await studySetCourseInfo(name, { code, title: catalogTitle(code) || course.name, ...link }).catch(() => undefined)
+    await studyPatchCourseInfo(name, { code, title: catalogTitle(code) || course.name, ...link }).catch(() => undefined)
     changed = true
   }
   if (courses.some(c => !added.has(c.id))) setConfig(c => ({ ...c, canvas: { ...c.canvas, added: [...new Set([...c.canvas.added, ...courses.map(f => f.id)])].slice(-200) } }))

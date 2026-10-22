@@ -649,7 +649,7 @@ pub fn run() {
             study::study_remove_book,
             study::study_archive_course,
             study::study_delete_course,
-            study::study_set_course_info,
+            study::study_patch_course_info,
             study::study_plan_read,
             study::study_plan_write,
             study_state::study_state_get,

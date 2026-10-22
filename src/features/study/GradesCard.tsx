@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Calculator, Plus, Trash2 } from 'lucide-react'
-import { studySetCourseInfo, type StudyCourse } from '../../lib/bridge'
+import { studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
@@ -23,7 +23,7 @@ export function GradesCard({ course, onStatus }: { course: StudyCourse; onStatus
   function update(next: Grading, now = false) {
     setGrading(next)
     window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => void studySetCourseInfo(course.name, { ...course.info, grading: next }).then(() => refreshLibrary()).catch(e => onStatus(errorText(e, 'Couldn’t save the grades'))), now ? 0 : 800)
+    timer.current = window.setTimeout(() => void studyPatchCourseInfo(course.name, { grading: next }).then(() => refreshLibrary()).catch(e => onStatus(errorText(e, 'Couldn’t save the grades'))), now ? 0 : 800)
   }
   const setCategory = (cid: string, patch: Partial<GradeCategory>) => update({ categories: grading.categories.map(c => c.id === cid ? { ...c, ...patch } : c) })
   const current = currentPercent(grading)

@@ -23,3 +23,9 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 
 - A block kind that isn't known (a short lowercase name) is kept as it is, and shown read-only.
 - `ink` and `image` blocks hold an id. In Markdown they are written as `![Ink](bridgedeck-ink:<id>)` and `![Image](bridgedeck-image:<id>)`.
+
+## Course settings (`Study/<course>/.course.json`)
+
+- One JSON object. `code`, `title`, `canvasId` and `canvasCode` are text. Other keys (`meetings`, `grading`, `collections`, and later ones) are kept as written.
+- Changes are patches (`study_patch_course_info`): only the keys sent are replaced, on the file as it is when the change is saved.
+- A Syncthing conflict copy is merged back when the course is read. Keys only one copy has are kept; for a key both changed, the newer file wins. The copy then goes to the Trash.

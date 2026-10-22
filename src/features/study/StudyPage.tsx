@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
-import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studySetCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
+import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
@@ -208,9 +208,9 @@ function CourseDetails({ course, onStatus }: { course: StudyCourse; onStatus: (s
   const [title, setTitle] = useState(course.info.title)
   useEffect(() => { setCode(course.info.code); setTitle(course.info.title) }, [course.info.code, course.info.title])
   async function save(patch: Partial<CourseInfo>) {
-    const next = { ...course.info, ...patch }
-    if (patch.code !== undefined && next.code && !next.title) next.title = catalogTitle(courseKey(next.code) ?? next.code)
-    try { await studySetCourseInfo(course.name, next); await refreshLibrary() } catch (e) { onStatus(String(e)) }
+    const next = { ...patch }
+    if (patch.code && !course.info.title && !patch.title) next.title = catalogTitle(courseKey(patch.code) ?? patch.code)
+    try { await studyPatchCourseInfo(course.name, next); await refreshLibrary() } catch (e) { onStatus(String(e)) }
   }
   const linked = canvas.courses.find(c => c.id === course.info.canvasId)
   return <div className="course-details">

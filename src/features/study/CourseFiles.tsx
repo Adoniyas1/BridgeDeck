@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
-import { studySetCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
+import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { newId } from '../notes/model'
 import { fmtBytes } from './model'
 import { refreshLibrary } from './state'
-import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, withCollections, type Collection } from './collections'
+import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, type Collection } from './collections'
 
 export const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].includes(book.kind)
 
@@ -30,7 +30,7 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
   async function save(next: Collection[]) {
     if (next === collections) return
     try {
-      await studySetCourseInfo(course.name, withCollections(course.info, next))
+      await studyPatchCourseInfo(course.name, { collections: next })
       await refreshLibrary()
     } catch (e) { onStatus(`Couldn’t save the collections: ${String(e)}`) }
   }

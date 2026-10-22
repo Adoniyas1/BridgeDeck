@@ -447,7 +447,9 @@ export const studyLibrary = (shared: string) => native<StudyLibrary>('study_libr
 export const studyAddCourse = (name: string) => native<void>('study_add_course', { name })
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
-export const studySetCourseInfo = (name: string, info: CourseInfo) => native<void>('study_set_course_info', { name, info })
+/** Changes some of a course's settings; the rest stay as they are in the file now (so a change here
+ *  doesn't undo one just synced from the other computer). null removes a setting. */
+export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & Record<string, unknown>) => native<void>('study_patch_course_info', { name, patch })
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
