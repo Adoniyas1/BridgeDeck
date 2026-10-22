@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { BookCheck, CalendarClock, Camera, Check, ExternalLink, GraduationCap, Megaphone, Plus, RefreshCw, ShieldCheck, Square, SquareCheck } from 'lucide-react'
 import { examSites, isTauri } from '../../lib/bridge'
 import { configStore, useConfig } from '../../core/config'
-import { examStore } from '../../core/exam'
+import { examStore, loadSharedExam } from '../../core/exam'
 import { setNotice } from '../../core/notice'
 import { notify } from '../../core/notify'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -13,11 +13,14 @@ import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
-import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
-import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } from './canvas'
+import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
+import { ExamNotices } from './ExamDay'
 import { expandProblems, problemLabel } from './problems'
-import { loadProblems, problemsStore, tickProblem } from './state'
+import { libraryStore, loadProblems, problemsStore, refreshLibrary, termStore, tickProblem } from './state'
+import { parseQuickAdd } from './quickAdd'
+import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
@@ -40,6 +43,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
     <div className="grow">
       <strong>{a.title}</strong>
       <small>{[a.course, KIND_LABEL[a.kind], dueText(a.due, now), a.points ? `${a.points} pts` : '', a.submitted ? (a.grade ? `Graded: ${a.grade}` : 'Submitted') : '', a.missing && !a.submitted ? 'Missing' : ''].filter(Boolean).join(' · ')}</small>
+      {notHandedIn([a], now).length > 0 && <small className="cal-error">Ticked done, but Canvas has no submission: upload it?</small>}
       {open && <div className="problem-grid">{problems.map(p => <button key={p.key} className={ticked.includes(p.key) ? 'on' : ''} onClick={() => tickProblem(a.id, p.key)}>{problemLabel(p, sections)}</button>)}
         {doneCount === problems.length && !a.done && <button className="problem-finish" onClick={toggle}><Check size={12} />All done: mark it done</button>}</div>}
     </div>
@@ -71,10 +75,17 @@ export function AssignmentsCard({ course, info, courses }: { course?: string; in
   const connected = useMemo(canvasConnected, [config.canvas])
   const open = groups.overdue.length + groups.today.length + groups.week.length + groups.later.length + groups.undated.length
 
+  // Typed in plain words: "EE 310 HW 5 due next class ~3h". The date boxes, when filled, win.
+  const library = useStore(libraryStore).library
+  const term = useStore(termStore)
+  const studyCourses = useMemo(() => library?.courses.filter(c => !c.archived) ?? [], [library])
+  const parsed = useMemo(() => parseQuickAdd(title, studyCourses, term, Date.now(), forCourse.trim()), [title, studyCourses, term, forCourse])
+  const chosen = studyCourses.find(c => c.name === (parsed.course || forCourse.trim()))
+  const chips = chosen ? ['class', ...new Set(meetingsOf(chosen.info).map(m => m.kind.toLowerCase()).filter(k => /lab|lecture|discussion/.test(k)))] : []
   async function add() {
-    if (!title.trim()) return
+    if (!parsed.title.trim()) return
     try {
-      await addAssignment(forCourse.trim(), title.trim(), date ? fromInputs(date, time || '23:59') : null)
+      await addAssignment(parsed.course || forCourse.trim(), parsed.title.trim(), date ? fromInputs(date, time || '23:59') : parsed.due)
       setTitle(''); setDate(''); setAdding(false)
     } catch (e) { setNotice(errorText(e, 'Couldn’t add it')) }
   }
@@ -95,12 +106,14 @@ export function AssignmentsCard({ course, info, courses }: { course?: string; in
     {data.errors.map(e => <p key={e} className="cal-error">{e}</p>)}
     {fromPhoto && course && <HomeworkImport course={course} onClose={() => setFromPhoto(false)} />}
     {adding && <form className="assignment-add" onSubmit={e => { e.preventDefault(); void add() }}>
-      <input autoFocus placeholder="Problem set 4, lab report…" value={title} onChange={e => setTitle(e.target.value)} />
+      <input autoFocus placeholder="EE 310 HW 5 due next class ~3h" title="Type it in plain words: the course, what it is, “due next class / next lab / fri 5pm / 10/31”, and ~hours" value={title} onChange={e => setTitle(e.target.value)} />
       <input list="assignment-courses" placeholder="Course" value={forCourse} onChange={e => setForCourse(e.target.value)} />
       <datalist id="assignment-courses">{courses.map(c => <option key={c} value={c} />)}</datalist>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} />
       <input type="time" value={time} onChange={e => setTime(e.target.value)} />
-      <button disabled={!title.trim()}>Add</button>
+      <button disabled={!parsed.title.trim()}>Add</button>
+      {title.trim() && <p className="hint assignment-preview">{parsed.course || 'No course'} · {parsed.title || '…'} · {date ? 'due as set' : parsed.due ? `due ${new Date(parsed.due).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${parsed.dueText.startsWith('next') ? ` (${parsed.dueText})` : ''}` : 'no due date'}</p>}
+      {!!chips.length && <span className="assignment-chips">{chips.map(k => <button type="button" key={k} className="ghost" onClick={() => setTitle(t => `${t.replace(/\s+(due|by)\s+.*$/i, '')} due next ${k}`)}>next {k}</button>)}</span>}
     </form>}
     {section('Overdue', groups.overdue)}
     {section('Today', groups.today)}
@@ -169,10 +182,20 @@ export function StudyBackground() {
   const exam = useStore(examStore)
   const canvas = useConfig().canvas
   const [, setTick] = useState(0)
-  usePeriodicRefresh(async () => { await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
+  usePeriodicRefresh(async () => { await loadSharedCanvas(); await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
-    const timer = window.setInterval(() => { checkAssignmentReminders(); setTick(t => t + 1) }, 60_000)
+    const timer = window.setInterval(() => { void loadSharedExam(); checkAssignmentReminders(); checkClassReminders(); checkGradeRisk(); setTick(t => t + 1) }, 60_000)
+    void loadSharedExam()
     return () => window.clearInterval(timer)
+  }, [])
+  // Homework scanned on the phone lands in its course as a PDF: show it, and say so.
+  useEffect(() => {
+    if (!isTauri()) return
+    const off = listen<{ course: string; file: string; pages: number }>('study-scan', e => {
+      void refreshLibrary()
+      notify('reminders', 'Scan saved', `${e.payload.file} (${e.payload.pages} page${e.payload.pages === 1 ? '' : 's'}) is in ${e.payload.course}.`)
+    })
+    return () => { void off.then(stop => stop()) }
   }, [])
   // Exam mode survives a restart: block again, and end it when its time is up.
   useEffect(() => {
@@ -196,6 +219,6 @@ export function StudyBackground() {
     }).then(fn => { if (closed) fn(); else unlisten = fn })
     return () => { closed = true; unlisten?.() }
   }, [])
-  if (!exam) return null
-  return <div className="notice exam-banner"><ShieldCheck size={15} /><span>Exam mode for {exam.course}: {clock(exam.until - Date.now())} left. Only reminders notify; distracting sites are closed.</span><button className="secondary" onClick={() => void endExam()}>End</button></div>
+  if (!exam) return <ExamNotices />
+  return <><ExamNotices /><div className="notice exam-banner"><ShieldCheck size={15} /><span>Exam mode for {exam.course}: {clock(exam.until - Date.now())} left. Only reminders notify; distracting sites are closed.</span><button className="secondary" onClick={() => void endExam()}>End</button></div></>
 }

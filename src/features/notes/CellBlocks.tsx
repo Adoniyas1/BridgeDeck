@@ -3,6 +3,7 @@ import { Play, X } from 'lucide-react'
 import { isTauri, pythonRun, type PythonRun } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { pathOf, plot, ticks } from './plot'
+import { runLines } from '../../lib/expr'
 
 const COLORS = ['#60a5fa', '#f87171', '#4ade80', '#facc15', '#c084fc', '#2dd4bf', '#fb923c', '#f472b6']
 const W = 560, H = 300, PAD = 34
@@ -49,5 +50,19 @@ export function PythonOutput({ code }: { code: string }) {
     {error && <p className="error-text">{error}</p>}
     {result && (result.stdout || result.stderr) && <pre className="notes-python-out">{result.stdout}{result.stderr && <span className="err">{result.stderr}</span>}</pre>}
     {result?.images.map((img, i) => <img key={i} className="notes-python-img" alt={`Chart ${i + 1}`} src={`data:image/png;base64,${img}`} />)}
+  </div>
+}
+
+/** A calculator block: each line worked out with units and complex numbers, its answer beside it.
+ *  "name = …" lines set names for the lines below. */
+export function CalcView({ text, onClick }: { text: string; onClick?: () => void }) {
+  const lines = useMemo(() => runLines(text), [text])
+  if (!text.trim()) return <p className="hint" onClick={onClick}>Write a sum per line, like <code>12V / 2.2kΩ</code>, <code>1k || 4.7k</code>, <code>5∠53° + 3-2j</code> or <code>yellow violet red gold</code>.</p>
+  return <div className={`notes-calc${onClick ? ' clickable' : ''}`} onClick={onClick} title={onClick ? 'Edit the sums' : undefined}>
+    {lines.map((l, i) => !l.line.trim() ? <div key={i} className="notes-calc-gap" />
+      : <div key={i} className={`notes-calc-line${l.error ? ' bad' : ''}${!l.result && !l.error ? ' note' : ''}`}>
+        <code>{l.line.trim()}</code>
+        {(l.result || l.error) && <span>{l.error ?? (l.name ? `${l.name} = ${l.result}` : `= ${l.result}`)}</span>}
+      </div>)}
   </div>
 }

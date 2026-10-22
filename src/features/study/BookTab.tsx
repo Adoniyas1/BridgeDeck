@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, Brain, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
 import type { DynamicTab } from '../../core/tabs'
-import { activateTab } from '../../core/tabs'
+import { activateTab, openTab } from '../../core/tabs'
 import { between, newId, visible } from '../notes/model'
 import { notesStore, openNoteRequest, refreshNotes } from '../notes/state'
 import { useStore } from '../../core/store'
@@ -12,8 +12,15 @@ import { bookLink, chaptersTitle, courseFolder, currentPath, highlightsByPage, h
 import { addCards, libraryStore } from './state'
 import { cardLine } from './cards'
 import { askChatGPT, passagePrompt } from '../../core/chatgpt'
+import { useTabContext } from '../../core/tabContext'
+import { aiPolicyStore } from '../../core/exam'
+import { askMimir } from '../mimir'
+import { mimirPassagePrompt, readingContext } from './model'
 import { isSlideFile, loadBook, pdfjs } from './pdf'
 import EpubTab from './EpubTab'
+import { BookChapters } from './BookChapters'
+import { chapterAt, chaptersFromOutline, fromStarts, savedStarts } from './chapters'
+import { bookOf, readCollections } from './collections'
 import { flushPlaces, placeOf, rememberPlace } from './reading'
 
 const NO_MARKS: string[] = []
@@ -113,6 +120,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const [page, setPage] = useState(1)
   const [outline, setOutline] = useState<OutlineItem[] | null>(null)
   const [showOutline, setShowOutline] = useState(false)
+  const [showChapters, setShowChapters] = useState(false)
   const [status, setStatus] = useState('')
   const [selection, setSelection] = useState('')
   const [card, setCard] = useState<{ back: string; page: number } | null>(null)
@@ -129,6 +137,18 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const allNotes = useStore(notesStore)
   const highlightNote = allNotes.find(n => n.title === highlightsTitle(title) && n.folder === courseFolder(course))
   const marks = useMemo(() => highlightsByPage(highlightNote, course, file), [highlightNote, course, file])
+
+  // Mimir sees what's being read: the book, the page, what's selected and the page's text.
+  const pageText = useRef('')
+  useEffect(() => {
+    if (!doc) return
+    let cancelled = false
+    void doc.getPage(page).then(p => p.getTextContent()).then(content => {
+      if (!cancelled) pageText.current = content.items.map(item => 'str' in item ? item.str : '').join(' ').replace(/\s+/g, ' ').slice(0, 6000)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [doc, page])
+  useTabContext(tab.id, () => ({ title: `${title}, page ${page}`, text: readingContext({ policy: aiPolicyStore.get()[course], course, title, where: `page ${page} of ${doc?.numPages ?? '?'}`, selection, text: pageText.current }) }))
 
   useEffect(() => {
     if (isEpub) return
@@ -284,6 +304,29 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
     } catch (e) { setStatus(String(e)) }
   }
 
+  // Chapters: from the book's contents, or marked by hand; and the book folder this file is in.
+  const library = useStore(libraryStore).library
+  const studyCourse = library?.courses.find(c => c.name === course)
+  const folder = useMemo(() => studyCourse ? bookOf(readCollections(studyCourse.info), file, new Set(studyCourse.books.map(b => b.file))) : null, [studyCourse, file])
+  const chapters = useMemo(() => {
+    const pages = doc?.numPages ?? 0
+    const own = studyCourse ? savedStarts(studyCourse.info, file) : []
+    return own.length ? fromStarts(own, pages) : chaptersFromOutline(outline, pages)
+  }, [doc, outline, studyCourse, file])
+  const chapterIndex = chapterAt(chapters, page)
+  const fileIndex = folder ? folder.files.indexOf(file) : -1
+  /** Opens another chapter file of the book folder in this tab. */
+  function openFile(next: string) {
+    openTab({ id: tab.id, kind: 'study-book', title: folder?.title ?? title, params: { course, file: next, title: next.replace(/\.[^.]+$/, ''), page: '0', at: String(Date.now()) } })
+    setShowChapters(false)
+  }
+  function stepChapter(by: -1 | 1) {
+    const target = chapters[chapterIndex + by]
+    if (target) goTo(target.start)
+    else if (folder && folder.files[fileIndex + by]) openFile(folder.files[fileIndex + by])
+  }
+  const canStep = (by: -1 | 1) => !!chapters[chapterIndex + by] || !!(folder && folder.files[fileIndex + by])
+
   async function chapterChecklist() {
     if (!outline?.length) { setStatus('This book has no table of contents to turn into a checklist.'); return }
     const folder = courseFolder(course)
@@ -302,6 +345,9 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   return <div className="book-tab" style={{ display: active ? undefined : 'none' }}>
     <div className="book-toolbar">
       <button className="cal-icon" title="Contents" onClick={() => setShowOutline(v => !v)}><ListTree size={16} /></button>
+      <button className="ghost book-chapter-button" title="Chapters: go to one, download, split" onClick={() => setShowChapters(v => !v)}><BookMarked size={14} />{chapters[chapterIndex]?.title ?? (folder ? 'Chapters' : 'Chapters')}</button>
+      <button className="cal-icon" title="Previous chapter" disabled={!canStep(-1)} onClick={() => stepChapter(-1)}><ChevronsLeft size={16} /></button>
+      <button className="cal-icon" title="Next chapter" disabled={!canStep(1)} onClick={() => stepChapter(1)}><ChevronsRight size={16} /></button>
       <button className="cal-icon" title="Previous page" onClick={() => goTo(page - 1)}><ChevronLeft size={16} /></button>
       <span className="book-page-number"><input value={page} onChange={e => setPage(Number(e.target.value) || page)} onKeyDown={e => { if (e.key === 'Enter') goTo(page) }} /> / {doc?.numPages ?? '…'}</span>
       <button className="cal-icon" title="Next page" onClick={() => goTo(page + 1)}><ChevronRight size={16} /></button>
@@ -313,6 +359,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <span className="grow book-title">{title}</span>
       <button className="ghost" disabled={!selection} title="Select text in the book first" onMouseDown={e => e.preventDefault()} onClick={() => void saveHighlight()}><Highlighter size={14} /> Save highlight</button>
       <button className="ghost" disabled={!selection} title="Make a flashcard with the selected text as the answer" onMouseDown={e => e.preventDefault()} onClick={() => { setCard({ back: selection.replace(/\s+/g, ' '), page }); window.getSelection()?.removeAllRanges() }}><Layers size={14} /> Flashcard</button>
+      <button className="ghost" disabled={!selection} title="Ask Mimir to explain this passage (opens beside the book)" onMouseDown={e => e.preventDefault()} onClick={() => void askMimir(mimirPassagePrompt(title, page, selection), true, course)}><Brain size={14} /> Ask Mimir</button>
       <button className="ghost" disabled={!selection} title="Open ChatGPT with this passage, ready for you to send" onMouseDown={e => e.preventDefault()} onClick={() => void askChatGPT(passagePrompt(title, page, selection), courseFolder(course)).catch(e => setStatus(String(e)))}><MessageCircleQuestion size={14} /> Ask ChatGPT</button>
       <button className="ghost" onClick={() => void chapterChecklist()}><ListChecks size={14} /> Chapter checklist</button>
     </div>
@@ -323,6 +370,8 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <button type="button" className="ghost" onClick={() => setCard(null)}>Cancel</button>
     </form>}
     {status && <p className="book-status">{status}</p>}
+    {showChapters && doc && <BookChapters course={course} file={file} title={title} info={studyCourse?.info} pages={doc.numPages} page={page} chapters={chapters} folder={folder}
+      onGo={goTo} onOpenFile={openFile} onClose={() => setShowChapters(false)} onStatus={setStatus} />}
     <div className="book-body">
       {showOutline && <nav className="book-outline">{outline?.length ? <Contents items={outline} page={page} onGo={goTo} /> : <p className="hint">No table of contents in this book.</p>}</nav>}
       <div className={`book-scroll${dark ? ' dark' : ''}`} ref={scroller} onScroll={onScroll}>

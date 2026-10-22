@@ -244,16 +244,26 @@ pub fn add_books(root: &Path, course: &str, paths: &[PathBuf]) -> Result<Vec<Boo
 pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
     let decoded = percent_decode(url_path.trim_start_matches('/'))?;
     let parts: Vec<&str> = decoded.split('/').collect();
-    if parts.len() != 2 || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
+    // A book (`course/file`), or a flashcard picture (`course/Cards/file`, pictures only).
+    let card_picture = parts.len() == 3 && parts[1] == CARDS_DIR;
+    let lecture = parts.len() == 3 && parts[1] == crate::study_lectures::LECTURES_DIR;
+    if !(parts.len() == 2 || card_picture || lecture) || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\')) {
         return None;
     }
-    let candidate = root.join(parts[0]).join(parts[1]);
+    let candidate = parts.iter().fold(root.to_path_buf(), |path, p| path.join(p));
+    if lecture {
+        let real = candidate.canonicalize().ok()?;
+        return (real.starts_with(root.canonicalize().ok()?) && real.is_file() && crate::study_lectures::is_audio(&real)).then_some(real);
+    }
+    if card_picture && !candidate.extension().and_then(|e| e.to_str()).is_some_and(|e| CARD_PICTURES.contains(&e.to_ascii_lowercase().as_str())) {
+        return None;
+    }
     let real = candidate.canonicalize().ok()?;
     let real_root = root.canonicalize().ok()?;
     (real.starts_with(&real_root) && real.is_file() && book_kind(&real).is_some()).then_some(real)
 }
 
-fn percent_decode(text: &str) -> Option<String> {
+pub(crate) fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -276,8 +286,10 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
     let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
     let Ok(root) = current_root() else { return fail(StatusCode::NOT_FOUND) };
     let Some(found) = resolve(&root, request.uri().path()) else { return fail(StatusCode::NOT_FOUND) };
+    let audio = crate::study_lectures::is_audio(&found);
     // A presentation is served as the PDF made from it (study_slides_pdf makes it first).
     let path = match book_kind(&found) {
+        _ if audio => found,
         Some(k) if SLIDE_EXTENSIONS.contains(&k.as_str()) => match crate::study_slides::cached(&found) {
             Some(pdf) => pdf,
             None => return fail(StatusCode::NOT_FOUND),
@@ -285,14 +297,14 @@ pub fn serve(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         Some(k) if BOOK_EXTENSIONS.contains(&k.as_str()) || IMAGE_EXTENSIONS.contains(&k.as_str()) => found,
         _ => return fail(StatusCode::NOT_FOUND),
     };
-    let mime = match book_kind(&path).as_deref() {
+    let mime = if audio { crate::study_lectures::audio_mime(&path) } else { match book_kind(&path).as_deref() {
         Some("epub") => "application/epub+zip",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("png") => "image/png",
         Some("heic") => "image/heic",
         Some("webp") => "image/webp",
         _ => "application/pdf",
-    };
+    } };
     let Ok(mut file) = fs::File::open(&path) else { return fail(StatusCode::NOT_FOUND) };
     let Ok(total) = file.metadata().map(|m| m.len()) else { return fail(StatusCode::NOT_FOUND) };
     // pdf.js reads a big book in pieces: these let the window see that it can.
@@ -369,6 +381,98 @@ fn save_pdf(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
     let path = dir.join(&file);
     let partial = dir.join(format!(".{file}.partial"));
     fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save the PDF: {e}"))?;
+    Ok(file)
+}
+
+/// Writes a PDF made here (a book, a chapter, some pages) where the person chose in the save dialog.
+/// Only a .pdf file in a folder that exists, and only PDF bytes.
+fn write_download(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if !bytes.starts_with(b"%PDF-") || bytes.len() > MAX_MADE_PDF {
+        return Err("That isn't a PDF".into());
+    }
+    let pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    if !path.is_absolute() || !pdf || !path.parent().is_some_and(Path::is_dir) {
+        return Err("Choose where to save it as a .pdf file".into());
+    }
+    let partial = path.with_extension("pdf.partial");
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, path)).map_err(|e| format!("Couldn't save it: {e}"))
+}
+
+/// The bytes are the request body; the path (from the save dialog) is in `x-path`, URI-encoded.
+#[tauri::command]
+pub fn study_download_pdf(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = request.headers().get("x-path").and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or("Missing x-path")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the PDF as bytes".into()) };
+    write_download(Path::new(&path), bytes)
+}
+
+/// The courses being taken (not archived), for the phone's scan page.
+pub fn course_names() -> Vec<String> {
+    read_library(&root_or_default()).map(|l| l.courses.into_iter().filter(|c| !c.archived).map(|c| c.name).collect()).unwrap_or_default()
+}
+
+/// Saves a PDF made elsewhere (the phone's scans) into a course; returns the file name it got.
+pub fn save_pdf_in(course: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let dir = course_dir(&root_or_default(), course)?;
+    save_pdf(&dir, name, bytes)
+}
+
+// ---- Flashcard pictures ----
+
+/// A course's folder of pictures used on flashcards.
+pub const CARDS_DIR: &str = "Cards";
+const CARD_PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const MAX_CARD_PICTURE: usize = 15 * 1024 * 1024;
+
+/// The picture's kind from its first bytes (the name isn't trusted).
+fn picture_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
+/// Saves a picture in `<course>/Cards/` and returns its file name.
+fn save_card_picture(course_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let kind = picture_kind(bytes).filter(|_| bytes.len() <= MAX_CARD_PICTURE).ok_or("Only PNG, JPEG or WebP pictures up to 15 MB")?;
+    let dir = course_dir.join(CARDS_DIR);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = Path::new(name.trim()).file_stem().and_then(|s| s.to_str()).unwrap_or("picture");
+    let file = free_name(&dir, &format!("{}.{kind}", clean_name(stem).unwrap_or_else(|_| "picture".into())));
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save the picture: {e}"))?;
+    Ok(file)
+}
+
+/// A picture for a flashcard, sent as the request body; the course and a name come in the
+/// `x-course` and `x-name` headers, URI-encoded.
+#[tauri::command]
+pub fn study_save_card_picture(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |key: &str| request.headers().get(key).and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or_else(|| format!("Missing {key}"));
+    let (course, name) = (header("x-course")?, header("x-name")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the picture as bytes".into()) };
+    save_card_picture(&course_dir(&current_root()?, &course)?, &name, bytes)
+}
+
+/// Saves a course's flashcards as a CSV file in its folder and returns the file name.
+#[tauri::command]
+pub fn study_save_csv(course: String, name: String, text: String) -> Result<String, String> {
+    save_csv(&course_dir(&current_root()?, &course)?, &name, &text)
+}
+
+fn save_csv(dir: &Path, name: &str, text: &str) -> Result<String, String> {
+    if text.len() > 20 * 1024 * 1024 {
+        return Err("That's too much to save".into());
+    }
+    let stem = clean_name(name.trim().trim_end_matches(".csv"))?;
+    let file = free_name(dir, &format!("{stem}.csv"));
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, text).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save it: {e}"))?;
     Ok(file)
 }
 
@@ -525,6 +629,46 @@ pub struct Hit {
     pub page: usize,
     pub snippet: String,
     pub score: f64,
+    /// "book", "lecture" (`t`: seconds into the recording) or "note" (`file` is the note's id).
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t: Option<u64>,
+}
+
+/// A course note to search with the books: its course, title, id and text.
+pub struct NoteDoc {
+    pub course: String,
+    pub title: String,
+    pub id: String,
+    pub text: String,
+}
+
+/// One searchable piece: a book page, a minute of a lecture, or a note.
+struct Piece {
+    course: String,
+    title: String,
+    file: String,
+    page: usize,
+    kind: &'static str,
+    t: Option<u64>,
+    text: Arc<str>,
+}
+
+/// A lecture's transcript in pieces of about a minute, each with its start (seconds).
+fn lecture_minutes(sidecar: &serde_json::Value) -> Vec<(u64, String)> {
+    let mut out: Vec<(u64, String)> = Vec::new();
+    for s in sidecar["segments"].as_array().into_iter().flatten() {
+        let start = s["start"].as_f64().unwrap_or(0.0).max(0.0) as u64;
+        let text = s["text"].as_str().unwrap_or("").trim();
+        match out.last_mut() {
+            Some((at, body)) if start < *at + 60 => {
+                body.push(' ');
+                body.push_str(text);
+            }
+            _ => out.push((start, text.to_string())),
+        }
+    }
+    out
 }
 
 /// The passage of `text` around the first of `terms` it contains.
@@ -544,31 +688,41 @@ fn snippet(text: &str, terms: &HashSet<String>, width: usize) -> String {
     format!("{}{body}{}", if start > 0 { "…" } else { "" }, if end < text.len() { "…" } else { "" })
 }
 
-/// The pages that best answer `query`, best first (BM25 over every page of the books in scope).
-pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, limit: usize) -> Vec<Hit> {
+/// The pages that best answer `query`, best first (BM25 over every page of the books in scope, each
+/// minute of their lecture transcripts, and the course notes given).
+pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, limit: usize, notes: &[NoteDoc]) -> Vec<Hit> {
     let terms: HashSet<String> = words(query).into_iter().collect();
     if terms.is_empty() {
         return Vec::new();
     }
     let wanted = course.map(str::to_lowercase).filter(|c| !c.trim().is_empty());
-    let mut pages: Vec<(&Course, &Book, usize, Arc<BookText>)> = Vec::new();
-    for c in &library.courses {
-        if wanted.as_ref().is_some_and(|w| !c.name.to_lowercase().contains(w.as_str())) {
-            continue;
-        }
+    let in_scope = |name: &str| wanted.as_ref().is_none_or(|w| name.to_lowercase().contains(w.as_str()));
+    let mut pieces: Vec<Piece> = Vec::new();
+    let root = Path::new(&library.root);
+    for c in library.courses.iter().filter(|c| in_scope(&c.name)) {
         for b in &c.books {
             if let Some(text) = load_text(dir, &c.name, &b.file) {
-                for i in 0..text.pages.len() {
-                    pages.push((c, b, i, text.clone()));
+                for (i, page) in text.pages.iter().enumerate() {
+                    pieces.push(Piece { course: c.name.clone(), title: b.title.clone(), file: b.file.clone(), page: i + 1, kind: "book", t: None, text: Arc::from(page.as_str()) });
                 }
             }
         }
+        for lecture in crate::study_lectures::list(&root.join(&c.name)) {
+            let Some(sidecar) = lecture.sidecar else { continue };
+            let title = lecture.file.rsplit_once('.').map(|(stem, _)| stem.to_string()).unwrap_or_else(|| lecture.file.clone());
+            for (i, (t, text)) in lecture_minutes(&sidecar).into_iter().enumerate() {
+                pieces.push(Piece { course: c.name.clone(), title: title.clone(), file: lecture.file.clone(), page: i + 1, kind: "lecture", t: Some(t), text: Arc::from(text.as_str()) });
+            }
+        }
     }
-    let counted: Vec<HashMap<String, usize>> = pages
+    for n in notes.iter().filter(|n| in_scope(&n.course)) {
+        pieces.push(Piece { course: n.course.clone(), title: n.title.clone(), file: n.id.clone(), page: 1, kind: "note", t: None, text: Arc::from(n.text.as_str()) });
+    }
+    let counted: Vec<HashMap<String, usize>> = pieces
         .iter()
-        .map(|(_, _, i, text)| {
+        .map(|piece| {
             let mut counts = HashMap::new();
-            let all = words(&text.pages[*i]);
+            let all = words(&piece.text);
             counts.insert(String::new(), all.len());
             for w in all.into_iter().filter(|w| terms.contains(w)) {
                 *counts.entry(w).or_insert(0) += 1;
@@ -576,7 +730,7 @@ pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, 
             counts
         })
         .collect();
-    let n = pages.len() as f64;
+    let n = pieces.len() as f64;
     let average = (counted.iter().map(|c| c[""] as f64).sum::<f64>() / n.max(1.0)).max(1.0);
     let (k1, b) = (1.2, 0.75);
     let mut scored: Vec<(f64, usize)> = counted
@@ -605,8 +759,8 @@ pub fn search(library: &Library, dir: &Path, query: &str, course: Option<&str>, 
         .into_iter()
         .take(limit)
         .map(|(score, index)| {
-            let (c, b, i, text) = &pages[index];
-            Hit { course: c.name.clone(), book: b.title.clone(), file: b.file.clone(), page: i + 1, snippet: snippet(&text.pages[*i], &terms, 360), score: (score * 100.0).round() / 100.0 }
+            let p = &pieces[index];
+            Hit { course: p.course.clone(), book: p.title.clone(), file: p.file.clone(), page: p.page, snippet: snippet(&p.text, &terms, 360), score: (score * 100.0).round() / 100.0, kind: p.kind, t: p.t }
         })
         .collect()
 }
@@ -656,6 +810,35 @@ pub fn study_add_books(course: String, paths: Vec<String>) -> Result<Vec<Book>, 
 }
 
 /// The folder of a course in the library (it must be there).
+/// Whether a file name is one the library lists (a book, slides or a picture).
+pub fn is_library_file(name: &str) -> bool {
+    book_kind(Path::new(name)).is_some()
+}
+
+/// Saves a downloaded file in a course: over the copy it replaces (`previous`), else under a free
+/// name. Returns the file name.
+pub fn save_course_file(dir: &Path, previous: Option<&str>, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let clean = clean_name(name)?;
+    if !is_library_file(&clean) {
+        return Err("Not a file the Study tab keeps".into());
+    }
+    let file = match previous.and_then(|p| clean_name(p).ok()).filter(|p| dir.join(p).is_file()) {
+        Some(p) => p,
+        None => free_name(dir, &clean),
+    };
+    let partial = dir.join(format!(".{file}.partial"));
+    fs::write(&partial, bytes).and_then(|_| fs::rename(&partial, dir.join(&file))).map_err(|e| format!("Couldn't save {file}: {e}"))?;
+    Ok(file)
+}
+
+pub(crate) fn course_dir_in(root: &Path, name: &str) -> Result<PathBuf, String> {
+    course_dir(root, name)
+}
+
+pub(crate) fn free_name_in(dir: &Path, file: &str) -> String {
+    free_name(dir, file)
+}
+
 fn course_dir(root: &Path, name: &str) -> Result<PathBuf, String> {
     let dir = root.join(clean_name(name)?);
     if clean_name(name)? != name || !dir.is_dir() {
@@ -778,9 +961,23 @@ pub fn study_save_index(course: String, file: String, bytes: u64, pages: Vec<Str
 
 /// Pages of the library's books that match `query`, best first.
 #[tauri::command]
-pub fn study_search(query: String, course: Option<String>) -> Result<Vec<Hit>, String> {
+pub fn study_search(manager: tauri::State<'_, crate::bridgelink::BridgeLinkManager>, query: String, course: Option<String>) -> Result<Vec<Hit>, String> {
     let (library, dir) = library_for_search()?;
-    Ok(search(&library, &dir, &query, course.as_deref(), 30))
+    let notes = course_notes(&crate::bridgelink::notes::notes_list(manager)?);
+    Ok(search(&library, &dir, &query, course.as_deref(), 30, &notes))
+}
+
+/// The notes kept in courses (`Study/<course>`), as search documents. Flashcard notes are left out.
+pub fn course_notes(notes: &[crate::bridgelink::notes::Note]) -> Vec<NoteDoc> {
+    notes
+        .iter()
+        .filter(|n| !n.deleted && !n.title.to_lowercase().contains("flashcards"))
+        .filter_map(|n| {
+            let course = n.folder.strip_prefix("Study/")?.split('/').next()?.to_string();
+            let text = n.blocks.iter().filter(|b| !b.deleted).map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+            Some(NoteDoc { course, title: crate::bridgelink::notes::display_title(n), id: n.id.clone(), text })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -827,6 +1024,24 @@ mod tests {
     }
 
     #[test]
+    fn lecture_transcripts_are_searched_a_minute_at_a_time() {
+        let root = std::env::temp_dir().join(format!("bd-study-lectures-{}", uuid::Uuid::new_v4()));
+        let course = root.join("EE 310");
+        std::fs::create_dir_all(course.join("Lectures")).unwrap();
+        std::fs::write(course.join("Lectures").join("Lecture 4.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        crate::study_lectures::write_sidecar(&course, "Lecture 4.webm", &serde_json::json!({ "segments": [
+            { "start": 0, "end": 5, "text": "Today, nodes." }, { "start": 30, "end": 35, "text": "Kirchhoff's current law says" },
+            { "start": 75, "end": 80, "text": "Mesh analysis next." },
+        ] })).unwrap();
+        let library = Library { root: root.to_string_lossy().to_string(), courses: vec![Course { name: "EE 310".into(), books: vec![], archived: false, info: CourseInfo::default() }] };
+        let hits = search(&library, &root.join("index"), "Kirchhoff current", None, 5, &[]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].kind, hits[0].t, hits[0].book.as_str(), hits[0].page), ("lecture", Some(0), "Lecture 4", 1));
+        assert_eq!(search(&library, &root.join("index"), "mesh", None, 5, &[])[0].t, Some(75));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn pages_are_found_by_relevance_with_a_passage_around_the_words() {
         let dir = std::env::temp_dir().join(format!("bd-study-index-{}", uuid::Uuid::new_v4()));
         let book = |file: &str, title: &str| Book { file: file.into(), title: title.into(), kind: "pdf".into(), bytes: 10, indexed: true };
@@ -845,13 +1060,17 @@ mod tests {
         ], version: INDEX_VERSION }).unwrap();
         save_text(&dir, "Biology", "bio.pdf", &BookText { bytes: 10, pages: vec![format!("Mitochondria make ATP. {filler}")], version: INDEX_VERSION }).unwrap();
 
-        let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5);
+        let hits = search(&library, &dir, "What is the chain rule for a derivative?", None, 5, &[]);
         assert_eq!((hits[0].book.as_str(), hits[0].page), ("Calculus", 2));
         assert!(hits[0].snippet.starts_with('…') && hits[0].snippet.contains("chain rule"), "{}", hits[0].snippet);
         assert_eq!(hits.len(), 2, "page 3 mentions the derivative too");
-        assert!(search(&library, &dir, "mitochondria", Some("math"), 5).is_empty());
-        assert_eq!(search(&library, &dir, "Mitochondria", Some("bio"), 5)[0].course, "Biology");
-        assert!(search(&library, &dir, "the of and", None, 5).is_empty());
+        assert!(search(&library, &dir, "mitochondria", Some("math"), 5, &[]).is_empty());
+        assert_eq!(search(&library, &dir, "Mitochondria", Some("bio"), 5, &[])[0].course, "Biology");
+        assert!(search(&library, &dir, "the of and", None, 5, &[]).is_empty());
+        // Course notes are searched too.
+        let notes = [NoteDoc { course: "Biology".into(), title: "Cell notes".into(), id: "n1".into(), text: "Ribosomes build proteins.".into() }];
+        let hit = &search(&library, &dir, "ribosomes", None, 5, &notes)[0];
+        assert_eq!((hit.kind, hit.file.as_str(), hit.book.as_str()), ("note", "n1", "Cell notes"));
         // A new edition (different size) shows as not indexed; a reload after a change is seen.
         assert_eq!(load_text(&dir, "Math 221", "calc.pdf").unwrap().bytes, 10);
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -939,6 +1158,53 @@ mod tests {
         assert!(save_pdf(&dir, "Not", b"<html>").is_err());
         assert!(save_pdf(&dir, "  ", b"%PDF-").is_err());
         assert_eq!(fs::read(dir.join("Homework 4.pdf")).unwrap(), b"%PDF-1.7 x");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn downloads_go_only_where_chosen_as_pdfs() {
+        let dir = std::env::temp_dir().join(format!("bd-download-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        write_download(&dir.join("Ch 3.pdf"), b"%PDF-1.7 x").unwrap();
+        assert_eq!(fs::read(dir.join("Ch 3.pdf")).unwrap(), b"%PDF-1.7 x");
+        assert!(write_download(&dir.join("x.exe"), b"%PDF-1.7").is_err());
+        assert!(write_download(&dir.join("x.pdf"), b"MZ").is_err());
+        assert!(write_download(Path::new("x.pdf"), b"%PDF-").is_err());
+        assert!(write_download(&dir.join("missing/x.pdf"), b"%PDF-").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn card_pictures_are_saved_and_served_only_from_cards() {
+        let root = std::env::temp_dir().join(format!("bd-cardpics-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let course = root.join("EE 310");
+        fs::create_dir_all(&course).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        let file = save_card_picture(&course, "../../circuit.svg", png).unwrap();
+        assert_eq!(file, "circuit.png");
+        assert!(save_card_picture(&course, "x.png", b"<svg/>").is_err());
+        assert!(resolve(&root, &format!("/EE%20310/Cards/{file}")).is_some());
+        fs::write(course.join("Cards").join("notes.pdf"), b"%PDF-").unwrap();
+        assert!(resolve(&root, "/EE%20310/Cards/notes.pdf").is_none());
+        assert!(resolve(&root, "/EE%20310/Other/circuit.png").is_none());
+        assert!(resolve(&root, "/EE%20310/Cards/..%2F..%2Fx.png").is_none());
+        std::fs::create_dir_all(course.join("Lectures")).unwrap();
+        fs::write(course.join("Lectures").join("Lecture 1.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        assert!(resolve(&root, "/EE%20310/Lectures/Lecture%201.webm").is_some());
+        assert!(resolve(&root, "/EE%20310/Lectures/circuit.png").is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn card_lists_are_saved_as_csv_beside_the_books() {
+        let dir = std::env::temp_dir().join(format!("bd-csv-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(save_csv(&dir, "EE 310 flashcards.csv", "kind,front\r\n").unwrap(), "EE 310 flashcards.csv");
+        assert_eq!(save_csv(&dir, "EE 310 flashcards", "x").unwrap(), "EE 310 flashcards (2).csv");
+        assert_eq!(fs::read_to_string(dir.join("EE 310 flashcards.csv")).unwrap(), "kind,front\r\n");
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,4 +1,6 @@
 import type { SetupComputer, SetupConfig, SetupModel } from "../../shared/types.js";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { MODELS } from "../team/config.js";
 
 /**
@@ -183,9 +185,20 @@ export function argsForShare(args: string, share: number, split: LayerSplit, moe
 }
 
 
+/** The vision projector (mmproj) beside a local model, which lets llama-server read pictures: one
+ * in the same folder, preferring one whose name shares the model's first word ("Qwen3.5-9B…"). */
+export function mmprojBeside(model: string, list: (dir: string) => string[] = (dir) => { try { return readdirSync(dir); } catch { return []; } }): string | null {
+  const dir = path.dirname(model);
+  const found = list(dir).filter((f) => /mmproj.*\.gguf$/i.test(f));
+  if (!found.length) return null;
+  const stem = path.basename(model).toLowerCase().split(/[-_.]/)[0] ?? "";
+  const best = found.find((f) => stem && f.toLowerCase().includes(stem)) ?? (found.length === 1 ? found[0] : null);
+  return best ? path.join(dir, best) : null;
+}
+
 /** The llama-swap config for this computer. `server` is the llama-server to run; a model on this
  * computer is loaded with -m, one from Hugging Face with -hf (downloaded on first use). */
-export function swapYaml(config: SetupConfig, server: string, splits: Partial<Record<"head" | "executor" | "checker", LayerSplit>> = {}): string {
+export function swapYaml(config: SetupConfig, server: string, splits: Partial<Record<"head" | "executor" | "checker", LayerSplit>> = {}, mmproj: (model: string) => string | null = mmprojBeside): string {
   const lines = [
     "# Written by Mimir (Settings → Model servers). Change the models there; edits here are replaced.",
     "healthCheckTimeout: 1800 # the first start downloads the model",
@@ -197,7 +210,9 @@ export function swapYaml(config: SetupConfig, server: string, splits: Partial<Re
   const roles = setupRoles(config).filter((r, i, all) => all.findIndex((o) => config.models[o]!.name === config.models[r]!.name) === i);
   for (const role of roles) {
     const m = config.models[role]!;
-    const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}` : `-hf ${m.source}`;
+    // A local model reads pictures when its projector is beside it (-hf fetches the repo's own).
+    const projector = isLocalModel(m.source) && !/--mmproj\b/.test(m.args) ? mmproj(m.source) : null;
+    const from = isLocalModel(m.source) ? `-m ${cmdPath(m.source)}${projector ? ` --mmproj ${cmdPath(projector)}` : ""}` : `-hf ${m.source}`;
     const cmd = `${cmdPath(server)} ${from} --host 127.0.0.1 --port \${PORT}`;
     // Below 100 %, part of the model runs on the CPU (-ngl: how many layers go on the GPU).
     const split = splits[role];

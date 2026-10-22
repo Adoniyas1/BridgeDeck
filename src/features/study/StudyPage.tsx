@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CloudDownload, Sparkles, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
-import { calendarSave, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
+import { calendarSave, canvasDownloadFiles, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
 import { activateTab } from '../../core/tabs'
+import { aiPolicyOf } from '../../core/exam'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore, refreshEvents } from '../calendar/state'
 import { dateInput, formatRange, fromInputs } from '../calendar/model'
@@ -12,12 +13,21 @@ import { newId, noteTitle } from '../notes/model'
 import { notesStore, openNoteRequest } from '../notes/state'
 import { courseEvents, courseFolder, courseNotes } from './model'
 import { openBook } from './open'
-import { libraryStore, refreshLibrary } from './state'
+import { libraryStore, refreshLibrary, reviewAllRequest } from './state'
 import { indexLibrary } from './indexer'
-import { BookSearchCard, FlashcardsCard, FocusCard } from './StudyTools'
+import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
+import { allDue } from './cards'
+import { MimirInbox } from './MimirInbox'
+import { syllabusPrompt } from './syllabus'
+import { askMimir } from '../mimir'
+import { canvasConnected } from './assignments'
+import { configStore } from '../../core/config'
+import { readCollections } from './collections'
 import { LectureCard } from './LectureCard'
 import { AssignmentsCard, CanvasCard, ExamCard } from './AssignmentCards'
 import { DegreePlan } from './DegreePlan'
+import { examNotesText } from './exams'
+import { CoursePeople } from './CoursePeople'
 // The PDF writer is large: it loads when Stitch PDFs is first opened.
 const StitchPdf = lazy(() => import('./StitchPdf').then(m => ({ default: m.StitchPdf })))
 import { ClassTimes, TermCard } from './ClassTimes'
@@ -44,6 +54,11 @@ export default function StudyPage({ active }: { active: boolean }) {
   const [showArchived, setShowArchived] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
   const [plannerOpen, setPlannerOpen] = useState(false)
+  const reviewAll = useStore(reviewAllRequest)
+  const allNotes = useStore(notesStore)
+  const [mixed, setMixed] = useState<ReturnType<typeof allDue> | null>(null)
+  // Asked for from Home: every course's due cards in one session.
+  useEffect(() => { if (reviewAll && library) { setMixed(allDue(allNotes, library.courses.filter(c => !c.archived).map(c => c.name))); reviewAllRequest.set(0) } }, [reviewAll, library])
   const all = library?.courses ?? []
   const courses = all.filter(c => !c.archived)
   const archived = all.filter(c => c.archived)
@@ -71,6 +86,7 @@ export default function StudyPage({ active }: { active: boolean }) {
   }
 
   return <div className="study-layout">
+    {mixed && <Review cards={mixed} onClose={() => setMixed(null)} onStatus={setStatus} />}
     <aside className="card study-courses">
       <SectionTitle title="Courses" subtitle="Each has its books, notes, checklists and exams" />
       <div className="study-course-list">
@@ -93,6 +109,7 @@ export default function StudyPage({ active }: { active: boolean }) {
       </form>
       {library && <p className="hint">Books are kept in {library.root}, which Sync shares with your other computer.</p>}
       {error && <p className="cal-error">{error}</p>}
+      <MimirInbox onStatus={setStatus} />
     </aside>
     {plannerOpen ? <StudyPlanner />
       : planOpen ? <div className="study-course"><DegreePlan courses={all} onOpen={name => { setSelected(name); setPlanOpen(false) }} /></div>
@@ -113,6 +130,9 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
   const [examTitle, setExamTitle] = useState('Exam')
   const [examDate, setExamDate] = useState(() => dateInput(Date.now() + 14 * 86_400_000))
   const [examTime, setExamTime] = useState('09:00')
+  const [examRoom, setExamRoom] = useState('')
+  const [examAllowed, setExamAllowed] = useState('')
+  const [examCovers, setExamCovers] = useState('')
 
   async function addBooks() {
     const paths = (await pickTransferPaths(false)).filter(p => /\.(pdf|epub)$/i.test(p) || SLIDES.test(p))
@@ -129,6 +149,25 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     try { await studyRemoveBook(name, file); await refreshLibrary() } catch (e) { onStatus(String(e)) }
   }
 
+  /** The course's files on Canvas (syllabus, slides, old exams) into its folder, grouped as
+   *  “From Canvas”. Only new or changed ones are downloaded. */
+  async function canvasFiles() {
+    const { base, token } = configStore.get().canvas
+    onStatus('Getting the course’s files from Canvas…')
+    try {
+      const result = await canvasDownloadFiles(base, token, course.info.canvasId, name)
+      if (result.saved.length) {
+        const collections = readCollections(course.info)
+        const group = collections.find(c => c.id === 'canvas') ?? { id: 'canvas', title: 'From Canvas', files: [] }
+        const files = [...new Set([...group.files, ...result.saved])]
+        const others = collections.filter(c => c.id !== 'canvas').map(c => ({ ...c, files: c.files.filter(f => !files.includes(f)) }))
+        await studyPatchCourseInfo(name, { collections: [...others, { ...group, files }] })
+      }
+      await refreshLibrary()
+      onStatus([`${result.saved.length ? `Downloaded ${result.saved.length} file${result.saved.length === 1 ? '' : 's'} from Canvas` : 'Nothing new on Canvas'}`, result.tooBig ? `${result.tooBig} too big to download` : '', result.failed.length ? `couldn’t get ${result.failed.join('; ')}` : ''].filter(Boolean).join(' · '))
+    } catch (e) { onStatus(String(e)) }
+  }
+
   async function newNote() {
     try {
       const note = await notesCreateMarkdown(`${name} notes`, courseFolder(name), 'note', '')
@@ -140,7 +179,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
 
   async function addExam() {
     const start = fromInputs(examDate, examTime)
-    const event: CalEvent = { id: newId(), title: `${name}: ${examTitle.trim() || 'Exam'}`, start, end: start + 2 * 3_600_000, allDay: false, location: '', notes: '', color: 'red', repeat: null, skip: [], reminder: 1440, updated: 0, by: '', deleted: false, seq: 0 }
+    const event: CalEvent = { id: newId(), title: `${name}: ${examTitle.trim() || 'Exam'}`, start, end: start + 2 * 3_600_000, allDay: false, location: examRoom.trim(), notes: examNotesText(examAllowed, examCovers), color: 'red', repeat: null, skip: [], reminder: 1440, updated: 0, by: '', deleted: false, seq: 0 }
     try {
       const saved = await calendarSave(event)
       eventsStore.set(list => [...list, saved])
@@ -161,13 +200,14 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     {stitching && <Suspense fallback={null}><StitchPdf course={course} onClose={() => setStitching(false)} onStatus={onStatus} /></Suspense>}
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
     <Card><SectionTitle title={course.info.title && course.info.title !== name ? `${name} · ${course.info.title}` : name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
-      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button><button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
+      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button>{books.some(b => /syllabus/i.test(b.title)) && <button className="secondary" title="Mimir reads the syllabus and suggests grade weights, exams, office hours and the AI policy for you to check" onClick={() => { const b = books.find(b => /syllabus/i.test(b.title))!; void askMimir(syllabusPrompt(name, b.title), true, name) }}><Sparkles size={15} />Read syllabus</button>}{course.info.canvasId && canvasConnected() && <button className="secondary" title="Download the course’s files from Canvas (syllabus, slides, old exams) into this course" onClick={() => void canvasFiles()}><CloudDownload size={15} />Canvas files</button>}<button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
         {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
           : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />
       {status && <p className="book-status">{status}</p>}
       <CourseDetails course={course} onStatus={onStatus} />
       <ClassTimes course={course} onStatus={onStatus} />
+      <CoursePeople course={course} onStatus={onStatus} />
       <CourseFiles course={course} books={books} onOpen={open} onOpenExternally={openExternally} onRemove={book => void removeBook(book.file, book.title)} onStatus={onStatus} />
     </Card>
     <AssignmentsCard course={name} info={course.info} courses={courses} />
@@ -175,11 +215,11 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     <CoursePhotos course={name} photos={photos} root={root} />
     <div className="study-tools">
       <FocusCard course={name} />
-      <FlashcardsCard course={name} onStatus={onStatus} />
+      <FlashcardsCard course={name} info={course.info} onStatus={onStatus} />
       <ExamCard course={name} />
     </div>
     <CanvasCard />
-    <LectureCard course={name} />
+    <LectureCard course={name} info={course.info} />
     <BookSearchCard course={name} books={books} />
     <div className="two-col">
       <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button>} />
@@ -189,7 +229,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
           {total > 0 && <small>{done}/{total}</small>}
         </button>)}</div> : <p className="hint">Open a book and use “Chapter checklist” to track chapters, or “Save highlight” to keep passages.</p>}
       </Card>
-      <Card><SectionTitle title="Exams and deadlines" subtitle="From your calendar (events with the course name)" />
+      <Card><SectionTitle title="Exams and deadlines" subtitle="From your calendar (events with the course name) and Canvas; exams get study time in the planner and a card on Home the day before" />
         {upcoming.length ? <div className="agenda-list">{upcoming.map(e => <button key={e.id} className="agenda-row" onClick={() => activateTab('calendar')}>
           <i style={{ background: '#f07178' }} /><span className="agenda-time">{new Date(e.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} {formatRange(e)}</span><span className="grow agenda-title">{e.title}</span></button>)}</div>
           : <p className="hint">Nothing coming up.</p>}
@@ -197,6 +237,9 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
           <input value={examTitle} onChange={e => setExamTitle(e.target.value)} placeholder="Exam, quiz, essay due…" />
           <input type="date" value={examDate} onChange={e => setExamDate(e.target.value)} />
           <input type="time" value={examTime} onChange={e => setExamTime(e.target.value)} />
+          <input value={examRoom} onChange={e => setExamRoom(e.target.value)} placeholder="Room (finals are often elsewhere)" />
+          <input value={examAllowed} onChange={e => setExamAllowed(e.target.value)} placeholder="Allowed: calculator, 1 formula sheet…" />
+          <input value={examCovers} onChange={e => setExamCovers(e.target.value)} placeholder="Covers: Ch 4–6" />
           <button className="ghost"><CalendarPlus size={14} /> Add</button>
         </form>
       </Card>
@@ -224,6 +267,11 @@ function CourseDetails({ course, onStatus }: { course: StudyCourse; onStatus: (s
       <option value="">{canvas.courses.length ? 'Not linked' : 'Connect Canvas in Settings → Study'}</option>
       {canvas.courses.map(c => <option key={c.id} value={c.id}>{c.code}{c.name && c.name !== c.code ? ` · ${c.name}` : ''}</option>)}
       {course.info.canvasId && !linked && <option value={course.info.canvasId}>{course.info.canvasCode || 'Linked course'}</option>}
+    </select></label>
+    <label title="What the syllabus allows: Mimir and ChatGPT follow it for this course"><span>AI help</span><select value={aiPolicyOf(course.info)} onChange={e => void save({ aiPolicy: e.target.value })}>
+      <option value="hints">Hints only (Mimir teaches)</option>
+      <option value="full">Full answers allowed</option>
+      <option value="none">No AI for this course</option>
     </select></label>
   </div>
 }

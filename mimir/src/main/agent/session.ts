@@ -147,6 +147,21 @@ export class AgentSession {
     const turnId = ++this.activeTurnId;
     this.runningTurn = true;
 
+    // Exam mode (on either computer, in BridgeDeck): no AI help until it ends.
+    const exam = await examMode();
+    if (exam) {
+      if (turnId !== this.activeTurnId) return;
+      const until = new Date(exam.until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      const message = `Exam mode is on${exam.course ? ` for ${exam.course}` : ""} until ${until}, so I'm switched off until then. Good luck!`;
+      this.history.push({ role: "user", content: userText, attachments });
+      this.history.push({ role: "assistant", content: message });
+      this.runningTurn = false;
+      win.webContents.send(IPC.faceState, "idle");
+      this.sendStream({ type: "text-delta", text: message });
+      this.sendStream({ type: "turn-done", fullText: message });
+      return;
+    }
+
     const team = await loadTeamConfig();
     if (team.engine !== "mimir") {
       await this.runEngine(team, turnId, userText, attachments);
@@ -592,6 +607,18 @@ export class AgentSession {
  * regex and fell through to the FULL toolset, while "llama3.2:3b" — the
  * identical weights — got zero tools. Absence of a size in the tag is not
  * evidence of a large model; treating it as "assume large" was the bug. */
+/** Exam mode in BridgeDeck, if it's on (null when it's off or BridgeDeck can't be asked). */
+async function examMode(): Promise<{ course: string; until: number } | null> {
+  const bridgeDeck = bridgeDeckFromEnv();
+  if (!bridgeDeck) return null;
+  try {
+    const exam = await bridgeDeck.call<{ on: boolean; course?: string; until?: number }>("exam");
+    return exam?.on && typeof exam.until === "number" ? { course: exam.course ?? "", until: exam.until } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveToolTier(provider: { kind: string; model: string }): "core" | "full" {
   if (provider.kind !== "ollama") return "full";
   const parameterCount = provider.model.match(/(?:^|[:_-])(\d+(?:\.\d+)?)b(?:$|[:_-])/i);

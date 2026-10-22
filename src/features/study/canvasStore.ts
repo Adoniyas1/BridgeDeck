@@ -17,3 +17,7 @@ function cached(): CanvasData {
 
 export const canvasStore = createStore<CanvasData>(cached())
 
+
+/** Canvas items ticked done here (Canvas itself isn't changed): kept in the synced study state, so
+ *  ticking on one computer shows on the other. */
+export const canvasDoneStore = createStore<string[]>([])

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { catalogTitle, DECLARE_COURSES, eligibleNext, gpa, PLANS, planTotals, readPlanState, readPrereqs, sameCourseTitle } from './plans'
+import { catalogTitle, DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, majorIds, PLANS, withExpected, wrapUp, planTotals, readPlanState, readPrereqs, sameCourseTitle } from './plans'
 
 describe('degree plans', () => {
   it('has the flowchart’s units in each semester', () => {
@@ -46,5 +46,18 @@ describe('next semester and GPA', () => {
     expect(gpa(plan, state)!.gpa).toBeCloseTo((3 * 4 + 4 * 4 + 2 * 3) / 11)
     expect(gpa(plan, state, DECLARE_COURSES)!.units).toBe(11)
     expect(gpa(plan, readPlanState('{}'))).toBeNull()
+  })
+})
+
+describe('GPA what-if and the end of a semester', () => {
+  const plan = PLANS[0]
+  const ids = plan.semesters.flat().map(c => c.id)
+  it('counts this semester at its sheets’ grades, then finishes it', () => {
+    const state = { ...emptyPlanState(plan.id), status: { [ids[0]]: 'done' as const, [ids[1]]: 'taking' as const }, grades: { [ids[0]]: 'A' }, next: [ids[2]] }
+    const expected = { [ids[1]]: 'B' }
+    expect(gpa(plan, withExpected(state, expected))!.units).toBe(plan.semesters.flat()[0].units + plan.semesters.flat()[1].units)
+    const after = wrapUp(state, expected)
+    expect([after.status[ids[1]], after.grades[ids[1]], after.status[ids[2]], after.next]).toEqual(['done', 'B', 'taking', []])
+    expect(majorIds(plan, state).every(id => (plan.semesters.flat().find(c => c.id === id)!.code).startsWith('EE '))).toBe(true)
   })
 })

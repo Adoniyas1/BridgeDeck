@@ -66,109 +66,109 @@ Visible improvements on the Windows PC after each merge: synced last page, stitc
   - package.json: pdf-lib@1.17.1. New lazy src/lib/pdfwrite.ts with imagesToPdf(jpegs/pngs,{title,pageSize}) and mergePdfs(parts, order, rotations). Rust study.rs: study_save_pdf(course,name) reading tauri::ipc::Request InvokeBody::Raw (headers course/name); checks %PDF-, caps size, uses clean_name/free_name, writes .partial then renames, then refreshLibrary(). Also study_read_source(path) limited to dialog-returned paths and <Shared>/From phone. HEIC detection with a clear message on Windows.
 - [x] **2.2 Stitch PDFs together in a chosen order** (M). Items: B2. Needs: 2.1.
   - New src/features/study/StitchPdf.tsx opened from a 'Stitch PDFs' button in the StudyPage.tsx course action bar (:160). Sources: course PDFs, pickTransferPaths files, the From phone folder. pdf.js thumbnails; tick pages, drag to reorder, rotate, name the output (default 'Homework <date>.pdf'). Builds with pdfwrite.mergePdfs, saves with study_save_pdf, can add to a collection (collections.ts moveFile).
-- [ ] **2.3 Phone page photos become one named PDF ready to upload** (M). Items: 20. Needs: 2.1, 1.1.
+- [x] **2.3 Phone page photos become one named PDF ready to upload** (M). Items: 20. Needs: 2.1, 1.1.
   - phone.rs: /api/upload?batch=<id>&assignment=… groups uploads; phone.html gets a 'Scan homework' flow (input accept=image/* capture=environment multiple). The window builds the PDF with pdfwrite.imagesToPdf named '<course> <assignment>.pdf' beside the assignment and warns if problems in the assignment are not ticked (reads problems from the 1.1 state).
 - [x] **2.4 Synced last-page memory (books open where you left off on either computer)** (S). Items: B1 (part 1 of 4: open at the last page). Needs: 1.1.
   - BookTab.tsx (pageKey :19-25, :226, :230) and EpubTab.tsx (placeKey :14, :57, :66) write {page|cfi, at} to study state key 'reading' (1.1) with a ~2 s debounce, keeping localStorage as an instant cache. On open, use the newest entry across devices. One-time copy of existing localStorage positions.
-- [ ] **2.5 Flashcards render math/symbols plus an 'Open p. N' button** (S). Items: 9. Needs: none.
+- [x] **2.5 Flashcards render math/symbols plus an 'Open p. N' button** (S). Items: 9. Needs: none.
   - Review UI (review.ts / the Study card view) renders $…$ and $$…$$ with KaTeX (already a dependency) and Unicode symbols; a card's existing [Book, p. N](book:…) source link becomes an 'Open p. N' button via openBookLink. No grammar change, so it stays compatible with mimir_api.rs card_parts.
-- [ ] **2.6 Hints-first tutor rules; Code's Ask Mimir points at the line** (S). Items: 2. Needs: none.
+- [x] **2.6 Hints-first tutor rules; Code's Ask Mimir points at the line** (S). Items: 2. Needs: none.
   - mimir/src/main/... modules.ts: a new 'tutor' prompt module, required whenever a study course or the Code/Logic tab is in context: hints first, no full solutions unless asked, point at the line and explain instead of rewriting. bd_study (:365-375) gets citation text. CodePage.tsx:243 prompt changes from 'show the fixed code' to 'point at the line and give a hint'. Reads aiPolicy when present (wired fully in 3.3).
-- [ ] **2.7 Mimir knows what you're reading; Ask Mimir on a highlighted passage** (S). Items: 3. Needs: none.
+- [x] **2.7 Mimir knows what you're reading; Ask Mimir on a highlighted passage** (S). Items: 3. Needs: none.
   - BookTab.tsx and EpubTab.tsx call useTabContext('study', {course, book, page, selection, pageText}) as CodePage.tsx:98 does. Add an 'Ask Mimir' action to the selection menu (next to highlight) through askMimir, carrying bookLink(course,file,page).
-- [ ] **2.8 Quick-add in plain words with next-class/lab chips** (S). Items: 33. Needs: 1.2.
+- [x] **2.8 Quick-add in plain words with next-class/lab chips** (S). Items: 33. Needs: 1.2.
   - Quick-add parser for phrases like 'HW 4 due next lab'. Chips computed from schedule.ts meetings (next class, next lab, next week same day). Optional per-course 'auto lab deadline' (weekly due N hours before lab), stored via study_course_patch.
-- [ ] **2.9 Class reminders with room; cancel or move one class date** (S). Items: 34. Needs: 1.2.
+- [x] **2.9 Class reminders with room; cancel or move one class date** (S). Items: 34. Needs: 1.2.
   - schedule.ts: reminder N minutes before each meeting, with the room in the text (notify.ts). ClassTimes.tsx: 'Cancel this date' / 'Move to…' saving the courseSettings `cancelled` key via patch; calendar projection and reminders skip or move that date.
-- [ ] **2.10 Office hours, contacts, email professor, office-hours question list** (S). Items: 44. Needs: 1.2.
+- [x] **2.10 Office hours, contacts, email professor, office-hours question list** (S). Items: 44. Needs: 1.2.
   - CourseSettings UI for officeHours (Meeting[]) and contacts [{role,name,email}] via patch. 'Email professor' opens mailto: with the course code in the subject. A per-course 'Questions for office hours' list (a note section), shown as a reminder before office hours.
 
 ## Phase 3: Canvas, exams, exam mode and grades in one place
 
 Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a restart), keep one exam list everywhere, and make reminders and grades trustworthy.
 
-- [ ] **3.1 Canvas data readable by Rust; done marks synced** (M). Items: foundation (b) (used by 4, 21, 25, 29, 30, 32, 36, 41, 39). Needs: 1.1.
+- [x] **3.1 Canvas data readable by Rust; done marks synced** (M). Items: foundation (b) (used by 4, 21, 25, 29, 30, 32, 36, 41, 39). Needs: 1.1.
   - New src-tauri/src/study_canvas.rs: study_canvas_publish(data) writes <appdata>/canvas.json (per computer, never synced) and keeps an in-memory copy. assignments.ts refreshCanvas (:44-47) calls it; canvasStore.ts loads from it at start. apiAssignments keeps submission{submitted_at,workflow_state,score,missing,late}, points_possible, html_url. config.canvas.done moves to state key canvasDone with a one-time migration.
-- [ ] **3.2 Exam mode persisted in Rust (site block survives a restart)** (S). Items: 1 (part 1 of 2). Needs: none.
+- [x] **3.2 Exam mode persisted in Rust (site block survives a restart)** (S). Items: 1 (part 1 of 2). Needs: none.
   - New src-tauri/src/exam.rs: static plus <appdata>/exam.json {course, until, sites}, exam_set/exam_get commands, restored at start-up and re-applying browser::exam_sites (browser.rs:123). src/core/exam.ts setExam calls exam_set; localStorage only as a dev fallback. Optional BridgeLink broadcast to the paired computer.
-- [ ] **3.3 Exam mode turns all AI off; per-course AI policy none/hints/full** (M). Items: 1 (part 2 of 2). Needs: 3.2, 1.2, 2.6.
+- [x] **3.3 Exam mode turns all AI off; per-course AI policy none/hints/full** (M). Items: 1 (part 2 of 2). Needs: 3.2, 1.2, 2.6.
   - courseSettings aiPolicy UI. mimir_api::route returns 423 'Exam mode: AI is off' for every /mimir/* route except calendar/notes reads; new /mimir/study/policy returns {exam, policies}. mimir/src/main/agent/session.ts checks policy before each turn and ends the turn in code when exam is on or the policy is none. BridgeDeck hides the Mimir and ChatGPT tabs, the chatgpt.rs side panel and askMimir in exam mode. The tutor module (2.6) switches to hints-only under 'hints'. The UI states that 'hints' is prompt-level only.
-- [ ] **3.4 One exam list everywhere** (M). Items: 27 (part 1 of 2). Needs: 1.2.
+- [x] **3.4 One exam list everywhere** (M). Items: 27 (part 1 of 2). Needs: 1.2.
   - New src/features/study/exams.ts (Exam type with source manual|canvas|syllabus|finals) stored in .course.json exams via patch. ensureExamEvents() upserts calendar events with id exam-<id>. Replace the heuristics in brief.ts:37, planner.ts:29, StudyPage.tsx:138 and Mimir daily_brief (tools.ts:205-233) with lookups. One-time import of red '<course>: …exam…' events; Canvas quizzes offered as exams. Rust study::exams_of plus /mimir/study/exams.
-- [ ] **3.5 CSULB finals table with room** (S). Items: 27 (part 2 of 2). Needs: 3.4.
+- [ ] **3.5 (left: needs each term's CSULB finals table; for now the exam form has a room field and finals are entered by hand) CSULB finals table with room** (S). Items: 27 (part 2 of 2). Needs: 3.4.
   - New src/features/study/finals.ts mapping meeting pattern (days + start time) to a final slot for the current term, with source URL and date in the file. A 'Add my finals' action creates source:'finals' exams with the room taken from the course's meeting room.
-- [ ] **3.6 Exam-day card** (S). Items: 31. Needs: 3.4, 1.1.
+- [x] **3.6 Exam-day card** (S). Items: 31. Needs: 3.4, 1.1.
   - Home and Study card the day before and the day of an exam: room, allowed items (exam.allowed), bring-list (courseSettings bring), leave-by time (start minus a travel setting), suggested bedtime. Checklist ticks are stored in state key examDay.
-- [ ] **3.7 Reminders include Canvas work everywhere; 24h/1h warnings for hand-added items** (S). Items: 32. Needs: 3.1.
+- [x] **3.7 Reminders include Canvas work everywhere; 24h/1h warnings for hand-added items** (S). Items: 32. Needs: 3.1.
   - Reminder pass reads the Canvas data (3.1) and manual assignments; 24 h and 1 h notifications for hand-added items; done marks (canvasDone) suppress them; muted in exam mode. Pushed into the phone SNAPSHOT (phone.rs phone_publish).
-- [ ] **3.8 Warning: ticked done but not submitted on Canvas** (S). Items: 21. Needs: 3.1.
+- [x] **3.8 Warning: ticked done but not submitted on Canvas** (S). Items: 21. Needs: 3.1.
   - Compare canvasDone / problem ticks with submission.workflow_state/submitted_at; a 'Not submitted yet' badge plus a notification before the due time, with a link to html_url.
-- [ ] **3.9 Canvas scores into the grade sheet with an at-risk alert** (M). Items: 41 (part 1 of 2). Needs: 3.1, 1.2.
+- [x] **3.9 Canvas scores into the grade sheet with an at-risk alert** (M). Items: 41 (part 1 of 2). Needs: 3.1, 1.2.
   - GradesCard / grades.ts fill category scores from Canvas submission.score/points_possible, with manual override kept. At-risk alert when the projected letter drops below the target (letters without +/-, as at CSULB, grades.ts:10).
-- [ ] **3.10 Drop lowest, extra credit and points mode** (S). Items: 41 (part 2 of 2). Needs: 3.9.
+- [x] **3.10 Drop lowest, extra credit and points mode** (S). Items: 41 (part 2 of 2). Needs: 3.9.
   - Extend readGrading in grades.ts with {dropLowest, extraCredit, mode:'weights'|'points'} per category, saved via patch; vitest cases for each rule.
-- [ ] **3.11 Major GPA, what-if GPA, semester wrap-up** (M). Items: 42. Needs: 3.9, 1.2.
+- [x] **3.11 Major GPA, what-if GPA, semester wrap-up** (M). Items: 42. Needs: 3.9, 1.2.
   - courseSettings units and major flag; major GPA next to the existing overall GPA; what-if sliders per current course; a wrap-up view at term end (final letters, GPA change, hours studied when available) that feeds the 1.5 semester export.
 
 ## Phase 4: Flashcards 2.0 and the engineering math engine
 
 Build a single expression/units engine, then grow the card format (cloze, both-ways, images, typed answers) with a review log, personal FSRS tuning and import/export, keeping the TS and Rust card parsers identical.
 
-- [ ] **4.1 Units and complex expression engine (src/lib/expr.ts)** (M). Items: foundation (i) (used by 8, 12, 45, 46, 47, 48). Needs: none.
+- [x] **4.1 Units and complex expression engine (src/lib/expr.ts)** (M). Items: foundation (i) (used by 8, 12, 45, 46, 47, 48). Needs: none.
   - Move the plot.ts:12-120 tokenizer/parser into src/lib/expr.ts. Value Q={re,im,dim:Int8Array(7)}; SI prefixes only before a unit; Ω ohm V A W F H Hz s S; j/i, ∠deg, ||, 0b/0x/0o; abs/arg/conj/re/im/sqrt; equalWithin(a,b,relTol,units). plot.ts evaluates with im=0. Test table covering the m/milli and e rules. No new dependency.
-- [ ] **4.2 Engineering calculator block** (S). Items: 46. Needs: 4.1, 1.4.
+- [x] **4.2 Engineering calculator block** (S). Items: 46. Needs: 4.1, 1.4.
   - New note block or Study tool using expr.ts: unit-aware results with automatic prefixes, resistor color code to and from value (E-series), complex/phasor display (rectangular and polar), parallel ||. Uses an existing block kind (e.g. a python-like 'calc' fenced code) or adds a kind on top of 1.4.
-- [ ] **4.3 Card grammar v2: cloze and both-ways cards (TS and Rust in lockstep)** (M). Items: 13. Needs: 2.5.
+- [x] **4.3 Card grammar v2: cloze and both-ways cards (TS and Rust in lockstep)** (M). Items: 13. Needs: 2.5.
   - cards.ts and mimir_api.rs (card_parts, card_due, is_card_note :445-458): front ::: back gives two sub-cards; {{c1::text}} gives one sub-card per cN; FSRS state <!--fsrs c1:due=…;s=…|c2:…--> while the un-prefixed form stays. Card id ${noteId}/${blockId}/${sub}. Shared test vectors JSON used by vitest and cargo test. 'Make cloze' action from notes, highlights and transcript text.
-- [ ] **4.4 Edit and delete cards in Study; leech list** (S). Items: 11 (part 1 of 2). Needs: 4.3.
+- [x] **4.4 Edit and delete cards in Study; leech list** (S). Items: 11 (part 1 of 2). Needs: 4.3.
   - Study deck view: edit front/back inline (rewrites the block through the notes store), delete card, suspend. Leech list computed as lapses >= 8 (from the 4.6 log when present, otherwise the FSRS lapse field), tagged #leech in the line.
-- [ ] **4.5 One interleaved review session across all courses from Home** (S). Items: 10. Needs: 4.3.
+- [x] **4.5 One interleaved review session across all courses from Home** (S). Items: 10. Needs: 4.3.
   - allDue(notes, library) in the lazy cards chunk, round-robin by course; a Home 'Review all (N)' button. Home imports only types (cards.ts:1 comment).
-- [ ] **4.6 Review log, personal FSRS tuning, per-chapter mastery map** (M). Items: 14. Needs: 4.3, 1.1.
+- [x] **4.6 Review log, personal FSRS tuning, per-chapter mastery map** (M). Items: 14. Needs: 4.3, 1.1.
   - saveReview (state.ts:228) appends {card,at,grade,elapsedDays,state,ms} to .state/reviews/<instanceId>.jsonl (1.1). Lazy optimizer: @open-spaced-repetition/binding (fallback fsrs-browser); weights in config.study.fsrsWeights; review.ts builds fsrs({w}). Mastery map: card page links map to chapters through the '<book> — chapters' note / outline, combined with retrievability.
-- [ ] **4.7 Type-your-answer mode with numeric tolerance and units** (S). Items: 12. Needs: 4.1, 4.3.
+- [x] **4.7 Type-your-answer mode with numeric tolerance and units** (S). Items: 12. Needs: 4.1, 4.3.
   - Answer spec {{num:4.7k Ω ±2%}} parsed by expr.ts; review shows an input, checks with equalWithin and unit match, and suggests a grade. Added to the shared card test vectors.
-- [ ] **4.8 Pictures and circuit drawings on cards** (S). Items: 16. Needs: 4.3, 1.3.
-  - ![](bdimg:<course>/<file>) on either side; files in Study/<course>/Cards/; resolve() accepts this 3-level path (canonicalize + starts_with kept); 'Add drawing' exports the Excalidraw/Logic SVG/PNG into Cards/.
-- [ ] **4.9 Anki / CSV / Quizlet import and export** (M). Items: 15. Needs: 4.3, 4.8.
-  - New src/features/study/deckio.ts. Rust study_anki_import(path) using rusqlite + zip (already in Cargo.toml), mapping Basic, Reversed and Cloze notes and media into Cards/. CSV/TSV and Quizlet tab/newline parsers. Export to CSV and .apkg (or CSV only first if .apkg writing is too large).
+- [x] **4.8 Pictures and circuit drawings on cards** (S). Items: 16. Needs: 4.3, 1.3.
+  - ![](bdimg:<course>/<file>) on either side; files in Study/<course>/Cards/; resolve() accepts this 3-level path (canonicalize + starts_with kept); 'Add drawing' exports the Excalidraw/Logic SVG/PNG into Cards/. Done: pictures are added by picking or pasting (a Logic or drawing export pastes in as a picture).
+- [x] **4.9 Anki / CSV / Quizlet import and export** (M). Items: 15. Needs: 4.3, 4.8.
+  - New src/features/study/deckio.ts. Rust study_anki_import(path) using rusqlite + zip (already in Cargo.toml), mapping Basic, Reversed and Cloze notes and media into Cards/. CSV/TSV and Quizlet tab/newline parsers. Export to CSV and .apkg (or CSV only first if .apkg writing is too large). Done as our own format (per the decision: no Anki): CSV with kind, front, back and review state; Quizlet-style tab lists and spreadsheets import; export saves a CSV in the course folder.
 
 ## Phase 5: Mimir as a study partner (routes, approval inbox, vision)
 
 Let Mimir read assignments, grades, class times and plans, require approval before anything is written, turn on local vision, and replace ChatGPT for homework photos.
 
-- [ ] **5.1 Mimir study routes and tools: assignments, grades, class times, plan** (M). Items: 4 (part 1 of 2). Needs: 3.1, 3.3, 3.4.
+- [x] **5.1 Mimir study routes and tools: assignments, grades, class times, plan** (M). Items: 4 (part 1 of 2). Needs: 3.1, 3.3, 3.4.
   - mimir_api.rs: /mimir/study/assignments (canvas.json + canvasDone + manual Assignments note), /grades, /schedule (meetings, term, cancelled), /plan. tools.ts defs and handlers; study_assignments and study_policy join the core tools (:309); new bd_assignments module in modules.ts triggered by due|grade|class|schedule.
-- [ ] **5.2 Approval inbox: Mimir deadlines wait for approval** (M). Items: 4 (part 2 of 2). Needs: 5.1, 1.1.
+- [x] **5.2 Approval inbox: Mimir deadlines wait for approval** (M). Items: 4 (part 2 of 2). Needs: 5.1, 1.1.
   - /mimir/study/inbox/add appends {kind:'card'|'deadline'|'exam'|'problems'|'syllabus'|'words', course, payload, from:'mimir'} to state key inbox. A Study 'From Mimir' card accepts or rejects; accepting calls the existing add paths. Mimir's deadline/exam writes go through it; confirm() stays only for instant actions.
-- [ ] **5.3 Mimir flashcards wait for approval** (S). Items: 11 (part 2 of 2). Needs: 5.2, 4.3.
+- [x] **5.3 Mimir flashcards wait for approval** (S). Items: 11 (part 2 of 2). Needs: 5.2, 4.3.
   - /mimir/study/flashcards/add (mimir_api.rs:333-363) writes to '<course> — draft cards' (not reviewed because the title lacks 'flashcards') and adds an inbox entry; accepting moves the block into the deck. /study/courses reports a pending count.
-- [ ] **5.4 Tutor evaluation harness with a fixed EE problem set** (S). Items: 6. Needs: 2.6.
-  - New mimir/tests/tutor-eval/: fixed EE problems (circuits, signals, digital) with expected hint-only behaviour and leak checks, plus a vitest runner per configured model (Mac and PC plans in plan.ts) that writes a score report. Not run in CI by default.
-- [ ] **5.5 Turn on Mimir vision (mmproj) for local models** (M). Items: B4 (part 1 of 5). Needs: none.
-  - mimir setup/index.ts:150 and setup/gpu.ts:79 stop skipping mmproj; plan.ts:200-205 passes --mmproj and adds a 'vision' llama-swap role (PC: Qwen3.5-9B checker). openaiCompatibleProvider.ts:58 supportsVision reads llama-server /props modalities.vision; ollamaProvider.ts regex widened. A settings choice of vision model and 'prefer PC over network' for the Mac. First verify that the PrismML fork supports Qwen3.5 mmproj.
-- [ ] **5.6 Homework photo becomes a problem list and due date via Mimir (no ChatGPT)** (M). Items: 19. Needs: 5.5, 5.2.
-  - homework.ts:12 swaps ChatGPT for a Mimir vision call (local llama-swap, PC first) that returns JSON {problems[], due}; the result goes to the inbox as kind 'problems'/'deadline'. Photos come from the phone upload or a picker, with HEIC handled.
+- [x] **5.4 Tutor evaluation harness with a fixed EE problem set** (S). Items: 6. Needs: 2.6.
+  - New mimir/tests/tutor-eval/: fixed EE problems (circuits, signals, digital) with expected hint-only behaviour and leak checks, plus a vitest runner per configured model (Mac and PC plans in plan.ts) that writes a score report. Not run in CI by default. Run: MIMIR_TUTOR_EVAL_URL=http://127.0.0.1:8080 MIMIR_TUTOR_EVAL_MODELS=qwen3.5-9b npx vitest run tests/tutor-eval (in mimir/).
+- [x] **5.5 Turn on Mimir vision (mmproj) for local models** (M). Items: B4 (part 1 of 5). Needs: none.
+  - mimir setup/index.ts:150 and setup/gpu.ts:79 stop skipping mmproj; plan.ts:200-205 passes --mmproj and adds a 'vision' llama-swap role (PC: Qwen3.5-9B checker). openaiCompatibleProvider.ts:58 supportsVision reads llama-server /props modalities.vision; ollamaProvider.ts regex widened. A settings choice of vision model and 'prefer PC over network' for the Mac. First verify that the PrismML fork supports Qwen3.5 mmproj. Done: a local model's mmproj beside it is passed with --mmproj (-hf models fetch their own); vision is read from llama-server's /props (through llama-swap only for a running model) and a name guess; Ollama's list widened. Not done here: a separate vision role in Settings, and checking the PrismML fork's Qwen3.5 mmproj support on the Mac (needs the hardware).
+- [x] **5.6 Homework photo becomes a problem list and due date via Mimir (no ChatGPT)** (M). Items: 19. Needs: 5.5, 5.2.
+  - homework.ts:12 swaps ChatGPT for a Mimir vision call (local llama-swap, PC first) that returns JSON {problems[], due}; the result goes to the inbox as kind 'problems'/'deadline'. Photos come from the phone upload or a picker, with HEIC handled. Done: 'Read it with Mimir' keeps the photo in the course, Mimir looks at it (study_photo, library pictures only) and suggests deadlines and exams into the inbox; ChatGPT stays as the other choice. HEIC is refused with a hint (the phone page sends JPEG).
 
 ## Phase 6: Lectures and course materials
 
 Keep lecture audio with timestamps, live transcription and Mimir summaries; download Canvas files and read the syllabus; make search cover everything with precise citations.
 
-- [ ] **6.1 Lecture audio storage and streaming** (M). Items: foundation (j) (used by 5, 22, 23, 24). Needs: 1.3, 1.2.
+- [x] **6.1 Lecture audio storage and streaming** (M). Items: foundation (j) (used by 5, 22, 23, 24). Needs: 1.3, 1.2.
   - study.rs: audio kind in book_kind, resolve accepts Study/<course>/Lectures/<file> (3 levels), served by the 1.3 range reader. Sidecar <date> <title>.json {segments, markers, photos}. model.ts parses lecture:<course>/<file>#t=123 next to parseBookLink. Recording is blocked when courseSettings.recording is false.
-- [ ] **6.2 Import existing audio, per-course word list, dated note and brain dump, recording-allowed flag** (M). Items: 22 (part 1 of 2). Needs: 6.1.
+- [x] **6.2 Import existing audio, per-course word list, dated note and brain dump, recording-allowed flag** (M). Items: 22 (part 1 of 2). Needs: 6.1.
   - lecture.ts: import m4a/mp3/webm into Lectures/ and transcribe with the existing whisper worker; post-correction with the courseSettings wordList; create a dated lecture note with a brain-dump section; recording-allowed toggle in CourseSettings.
-- [ ] **6.3 Lecture player: clickable timestamps, '?' lost markers, whiteboard photos in the transcript** (M). Items: 23. Needs: 6.1.
-  - Lecture view: transcript segments seek the audio; a '?' button during recording stores a marker (sidecar plus state key for unresolved ones); phone/desktop photos taken during class are placed at their time in the transcript.
-- [ ] **6.4 Live transcription during class** (M). Items: 24. Needs: 6.3, 3.2.
-  - lecture.ts / whisper.worker.ts: chunked streaming (e.g. 10-20 s windows with overlap) while recording, a live transcript pane, the final pass replacing live text. Blocked in exam mode and when recording is not allowed. Watch CPU on the 8 GB Mac (tiny model by default).
-- [ ] **6.5 Mimir lecture summary, key terms and draft cards** (S). Items: 22 (part 2 of 2). Needs: 6.2, 5.3.
-  - /mimir/study/lectures route serving transcript segments; an action 'Summarise lecture' writes the summary and key terms into the dated note and sends draft cards and new words (kind 'words') to the inbox.
-- [ ] **6.6 Canvas files and modules download into the course folder, searchable** (M). Items: 25. Needs: 3.1.
-  - Second Canvas pass for modules/files (canvas.rs proxy) into Study/<course>/Canvas/ (slides, old exams, syllabus), with size checks against Syncthing/backup limits and skip-if-unchanged. PDFs are indexed by the existing indexer.
-- [ ] **6.7 Search covers EPUBs, lecture transcripts and notes; timestamp citations; re-checks pages** (M). Items: 5. Needs: 6.1, 5.1.
-  - study_save_index accepts kind epub (EpubTab/indexer via epubjs) and transcripts (minute paragraphs as pages); notes searched through the notes store; Hit gains t for lectures. bd_study rules: cite (Book, p. N) and lecture [mm:ss], and re-read the page through study_search before quoting.
-- [ ] **6.8 Syllabus reader proposes weights, exams, office hours and AI policy** (M). Items: 26. Needs: 6.6, 5.2, 3.4.
+- [x] **6.3 Lecture player: clickable timestamps, '?' lost markers, whiteboard photos in the transcript** (M). Items: 23. Needs: 6.1.
+  - Lecture view: transcript segments seek the audio; a '?' button during recording stores a marker (sidecar plus state key for unresolved ones); phone/desktop photos taken during class are placed at their time in the transcript. Done: player tab with clickable lines, the line being said marked, '?' marks while recording and while listening (kept in the sidecar, resolved with ×); photos show at their time when the sidecar lists them (placing class photos automatically is left).
+- [x] **6.4 Live transcription during class** (M). Items: 24. Needs: 6.3, 3.2.
+  - lecture.ts / whisper.worker.ts: chunked streaming (e.g. 10-20 s windows with overlap) while recording, a live transcript pane, the final pass replacing live text. Blocked in exam mode and when recording is not allowed. Watch CPU on the 8 GB Mac (tiny model by default). Done: 20-second pieces from the microphone (16 kHz) go to one long-lived worker; when it falls behind, older pieces are skipped (the full pass fills in); a setting turns it off; nothing is sent in exam mode.
+- [x] **6.5 Mimir lecture summary, key terms and draft cards** (S). Items: 22 (part 2 of 2). Needs: 6.2, 5.3.
+  - /mimir/study/lectures route serving transcript segments; an action 'Summarise lecture' writes the summary and key terms into the dated note and sends draft cards and new words (kind 'words') to the inbox. Done: /mimir/study/lectures and study_lecture; 'Summarise' asks Mimir to add the summary and key terms to the note, suggest cards (inbox), and list misheard words for the course word list.
+- [x] **6.6 Canvas files and modules download into the course folder, searchable** (M). Items: 25. Needs: 3.1.
+  - Second Canvas pass for modules/files (canvas.rs proxy) into Study/<course>/Canvas/ (slides, old exams, syllabus), with size checks against Syncthing/backup limits and skip-if-unchanged. PDFs are indexed by the existing indexer. Done: 'Canvas files' on a linked course downloads its files (books, slides, pictures; 150 MB each, 1 GB a run; unchanged ones skipped by .canvas-files.json) beside its books, grouped as 'From Canvas', so they're listed and indexed. Module pages (not files) aren't read.
+- [x] **6.7 Search covers EPUBs, lecture transcripts and notes; timestamp citations; re-checks pages** (M). Items: 5. Needs: 6.1, 5.1.
+  - study_save_index accepts kind epub (EpubTab/indexer via epubjs) and transcripts (minute paragraphs as pages); notes searched through the notes store; Hit gains t for lectures. bd_study rules: cite (Book, p. N) and lecture [mm:ss], and re-read the page through study_search before quoting. Done: EPUBs were already indexed by chapter; search now also covers each minute of a lecture transcript (hits carry t and open the player there) and course notes (not flashcards); Mimir cites [mm:ss] and re-reads pages before quoting.
+- [x] **6.8 Syllabus reader proposes weights, exams, office hours and AI policy** (M). Items: 26. Needs: 6.6, 5.2, 3.4.
   - Mimir reads the syllabus (downloaded by 6.6 or picked) and posts kind 'syllabus' to the inbox; accepting fills grading weights, exams (source syllabus), officeHours and aiPolicy via patch, showing a diff first.
 
 ## Phase 7: Homework, exam prep and planning
@@ -202,11 +202,11 @@ Help with each homework problem without giving answers away, build exam prep fro
 
 Make huge books into clickable chapter books with download, write with a pen or Apple Pencil (also on PDFs), and turn photos of paper notes into a clean typed notes PDF.
 
-- [ ] **8.1 Book folders in the library with chapter navigation** (M). Items: B1 (part 2 of 4: chapter list and one-book folders). Needs: 1.3, 2.4.
+- [x] **8.1 Book folders in the library with chapter navigation** (M). Items: B1 (part 2 of 4: chapter list and one-book folders). Needs: 1.3, 2.4.
   - study.rs: Book gains folder/chapters; read_library accepts subdirectories with a valid .book.json (skips ones with missing chapters, i.e. still syncing); resolve accepts course/bookdir/chapter.pdf only when the manifest exists. pdf.ts loadChapter. BookTab.tsx: global page numbers, prev/next across chapter files, Contents from manifest.outline. Index key <course>/<bookdir>.json joining chapters. CourseFiles.tsx folder badge with chapter count.
-- [ ] **8.2 Split a huge PDF into per-chapter files that still act as one book** (M). Items: B1 (part 3 of 4). Needs: 8.1.
+- [x] **8.2 Split a huge PDF into per-chapter files that still act as one book** (M). Items: B1 (part 3 of 4). Needs: 8.1.
   - Cargo.toml lopdf (pinned, default features off). study_split_book(course,file,chapters) in spawn_blocking: delete_pages/prune_objects/compress per range, .partial then rename, .book.json last with source, splitBy and the global outline, page counts checked, original sent to trash. 'Split into chapters…' toolbar UI prefilled from resolveOutline. openBookLink redirects old book:<file.pdf>#N links via the manifest source; the reading position moves too.
-- [ ] **8.3 Download/export a whole book, a chapter or pages** (S). Items: B1 (part 4 of 4). Needs: 8.2.
+- [x] **8.3 Download/export a whole book, a chapter or pages** (S). Items: B1 (part 4 of 4). Needs: 8.2.
   - study_export(course,file,chapter?,page_range?,dest): fs::copy for whole files, lopdf range extract for a chapter of an unsplit PDF, lopdf merge for a whole split folder, EPUB whole-file only. A 'Download' menu in BookTab and an Export icon on CourseFiles cards, using plugin-dialog save() like pickBackupFile.
 - [ ] **8.4 Ink data model and storage (per-device stroke logs)** (M). Items: B3 (part 1 of 4). Needs: 1.4.
   - New src-tauri/src/ink.rs (modelled on drawings.rs): <Shared>/Ink/<id>/doc.json plus strokes-<deviceId>.jsonl, append-only, delta-encoded, ignores a cut-off last line; commands ink_create, ink_load, ink_append, ink_set_doc, ink_set_background; registered in lib.rs. src/features/notes/ink/model.ts with merge/encode and vitest. Compaction of a device's own log.

@@ -5,8 +5,9 @@ import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksIn
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { createStore, useStore } from '../../core/store'
-import { activateTab } from '../../core/tabs'
+import { activateTab, splitTab, tabsStore } from '../../core/tabs'
 import { workContext } from '../../core/tabContext'
+import { aiAllowed, examStore } from '../../core/exam'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import type { FeatureManifest } from '../features'
 
@@ -63,9 +64,12 @@ if (typeof window !== 'undefined') window.addEventListener('message', event => {
 })
 
 /** Opens the Mimir tab and asks it `text` (started first if it isn't running). The page needs a
- *  moment after it appears before it listens, so the question is sent once it's there. */
-export async function askMimir(text: string) {
-  activateTab('mimir')
+ *  moment after it appears before it listens, so the question is sent once it's there. With
+ *  `beside`, Mimir opens on the right of a split screen, so what's being asked about stays in view. */
+export async function askMimir(text: string, beside = false, course?: string) {
+  if (!aiAllowed(course)) return
+  if (beside && tabsStore.get().active !== 'mimir') splitTab('mimir')
+  else activateTab('mimir')
   if (!mimirStore.get().url && isTauri()) {
     setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))
     await mimirStart().then(mimirStore.set).catch(() => undefined)
@@ -87,9 +91,11 @@ export async function askMimir(text: string) {
 function MimirPage() {
   const config = useConfig()
   const status = useStore(mimirStore)
+  const exam = useStore(examStore)
   const ref = useRef<HTMLIFrameElement>(null)
   useEffect(() => { frame = ref.current; return () => { frame = null } })
   const enabled = config.mimir.enabled
+  if (exam && exam.until > Date.now()) return <Card><SectionTitle title="Mimir is off during exam mode" subtitle={`${exam.course ? `${exam.course} · ` : ''}until ${new Date(exam.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. It comes back by itself when exam mode ends.`} /></Card>
 
   if (enabled && status.phase === 'running' && status.url) {
     return <div className="mimir-session">

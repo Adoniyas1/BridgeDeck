@@ -7,7 +7,7 @@ import { Card, SectionTitle } from '../../ui'
 import { eventsStore, useItems } from '../calendar/state'
 import { DAY, dateInput, formatTime, fromInputs, startOfDay } from '../calendar/model'
 import { newId } from '../notes/model'
-import { useAssignments } from './assignments'
+import { useAssignments, useExams } from './assignments'
 import { DEFAULT_PLAN, guessHours, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
 
 const PREFS_KEY = 'bridgedeck.study.planner'
@@ -29,10 +29,13 @@ export function StudyPlanner() {
   const [adding, setAdding] = useState({ title: '', date: dateInput(now + 7 * DAY), hours: 4 })
   const events = useStore(eventsStore)
   const assignments = useAssignments()
+  const exams = useExams()
   const tasks: StudyTask[] = useMemo(() => [
     ...assignments.filter(a => !a.done && !a.submitted && a.due && a.due > now && a.due < now + HORIZON).map(a => ({ id: a.id, title: a.title, course: a.course, due: a.due!, hours: prefs.hours[a.id] ?? guessHours(a.kind, a.title) })),
     ...prefs.extra.filter(t => t.due > now),
-  ].sort((a, b) => a.due - b.due), [assignments, prefs, now])
+    // Exams (from the calendar and Canvas) get study time before them too.
+    ...exams.filter(e => e.source === 'calendar' && e.start > now && e.start < now + HORIZON).map(e => ({ id: e.id, title: `${e.course} ${e.title}`, course: e.course, due: e.start, hours: prefs.hours[e.id] ?? 6 })),
+  ].sort((a, b) => a.due - b.due), [assignments, prefs, now, exams])
   const chosen = tasks.filter(t => !prefs.skip.includes(t.id) && t.hours > 0)
   const last = Math.max(now + DAY, ...chosen.map(t => t.due))
   const items = useItems(startOfDay(now), last + DAY)

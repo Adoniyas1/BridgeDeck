@@ -26,6 +26,9 @@ export const PLAN_TAG = '[BridgeDeck study plan]'
 
 /** A first guess at how long something takes. */
 export function guessHours(kind: string, title: string): number {
+  // "(~3h)", written when it was added in plain words.
+  const said = title.match(/~\s*(\d+(?:\.\d+)?)\s*h/i)
+  if (said) return Math.min(40, Math.max(0.25, Number(said[1])))
   if (/\b(final|midterm|exam)\b/i.test(title)) return 6
   if (kind === 'quiz' || /\bquiz\b/i.test(title)) return 2
   if (/\b(lab|project|report|essay|paper)\b/i.test(title)) return 4

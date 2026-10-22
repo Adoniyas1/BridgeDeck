@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, CircleDot, GraduationCap, Plus, Route } from 'lucide-react'
-import { isTauri, studyAddCourse, studyPlanRead, studyPlanWrite, studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
+import { isTauri, studyAddCourse, studyArchiveCourse, studyPlanRead, studyPlanWrite, studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { courseKey } from './canvas'
-import { DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, GRADE_POINTS, PLANS, plannedCode, planTotals, readPlanState, sameCourseTitle, type CourseStatus, type PlanCourse, type PlanState } from './plans'
+import { DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, GRADE_POINTS, majorIds, PLANS, plannedCode, planTotals, readPlanState, sameCourseTitle, withExpected, wrapUp, type CourseStatus, type PlanCourse, type PlanState } from './plans'
+import { currentPercent, letterFor, readGrading } from './grades'
 import { refreshLibrary } from './state'
 
 const NEXT: Record<string, CourseStatus | undefined> = { undefined: 'taking', taking: 'done', done: undefined }
@@ -68,15 +69,41 @@ export function DegreePlan({ courses, onOpen }: { courses: StudyCourse[]; onOpen
   const overall = gpa(plan, state)
   const declaring = gpa(plan, state, DECLARE_COURSES)
   const declareDone = DECLARE_COURSES.every(id => state.status[id] === 'done')
+  const major = gpa(plan, state, majorIds(plan, state))
+  // This semester's letters so far, from each course's grade sheet in Study.
+  const expected: Record<string, string> = {}
+  for (const c of plan.semesters.flat()) {
+    if (state.status[c.id] !== 'taking') continue
+    const study = inStudy(plannedCode(c, state) || c.code)
+    const now = study ? currentPercent(readGrading(study.info.grading)) : null
+    if (now != null) expected[c.id] = letterFor(now)
+  }
+  const whatIf = Object.keys(expected).length ? gpa(plan, withExpected(state, expected)) : null
+  async function finishSemester() {
+    const takingNow = plan.semesters.flat().filter(c => state!.status[c.id] === 'taking')
+    if (!takingNow.length) return
+    const lines = takingNow.map(c => `${plannedCode(c, state!) || c.code || c.title}: ${expected[c.id] ?? 'grade to fill in'}`)
+    if (!window.confirm(`Finish the semester?\n\n${lines.join('\n')}\n\nThese become done (with those grades), their Study courses are archived, and ${state!.next.length} picked course${state!.next.length === 1 ? '' : 's'} become this semester's.`)) return
+    save(wrapUp(state!, expected))
+    for (const c of takingNow) {
+      const study = inStudy(plannedCode(c, state!) || c.code)
+      if (study) await studyArchiveCourse(study.name, true).catch(() => undefined)
+    }
+    await refreshLibrary()
+    setStatus('Semester finished. Set the new semester’s dates in Study → courses.')
+  }
   const setGrade = (course: PlanCourse, grade: string) => { const grades = { ...state.grades }; if (grade) grades[course.id] = grade; else delete grades[course.id]; save({ ...state, grades }) }
   return <><Card className="degree-plan">
     <SectionTitle title={plan.name} subtitle={`${plan.school} · ${totals.done} of ${totals.total} units done${totals.taking ? ` · ${totals.taking} this semester` : ''}`} action={<GraduationCap size={18} />} />
     <div className="degree-gpa">
       <span>GPA <b>{overall ? overall.gpa.toFixed(2) : '—'}</b> <small>{overall ? `over ${overall.units} graded units` : 'give finished courses their grade'}</small></span>
+      <span>Major (EE) <b>{major ? major.gpa.toFixed(2) : '—'}</b> <small>{major ? `over ${major.units} units` : 'no graded EE courses yet'}</small></span>
+      {whatIf && <span title={Object.entries(expected).map(([id, g]) => `${plannedCode(plan.semesters.flat().find(c => c.id === id)!, state) || id}: ${g}`).join(', ')}>If this semester ends as it stands <b>{whatIf.gpa.toFixed(2)}</b> <small>from your grade sheets</small></span>}
       <span className={declaring && declaring.gpa < 2.5 ? 'bad' : declaring && declareDone ? 'ok' : ''}>To declare in COE <b>{declaring ? declaring.gpa.toFixed(2) : '—'}</b> <small>needs 2.5 in MATH 122, 123, EE 186, PHYS 151, GE 1A, 1C before 60 units{declareDone ? ' · all done' : ''}</small></span>
     </div>
     <div className="degree-progress"><i style={{ width: `${(totals.done / totals.total) * 100}%` }} /><i className="taking" style={{ width: `${(totals.taking / totals.total) * 100}%` }} /></div>
     <p className="hint">Click a course to mark it <strong>taking</strong>, click again for <strong>done</strong>. Courses you’re taking can go into Study with one click; Canvas courses with the same code link to them by themselves.</p>
+    {Object.values(state.status).includes('taking') && <div className="actions"><button className="secondary" title="This semester's courses become done (with their grades), and next semester's picks become this semester's" onClick={() => void finishSemester()}>Finish the semester</button></div>}
     {taking.length > 0 && <div className="actions"><button onClick={() => void (async () => { for (const c of taking) await addToStudy(c) })()}><Plus size={14} />Add the {taking.length} course{taking.length === 1 ? '' : 's'} you’re taking to Study</button></div>}
     <div className="degree-grid">{plan.semesters.map((semester, i) => <div key={i} className="degree-semester">
       <h4>Semester {i + 1} <small>{semester.reduce((s, c) => s + c.units, 0)}u</small></h4>

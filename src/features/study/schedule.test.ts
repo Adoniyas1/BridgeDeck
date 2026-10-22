@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classDaysOf, classesBetween, meetingsOf, meetingText, nextClass, readTerm, termFirstMonday } from './schedule'
+import { classChangesOf, classDaysOf, classesBetween, classRemindersDue, dayKey, meetingsOf, meetingText, nextClass, readTerm, termFirstMonday } from './schedule'
 
 const term = readTerm(JSON.stringify({ start: '2026-08-24', end: '2026-12-11', breaks: [{ start: '2026-09-07', end: '2026-09-07', name: 'Labor Day' }, { start: '2026-11-23', end: '2026-11-27', name: 'Fall break' }] }))!
 const ee = { name: 'EE 201', info: { title: 'Digital Logic Design', meetings: [{ days: [1, 3], start: '10:00', end: '11:15', room: 'ECS 302', kind: 'Lecture' }, { days: [5], start: '13:00', end: '15:45', room: 'ECS 405', kind: 'Lab' }] } }
@@ -24,5 +24,24 @@ describe('class schedule', () => {
     const days = classDaysOf(ee.info, term)
     expect(days.slice(0, 4).map(d => day(d).slice(0, 10))).toEqual(['2026-08-24', '2026-08-26', '2026-08-28', '2026-08-31'])
     expect(days.some(d => day(d).startsWith('2026-09-07'))).toBe(false)
+  })
+})
+
+describe('one-off class changes and reminders', () => {
+  const mon = new Date(2026, 9, 19).getTime() // a Monday
+  const course = { name: 'EE 310', info: { meetings: [{ days: [1, 3], start: '10:00', end: '11:15', room: 'ECS 302', kind: 'Lecture' }], classChanges: [{ date: '2026-10-19', cancelled: true }, { date: '2026-10-21', room: 'VEC 105' }, { date: 'bad' }] } }
+  it('skips a cancelled class and moves one to another room', () => {
+    const week = classesBetween([course], null, mon, mon + 7 * 86_400_000)
+    expect(week.map(c => [new Date(c.start).getDate(), c.room, !!c.moved])).toEqual([[21, 'VEC 105', true]])
+    expect(classChangesOf(course.info)).toHaveLength(2)
+    expect(dayKey(mon)).toBe('2026-10-19')
+  })
+  it('reminds once, shortly before a class', () => {
+    const [cls] = classesBetween([course], null, mon, mon + 7 * 86_400_000)
+    const before = cls.start - 10 * 60_000
+    expect(classRemindersDue([cls], before, 15, new Set())).toHaveLength(1)
+    expect(classRemindersDue([cls], before, 5, new Set())).toHaveLength(0)
+    expect(classRemindersDue([cls], before, 15, new Set([`EE 310@${cls.start}`]))).toHaveLength(0)
+    expect(classRemindersDue([cls], before, 0, new Set())).toHaveLength(0)
   })
 })

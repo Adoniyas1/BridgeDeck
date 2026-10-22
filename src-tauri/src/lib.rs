@@ -41,8 +41,12 @@ mod manga;
 mod projects;
 mod skill_packs;
 mod study;
+mod scan_pdf;
 mod study_slides;
 mod study_state;
+mod study_mimir;
+mod study_lectures;
+mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
@@ -137,13 +141,16 @@ fn probe_tcp(host: String, port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(850)).is_ok()
 }
 
-/// Opens an http(s) link in the default browser. The URL is parsed and re-serialized, and the opener
-/// plugin launches it without a shell, so shell metacharacters in a link can't run commands.
+/// Opens an http(s) link in the default browser, or a mailto: link in the mail app. The URL is parsed
+/// and re-serialized, and the opener plugin launches it without a shell, so shell metacharacters in a
+/// link can't run commands.
 #[tauri::command]
 fn open_external(app: AppHandle, target: String) -> Result<(), String> {
     let url = reqwest::Url::parse(target.trim()).map_err(|_| "Not a valid URL".to_string())?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("Only http/https URLs are allowed".into());
+    let web = matches!(url.scheme(), "http" | "https") && url.host_str().is_some();
+    let mail = url.scheme() == "mailto" && url.path().contains('@') && !url.path().contains(['\\', '\n', '\r']);
+    if !web && !mail {
+        return Err("Only http/https and mailto links are allowed".into());
     }
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
@@ -652,10 +659,24 @@ pub fn run() {
             study::study_patch_course_info,
             study::study_export_semester,
             study::study_save_pdf,
+            study::study_save_card_picture,
+            study::study_save_csv,
+            canvas::canvas_download_files,
+            study_lectures::study_lectures,
+            study_lectures::study_save_lecture,
+            study_lectures::study_import_lecture,
+            study_lectures::study_lecture_get,
+            study_lectures::study_lecture_put,
+            study::study_download_pdf,
             study::study_plan_read,
             study::study_plan_write,
             study_state::study_state_get,
             study_state::study_state_put,
+            study_reviews::study_review_log,
+            study_reviews::study_review_history,
+            study_reviews::study_fsrs_tune,
+            study_state::study_canvas_get,
+            study_state::study_canvas_put,
             study::study_save_index,
             study::study_search,
             study::study_slides_pdf,

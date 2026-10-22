@@ -59,7 +59,8 @@ fn describe(path: &str) -> Option<(&'static str, bool)> {
         "/mimir/computers/look" => ("Looked at a computer's screen", false),
         "/mimir/clipboard/set" => ("Set the clipboard", false),
         "/mimir/ai/post" => ("Posted in an AI room", false),
-        "/mimir/study/flashcards/add" => ("Added flashcards", false),
+        "/mimir/study/flashcards/add" => ("Suggested flashcards", false),
+        "/mimir/study/inbox/add" => ("Suggested a deadline or exam", false),
         "/mimir/projects/task/add" => ("Added a project task", false),
         "/mimir/projects/task/move" => ("Moved a project task", false),
         _ => return None,
@@ -288,19 +289,28 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
         }
 
         // ---- Study: the user's textbooks, searched by page ----
+        // Exam mode on either computer: Mimir stays out of it until it ends.
+        "/mimir/exam" => Ok(match crate::study_state::exam_now(now_ms()) {
+            Some(exam) => json!({ "on": true, "course": exam["course"], "until": exam["until"] }),
+            None => json!({ "on": false }),
+        }),
         "/mimir/study/courses" => {
             let (library, dir) = crate::study::library_for_search()?;
             let all_notes = manager.lock()?.notes.list();
+            let inbox = crate::study_state::current_values("inbox");
             let courses: Vec<Value> = library
                 .courses
                 .iter()
                 .map(|c| {
                     let folder = study_folder(&c.name).to_lowercase();
                     let mine: Vec<&Note> = all_notes.iter().filter(|n| !n.deleted && n.folder.to_lowercase() == folder).collect();
-                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && card_parts(&b.text).is_some())).collect::<Vec<_>>();
-                    let due = cards.iter().filter(|b| card_due(&b.text).is_none_or(|d| d <= now_ms())).count();
+                    let cards = mine.iter().filter(|n| is_card_note(n)).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && !b.text.contains("#suspended")).flat_map(|b| card_subs(&b.text))).collect::<Vec<_>>();
+                    let due = cards.iter().filter(|(_, due)| due.is_none_or(|d| d <= now_ms())).count();
+                    let pending = inbox.values().filter(|e| e["course"].as_str() == Some(c.name.as_str())).count();
                     json!({
                         "name": c.name,
+                        "waitingForUser": pending,
+                        "aiPolicy": c.info.more.get("aiPolicy").cloned().unwrap_or(Value::Null),
                         "books": c.books.iter().map(|b| json!({ "title": b.title, "file": b.file, "kind": b.kind, "searchable": b.indexed, "pages": crate::study::load_text(&dir, &c.name, &b.file).map(|t| t.pages.len()) })).collect::<Vec<_>>(),
                         "notes": mine.iter().map(|n| json!({ "id": n.id, "title": notes::display_title(n), "kind": n.kind })).collect::<Vec<_>>(),
                         "flashcards": cards.len(),
@@ -310,11 +320,120 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .collect();
             Ok(json!({ "root": library.root, "courses": courses }))
         }
+        "/mimir/study/assignments" => {
+            let snapshot = crate::study_state::canvas_snapshot();
+            let done = crate::study_state::current_values("canvasDone");
+            let manual: Vec<(String, Option<i64>, bool)> = manager
+                .lock()?
+                .notes
+                .list()
+                .into_iter()
+                .find(|n| !n.deleted && n.title == "Assignments" && n.folder.eq_ignore_ascii_case("Study"))
+                .map(|n| n.blocks.into_iter().filter(|b| !b.deleted && b.kind == "todo" && !b.text.trim().is_empty()).map(|b| (b.text, b.due.map(|d| d as i64), b.checked)).collect())
+                .unwrap_or_default();
+            let wanted = text(body, "course").map(str::to_lowercase);
+            let list = crate::study_mimir::assignments(snapshot.as_ref(), &done, &manual);
+            Ok(json!(list.into_iter().filter(|a| wanted.as_ref().is_none_or(|w| a["course"].as_str().unwrap_or("").to_lowercase().contains(w.as_str()))).collect::<Vec<_>>()))
+        }
+        "/mimir/study/grades" => {
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let snapshot = crate::study_state::canvas_snapshot();
+            let canvas_courses: Vec<Value> = snapshot.as_ref().and_then(|s| s["courses"].as_array().cloned()).unwrap_or_default();
+            let wanted = text(body, "course").map(str::to_lowercase);
+            let courses: Vec<Value> = library
+                .courses
+                .iter()
+                .filter(|c| !c.archived && wanted.as_ref().is_none_or(|w| c.name.to_lowercase().contains(w.as_str())))
+                .map(|c| {
+                    let canvas = canvas_courses.iter().find(|k| (!c.info.canvas_id.is_empty() && k["id"].as_str() == Some(c.info.canvas_id.as_str())) || k["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&c.name.to_lowercase())));
+                    json!({ "course": c.name, "grade": crate::study_mimir::grade_summary(c.info.more.get("grading"), canvas) })
+                })
+                .collect();
+            Ok(json!(courses))
+        }
+        "/mimir/study/schedule" => {
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let term = crate::study_state::current_values("term").remove("term").unwrap_or(Value::Null);
+            let courses: Vec<Value> = library
+                .courses
+                .iter()
+                .filter(|c| !c.archived)
+                .map(|c| json!({ "course": c.name, "meetings": c.info.more.get("meetings").cloned().unwrap_or(json!([])), "changes": c.info.more.get("classChanges").cloned().unwrap_or(json!([])) }))
+                .collect();
+            Ok(json!({ "term": term, "courses": courses }))
+        }
+        "/mimir/study/plan" => {
+            let now = now_ms() as i64;
+            let days = body.get("days").and_then(|v| v.as_i64()).unwrap_or(7).clamp(1, 60);
+            let events = manager.lock()?.calendar.list();
+            let blocks: Vec<Value> = events
+                .iter()
+                .filter(|e| !e.deleted && e.notes.contains("[BridgeDeck study plan]") && e.end >= now && e.start <= now + days * 86_400_000)
+                .map(|e| json!({ "title": e.title, "start": e.start, "end": e.end, "for": e.notes.lines().next().unwrap_or("") }))
+                .collect();
+            Ok(json!(blocks))
+        }
+        // A photo in a course (a homework sheet, a whiteboard) for Mimir to look at. Only pictures
+        // in the Study library, never any other file.
+        "/mimir/study/photo" => {
+            let root = crate::study::root_or_default();
+            let library = crate::study::read_library(&root)?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?;
+            let file = need(body, "file")?;
+            let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+            let path = crate::study::resolve(&root, &format!("/{}/{}", encode(&course.name), encode(file))).ok_or("No such photo in that course")?;
+            let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+                Some("jpg" | "jpeg") => "image/jpeg",
+                Some("png") => "image/png",
+                Some("webp") => "image/webp",
+                Some("heic") => return Err("That photo is HEIC, which the models can't read; take it with the phone page or save it as JPEG".into()),
+                _ => return Err("That isn't a photo".into()),
+            };
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            if bytes.len() > 12 * 1024 * 1024 {
+                return Err("That photo is too big (over 12 MB)".into());
+            }
+            use base64::Engine;
+            Ok(json!({ "mime": mime, "data": base64::engine::general_purpose::STANDARD.encode(&bytes), "bytes": bytes.len() }))
+        }
+        // A course's lecture recordings, or one lecture's transcript with times and "?" marks.
+        "/mimir/study/lectures" => {
+            let root = crate::study::root_or_default();
+            let library = crate::study::read_library(&root)?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?;
+            let dir = root.join(&course.name);
+            let lectures = crate::study_lectures::list(&dir);
+            match text(body, "file") {
+                None => Ok(json!(lectures.iter().map(|l| json!({ "file": l.file, "modified": l.modified, "transcribed": l.sidecar.as_ref().is_some_and(|s| s["segments"].is_array()), "note": l.sidecar.as_ref().map(|s| s["note"].clone()) })).collect::<Vec<_>>())),
+                Some(wanted) => {
+                    let w = wanted.to_lowercase();
+                    let lecture = lectures.iter().find(|l| l.file.to_lowercase() == w).or_else(|| lectures.iter().find(|l| l.file.to_lowercase().contains(&w))).ok_or("No such lecture")?;
+                    let sidecar = lecture.sidecar.clone().ok_or("That lecture hasn't been transcribed yet")?;
+                    let clock = |t: f64| { let s = t.max(0.0) as u64; if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) } };
+                    let lines: Vec<String> = sidecar["segments"].as_array().into_iter().flatten().map(|s| format!("[{}] {}", clock(s["start"].as_f64().unwrap_or(0.0)), s["text"].as_str().unwrap_or("").trim())).collect();
+                    let transcript = lines.join("\n");
+                    let cut = transcript.char_indices().nth(120_000).map(|(i, _)| i).unwrap_or(transcript.len());
+                    let marks: Vec<String> = sidecar["markers"].as_array().into_iter().flatten().map(|m| clock(m["t"].as_f64().unwrap_or(0.0))).collect();
+                    Ok(json!({ "file": lecture.file, "note": sidecar["note"], "transcript": &transcript[..cut], "lostAt": marks, "link": lecture_link(&course.name, &lecture.file, 0) }))
+                }
+            }
+        }
         "/mimir/study/search" => {
             let (library, dir) = crate::study::library_for_search()?;
             let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
-            let hits = crate::study::search(&library, &dir, need(body, "query")?, text(body, "course"), limit);
-            Ok(json!(hits.into_iter().map(|h| { let link = book_link(&h.course, &h.file, h.page); json!({ "course": h.course, "book": h.book, "file": h.file, "page": h.page, "text": h.snippet, "link": link }) }).collect::<Vec<_>>()))
+            let notes = crate::study::course_notes(&manager.lock()?.notes.list());
+            let hits = crate::study::search(&library, &dir, need(body, "query")?, text(body, "course"), limit, &notes);
+            Ok(json!(hits
+                .into_iter()
+                .map(|h| {
+                    let link = match h.kind {
+                        "lecture" => lecture_link(&h.course, &h.file, h.t.unwrap_or(0)),
+                        "note" => String::new(),
+                        _ => book_link(&h.course, &h.file, h.page),
+                    };
+                    json!({ "course": h.course, "book": h.book, "file": h.file, "page": h.page, "kind": h.kind, "t": h.t, "text": h.snippet, "link": link })
+                })
+                .collect::<Vec<_>>()))
         }
         "/mimir/study/read" => {
             let (library, dir) = crate::study::library_for_search()?;
@@ -350,15 +469,32 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             if lines.is_empty() {
                 return Err("Each card needs a front and a back".into());
             }
-            let (title, folder, markdown, count) = (format!("{} — flashcards", course.name), study_folder(&course.name), lines.join("\n"), lines.len());
-            let note = notes_change(manager, move |store, device, now| {
-                let existing = store.list().into_iter().find(|n| !n.deleted && n.title == title && n.folder.eq_ignore_ascii_case(&folder)).map(|n| n.id);
-                match existing {
-                    Some(id) => store.append_markdown(&id, &markdown, device, now),
-                    None => store.create_from_markdown(None, "note", &title, &folder, &markdown, device, now),
-                }
-            })?;
-            Ok(json!({ "id": note.id, "added": count }))
+            // Cards Mimir writes wait in the Study tab until the user accepts them.
+            let count = lines.len();
+            let lines: Vec<String> = lines.into_iter().map(|l| l.trim_start_matches("- ").to_string()).collect();
+            inbox_add(manager, "cards", &course.name, json!({ "lines": lines }))?;
+            Ok(json!({ "pending": count }))
+        }
+        "/mimir/study/inbox/add" => {
+            let kind = need(body, "kind")?;
+            let payload = body.get("payload").cloned().unwrap_or(json!({}));
+            let ok = match kind {
+                "deadline" => payload["title"].as_str().is_some_and(|t| !t.trim().is_empty()) && (payload["due"].is_null() || payload["due"].is_u64()),
+                "exam" => payload["start"].is_u64(),
+                "syllabus" => payload.is_object() && ["weights", "people", "exams", "aiPolicy"].iter().any(|k| !payload[*k].is_null()),
+                _ => return Err("`kind` is deadline, exam or syllabus (flashcards go through flashcards/add)".into()),
+            };
+            if !ok {
+                return Err(match kind {
+                    "exam" => "An exam needs `start` (ms)".into(),
+                    "syllabus" => "Give at least one of weights, people, exams or aiPolicy".into(),
+                    _ => "A deadline needs a `title` and `due` (ms, or null)".into(),
+                });
+            }
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?.name.clone();
+            let id = inbox_add(manager, kind, &course, payload)?;
+            Ok(json!({ "id": id, "pending": true }))
         }
 
         // ---- Projects: folders, task boards and milestones ----
@@ -441,20 +577,66 @@ fn book_link(course: &str, file: &str, page: usize) -> String {
     format!("book:{}/{}#{page}", encode(course), encode(file))
 }
 
+/// `lecture:<course>/<file>#t=<seconds>`, as the Notes tab opens it (see study/model.ts).
+fn lecture_link(course: &str, file: &str, t: u64) -> String {
+    let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+    format!("lecture:{}/{}#t={t}", encode(course), encode(file))
+}
+
 /// Flashcards live in notes whose title says so; each card is a line `front :: back`.
 fn is_card_note(note: &Note) -> bool {
     note.title.to_lowercase().contains("flashcards")
 }
 
-fn card_parts(text: &str) -> Option<(&str, &str)> {
+/// The sub-cards of a card line and when each is next due (`None`: never reviewed), read the same
+/// way as the Study tab (cards.ts; shared examples in card-vectors.json): `front :: back` is one
+/// card, `front ::: back` two (`f`, `b`), and `{{cN::answer}}` one per N.
+fn card_subs(text: &str) -> Vec<(String, Option<u64>)> {
     let body = text.split("<!--").next().unwrap_or(text);
-    body.split_once(" :: ").filter(|(f, b)| !f.trim().is_empty() && !b.trim().is_empty())
+    let subs: Vec<String> = if let Some((f, b)) = body.split_once(" ::: ") {
+        if f.trim().is_empty() || b.trim().is_empty() { vec![] } else { vec!["f".into(), "b".into()] }
+    } else if let Some((f, b)) = body.split_once(" :: ") {
+        if f.trim().is_empty() || b.trim().is_empty() { vec![] } else { vec![String::new()] }
+    } else {
+        let mut found: Vec<String> = Vec::new();
+        for part in body.split("{{c").skip(1) {
+            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() && part[digits.len()..].starts_with("::") && part.contains("}}") {
+                let sub = format!("c{digits}");
+                if !found.contains(&sub) {
+                    found.push(sub);
+                }
+            }
+        }
+        found
+    };
+    let states = card_states(text);
+    subs.into_iter().map(|sub| { let due = states.iter().find(|(k, _)| *k == sub).and_then(|(_, d)| *d); (sub, due) }).collect()
 }
 
-/// When a card is next due, from its review state `<!--fsrs due=… -->`; never reviewed has none.
-fn card_due(text: &str) -> Option<u64> {
-    let state = text.split("<!--fsrs ").nth(1)?;
-    state.split_whitespace().find_map(|kv| kv.strip_prefix("due=")).and_then(|v| v.trim_end_matches("-->").parse().ok())
+/// `<!--fsrs due=… -->` (one card) or `<!--fsrs f: due=… | b: due=…-->`: each sub-card's due time.
+fn card_states(text: &str) -> Vec<(String, Option<u64>)> {
+    let Some(state) = text.split("<!--fsrs ").nth(1).and_then(|s| s.split("-->").next()) else { return vec![] };
+    state
+        .split('|')
+        .map(|group| {
+            let group = group.trim();
+            let (sub, rest) = match group.split_once(':') {
+                Some((k, rest)) if !k.contains('=') && !k.contains(' ') => (k.to_string(), rest),
+                _ => (String::new(), group),
+            };
+            (sub, rest.split_whitespace().find_map(|kv| kv.strip_prefix("due=")).and_then(|v| v.parse().ok()))
+        })
+        .collect()
+}
+
+/// Something Mimir wants added to the Study tab (cards, a deadline, an exam), waiting there for the
+/// user to accept it: an entry in the shared study state `inbox` (docs/formats.md).
+fn inbox_add(manager: &BridgeLinkManager, kind: &str, course: &str, payload: Value) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let entry = json!({ "kind": kind, "course": course, "payload": payload, "from": "mimir", "at": now_ms() });
+    crate::study_state::put_current("inbox", &manager.instance_id(), std::collections::BTreeMap::from([(id.clone(), entry)]))?;
+    Ok(id)
 }
 
 fn find_note(manager: &BridgeLinkManager, id: &str) -> Result<Note, String> {
@@ -529,8 +711,12 @@ mod tests {
         assert!(due.as_array().unwrap().is_empty());
     }
 
+    /// Tests that point the Study library somewhere (a setting for the whole program) take turns.
+    static LIBRARY_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn mimir_searches_reads_and_makes_flashcards_from_the_users_books() {
+        let _turn = LIBRARY_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let base = std::env::temp_dir().join(format!("bd-mimir-study-{}", Uuid::new_v4()));
         let course_dir = base.join("Study").join("Math 221");
         std::fs::create_dir_all(&course_dir).unwrap();
@@ -552,15 +738,19 @@ mod tests {
             { "front": "Chain rule?", "back": "f'(g(x)) g'(x)", "book": "Calculus", "page": 2 },
             { "front": "Empty back", "back": " " },
         ] }));
-        assert_eq!(added["added"], 1);
+        assert_eq!(added["pending"], 1);
         call(&manager, "/mimir/study/flashcards/add", json!({ "course": "math", "cards": [{ "front": "Limit?", "back": "What f approaches" }] }));
-        let deck = call(&manager, "/mimir/notes/read", json!({ "id": added["id"] }));
-        assert_eq!(deck["title"], "Math 221 — flashcards");
-        assert_eq!(deck["folder"], "Study/Math 221");
-        assert_eq!(deck["markdown"], "- Chain rule? :: f'(g(x)) g'(x) ([Calculus (8th ed), p. 2](book:Math%20221/Calculus%20%288th%20ed%29.pdf#2))\n- Limit? :: What f approaches");
+        // They wait for the user in the Study tab rather than going straight into the deck.
+        let inbox = crate::study_state::current_values("inbox");
+        let mut cards: Vec<String> = inbox.values().filter(|e| e["kind"] == "cards").flat_map(|e| e["payload"]["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect::<Vec<_>>()).collect();
+        cards.sort();
+        assert_eq!(cards, vec!["Chain rule? :: f'(g(x)) g'(x) ([Calculus (8th ed), p. 2](book:Math%20221/Calculus%20%288th%20ed%29.pdf#2))".to_string(), "Limit? :: What f approaches".to_string()]);
+        call(&manager, "/mimir/study/inbox/add", json!({ "kind": "deadline", "course": "math", "payload": { "title": "Problem set 5", "due": 1_800_000_000_000u64 } }));
+        let (status, _) = route(&manager, "/mimir/study/inbox/add", &json!({ "kind": "deadline", "course": "math", "payload": {} }).to_string());
+        assert_ne!(status, 200);
         let courses = call(&manager, "/mimir/study/courses", json!({}));
-        assert_eq!(courses["courses"][0]["flashcards"], 2);
-        assert_eq!(courses["courses"][0]["flashcardsDue"], 2);
+        assert_eq!(courses["courses"][0]["flashcards"], 0);
+        assert_eq!(courses["courses"][0]["waitingForUser"], 3);
         assert_eq!(courses["courses"][0]["books"][0]["searchable"], true);
         let _ = std::fs::remove_dir_all(base);
     }
@@ -586,9 +776,41 @@ mod tests {
     #[test]
     fn flashcards_and_book_links_match_the_study_tab() {
         assert_eq!(book_link("Math 221", "Calculus (8th ed).pdf", 4), "book:Math%20221/Calculus%20%288th%20ed%29.pdf#4");
-        assert_eq!(card_parts("What is ATP? :: The cell's energy currency <!--fsrs due=5 s=1-->"), Some(("What is ATP?", "The cell's energy currency ")));
-        assert_eq!(card_parts("No card here"), None);
-        assert_eq!(card_due("Q :: A <!--fsrs due=1700000000000 s=2.1 d=5-->"), Some(1_700_000_000_000));
-        assert_eq!(card_due("Q :: A"), None);
+        assert_eq!(card_subs("Q :: A <!--fsrs due=1700000000000 s=2.1 d=5-->"), vec![(String::new(), Some(1_700_000_000_000))]);
+        // The same examples the Study tab is tested with.
+        let vectors: Value = serde_json::from_str(include_str!("../../../src/features/study/card-vectors.json")).unwrap();
+        for v in vectors.as_array().unwrap() {
+            let want: Vec<(String, Option<u64>)> = v["cards"].as_array().unwrap().iter().map(|c| (c["sub"].as_str().unwrap().to_string(), c["due"].as_u64())).collect();
+            assert_eq!(card_subs(v["text"].as_str().unwrap()), want, "{}", v["text"]);
+        }
+    }
+
+    #[test]
+    fn mimir_sees_only_photos_in_a_course() {
+        let _turn = LIBRARY_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("bd-mimir-photo-{}", Uuid::new_v4()));
+        let course_dir = base.join("Study").join("EE 310");
+        std::fs::create_dir_all(&course_dir).unwrap();
+        std::fs::write(course_dir.join("hw sheet.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(course_dir.join("book.pdf"), b"%PDF").unwrap();
+        crate::study::study_library(base.to_string_lossy().to_string()).unwrap();
+        let manager = BridgeLinkManager::default();
+        let photo = call(&manager, "/mimir/study/photo", json!({ "course": "ee 310", "file": "hw sheet.jpg" }));
+        assert_eq!(photo["mime"], "image/jpeg");
+        assert_eq!(photo["data"], "/9j/4A==");
+        std::fs::create_dir_all(course_dir.join("Lectures")).unwrap();
+        std::fs::write(course_dir.join("Lectures").join("2026-10-22 Lecture.webm"), [0x1A, 0x45, 0xDF, 0xA3]).unwrap();
+        crate::study_lectures::write_sidecar(&course_dir, "2026-10-22 Lecture.webm", &json!({ "segments": [{ "start": 65.2, "end": 70, "text": " Nodes first." }], "markers": [{ "t": 3725 }], "note": "n1" })).unwrap();
+        let listed = call(&manager, "/mimir/study/lectures", json!({ "course": "EE 310" }));
+        assert_eq!(listed[0]["transcribed"], true);
+        let lecture = call(&manager, "/mimir/study/lectures", json!({ "course": "EE 310", "file": "lecture" }));
+        assert_eq!(lecture["transcript"], "[1:05] Nodes first.");
+        assert_eq!(lecture["lostAt"], json!(["1:02:05"]));
+        assert_eq!(lecture["note"], "n1");
+        for file in ["book.pdf", "../../etc/passwd", "missing.jpg"] {
+            let (status, _) = route(&manager, "/mimir/study/photo", &json!({ "course": "EE 310", "file": file }).to_string());
+            assert_ne!(status, 200, "{file}");
+        }
+        let _ = std::fs::remove_dir_all(base);
     }
 }

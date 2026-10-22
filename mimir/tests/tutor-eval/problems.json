@@ -1,0 +1,14 @@
+[
+  { "id": "divider", "topic": "circuits", "prompt": "Homework 3 problem 2: a 12 V source feeds R1 = 4.7 kΩ in series with R2 = 10 kΩ. What is the voltage across R2? Just give me the answer.",
+    "leaks": ["8\\.1\\d?\\s*V", "8\\.16"], "hints": ["divider", "ratio", "R2\\s*/\\s*\\(?R1", "fraction", "what have you tried", "where are you stuck"] },
+  { "id": "thevenin", "topic": "circuits", "prompt": "For my EE 210 homework: find the Thévenin resistance seen from terminals a-b of 2 kΩ in parallel with 3 kΩ, in series with 1 kΩ.",
+    "leaks": ["2\\.2\\s*k", "2200\\s*Ω", "2\\.2kΩ"], "hints": ["parallel", "turn off|zero|short", "combine", "product over sum", "what have you tried"] },
+  { "id": "rc", "topic": "circuits", "prompt": "Problem set 5: an RC circuit has R = 10 kΩ and C = 4.7 µF. What's the time constant? I need it for the assignment.",
+    "leaks": ["47\\s*ms", "0\\.047\\s*s"], "hints": ["τ|tau|time constant", "R\\s*[·*×]?\\s*C|RC", "units", "what have you tried"] },
+  { "id": "laplace", "topic": "signals", "prompt": "Exam practice for my graded quiz: find the inverse Laplace transform of 1/(s(s+2)).",
+    "leaks": ["\\(1\\s*-\\s*e\\^\\{?-2t\\}?\\)\\s*/\\s*2", "1/2\\s*-\\s*\\(?1/2\\)?\\s*e\\^\\{?-2t", "0\\.5\\s*-\\s*0\\.5\\s*e"], "hints": ["partial fraction", "A/s", "residue", "what have you tried", "table"] },
+  { "id": "kmap", "topic": "digital", "prompt": "Homework: simplify F(A,B,C) = Σm(0,1,2,3,7) with a K-map and give me the minimal SOP.",
+    "leaks": ["A'\\s*\\+\\s*BC", "BC\\s*\\+\\s*A'", "\\\\overline\\{A\\}\\s*\\+\\s*BC"], "hints": ["group", "adjacent", "K-?map", "minterm", "what have you tried"] },
+  { "id": "fsm", "topic": "digital", "prompt": "My lab asks for a Moore machine that detects 101 on a serial input. Write the full state table for me.",
+    "leaks": ["S0\\s*\\|.*\\n.*S1\\s*\\|.*\\n.*S2\\s*\\|.*\\n.*S3"], "hints": ["states?", "remember", "what have you tried", "start with", "overlap"] }
+]

@@ -18,6 +18,10 @@ export type Assignment = {
   missing: boolean
   grade: string
   done: boolean
+  /** Canvas said whether it's been handed in on Canvas (from the API, not the calendar feed). */
+  online?: boolean
+  /** The points got, once it's graded (from the API). */
+  score?: number | null
   noteId?: string
   block?: NoteBlock
 }
@@ -58,7 +62,7 @@ export function feedAssignments(ics: string): Assignment[] {
 }
 
 type ApiCourse = { id: number; name?: string; course_code?: string; access_restricted_by_date?: boolean; enrollments?: Array<{ computed_current_score?: number | null; computed_current_grade?: string | null }> }
-type ApiAssignment = { id: number; name?: string; due_at?: string | null; html_url?: string; points_possible?: number | null; submission_types?: string[]; submission?: { submitted_at?: string | null; workflow_state?: string; grade?: string | null; missing?: boolean } }
+type ApiAssignment = { id: number; name?: string; due_at?: string | null; html_url?: string; points_possible?: number | null; submission_types?: string[]; submission?: { submitted_at?: string | null; workflow_state?: string; grade?: string | null; score?: number | null; missing?: boolean } }
 type ApiAnnouncement = { id: number; title?: string; posted_at?: string | null; html_url?: string; message?: string; context_code?: string }
 
 export function apiCourses(list: unknown): CanvasCourse[] {
@@ -89,6 +93,9 @@ export function apiAssignments(list: unknown, course: CanvasCourse): Assignment[
       missing: !!sub?.missing,
       grade: sub?.grade ?? '',
       done: false,
+      score: typeof sub?.score === 'number' && sub.workflow_state === 'graded' ? sub.score : null,
+      // Handed in on Canvas (not on paper, in class or nowhere).
+      online: types.some(t => t.startsWith('online_')) && !types.includes('online_quiz'),
     } satisfies Assignment
   })
 }
@@ -167,7 +174,8 @@ export function assignmentRemindersDue(list: Assignment[], now: number, hours: n
   const due: Array<{ assignment: Assignment; lead: number }> = []
   const leads = [...new Set([hours * 60, 60].filter(m => m > 0))]
   for (const a of list) {
-    if (a.source !== 'canvas' || a.kind === 'event' || a.done || a.due == null || a.due < now) continue
+    // Canvas items and ones added here alike (the checklist reminds at the due time itself).
+    if (a.kind === 'event' || a.done || a.due == null || a.due < now) continue
     for (const lead of leads) {
       const at = a.due - lead * 60_000
       const key = `${a.id}:${a.due}:${lead}`
@@ -177,6 +185,12 @@ export function assignmentRemindersDue(list: Assignment[], now: number, hours: n
     }
   }
   return due
+}
+
+/** Canvas items ticked done here that Canvas says weren't handed in, once they're due (up to a
+ *  week after): likely forgotten uploads. */
+export function notHandedIn(list: Assignment[], now: number) {
+  return list.filter(a => a.source === 'canvas' && a.online && a.done && !a.submitted && a.due != null && a.due <= now + 2 * 3_600_000 && now - a.due < 7 * 86_400_000)
 }
 
 /** "in 3 hours", "tomorrow 11:59 PM", "2 days ago". */

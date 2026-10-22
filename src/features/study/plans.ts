@@ -203,3 +203,25 @@ export function gpa(plan: Plan, state: PlanState, ids?: string[]) {
 
 /** The courses whose GPA decides declaring the major (CSULB COE). */
 export const DECLARE_COURSES = ['math122', 'math123', 'ee186', 'phys151', 'ge1a', 'ge1c']
+
+/** The plan's courses in the major (codes starting with the plan's department, e.g. "EE"). */
+export function majorIds(plan: Plan, state: PlanState, dept = 'EE') {
+  return plan.semesters.flat().filter(c => (plannedCode(c, state) || c.code).toUpperCase().startsWith(`${dept} `)).map(c => c.id)
+}
+
+/** The plan with this semester's courses counted done at the grades given (from their grade
+ *  sheets), for a what-if GPA. */
+export function withExpected(state: PlanState, expected: Record<string, string>): PlanState {
+  const status = { ...state.status }, grades = { ...state.grades }
+  for (const [id, grade] of Object.entries(expected)) if (status[id] === 'taking' && grade in GRADE_POINTS) { status[id] = 'done'; grades[id] = grade }
+  return { ...state, status, grades }
+}
+
+/** The end of a semester: courses being taken become done (with the grade from their sheet, when
+ *  there is one), and the ones picked for next semester become the ones being taken. */
+export function wrapUp(state: PlanState, expected: Record<string, string>): PlanState {
+  const status = { ...state.status }, grades = { ...state.grades }
+  for (const [id, s] of Object.entries(status)) if (s === 'taking') { status[id] = 'done'; if (expected[id] && expected[id] in GRADE_POINTS) grades[id] = expected[id] }
+  for (const id of state.next) status[id] = 'taking'
+  return { ...state, status, grades, next: [] }
+}

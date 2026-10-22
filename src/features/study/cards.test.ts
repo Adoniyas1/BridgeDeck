@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Rating, State } from 'ts-fsrs'
 import type { Note } from '../../lib/bridge'
 import { inline } from '../notes/model'
-import { cardLine, deckOf, deckStats, dueCards, parseCard, span, withState } from './cards'
+import { allDue, cardBody, cardLine, masteryMap, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
+import vectors from './card-vectors.json'
 import { intervals, review } from './review'
 import { pageText } from './indexer'
 import { bookLink, parseBookLink, studyMinutes, weekStart } from './model'
@@ -71,5 +72,60 @@ describe('study search and progress', () => {
     expect(studyMinutes([ev('Studied Math 221', t, 25), ev('Studied Math 221', t + 3_600_000, 50), ev('Studied Physics', t, 25), ev('Math 221 exam', t, 120)], 'Math 221', t - 1, t + 86_400_000)).toBe(75)
     const monday = new Date(weekStart(Date.parse('2026-10-04T12:00:00')))
     expect([monday.getDay(), monday.getHours(), monday.getDate()]).toEqual([1, 0, 28])
+  })
+})
+
+describe('card grammar (shared with Rust)', () => {
+  it('reads every example the same way', () => {
+    for (const v of vectors as Array<{ text: string; cards: Array<{ sub: string; front: string; back: string; due: number | null }> }>) {
+      const got = parseCards(v.text).map(c => ({ sub: c.sub, front: c.front, back: c.back, due: c.card.due.getTime() || null }))
+      expect(got, v.text).toEqual(v.cards)
+    }
+  })
+  it('saves one sub-card without touching the others', () => {
+    const line = 'Anode ::: positive electrode <!--fsrs b: due=7 s=2-->'
+    const [f] = parseCards(line)
+    const saved = withState(line, { ...f.card, due: new Date(11), stability: 3, state: State.Review }, 'f')
+    expect(saved).toMatch(/<!--fsrs b: due=7 s=2 \| f: due=11 s=3 /)
+    expect(parseCards(saved).map(c => c.card.due.getTime())).toEqual([11, 7])
+    // A one-card line keeps the old form, which older builds read.
+    expect(withState('a :: b', f.card)).toMatch(/^a :: b <!--fsrs due=0 /)
+  })
+  it('makes cloze deletions', () => {
+    expect(makeCloze('The anode is positive', 'anode')).toBe('The {{c1::anode}} is positive')
+    expect(makeCloze('The {{c1::anode}} is positive', 'positive')).toBe('The {{c1::anode}} is {{c2::positive}}')
+    expect(makeCloze('x', 'y')).toBe('x')
+  })
+})
+
+describe('editing card lines', () => {
+  it('keeps the review state and handles marks', () => {
+    const line = 'Q :: A <!--fsrs due=5 s=1-->'
+    expect(withBody(line, 'Q2 :: A2')).toBe('Q2 :: A2 <!--fsrs due=5 s=1-->')
+    const put = setMark(line, 'suspended', true)
+    expect(put).toBe('Q :: A #suspended <!--fsrs due=5 s=1-->')
+    expect(hasMark(put, 'suspended')).toBe(true)
+    expect(parseCards(put)[0].back).toBe('A')
+    expect(setMark(put, 'suspended', false)).toBe(line)
+    expect(cardBody(put)).toBe('Q :: A #suspended')
+  })
+})
+
+describe('mixed review', () => {
+  it('takes cards from each course in turn', () => {
+    const n = (id: string, folder: string, lines: string[]): Note => ({ id, title: 'flashcards', folder, pinned: false, kind: 'note', created: 0, titleUpdated: 0, metaUpdated: 0, deleted: false, seq: 0,
+      blocks: lines.map((text, i) => ({ id: `${id}${i}`, kind: 'p', text, checked: false, due: null, pos: String(i), updated: 0, by: '', deleted: false })) })
+    const notes = [n('a', 'Study/EE 310', ['a1 :: x', 'a2 :: x', 'a3 :: x']), n('b', 'Study/MATH 370', ['b1 :: y'])]
+    expect(allDue(notes, ['EE 310', 'MATH 370']).map(c => c.front)).toEqual(['a1', 'b1', 'a2', 'a3'])
+  })
+})
+
+describe('mastery map', () => {
+  it('groups cards by the chapter their page is in', () => {
+    const card = (front: string, page: number, state: number) => ({ id: front, noteId: 'n', sub: '', block: {} as Note['blocks'][number], front, back: `x ([Circuits, p. ${page}](book:EE/circuits.pdf#${page}))`,
+      card: { due: new Date(0), stability: 1, difficulty: 1, elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 1, lapses: 0, state: state as State, last_review: undefined } })
+    const deck = [card('a', 5, 2), card('b', 40, 2), card('c', 45, 0), { ...card('d', 1, 2), back: 'plain' }]
+    const map = masteryMap(deck, file => file === 'circuits.pdf' ? [{ title: '1 Basics', page: 1 }, { title: '2 Nodes', page: 30 }] : [], () => 0.9)
+    expect(map.map(m => [m.label, m.cards, m.learned, Number(m.recall.toFixed(2))])).toEqual([['Circuits: 1 Basics', 1, 1, 0.9], ['Circuits: 2 Nodes', 2, 1, 0.45], ['Other cards', 1, 1, 0.9]])
   })
 })

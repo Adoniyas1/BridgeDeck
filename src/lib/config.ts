@@ -24,7 +24,7 @@ export const defaultConfig: AppConfig = {
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
   browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [], sleepMinutes: 15 },
-  study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'], quietFocus: true },
+  study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'], quietFocus: true, classRemindMinutes: 15, commuteMinutes: 30 },
   canvas: { base: '', feed: '', token: '', remindHours: 24, done: [], added: [] },
   setup: { dismissed: false, notificationsReviewed: false },
   sendTo: { enabled: true },
@@ -101,6 +101,8 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [],
       examBlock: Array.isArray(input.study?.examBlock) ? cleanSites(input.study.examBlock) : [...defaultConfig.study.examBlock],
       quietFocus: input.study?.quietFocus !== false,
+      commuteMinutes: Number.isFinite(input.study?.commuteMinutes) ? Math.max(0, Math.min(240, Math.round(Number(input.study!.commuteMinutes)))) : defaultConfig.study.commuteMinutes,
+      classRemindMinutes: Number.isFinite(input.study?.classRemindMinutes) ? Math.max(0, Math.min(120, Math.round(Number(input.study!.classRemindMinutes)))) : defaultConfig.study.classRemindMinutes,
     },
     canvas: {
       base: typeof input.canvas?.base === 'string' ? input.canvas.base : '',

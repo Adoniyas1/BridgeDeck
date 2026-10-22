@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { bridgeDeckFromEnv, type BridgeDeckClient } from "../src/main/bridgedeck/client.js";
-import { buildBridgeDeckToolset, parseTime } from "../src/main/bridgedeck/tools.js";
+import { buildBridgeDeckToolset, classDays, parseTime } from "../src/main/bridgedeck/tools.js";
 import { MEMORY_NOTE_ID, syncMemory } from "../src/main/bridgedeck/memory.js";
 import { defaultProjectsRoot } from "../src/main/projects/paths.js";
 
@@ -33,7 +33,8 @@ function fakeBridgeDeck() {
         case "study/courses": return { courses: [{ name: "Math 221", flashcardsDue: 4 }] } as T;
         case "projects/list": return { projects: [] } as T;
         case "projects/task/add": return { markdown: `## To do\n\n- [ ] ${String(body.task)}` } as T;
-        case "study/flashcards/add": return { added: (body.cards as unknown[]).length } as T;
+        case "study/flashcards/add": return { pending: (body.cards as unknown[]).length } as T;
+        case "study/inbox/add": return { id: "x", pending: true } as T;
         default: return null as T;
       }
     }
@@ -83,7 +84,11 @@ describe("study tools", () => {
     expect(read.content).toContain("--- p. 3 link=book:Math%20221/calc.pdf#3 ---\n(no text on this page");
     expect((await tools.handlers.flashcards_add!({ course: "Math 221", cards: [] })).isError).toBe(true);
     const added = await tools.handlers.flashcards_add!({ course: "Math 221", cards: [{ front: "Chain rule?", back: "f'(g(x))g'(x)", book: "Calculus", page: 2 }] });
-    expect(added.content).toBe("Added 1 card; the user reviews them in the Study tab.");
+    expect(added.content).toBe("Suggested 1 card; they're waiting in the Study tab under \"From Mimir\" for the user to add.");
+    const exam = await tools.handlers.study_suggest!({ kind: "exam", course: "Math 221", title: "Midterm", when: "2026-10-30" });
+    expect(exam.content).toContain("waiting in the Study tab");
+    expect(calls.find(([path]) => path === "study/inbox/add")?.[1]).toMatchObject({ kind: "exam", payload: { title: "Midterm", start: new Date(2026, 9, 30, 9).getTime() } });
+    expect((await tools.handlers.study_suggest!({ kind: "exam", course: "x", title: "y" })).content).toContain("needs its date");
   });
 });
 
@@ -134,5 +139,21 @@ describe("memory sync", () => {
     expect(file).toBe("# Memory\n- Likes coffee now");
     expect(await syncMemory(opts)).toBe("same");
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("class days for Mimir", () => {
+  it("lists classes in the semester, skips breaks and shows changes", () => {
+    const data = {
+      term: { start: "2026-10-01", end: "2026-12-15", breaks: [{ start: "2026-10-23", end: "2026-10-23", name: "Fall recess" }] },
+      courses: [{ course: "EE 310", meetings: [{ days: [4, 5], start: "10:00", end: "11:15", room: "ECS 302", kind: "" }], changes: [{ date: "2026-10-29", room: "VEC 115" }, { date: "2026-10-30", cancelled: true }] }]
+    };
+    // Thursday 22 Oct to Friday 30 Oct.
+    const lines = classDays(data, new Date(2026, 9, 22), 9);
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatch(/Oct 22, 2026 10:00–11:15: EE 310 in ECS 302$/);
+    expect(lines[1]).toMatch(/no classes \(Fall recess\)/);
+    expect(lines[2]).toMatch(/in VEC 115 \(moved\)$/);
+    expect(lines[3]).toMatch(/CANCELLED$/);
   });
 });

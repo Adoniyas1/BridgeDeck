@@ -148,13 +148,17 @@ pub async fn calendar_subscription(url: String) -> Result<String, String> {
 /// BridgeDeck's browser. Lists are followed across pages (up to ten) and returned as one array.
 #[tauri::command]
 pub async fn canvas_api(app: AppHandle, base: String, token: String, path: String) -> Result<Value, String> {
+    api_get(&app, &base, &token, &path).await
+}
+
+async fn api_get(app: &AppHandle, base: &str, token: &str, path: &str) -> Result<Value, String> {
     let token = token.trim();
-    let first = api_url(&base, &path)?;
+    let first = api_url(base, path)?;
     let cookie = if token.is_empty() {
         let mut site = first.clone();
         site.set_path("/");
         site.set_query(None);
-        let cookie = session_cookie(&app, &site).await?;
+        let cookie = session_cookie(app, &site).await?;
         if cookie.is_empty() {
             return Err(NOT_SIGNED_IN.into());
         }
@@ -189,9 +193,127 @@ pub async fn canvas_api(app: AppHandle, base: String, token: String, path: Strin
     Ok(Value::Array(items))
 }
 
+// ---- Course files ----
+
+/// A file bigger than this isn't downloaded (lecture videos, big archives).
+const MAX_FILE: u64 = 150 * 1024 * 1024;
+/// At most this much in one run, so the shared folder and backups don't swell all at once.
+const MAX_RUN: u64 = 1024 * 1024 * 1024;
+/// Which files were downloaded, by Canvas id: `{id: {updated, file}}`, so unchanged ones are skipped.
+const MANIFEST: &str = ".canvas-files.json";
+
+#[derive(Debug, PartialEq)]
+pub struct Wanted {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub size: u64,
+    pub updated: String,
+}
+
+/// The course's Canvas files worth having (books, slides and pictures the Study tab opens), new or
+/// changed since they were last downloaded, within the size limits; and how many were too big.
+pub fn wanted_files(list: &Value, manifest: &Value, keep: impl Fn(&str) -> bool) -> (Vec<Wanted>, usize) {
+    let mut out = Vec::new();
+    let (mut total, mut too_big) = (0u64, 0usize);
+    for f in list.as_array().into_iter().flatten() {
+        let id = f["id"].as_u64().map(|n| n.to_string()).or_else(|| f["id"].as_str().map(str::to_string)).unwrap_or_default();
+        let name = f["display_name"].as_str().or_else(|| f["filename"].as_str()).unwrap_or("").to_string();
+        let url = f["url"].as_str().unwrap_or("").to_string();
+        let size = f["size"].as_u64().unwrap_or(0);
+        let updated = f["updated_at"].as_str().or_else(|| f["modified_at"].as_str()).unwrap_or("").to_string();
+        if id.is_empty() || name.is_empty() || !url.starts_with("https://") || !keep(&name) || f["locked_for_user"] == Value::Bool(true) {
+            continue;
+        }
+        if manifest[&id]["updated"].as_str() == Some(updated.as_str()) {
+            continue;
+        }
+        if size > MAX_FILE || total + size > MAX_RUN {
+            too_big += 1;
+            continue;
+        }
+        total += size;
+        out.push(Wanted { id, name, url, size, updated });
+    }
+    (out, too_big)
+}
+
+/// Downloads a Canvas course's files into its Study folder (beside its books, so they're listed
+/// and searchable), skipping ones already downloaded and unchanged.
+#[tauri::command]
+pub async fn canvas_download_files(app: AppHandle, base: String, token: String, canvas_id: String, course: String) -> Result<Value, String> {
+    if canvas_id.is_empty() || !canvas_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("This course isn't linked to a Canvas course".into());
+    }
+    let dir = crate::study::course_dir_in(&crate::study::current_root()?, &course)?;
+    let list = api_get(&app, &base, &token, &format!("/api/v1/courses/{canvas_id}/files?per_page=100")).await?;
+    let manifest_path = dir.join(MANIFEST);
+    let mut manifest: Value = std::fs::read(&manifest_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).filter(Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+    let (wanted, too_big) = wanted_files(&list, &manifest, crate::study::is_library_file);
+    let site = https(&base)?;
+    let cookie = if token.trim().is_empty() { Some(session_cookie(&app, &site).await?) } else { None };
+    let downloads = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .user_agent(concat!("BridgeDeck/", env!("CARGO_PKG_VERSION")))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let (mut saved, mut failed) = (Vec::new(), Vec::new());
+    for w in wanted {
+        let url = match Url::parse(&w.url) {
+            Ok(u) if u.scheme() == "https" => u,
+            _ => continue,
+        };
+        // The sign-in goes only to the school's own site (reqwest drops it on a redirect elsewhere).
+        let mut request = downloads.get(url.clone());
+        if url.host_str() == site.host_str() {
+            request = match &cookie {
+                Some(c) => request.header(reqwest::header::COOKIE, c),
+                None => request.bearer_auth(token.trim()),
+            };
+        }
+        let result = async {
+            let response = request.send().await.map_err(|e| e.to_string())?;
+            if !response.status().is_success() {
+                return Err(format!("Canvas answered {}", response.status()));
+            }
+            let bytes = body(response, MAX_FILE as usize).await?;
+            let previous = manifest[&w.id]["file"].as_str().map(str::to_string);
+            crate::study::save_course_file(&dir, previous.as_deref(), &w.name, &bytes)
+        }
+        .await;
+        match result {
+            Ok(file) => {
+                manifest[&w.id] = serde_json::json!({ "updated": w.updated, "file": file });
+                saved.push(file);
+            }
+            Err(e) => failed.push(format!("{}: {e}", w.name)),
+        }
+    }
+    let _ = std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap_or_default());
+    Ok(serde_json::json!({ "saved": saved, "failed": failed, "tooBig": too_big }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_new_or_changed_library_files_within_limits_are_downloaded() {
+        let list = serde_json::json!([
+            { "id": 1, "display_name": "Syllabus.pdf", "url": "https://s.instructure.com/files/1/download?verifier=a", "size": 1000, "updated_at": "2026-08-20" },
+            { "id": 2, "display_name": "Week 1.pptx", "url": "https://s.instructure.com/files/2/download", "size": 2000, "updated_at": "2026-09-01" },
+            { "id": 3, "display_name": "notes.zip", "url": "https://s.instructure.com/files/3/download", "size": 10, "updated_at": "x" },
+            { "id": 4, "display_name": "Lecture.mp4.pdf", "url": "https://s.instructure.com/files/4/download", "size": 400 * 1024 * 1024, "updated_at": "x" },
+            { "id": 5, "display_name": "Old exam.pdf", "url": "http://s.instructure.com/files/5", "size": 1, "updated_at": "x" },
+            { "id": 6, "display_name": "Locked.pdf", "url": "https://s.instructure.com/files/6", "size": 1, "updated_at": "x", "locked_for_user": true },
+        ]);
+        let manifest = serde_json::json!({ "1": { "updated": "2026-08-20", "file": "Syllabus.pdf" } });
+        let keep = |name: &str| name.ends_with(".pdf") || name.ends_with(".pptx");
+        let (wanted, too_big) = wanted_files(&list, &manifest, keep);
+        assert_eq!(wanted.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), vec!["Week 1.pptx"]);
+        assert_eq!(too_big, 1);
+    }
 
     #[test]
     fn api_paths_stay_on_the_school_site() {

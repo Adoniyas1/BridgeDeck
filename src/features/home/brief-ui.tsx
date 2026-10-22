@@ -10,7 +10,8 @@ import { eventsLoadedStore, eventsStore } from '../calendar/state'
 import { transfersStore } from '../files/state'
 import { notesLoadedStore, notesStore, openNoteRequest } from '../notes/state'
 import { projectsStore, refreshProjects } from '../projects/state'
-import { libraryStore, refreshLibrary } from '../study/state'
+import { allAssignments } from '../study/assignments'
+import { libraryStore, refreshLibrary, reviewAllRequest } from '../study/state'
 import { awayIsEmpty, briefLine, buildBrief, dailyDue, eveningNudge, whileAway, type Away } from './brief'
 
 /** "While you were away", shown on Home until dismissed. */
@@ -29,6 +30,7 @@ function currentBrief(now = Date.now()) {
     now, events: eventsStore.get(), notes: notesStore.get(),
     courses: libraryStore.get().library?.courses.map(c => c.name) ?? [],
     projects: projectsStore.get().list?.projects.map(p => p.name) ?? [],
+    canvas: allAssignments().filter(a => a.source === 'canvas' && !a.done),
   })
 }
 
@@ -82,6 +84,8 @@ export function BriefCard() {
     <div className="agenda-list">
       {brief.soon.slice(0, 5).map(s => <button key={`${s.title}${s.start}`} className="agenda-row" onClick={() => activateTab(s.kind === 'exam' ? 'study' : 'projects')}>
         <i style={{ background: s.kind === 'exam' ? '#f07178' : '#c792ea' }} /><span className="agenda-time">{when(s.days)}</span><span className="grow agenda-title">{s.title}</span></button>)}
+      {brief.cards.length > 1 && <button className="agenda-row" onClick={() => { reviewAllRequest.set(Date.now()); activateTab('study') }}>
+        <Brain size={13} /><span className="agenda-time">{brief.cards.reduce((n, c) => n + c.due, 0)} cards</span><span className="grow agenda-title">Review all courses, mixed</span></button>}
       {brief.cards.map(c => <button key={c.course} className="agenda-row" onClick={() => activateTab('study')}>
         <Layers size={13} /><span className="agenda-time">{c.due} card{c.due === 1 ? '' : 's'}</span><span className="grow agenda-title">Review {c.course}</span></button>)}
     </div>

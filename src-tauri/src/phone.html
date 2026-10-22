@@ -37,6 +37,8 @@ details:first-of-type{border-top:0}
 summary{font-weight:600;padding:6px 0;cursor:pointer}
 summary small{color:var(--muted);font-weight:400}
 .locked{text-align:center;padding:30px 10px}
+.thumbs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.thumbs figure{position:relative;margin:0;width:64px}.thumbs img{width:64px;height:84px;object-fit:cover;border-radius:6px;display:block}.thumbs figcaption{font-size:11px;text-align:center}.thumbs button{position:absolute;top:2px;right:2px;padding:0 6px}
+select{width:100%;font:inherit;padding:8px;border-radius:8px}
 </style>
 </head>
 <body>
@@ -49,6 +51,14 @@ summary small{color:var(--muted);font-weight:400}
     <div class="row"><span class="note" id="sendState"></span><button id="send">Send</button></div>
     <div class="row"><input type="file" id="file" multiple><button id="upload">Upload</button></div>
     <p class="note" id="uploadState">Files go to the “From phone” folder in the shared folder.</p>
+  </section>
+  <section>
+    <h2>Scan homework</h2>
+    <div class="row"><select id="scanCourse"></select></div>
+    <div class="row"><input type="text" id="scanName" placeholder="Name, e.g. HW 4"></div>
+    <div class="row"><input type="file" id="scanFiles" accept="image/*" capture="environment" multiple><button class="plain" id="scanAdd">Add pages</button></div>
+    <div id="scanPages" class="thumbs"></div>
+    <div class="row"><span class="note" id="scanState">Take or pick photos of each page, in order. They become one PDF in the course.</span><button id="scanMake">Make PDF</button></div>
   </section>
   <section><h2>Today</h2><div id="today"></div></section>
   <section><h2>Due soon</h2><div id="due"></div></section>
@@ -102,7 +112,7 @@ window.addEventListener('hashchange', function () { location.reload() })
   }
   function refresh() {
     if (document.activeElement && document.activeElement.type === 'text') return
-    api('/api/summary').then(function (data) { $('locked').hidden = true; $('main').hidden = false; render(data) }).catch(function (e) { $('main').hidden = true; $('locked').hidden = false; if (key) $('lockedText').textContent = e.message })
+    api('/api/summary').then(function (data) { $('locked').hidden = true; $('main').hidden = false; render(data); showCourses(data.courses || []) }).catch(function (e) { $('main').hidden = true; $('locked').hidden = false; if (key) $('lockedText').textContent = e.message })
   }
   $('send').addEventListener('click', function () {
     var text = $('text').value; if (!text.trim()) return
@@ -119,6 +129,57 @@ window.addEventListener('hashchange', function () { location.reload() })
     }
     next()
   })
+  // Scans: each page is drawn into a canvas and sent as a JPEG (so iPhone HEIC photos work too, and
+  // big photos are made a sensible size), then the computer puts them in one PDF.
+  var pages = []
+  function addPage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image()
+      img.onload = function () {
+        var scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight))
+        var c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale)
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+        URL.revokeObjectURL(url)
+        c.toBlob(function (blob) { if (!blob) return reject(new Error('A photo couldn’t be read')); pages.push({ blob: blob, thumb: c.toDataURL('image/jpeg', 0.3) }); showPages(); resolve() }, 'image/jpeg', 0.85)
+      }
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error(file.name + ' couldn’t be read')) }
+      img.src = url
+    })
+  }
+  function showPages() {
+    var box = $('scanPages'); box.textContent = ''
+    pages.forEach(function (p, i) {
+      var fig = el('figure'); var im = el('img', { src: p.thumb, alt: 'Page ' + (i + 1) }); fig.appendChild(im)
+      var x = el('button', { class: 'plain' }, '×'); x.addEventListener('click', function () { pages.splice(i, 1); showPages() }); fig.appendChild(x)
+      fig.appendChild(el('figcaption', {}, String(i + 1))); box.appendChild(fig)
+    })
+  }
+  $('scanAdd').addEventListener('click', function () {
+    var files = Array.prototype.slice.call($('scanFiles').files); if (!files.length) { $('scanFiles').click(); return }
+    files.reduce(function (p, f) { return p.then(function () { return addPage(f) }) }, Promise.resolve()).then(function () { $('scanFiles').value = '' }).catch(function (e) { $('scanState').textContent = e.message; $('scanState').className = 'note err' })
+  })
+  $('scanFiles').addEventListener('change', function () { $('scanAdd').click() })
+  $('scanMake').addEventListener('click', function () {
+    var state = $('scanState'), course = $('scanCourse').value
+    if (!pages.length) { state.textContent = 'Add the pages first.'; state.className = 'note err'; return }
+    if (!course) { state.textContent = 'Pick the course.'; state.className = 'note err'; return }
+    var batch = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(8)), function (b) { return ('0' + b.toString(16)).slice(-2) }).join('')
+    var i = 0
+    function next() {
+      if (i >= pages.length) return api('/api/scan/done', { batch: batch, course: course, name: $('scanName').value || 'Scan' })
+      state.textContent = 'Sending page ' + (i + 1) + ' of ' + pages.length + '…'; state.className = 'note'
+      return api('/api/scan/page?batch=' + batch + '&n=' + i, null, pages[i++].blob).then(next)
+    }
+    next().then(function (r) { state.textContent = 'Saved ' + r.file + ' (' + r.pages + ' pages) in ' + course + '.'; state.className = 'note ok'; pages = []; showPages(); $('scanName').value = '' })
+      .catch(function (e) { state.textContent = e.message; state.className = 'note err' })
+  })
+  function showCourses(list) {
+    var sel = $('scanCourse'), had = sel.value
+    if (sel.options.length === list.length + 1) return
+    sel.textContent = ''; sel.appendChild(el('option', { value: '' }, 'Course…'))
+    list.forEach(function (c) { var o = el('option', { value: c }, c); if (c === had) o.selected = true; sel.appendChild(o) })
+  }
+
   refresh()
   setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh() })

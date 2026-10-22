@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Brain, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { studySearch, type StudyHit } from '../../lib/bridge'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { BookOpen, Brain, Download, ImagePlus, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
-import { notesStore } from '../notes/state'
-import { cardLine, deckOf, deckStats, dueCards, GRADES, type FlashCard } from './cards'
-import { intervals, review } from './review'
+import { notesStore, openNoteRequest } from '../notes/state'
+import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
+import { savedStarts } from './chapters'
+import { importLines, toCsv } from './deckio'
+import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
+import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
 import { studyMinutes, weekStart } from './model'
-import { openBook } from './open'
-import { addCards, focusStore, saveReview, startFocus, stopFocus } from './state'
+import { openBook, openBookLink, openLecture } from './open'
+import { clock as lectureClock } from './lecture'
+import { activateTab } from '../../core/tabs'
+import { CardText, cardSource, pictureRef } from './CardText'
+import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -46,44 +52,200 @@ export function FocusCard({ course }: { course: string }) {
   </Card>
 }
 
+/** The next cloze number in a sentence. */
+const nextCloze = (text: string) => Math.max(0, ...[...text.matchAll(/\{\{c(\d+)::/g)].map(m => Number(m[1]))) + 1
+
 /** The course's flashcards: what's due, a review, and a quick way to add one. */
-export function FlashcardsCard({ course, onStatus }: { course: string; onStatus: (s: string) => void }) {
+export function FlashcardsCard({ course, info, onStatus }: { course: string; info?: { chapters?: unknown }; onStatus: (s: string) => void }) {
   const notes = useStore(notesStore)
   const deck = useMemo(() => deckOf(notes, course), [notes, course])
   const stats = deckStats(deck)
   const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
+  const [kind, setKind] = useState<'qa' | 'both' | 'cloze'>('qa')
+  const [browsing, setBrowsing] = useState(false)
+  const [showMastery, setShowMastery] = useState(false)
+  const importer = useRef<HTMLInputElement>(null)
+  const [pasting, setPasting] = useState(false)
+  const [pasted, setPasted] = useState('')
+
+  async function importText(text: string) {
+    const { lines, skipped, duplicates } = importLines(text, deck)
+    try {
+      if (lines.length) await addCards(course, lines)
+      onStatus([`Added ${lines.length} card${lines.length === 1 ? '' : 's'}`, duplicates ? `${duplicates} already there` : '', skipped ? `${skipped} line${skipped === 1 ? '' : 's'} weren’t cards` : ''].filter(Boolean).join(' · '))
+    } catch (e) { onStatus(String(e)) }
+  }
+  async function exportCsv() {
+    try { onStatus(`Saved ${await studySaveCsv(course, `${course} flashcards`, toCsv(deck))} in the ${course} folder.`) } catch (e) { onStatus(String(e)) }
+  }
+  const leeches = useMemo(() => new Set(deck.filter(isLeech).map(c => c.block.id)).size, [deck])
+  const sentence = useRef<HTMLInputElement>(null)
+  const ok = kind === 'cloze' ? parseCards(front).length > 0 : !!front.trim() && !!back.trim()
 
   async function add() {
-    if (!front.trim() || !back.trim()) return
-    try { await addCards(course, [cardLine(front, back)]); setFront(''); setBack('') } catch (e) { onStatus(String(e)) }
+    if (!ok) return
+    try { await addCards(course, [kind === 'cloze' ? clozeLine(front) : cardLine(front, back, '', kind === 'both')]); setFront(''); setBack('') } catch (e) { onStatus(String(e)) }
+  }
+
+  // Pictures go on the side last typed in: pasted, or picked with the picture button.
+  const side = useRef<'front' | 'back'>('front')
+  const picker = useRef<HTMLInputElement>(null)
+  async function addPicture(file: File) {
+    try {
+      const saved = await studySaveCardPicture(course, file.name || 'picture', new Uint8Array(await file.arrayBuffer()))
+      const ref = pictureRef(course, saved)
+      if (side.current === 'back' && kind !== 'cloze') setBack(b => `${b} ${ref}`.trim()); else setFront(f => `${f} ${ref}`.trim())
+    } catch (e) { onStatus(String(e)) }
+  }
+  const onPaste = (where: 'front' | 'back') => (e: React.ClipboardEvent) => {
+    const file = [...e.clipboardData.files].find(f => f.type.startsWith('image/'))
+    if (file) { e.preventDefault(); side.current = where; void addPicture(file) }
+  }
+
+  /** Hides the selected words of the sentence: {{cN::words}}. */
+  function hide() {
+    const el = sentence.current
+    if (!el || el.selectionStart === null || el.selectionEnd === null || el.selectionStart === el.selectionEnd) return
+    const words = front.slice(el.selectionStart, el.selectionEnd)
+    setFront(`${front.slice(0, el.selectionStart)}{{c${nextCloze(front)}::${words}}}${front.slice(el.selectionEnd)}`)
   }
 
   const ready = stats.due + Math.min(stats.fresh, 20)
   return <Card><SectionTitle title="Flashcards" subtitle={stats.total ? `${stats.total} cards · ${stats.due} due · ${stats.fresh} new · ${stats.learned} learned` : 'Spaced repetition (FSRS)'}
     action={<button className="ghost" disabled={!ready} onClick={() => setReviewing(dueCards(deck))}><Layers size={14} /> Review {ready || ''}</button>} />
     <form className="study-card-new" onSubmit={e => { e.preventDefault(); void add() }}>
-      <input placeholder="Question" value={front} onChange={e => setFront(e.target.value)} />
-      <input placeholder="Answer" value={back} onChange={e => setBack(e.target.value)} />
-      <button className="ghost" disabled={!front.trim() || !back.trim()}>Add</button>
+      <select value={kind} onChange={e => setKind(e.target.value as typeof kind)} title="Kind of card">
+        <option value="qa">Question</option><option value="both">Both ways</option><option value="cloze">Fill in the blank</option>
+      </select>
+      {kind === 'cloze'
+        ? <><input ref={sentence} placeholder="A sentence; select words and press Hide" value={front} onChange={e => setFront(e.target.value)} onPaste={onPaste('front')} />
+          <button type="button" className="ghost" onClick={hide}>Hide</button></>
+        : <><input placeholder={kind === 'both' ? 'Term' : 'Question'} value={front} onChange={e => setFront(e.target.value)} onFocus={() => { side.current = 'front' }} onPaste={onPaste('front')} />
+          <input placeholder={kind === 'both' ? 'Meaning' : 'Answer'} value={back} onChange={e => setBack(e.target.value)} onFocus={() => { side.current = 'back' }} onPaste={onPaste('back')} /></>}
+      <button type="button" className="ghost" title="Add a picture (or paste one) to the side you were typing in" disabled={!isTauri()} onClick={() => picker.current?.click()}><ImagePlus size={14} /></button>
+      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addPicture(f); e.target.value = '' }} />
+      <button className="ghost" disabled={!ok}>Add</button>
     </form>
-    <p className="hint">Cards are lines “question :: answer” in the note “{course} — flashcards”. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    <p className="hint">Cards are lines in the note “{course} — flashcards”: “question :: answer”, “term ::: meaning” for both ways, “question :: {'{{num:4.7k ohm ±2%}}'}” to type a number, or a sentence with {'{{c1::hidden words}}'}. Make them from a book selection, or ask Mimir to write some from a chapter.</p>
+    {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
+    {browsing && <CardList deck={deck} onStatus={onStatus} />}
+    <div className="study-card-io">
+      <button className="ghost" title="Cards from a CSV file, a spreadsheet saved as CSV, or a Quizlet export (term, tab, definition)" onClick={() => importer.current?.click()}><Upload size={14} />Import</button>
+      <button className="ghost" title="Paste a list: one card a line, term and definition separated by a tab" onClick={() => setPasting(p => !p)}>Paste a list</button>
+      {stats.total > 0 && <button className="ghost" disabled={!isTauri()} title={`Saves a CSV in the ${course} folder, with review progress`} onClick={() => void exportCsv()}><Download size={14} />Export</button>}
+      <input ref={importer} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void f.text().then(importText); e.target.value = '' }} />
+    </div>
+    {pasting && <form className="study-card-paste" onSubmit={e => { e.preventDefault(); void importText(pasted).then(() => { setPasted(''); setPasting(false) }) }}>
+      <textarea rows={5} placeholder={'Capacitor\tStores charge\nInductor\tStores energy in a magnetic field'} value={pasted} onChange={e => setPasted(e.target.value)} />
+      <button className="ghost" disabled={!pasted.trim()}>Add these</button>
+    </form>}
+    {stats.total > stats.fresh && <button className="ghost" onClick={() => setShowMastery(m => !m)}>{showMastery ? 'Hide what you know' : 'What you know, by chapter'}</button>}
+    {showMastery && <MasteryList deck={deck} info={info} onStatus={onStatus} />}
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
 }
 
-function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () => void; onStatus: (s: string) => void }) {
+/** Each chapter's cards and the chance of remembering them now, and tuning the schedule to the
+ *  review log of both computers. */
+function MasteryList({ deck, info, onStatus }: { deck: FlashCard[]; info?: { chapters?: unknown }; onStatus: (s: string) => void }) {
+  const config = useConfig()
+  const [tuning, setTuning] = useState(false)
+  const rows = useMemo(() => masteryMap(deck, file => savedStarts(info ?? {}, file), card => retrievability(card)), [deck, info, config.study.fsrsWeights])
+  async function tune() {
+    setTuning(true)
+    try {
+      const tuned = await studyFsrsTune()
+      setConfig(c => ({ ...c, study: { ...c.study, fsrsWeights: tuned.weights } }))
+      onStatus(`Review times now fit your ${tuned.reviews} reviews of ${tuned.cards} cards.`)
+    } catch (e) { onStatus(String(e)) } finally { setTuning(false) }
+  }
+  return <div className="study-mastery">
+    {rows.map(r => <div key={r.label} className="study-mastery-row" title={`${r.learned} of ${r.cards} learned`}>
+      <span className="grow">{r.label}</span>
+      <span className="study-mastery-bar"><i style={{ width: `${Math.round(r.recall * 100)}%`, background: r.recall >= 0.85 ? '#4ade80' : r.recall >= 0.6 ? '#facc15' : '#f87171' }} /></span>
+      <small>{Math.round(r.recall * 100)}% · {r.cards}</small>
+    </div>)}
+    <div className="study-mastery-tune">
+      <button className="ghost" disabled={tuning || !isTauri()} onClick={() => void tune()}>{tuning ? 'Tuning…' : 'Tune review times to me'}</button>
+      {config.study.fsrsWeights?.length ? <button className="ghost" onClick={() => setConfig(c => ({ ...c, study: { ...c.study, fsrsWeights: [] } }))}>Use the defaults</button> : null}
+      <small className="hint">Fits the schedule to how you remember, from every review on both computers (needs about 400).</small>
+    </div>
+  </div>
+}
+
+/** Every card line of the course, to fix, put aside or remove; ones often forgotten first. */
+function CardList({ deck, onStatus }: { deck: FlashCard[]; onStatus: (s: string) => void }) {
+  const [query, setQuery] = useState('')
+  const [onlyLeeches, setOnlyLeeches] = useState(false)
+  const [editing, setEditing] = useState<{ key: string; text: string } | null>(null)
+  // One row per line (a both-ways or cloze line has several cards).
+  const lines = useMemo(() => {
+    const byLine = new Map<string, { noteId: string; blockId: string; text: string; leech: boolean; lapses: number }>()
+    for (const c of deck) {
+      const key = `${c.noteId}/${c.block.id}`
+      const row = byLine.get(key) ?? { noteId: c.noteId, blockId: c.block.id, text: c.block.text, leech: false, lapses: 0 }
+      row.leech ||= isLeech(c)
+      row.lapses = Math.max(row.lapses, c.card.lapses)
+      byLine.set(key, row)
+    }
+    const q = query.trim().toLowerCase()
+    return [...byLine.entries()].map(([key, row]) => ({ key, ...row }))
+      .filter(r => (!onlyLeeches || r.leech) && (!q || cardBody(r.text).toLowerCase().includes(q)))
+      .sort((a, b) => Number(b.leech) - Number(a.leech) || b.lapses - a.lapses)
+  }, [deck, query, onlyLeeches])
+
+  async function change(noteId: string, blockId: string, text: string | null) {
+    try { await changeCardLine(noteId, blockId, text); setEditing(null) } catch (e) { onStatus(String(e)) }
+  }
+
+  return <div className="study-card-list">
+    <div className="study-card-list-bar">
+      <input placeholder="Find a card" value={query} onChange={e => setQuery(e.target.value)} />
+      <label><input type="checkbox" checked={onlyLeeches} onChange={e => setOnlyLeeches(e.target.checked)} /> Often forgotten</label>
+    </div>
+    {lines.slice(0, 200).map(r => {
+      const suspended = hasMark(r.text, 'suspended')
+      return <div key={r.key} className={`study-card-row${suspended ? ' off' : ''}`}>
+        {editing?.key === r.key
+          ? <form className="grow" onSubmit={e => { e.preventDefault(); if (parseCards(editing.text).length) void change(r.noteId, r.blockId, withBody(r.text, editing.text)) }}>
+            <input autoFocus value={editing.text} onChange={e => setEditing({ key: r.key, text: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setEditing(null) }} />
+          </form>
+          : <CardText className="grow" text={cardBody(r.text).replace(/\s#(suspended|leech)\b/g, '')} />}
+        {r.leech && <span className="study-card-tag" title={`Forgotten ${r.lapses} times; rewriting it or splitting it up usually helps`}>often forgotten</span>}
+        {suspended && <span className="study-card-tag">set aside</span>}
+        {editing?.key === r.key
+          ? <button className="ghost" disabled={!parseCards(editing.text).length} onClick={() => void change(r.noteId, r.blockId, withBody(r.text, editing.text))}>Save</button>
+          : <button className="ghost" onClick={() => setEditing({ key: r.key, text: cardBody(r.text) })}>Edit</button>}
+        <button className="ghost" title={suspended ? 'Review it again' : 'Leave it out of reviews'} onClick={() => void change(r.noteId, r.blockId, setMark(r.text, 'suspended', !suspended))}>{suspended ? 'Bring back' : 'Set aside'}</button>
+        {r.leech && <button className="ghost" title="It stays, without the mark" onClick={() => void change(r.noteId, r.blockId, setMark(r.text, 'leech', false))}>Unmark</button>}
+        <button className="ghost danger" onClick={() => { if (window.confirm('Delete this card?')) void change(r.noteId, r.blockId, null) }}>Delete</button>
+      </div>
+    })}
+    {lines.length > 200 && <p className="hint">Showing 200 of {lines.length}. Search to narrow it down.</p>}
+    {!lines.length && <p className="hint">No cards match.</p>}
+  </div>
+}
+
+export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () => void; onStatus: (s: string) => void }) {
   const [queue, setQueue] = useState(cards)
   const [shown, setShown] = useState(false)
   const [done, setDone] = useState(0)
+  // When this card was put up, for the time spent on it in the review log.
+  const shownAt = useRef(Date.now())
+  const [typed, setTyped] = useState('')
+  const [checked, setChecked] = useState<Checked | null>(null)
+  useEffect(() => { shownAt.current = Date.now(); setTyped(''); setChecked(null) }, [queue[0]])
   const card = queue[0]
   const times = useMemo(() => card ? intervals(card.card) : {}, [card])
+  const spec = useMemo(() => card ? answerSpec(card.back) : null, [card])
+  const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
 
   async function answer(grade: (typeof GRADES)[number]['grade']) {
     if (!card) return
     const next = review(card.card, grade)
-    try { await saveReview(card, next) } catch (e) { onStatus(String(e)) }
+    try { await saveReview(card, next, grade, Date.now() - shownAt.current) } catch (e) { onStatus(String(e)) }
     setShown(false)
     setDone(d => d + 1)
     // Cards answered "Again" come back in this session when they're due within 20 minutes.
@@ -108,9 +270,15 @@ function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClose: () 
     <div className="study-review-card">
       <div className="study-review-head"><Brain size={15} /><span className="grow">{card ? `${done} done · ${queue.length} to go` : 'All done'}</span><button className="ghost" onClick={onClose}>Close</button></div>
       {card ? <>
-        <p className="study-review-front">{card.front}</p>
-        {shown ? <p className="study-review-back">{card.back.replace(/\s*\(\[[^\]]*\]\(book:[^)]*\)\)\s*$/, '')}</p> : null}
-        {shown ? <div className="study-review-grades">{GRADES.map(g => <button key={g.grade} onClick={() => void answer(g.grade)}><strong>{g.label}</strong><small>{times[g.grade]} · {g.key}</small></button>)}</div>
+        <CardText className="study-review-front" text={card.front} />
+        {spec && !shown && <form className="study-review-type" onSubmit={e => { e.preventDefault(); if (typed.trim()) { setChecked(checkAnswer(spec, typed)); setShown(true) } }}>
+          <input autoFocus placeholder="Your answer, e.g. 4.7k ohm" value={typed} onChange={e => setTyped(e.target.value)} />
+          <button className="ghost" disabled={!typed.trim()}>Check</button>
+        </form>}
+        {shown && checked && <p className={`study-review-checked ${checked.right ? 'right' : 'wrong'}`}>{checked.message}</p>}
+        {shown ? <CardText className="study-review-back" text={showAnswer(card.back)} /> : null}
+        {shown && source && <button className="ghost study-review-source" title={source.label} onClick={() => openBookLink(source.href)}><BookOpen size={14} />Open p. {source.page}</button>}
+        {shown ? <div className="study-review-grades">{GRADES.map(g => <button key={g.grade} className={checked?.grade === g.grade ? 'suggested' : undefined} onClick={() => void answer(g.grade)}><strong>{g.label}</strong><small>{times[g.grade]} · {g.key}</small></button>)}</div>
           : <button className="study-review-show" onClick={() => setShown(true)}>Show answer <small>space</small></button>}
       </> : <p className="study-review-front">Nothing left to review. Well done.</p>}
     </div>
@@ -137,8 +305,8 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
       <button className="cal-icon" title="Search" disabled={!query.trim()}><Search size={15} /></button>
     </form>
     {error && <p className="cal-error">{error}</p>}
-    {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.file}-${h.page}`} onClick={() => openBook(h.course, h.file, h.book, h.page)}>
-      <strong>{h.book}, p. {h.page}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">No pages match.</p>)}
+    {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.kind}-${h.file}-${h.page}`} onClick={() => h.kind === 'lecture' ? openLecture(h.course, h.file, h.t ?? 0) : h.kind === 'note' ? (openNoteRequest.set(h.file), activateTab('notes')) : openBook(h.course, h.file, h.book, h.page)}>
+      <strong>{h.kind === 'lecture' ? `${h.book} [${lectureClock(h.t ?? 0)}]` : h.kind === 'note' ? `Note: ${h.book}` : `${h.book}, p. ${h.page}`}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">Nothing matches.</p>)}
     <p className="hint">Scanned books are searchable too: pages that are pictures of text are read by text recognition on this computer, which takes a few seconds a page the first time. Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
   </Card>
 }

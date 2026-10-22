@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studyPatchCourseInfo } from '../../lib/bridge'
+import { canvasApi, canvasFeed, examSites, isTauri, notesCreate, notesSave, studyAddCourse, studyCanvasGet, studyCanvasPut, studyPatchCourseInfo, studyStateGet, studyStateSet } from '../../lib/bridge'
 import { configStore, setConfig } from '../../core/config'
 import { setExam } from '../../core/exam'
 import { notify } from '../../core/notify'
@@ -7,19 +7,36 @@ import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
-import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
-import { libraryStore, refreshLibrary } from './state'
+import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, notHandedIn, assignmentsNote, ASSIGNMENTS_FOLDER, ASSIGNMENTS_TITLE, belongsTo, courseKey, courseMatches, dueText, feedAssignments, manualAssignments, mergeCanvas, studyNameFor, type Assignment, type CanvasCourse } from './canvas'
+import { libraryStore, refreshLibrary, termStore } from './state'
+import { classesBetween, classRemindersDue } from './schedule'
+import { examsFrom } from './exams'
+import { currentPercent, letterFor, readGrading } from './grades'
+import { eventsStore } from '../calendar/state'
 import { catalogTitle, sameCourseTitle } from './plans'
-import { CACHE, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
+import { CACHE, canvasDoneStore, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
 
 /** The calendar feed, or the Canvas site (read with an access token, or with the sign-in in BridgeDeck's browser). */
 export const canvasConnected = () => { const c = configStore.get().canvas; return !!c.feed.trim() || !!c.base.trim() }
 
 /** Reads the feed and the API. Course lists are read one course at a time in parallel. */
+/** The newer of this computer's Canvas copy and the other computer's (so a computer that isn't
+ *  signed in to Canvas still shows its assignments), and the items ticked done on either. */
+export async function loadSharedCanvas() {
+  if (!isTauri()) return
+  const shared = await studyCanvasGet().catch(() => null) as Partial<CanvasData> | null
+  if (shared && Array.isArray(shared.feed) && Array.isArray(shared.api) && (shared.at ?? 0) > canvasStore.get().at && !canvasStore.get().loading) {
+    canvasStore.set(c => ({ ...c, feed: shared.feed!, api: shared.api!, courses: Array.isArray(shared.courses) ? shared.courses : c.courses, announcements: Array.isArray(shared.announcements) ? shared.announcements : c.announcements, at: shared.at ?? c.at }))
+  }
+  const state = await studyStateGet('canvasDone').catch(() => ({} as Record<string, unknown>))
+  const legacy = configStore.get().canvas.done
+  canvasDoneStore.set([...new Set([...legacy.filter(id => !(id in state) || state[id] === true), ...Object.keys(state).filter(id => state[id] === true)])])
+}
+
 export async function refreshCanvas() {
   if (!isTauri() || canvasStore.get().loading) return
   const { feed, base, token } = configStore.get().canvas
-  if (!canvasConnected()) { canvasStore.set(emptyCanvas); return }
+  if (!canvasConnected()) { await loadSharedCanvas(); return }
   canvasStore.set(c => ({ ...c, loading: true }))
   const previous = canvasStore.get()
   const errors: string[] = []
@@ -44,6 +61,9 @@ export async function refreshCanvas() {
   const data: CanvasData = { ...next, at: errors.length ? previous.at : Date.now(), errors, loading: false }
   canvasStore.set(data)
   try { localStorage.setItem(CACHE, JSON.stringify({ ...data, errors: [] })) } catch { /* cache only */ }
+  // Shared with the other computer, the phone and Mimir.
+  if (!errors.length) void studyCanvasPut({ at: data.at, feed: data.feed, api: data.api, courses: data.courses, announcements: data.announcements }).catch(() => undefined)
+  else void loadSharedCanvas()
 }
 
 /** Each Canvas course becomes a Study course the first time it's seen (unless one already matches),
@@ -80,21 +100,24 @@ async function addCanvasCourses(courses: CanvasCourse[]) {
 }
 
 /** Canvas assignments with this computer's done marks, and the ones added here. */
-export function allAssignments(data = canvasStore.get(), notes = notesStore.get(), done = configStore.get().canvas.done): Assignment[] {
+export function allAssignments(data = canvasStore.get(), notes = notesStore.get(), done = canvasDoneStore.get()): Assignment[] {
   return [...mergeCanvas(data.feed, data.api, done), ...manualAssignments(notes)]
 }
 
 export function useAssignments() {
   const data = useStore(canvasStore)
   const notes = useStore(notesStore)
-  const done = useStore(configStore).canvas.done
+  const done = useStore(canvasDoneStore)
   return useMemo(() => allAssignments(data, notes, done), [data, notes, done])
 }
 
 /** Ticks an assignment off (or back on): Canvas ones on this computer, added ones in their note. */
 export async function toggleDone(a: Assignment) {
   if (a.source === 'canvas') {
+    canvasDoneStore.set(list => a.done ? list.filter(id => id !== a.id) : [...list.filter(id => id !== a.id), a.id])
+    // Older builds still read the done list from this computer's settings.
     setConfig(c => ({ ...c, canvas: { ...c.canvas, done: a.done ? c.canvas.done.filter(id => id !== a.id) : [...c.canvas.done.filter(id => id !== a.id), a.id].slice(-500) } }))
+    if (isTauri()) await studyStateSet('canvasDone', { [a.id]: a.done ? null : true }).catch(() => undefined)
     return
   }
   if (!a.noteId || !a.block) return
@@ -127,7 +150,46 @@ export async function addAssignments(items: Array<{ course: string; title: strin
 
 const announced = new Set<string>()
 
+const classesAnnounced = new Set<string>()
+/** Says where the next class is a little before it starts, with anything due at the start of it. */
+export function checkClassReminders(now = Date.now()) {
+  const library = libraryStore.get().library
+  const lead = configStore.get().study.classRemindMinutes
+  if (!library || lead <= 0) return
+  const courses = library.courses.filter(c => !c.archived)
+  for (const c of classRemindersDue(classesBetween(courses, termStore.get(), now, now + (lead + 1) * 60_000), now, lead, classesAnnounced)) {
+    classesAnnounced.add(`${c.course}@${c.start}`)
+    const info = courses.find(x => x.name === c.course)?.info
+    const names = { name: c.course, code: info?.code, canvasCode: info?.canvasCode }
+    const due = allAssignments().filter(a => !a.done && a.due != null && a.due > now - 3_600_000 && a.due <= c.end && belongsTo(names, a.course))
+    const minutes = Math.max(1, Math.round((c.start - now) / 60_000))
+    const where = c.room ? `${c.moved ? 'moved to ' : ''}${c.room}` : ''
+    notify('reminders', `${c.course}${c.kind ? ` ${c.kind.toLowerCase()}` : ''} in ${minutes} min`, [where, ...due.slice(0, 3).map(a => `${a.title} due`)].filter(Boolean).join(' · '))
+  }
+}
+
+/** Once a day per course: a grade that's fallen below the goal set in its grade sheet. */
+export function checkGradeRisk(now = Date.now()) {
+  const library = libraryStore.get().library
+  if (!library) return
+  const today = new Date(now).toDateString()
+  for (const c of library.courses.filter(x => !x.archived)) {
+    const grading = readGrading(c.info.grading)
+    const current = currentPercent(grading)
+    if (!grading.goal || current == null || current >= grading.goal) continue
+    const key = `bd-grade-risk:${c.name}`
+    try { if (localStorage.getItem(key) === today) continue; localStorage.setItem(key, today) } catch { continue }
+    notify('reminders', `${c.name} is below your goal`, `${current.toFixed(1)}% (${letterFor(current)}), aiming for ${grading.goal}% (${letterFor(grading.goal)}). The grade sheet shows what you need on what's left.`)
+  }
+}
+
+const warnedUpload = new Set<string>()
 export function checkAssignmentReminders(now = Date.now()) {
+  for (const a of notHandedIn(allAssignments(), now)) {
+    if (warnedUpload.has(a.id)) continue
+    warnedUpload.add(a.id)
+    notify('reminders', `Not handed in on Canvas: ${a.title}`, `${a.course ? `${a.course} · ` : ''}it's ticked done here, but Canvas has no submission (${dueText(a.due, now)}).`)
+  }
   for (const { assignment: a, lead } of assignmentRemindersDue(allAssignments(), now, configStore.get().canvas.remindHours, announced)) {
     notify('reminders', `${lead <= 60 ? 'Due within the hour' : 'Due soon'}: ${a.title}`, `${a.course ? `${a.course} · ` : ''}${dueText(a.due, now)}`)
   }
@@ -145,4 +207,12 @@ export async function startExam(course: string, minutes: number) {
 export async function endExam() {
   setExam(null)
   if (isTauri()) await examSites([]).catch(() => undefined)
+}
+
+/** Every exam coming up (exams.ts), from the calendar and Canvas. */
+export function useExams() {
+  const events = useStore(eventsStore)
+  const all = useAssignments()
+  const library = useStore(libraryStore).library
+  return useMemo(() => examsFrom(events, all.filter(a => a.source === 'canvas'), library?.courses ?? []), [events, all, library])
 }

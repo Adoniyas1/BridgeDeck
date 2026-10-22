@@ -10,6 +10,17 @@ import { addDays, startOfDay } from '../calendar/model'
 export type HomeworkRow = { week: number | null; day: number; label: string; text: string; note: string }
 export type DatedHomework = HomeworkRow & { date: number }
 
+/** What Mimir is asked for: read the photo (already copied into the course) with its own vision
+ *  model, and suggest each deadline, which waits in the Study tab for approval. */
+export function mimirHomeworkPrompt(course: string, file: string) {
+  return [
+    `The photo “${file}” in my ${course} course is my homework schedule. Look at it with study_photo (course “${course}”, file “${file}”) and read every row.`,
+    `The rows give class days ("M 1", "W 2", "Th 3"), not dates: use study_schedule for my class times and the semester's start to work out each date.`,
+    `Then suggest each assignment with study_suggest (kind "deadline", course "${course}", the work as the title, e.g. "Ch 10.1: 3, 7-15 odd"), due at 11:59 pm on its day, and any exam written on the sheet with kind "exam".`,
+    `Finish with a short list of what you suggested and anything you couldn't read.`,
+  ].join('\n')
+}
+
 /** What ChatGPT is asked for. */
 export function homeworkPrompt(course: string) {
   return [

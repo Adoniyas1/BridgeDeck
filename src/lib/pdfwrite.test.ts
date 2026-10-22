@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
-import { parsePages, stitchPdf } from './pdfwrite'
+import { parsePages, splitPdf, stitchPdf } from './pdfwrite'
 
 async function pdf(pages: number) {
   const doc = await PDFDocument.create()
@@ -29,5 +29,11 @@ describe('stitching PDFs', () => {
 
   it('needs at least one page', async () => {
     await expect(stitchPdf([{ bytes: await pdf(2), kind: 'pdf', pages: [] }])).rejects.toThrow('at least one page')
+  })
+  it('splits a PDF into chapters', async () => {
+    const parts = await splitPdf(await pdf(5), [{ start: 1, end: 2 }, { start: 3, end: 5 }])
+    const counts = await Promise.all(parts.map(async p => (await PDFDocument.load(p)).getPageCount()))
+    expect(counts).toEqual([2, 3])
+    await expect(splitPdf(await pdf(2), [{ start: 4, end: 6 }])).rejects.toThrow('aren’t in this book')
   })
 })

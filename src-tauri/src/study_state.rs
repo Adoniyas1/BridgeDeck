@@ -31,7 +31,7 @@ use crate::bridgelink::BridgeLinkManager;
 const VERSION: u32 = 1;
 const DIR: &str = ".state";
 /// The kinds of state kept this way; each is added by the change that first uses it.
-const KEYS: &[&str] = &["term", "problems", "reading"];
+const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam", "inbox"];
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_VALUE: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 20_000;
@@ -222,6 +222,19 @@ fn study_root() -> Result<PathBuf, String> {
     crate::study::current_root()
 }
 
+/// The merged state for `key` in the current Study folder (for Mimir's routes).
+pub fn current_values(key: &str) -> BTreeMap<String, Value> {
+    study_root().map(|root| values(&read_all(&root, key))).unwrap_or_default()
+}
+
+/// Saves changes to `key` in the current Study folder as `device`'s (for Mimir's routes).
+pub fn put_current(key: &str, device: &str, changes: BTreeMap<String, Value>) -> Result<(), String> {
+    if device.is_empty() {
+        return Err("BridgeLink hasn't started yet".into());
+    }
+    put(&study_root()?, key, device, changes, now_ms())
+}
+
 /// The merged state for `key`: entry id to value.
 #[tauri::command]
 pub fn study_state_get(key: String) -> Result<BTreeMap<String, Value>, String> {
@@ -237,6 +250,71 @@ pub fn study_state_put(manager: State<'_, BridgeLinkManager>, key: String, chang
         return Err("BridgeLink hasn't started yet".into());
     }
     put(&study_root()?, &key, &device, changes, now_ms())
+}
+
+// ---- Exam mode ----
+
+/// Exam mode, if it's on now on either computer: `{course, until}` (ms).
+pub fn exam_now(now: u64) -> Option<Value> {
+    let study = study_root().ok()?;
+    let exam = values(&read_all(&study, "exam")).remove("exam")?;
+    (exam.get("until").and_then(Value::as_u64)? > now).then_some(exam)
+}
+
+// ---- What Canvas sent last ----
+//
+// Each computer that's signed in to Canvas keeps its last good copy in `Study/.canvas/<id>.json`
+// (`{at, …}`), so the other computer (signed in or not), the phone and Mimir can all read the newest.
+
+const CANVAS_DIR: &str = ".canvas";
+const MAX_CANVAS: usize = 3 * 1024 * 1024;
+
+fn newest_canvas(study: &Path) -> Option<Value> {
+    let mut best: Option<(u64, Value)> = None;
+    for entry in fs::read_dir(study.join(CANVAS_DIR)).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") || entry.metadata().map_or(u64::MAX, |m| m.len()) > MAX_CANVAS as u64 {
+            continue;
+        }
+        let Some(value) = fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { continue };
+        let at = value.get("at").and_then(Value::as_u64).unwrap_or(0);
+        if best.as_ref().is_none_or(|(b, _)| at > *b) {
+            best = Some((at, value));
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+fn put_canvas(study: &Path, device: &str, data: &Value) -> Result<(), String> {
+    let text = serde_json::to_string(data).map_err(|e| e.to_string())?;
+    if text.len() > MAX_CANVAS || data.get("at").and_then(Value::as_u64).is_none() {
+        return Err("That isn't Canvas data BridgeDeck can keep".into());
+    }
+    let dir = study.join(CANVAS_DIR);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(device_file(device));
+    let partial = path.with_extension("json.partial");
+    fs::write(&partial, text).and_then(|_| fs::rename(&partial, &path)).map_err(|e| format!("Couldn't save the Canvas copy: {e}"))
+}
+
+/// The newest copy of what Canvas sent, from either computer (null when there's none).
+pub fn canvas_snapshot() -> Option<Value> {
+    newest_canvas(&study_root().ok()?)
+}
+
+#[tauri::command]
+pub fn study_canvas_get() -> Result<Value, String> {
+    Ok(newest_canvas(&study_root()?).unwrap_or(Value::Null))
+}
+
+/// Keeps this computer's copy of what Canvas sent (`{at, feed, api, courses, announcements}`).
+#[tauri::command]
+pub fn study_canvas_put(manager: State<'_, BridgeLinkManager>, data: Value) -> Result<(), String> {
+    let device = manager.instance_id();
+    if device.is_empty() {
+        return Err("BridgeLink hasn't started yet".into());
+    }
+    put_canvas(&study_root()?, &device, &data)
 }
 
 #[cfg(test)]
@@ -344,6 +422,18 @@ mod tests {
         put(&study, "term", "mac", changes(&[("term", Value::Null)]), 6_000).unwrap();
         assert!(values(&read_all(&study, "term")).is_empty());
         assert_eq!(fs::read_to_string(study.join(".term.json")).unwrap(), "{}");
+        let _ = fs::remove_dir_all(&study);
+    }
+
+    #[test]
+    fn the_newest_canvas_copy_wins_whichever_computer_made_it() {
+        let study = dir("canvas");
+        put_canvas(&study, "pc", &json!({"at": 10, "api": [1]})).unwrap();
+        put_canvas(&study, "mac", &json!({"at": 20, "api": [2]})).unwrap();
+        assert_eq!(newest_canvas(&study).unwrap()["api"], json!([2]));
+        put_canvas(&study, "pc", &json!({"at": 30, "api": [3]})).unwrap();
+        assert_eq!(newest_canvas(&study).unwrap()["api"], json!([3]));
+        assert!(put_canvas(&study, "pc", &json!({"api": []})).is_err());
         let _ = fs::remove_dir_all(&study);
     }
 }

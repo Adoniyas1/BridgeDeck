@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { Camera, Check, Image, MessageCircleQuestion, Smartphone, Sparkles, X } from 'lucide-react'
-import { chatgptAttachImage, chatgptRead, isTauri, pickTransferPaths } from '../../lib/bridge'
+import { chatgptAttachImage, chatgptRead, isTauri, pickTransferPaths, studyAddBooks } from '../../lib/bridge'
+import { askMimir } from '../mimir'
 import { askChatGPT } from '../../core/chatgpt'
 import { activateTab } from '../../core/tabs'
 import { errorText } from '../../core/util'
@@ -9,7 +10,8 @@ import { dateInput, fromInputs } from '../calendar/model'
 import { addAssignments, useAssignments } from './assignments'
 import { courseMatches } from './canvas'
 import { courseFolder } from './model'
-import { dateHomework, homeworkPrompt, homeworkTitle, readHomework } from './homework'
+import { dateHomework, homeworkPrompt, homeworkTitle, mimirHomeworkPrompt, readHomework } from './homework'
+import { refreshLibrary } from './state'
 import { classDaysOf } from './schedule'
 import { libraryStore, termStore } from './state'
 import { useStore } from '../../core/store'
@@ -76,6 +78,21 @@ export function HomeworkImport({ course, onClose }: { course: string; onClose: (
     window.setTimeout(() => void chatgptAttachImage(photo).then(() => setStatus('In ChatGPT: check the photo is attached, press send, and when it has answered, press “Get the answer”.')).catch(e => setStatus(errorText(e, 'Couldn’t attach the photo'))), 700)
   }
 
+  /** Mimir reads it with the local vision model; its suggestions wait under “From Mimir”. */
+  async function sendToMimir() {
+    if (!photo) return
+    try {
+      // Mimir only looks at pictures in the Study library, so the photo is kept in the course.
+      const root = libraryStore.get().library?.root ?? ''
+      const already = root && photo.replace(/\\/g, '/').startsWith(`${root.replace(/\\/g, '/')}/${course}/`)
+      const inCourse = already ? photo.split(/[\\/]/).pop()! : (await studyAddBooks(course, [photo]))[0]?.file
+      if (!inCourse) { setStatus('Couldn’t keep the photo in the course.'); return }
+      void refreshLibrary()
+      await askMimir(mimirHomeworkPrompt(course, inCourse), true, course)
+      setStatus('Mimir is reading it. What it finds waits in Study under “From Mimir” for you to add.')
+    } catch (e) { setStatus(errorText(e, 'Couldn’t send it to Mimir')) }
+  }
+
   async function getAnswer() {
     setBusy(true); setStatus('Reading ChatGPT’s answer…')
     try { await chatgptRead() } catch (e) { setBusy(false); setStatus(errorText(e, 'Open ChatGPT first')) }
@@ -104,8 +121,9 @@ export function HomeworkImport({ course, onClose }: { course: string; onClose: (
         </div>
       </li>
       <li>
-        <span>ChatGPT reads the handwriting: the photo and instructions go into the ChatGPT panel; press send there.</span>
-        <div className="actions"><button disabled={!photo || !isTauri()} onClick={() => void sendToChatGPT()}><MessageCircleQuestion size={14} />Read it with ChatGPT</button>
+        <span>Mimir reads it on your own computers (a model that reads pictures is needed), and suggests each due date for you to add. Or ChatGPT reads it: the photo and instructions go into the ChatGPT panel; press send there.</span>
+        <div className="actions"><button disabled={!photo || !isTauri()} onClick={() => void sendToMimir()}><Sparkles size={14} />Read it with Mimir</button>
+          <button className="secondary" disabled={!photo || !isTauri()} onClick={() => void sendToChatGPT()}><MessageCircleQuestion size={14} />Read it with ChatGPT</button>
           <button className="secondary" disabled={busy || !isTauri()} onClick={() => void getAnswer()}><Sparkles size={14} />{busy ? 'Reading…' : 'Get the answer'}</button></div>
       </li>
       <li>

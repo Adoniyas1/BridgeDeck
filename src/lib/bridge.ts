@@ -394,7 +394,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
-export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python' | 'locked' | 'ink' | 'image'
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python' | 'calc' | 'locked' | 'ink' | 'image'
 export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; mimir?: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; mimir?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
@@ -440,7 +440,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown; /** 'none', 'hints' (default) or 'full': how much AI help this course allows (core/exam.ts). */ aiPolicy?: unknown; /** true when the class may be recorded (off unless turned on; study/LectureCard.tsx). */ recording?: unknown; /** Words the course uses, and "heard => written" fixes, for transcripts (study/lecture.ts). */ words?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -448,9 +448,35 @@ export const studyAddCourse = (name: string) => native<void>('study_add_course',
 export const studyAddBooks = (course: string, paths: string[]) => native<StudyBook[]>('study_add_books', { course, paths })
 /** Saves a PDF made here (stitched pages) in a course; returns the file name it got. The bytes go as
  *  the request body, not JSON. */
+/** Writes a PDF where the person chose (a book, chapter or pages to download). */
+export async function studyDownloadPdf(path: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  await invoke('study_download_pdf', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
+}
+export async function pickPdfSaveTo(name: string): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `${name.replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Book'}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] })) ?? null
+}
 export async function studySavePdf(course: string, name: string, bytes: Uint8Array): Promise<string> {
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_pdf', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
+}
+/** Saves a picture for flashcards in `<course>/Cards/` and returns its file name (study.rs). */
+export async function studySaveCardPicture(course: string, name: string, bytes: Uint8Array): Promise<string> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
+}
+export const studySaveCsv = (course: string, name: string, text: string) => native<string>('study_save_csv', { course, name, text })
+/** Lecture recordings in a course's Lectures folder, with their transcripts (study_lectures.rs). */
+export type LectureSidecar = { segments?: Array<{ start: number; end: number; text: string }>; markers?: Array<{ t: number; note?: string }>; photos?: Array<{ t: number; file: string }>; started?: number; note?: string; summary?: string }
+export type LectureFile = { file: string; bytes: number; modified: number; sidecar: LectureSidecar | null }
+export const studyLectures = (course: string) => native<LectureFile[]>('study_lectures', { courseName: course })
+export const studyImportLecture = (course: string, path: string) => native<string>('study_import_lecture', { courseName: course, path })
+export const studyLectureGet = (course: string, file: string) => native<LectureSidecar | null>('study_lecture_get', { courseName: course, file })
+export const studyLecturePut = (course: string, file: string, data: LectureSidecar) => native<void>('study_lecture_put', { courseName: course, file, data })
+export async function studySaveLecture(course: string, name: string, bytes: Uint8Array): Promise<string> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<string>('study_save_lecture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
 export const studyArchiveCourse = (name: string, archived: boolean) => native<void>('study_archive_course', { name, archived })
 /** Changes some of a course's settings; the rest stay as they are in the file now (so a change here
@@ -459,15 +485,23 @@ export const studyPatchCourseInfo = (name: string, patch: Partial<CourseInfo> & 
 /** Study-wide state beside the courses: the semester's dates ("term"), homework progress ("problems"). */
 /** Study state each computer writes in its own file and reading merges (src-tauri/src/study_state.rs):
  *  entry id to value. In `studyStateSet`, null removes an entry. */
-export type StudyStateKey = 'term' | 'problems' | 'reading'
+export type StudyStateKey = 'term' | 'problems' | 'reading' | 'canvasDone' | 'exam' | 'inbox'
+/** The flashcard review log (Study/.state/reviews) and FSRS weights fitted to it (study_reviews.rs). */
+export type ReviewEntry = { card: string; at: number; grade: number; ms: number }
+export const studyReviewLog = (review: ReviewEntry) => native<void>('study_review_log', { review })
+export const studyReviewHistory = () => native<ReviewEntry[]>('study_review_history')
+export const studyFsrsTune = () => native<{ weights: number[]; reviews: number; cards: number }>('study_fsrs_tune')
 export const studyStateGet = (key: StudyStateKey) => native<Record<string, unknown>>('study_state_get', { key })
 export const studyStateSet = (key: StudyStateKey, changes: Record<string, unknown>) => native<void>('study_state_put', { key, changes })
+/** The newest copy of what Canvas sent, from either computer (study_state.rs), and keeping this one's. */
+export const studyCanvasGet = () => native<unknown>('study_canvas_get')
+export const studyCanvasPut = (data: unknown) => native<void>('study_canvas_put', { data })
 export const studyPlanRead = () => native<string>('study_plan_read')
 export const studyPlanWrite = (text: string) => native<void>('study_plan_write', { text })
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
-export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number }
+export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number; /** A book page, a minute of a lecture (`t`: seconds), or a course note (`file`: its id). */ kind?: 'book' | 'lecture' | 'note'; t?: number }
 export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })
 /** Makes the PDF the reader shows for a presentation (src-tauri/src/study_slides.rs); the first time takes a few seconds. */
 export const studySlidesPdf = (course: string, file: string) => native<void>('study_slides_pdf', { course, file })
@@ -604,6 +638,8 @@ export const circuitDelete = (project: string, name: string) => native<void>('ci
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
 export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
+/** Downloads a Canvas course's files into its Study folder; unchanged ones are skipped (canvas.rs). */
+export const canvasDownloadFiles = (base: string, token: string, canvasId: string, course: string) => native<{ saved: string[]; failed: string[]; tooBig: number }>('canvas_download_files', { base, token, canvasId, course })
 export const canvasApi = <T = unknown>(base: string, token: string, path: string) => native<T>('canvas_api', { base, token, path })
 export const examSites = (sites: string[]) => native<void>('exam_sites', { sites })
 /** Crashes and errors on this computer (src-tauri/src/errorlog.rs). */

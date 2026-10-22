@@ -202,7 +202,7 @@ fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8]) {
         _ => "Error",
     };
     let head = format!(
-        "HTTP/1.1 {status} {label}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {label}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data: blob:\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(head.as_bytes());
@@ -248,7 +248,7 @@ fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<V
         ("GET", "/api/summary") => {
             let computer = manager.computer_name();
             let snapshot = SNAPSHOT.lock().ok().and_then(|s| s.clone()).unwrap_or(json!({}));
-            Ok(json!({ "computer": computer, "snapshot": snapshot, "lists": crate::bridgelink::notes::phone_lists(&manager)? }))
+            Ok(json!({ "computer": computer, "snapshot": snapshot, "lists": crate::bridgelink::notes::phone_lists(&manager)?, "courses": crate::study::course_names() }))
         }
         ("POST", "/api/check") => {
             let body = body_json(stream)?;
@@ -280,8 +280,50 @@ fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<V
             let _ = app.emit("phone-file", json!({ "name": path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "path": path.display().to_string() }));
             Ok(json!({ "ok": true, "name": path.file_name().map(|n| n.to_string_lossy().to_string()) }))
         }
+        // Homework scanned on the phone: each page as a JPEG, then "done" puts them in one PDF in
+        // the course.
+        ("POST", "/api/scan/page") => {
+            let batch = scan_batch(request.param("batch").as_deref())?;
+            let n: u32 = request.param("n").and_then(|n| n.parse().ok()).filter(|n| *n < MAX_SCAN_PAGES).ok_or("Bad page number")?;
+            let bytes = read_body(stream, request, MAX_SCAN_PAGE)?;
+            if crate::scan_pdf::jpeg_info(&bytes).is_none() {
+                return Err("That page isn't a JPEG photo".into());
+            }
+            let dir = scans_dir(app)?.join(&batch);
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::write(dir.join(format!("{n:03}.jpg")), bytes).map_err(|e| e.to_string())?;
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/scan/done") => {
+            let body = body_json(stream)?;
+            let batch = scan_batch(body["batch"].as_str())?;
+            let (course, name) = (body["course"].as_str().unwrap_or_default(), body["name"].as_str().unwrap_or_default());
+            let dir = scans_dir(app)?.join(&batch);
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&dir).map_err(|_| "No pages were sent")?.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg")).collect();
+            files.sort();
+            let pages = files.iter().map(std::fs::read).collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            let pdf = crate::scan_pdf::jpegs_to_pdf(&pages, name)?;
+            let file = crate::study::save_pdf_in(course, if name.trim().is_empty() { "Scan" } else { name }, &pdf)?;
+            let _ = std::fs::remove_dir_all(&dir);
+            crate::activity::info("phone", &format!("Scanned {} page{} into {course}/{file}.", pages.len(), if pages.len() == 1 { "" } else { "s" }));
+            let _ = app.emit("study-scan", json!({ "course": course, "file": file, "pages": pages.len() }));
+            Ok(json!({ "ok": true, "file": file, "pages": pages.len() }))
+        }
         _ => Err("Unknown request".into()),
     }
+}
+
+const MAX_SCAN_PAGE: usize = 30 * 1024 * 1024;
+const MAX_SCAN_PAGES: u32 = 200;
+
+/// A scan's id from the phone: hex, 8–64 characters (it names a folder).
+fn scan_batch(batch: Option<&str>) -> Result<String, String> {
+    batch.filter(|b| (8..=64).contains(&b.len()) && b.chars().all(|c| c.is_ascii_hexdigit())).map(str::to_string).ok_or_else(|| "Bad scan".into())
+}
+
+/// Where a scan's pages wait (on this computer only, not synced).
+fn scans_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_cache_dir().map_err(|e| e.to_string())?.join("phone-scans"))
 }
 
 /// A file name that's safe on Mac and Windows: no folders or reserved characters.
@@ -435,5 +477,13 @@ mod tests {
     fn keys_compare_whole() {
         assert!(same("abc123", "abc123"));
         assert!(!same("abc123", "abc124") && !same("abc", "abc123"));
+    }
+
+    #[test]
+    fn scan_ids_are_plain_hex() {
+        assert_eq!(scan_batch(Some("a1b2c3d4e5f60718")).unwrap(), "a1b2c3d4e5f60718");
+        for bad in [None, Some(""), Some("short"), Some("../../etc/xx"), Some("zzzzzzzzzz")] {
+            assert!(scan_batch(bad).is_err());
+        }
     }
 }

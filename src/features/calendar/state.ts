@@ -8,7 +8,7 @@ import { createStore, useStore } from '../../core/store'
 import { dueItems, noteTitle } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { mergeCanvas, type Assignment } from '../study/canvas'
-import { canvasStore } from '../study/canvasStore'
+import { canvasDoneStore, canvasStore } from '../study/canvasStore'
 import { libraryStore, termStore } from '../study/state'
 import { classesBetween } from '../study/schedule'
 import { feedItemsStore, refreshFeeds } from './feeds'
@@ -77,7 +77,7 @@ export function useItems(from: number, to: number) {
   const config = useStore(configStore)
   const showApple = config.calendar.showApple
   const canvasData = useStore(canvasStore)
-  const done = config.canvas.done
+  const done = useStore(canvasDoneStore)
   const canvas = useMemo(() => mergeCanvas(canvasData.feed, canvasData.api, done), [canvasData, done])
   useEffect(() => { void loadApple(from, to) }, [from, to, showApple])
   const library = useStore(libraryStore).library

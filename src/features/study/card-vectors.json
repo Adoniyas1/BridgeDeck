@@ -1,0 +1,20 @@
+[
+  { "text": "What is ATP? :: The cell's energy currency <!--fsrs due=5 s=1-->",
+    "cards": [{ "sub": "", "front": "What is ATP?", "back": "The cell's energy currency", "due": 5 }] },
+  { "text": "Ohm's law :: V = IR",
+    "cards": [{ "sub": "", "front": "Ohm's law", "back": "V = IR", "due": null }] },
+  { "text": "No card here", "cards": [] },
+  { "text": "Empty side :: ", "cards": [] },
+  { "text": "Anode ::: positive electrode <!--fsrs b: due=7 s=2 | f: due=9 s=1-->",
+    "cards": [
+      { "sub": "f", "front": "Anode", "back": "positive electrode", "due": 9 },
+      { "sub": "b", "front": "positive electrode", "back": "Anode", "due": 7 }] },
+  { "text": "The {{c1::anode}} is {{c2::positive::sign}} <!--fsrs c2: due=3 s=1-->",
+    "cards": [
+      { "sub": "c1", "front": "The […] is positive", "back": "The [anode] is positive", "due": null },
+      { "sub": "c2", "front": "The anode is [sign]", "back": "The anode is [positive]", "due": 3 }] },
+  { "text": "{{c1::Kirchhoff}} said currents into a node sum to {{c1::zero}}",
+    "cards": [{ "sub": "c1", "front": "[…] said currents into a node sum to […]", "back": "[Kirchhoff] said currents into a node sum to [zero]", "due": null }] },
+  { "text": "Thevenin resistance? :: {{num:4.7k ohm ±2%}}",
+    "cards": [{ "sub": "", "front": "Thevenin resistance?", "back": "{{num:4.7k ohm ±2%}}", "due": null }] }
+]

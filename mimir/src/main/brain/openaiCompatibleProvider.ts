@@ -16,6 +16,11 @@ import { modelCallEnded, modelCallStarted, recordSpeed } from "../setup/adaptive
  * or a hosted OpenAI-compatible endpoint. Base URL + optional key are the
  * only settings; no vendor SDK dependency.
  */
+/** Servers' answers about pictures, by server and model. */
+const visionKnown = new Map<string, boolean>();
+/** Model names that usually read pictures (vision-language models). */
+const VISION_NAME = /llava|vision|[-_]vl\b|vl[-_]|minicpm-v|moondream|pixtral/i;
+
 export class OpenAICompatibleProvider implements BrainProvider {
   readonly kind = "openai-compatible" as const;
   readonly model: string;
@@ -34,6 +39,7 @@ export class OpenAICompatibleProvider implements BrainProvider {
     this.model = model;
     this.apiKey = apiKey;
     this.thinking = opts.thinking;
+    void this.probeVision().catch(() => undefined);
   }
 
   /** A failed request in words: llama-swap's "no router" means the model name isn't one it serves. */
@@ -55,8 +61,25 @@ export class OpenAICompatibleProvider implements BrainProvider {
     return this.toolsSupported;
   }
 
+  /** Whether the model reads pictures: what the server says (llama-server's /props), else a guess
+   * from the name. Asked once per server and model, in the background. */
   supportsVision(): boolean {
-    return false;
+    return visionKnown.get(this.visionKey()) ?? VISION_NAME.test(this.model);
+  }
+
+  private visionKey() { return `${this.baseUrl} ${this.model}`; }
+
+  /** llama-server answers /props with `modalities.vision`; llama-swap passes /upstream/<model>/props
+   * to a model that's already running (asking doesn't load one). */
+  private async probeVision() {
+    const key = this.visionKey();
+    if (visionKnown.has(key)) return;
+    const running = await fetch(`${this.baseUrl}/running`, { signal: AbortSignal.timeout(1500) }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as { running?: Array<{ model?: string }> } | null;
+    const urls = running?.running?.some((r) => r.model === this.model) ? [`${this.baseUrl}/upstream/${encodeURIComponent(this.model)}/props`] : running ? [] : [`${this.baseUrl}/props`];
+    for (const url of urls) {
+      const props = await fetch(url, { signal: AbortSignal.timeout(1500) }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as { modalities?: { vision?: boolean } } | null;
+      if (props?.modalities && typeof props.modalities.vision === "boolean") { visionKnown.set(key, props.modalities.vision); return; }
+    }
   }
 
   /** Counted as a model call in progress (so the load watch restarts llama-swap only between answers). */
