@@ -372,6 +372,17 @@ fn save_pdf(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
     Ok(file)
 }
 
+/// The courses being taken (not archived), for the phone's scan page.
+pub fn course_names() -> Vec<String> {
+    read_library(&root_or_default()).map(|l| l.courses.into_iter().filter(|c| !c.archived).map(|c| c.name).collect()).unwrap_or_default()
+}
+
+/// Saves a PDF made elsewhere (the phone's scans) into a course; returns the file name it got.
+pub fn save_pdf_in(course: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let dir = course_dir(&root_or_default(), course)?;
+    save_pdf(&dir, name, bytes)
+}
+
 /// The PDF is sent as the request body (not JSON); the course and file name come in the
 /// `x-course` and `x-name` headers, URI-encoded.
 #[tauri::command]

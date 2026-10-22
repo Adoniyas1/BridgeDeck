@@ -17,7 +17,7 @@ import { belongsTo, dueText, groupAssignments, type Assignment } from './canvas'
 import { addAssignment, canvasConnected, checkAssignmentReminders, endExam, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { expandProblems, problemLabel } from './problems'
-import { loadProblems, problemsStore, tickProblem } from './state'
+import { loadProblems, problemsStore, refreshLibrary, tickProblem } from './state'
 import { canvasStore } from './canvasStore'
 
 const KIND_LABEL: Record<Assignment['kind'], string> = { assignment: '', quiz: 'Quiz', discussion: 'Discussion', event: 'Event' }
@@ -173,6 +173,15 @@ export function StudyBackground() {
   useEffect(() => {
     const timer = window.setInterval(() => { checkAssignmentReminders(); setTick(t => t + 1) }, 60_000)
     return () => window.clearInterval(timer)
+  }, [])
+  // Homework scanned on the phone lands in its course as a PDF: show it, and say so.
+  useEffect(() => {
+    if (!isTauri()) return
+    const off = listen<{ course: string; file: string; pages: number }>('study-scan', e => {
+      void refreshLibrary()
+      notify('reminders', 'Scan saved', `${e.payload.file} (${e.payload.pages} page${e.payload.pages === 1 ? '' : 's'}) is in ${e.payload.course}.`)
+    })
+    return () => { void off.then(stop => stop()) }
   }, [])
   // Exam mode survives a restart: block again, and end it when its time is up.
   useEffect(() => {

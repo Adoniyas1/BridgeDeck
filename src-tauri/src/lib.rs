@@ -41,6 +41,7 @@ mod manga;
 mod projects;
 mod skill_packs;
 mod study;
+mod scan_pdf;
 mod study_slides;
 mod study_state;
 mod sync_conflicts;
