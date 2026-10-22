@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>BridgeDeck · Write</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f5f7; --panel: #fff; --text: #111; --muted: #667; --line: #d8dbe2; --accent: #2563eb }
+  @media (prefers-color-scheme: dark) { :root { --bg: #15171c; --panel: #1e2128; --text: #eef; --muted: #99a; --line: #333844 } }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none }
+  body { margin: 0; font: 15px -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text) }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 6px; align-items: center; padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap }
+  button, select, input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px }
+  button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent) }
+  .dot { width: 26px; height: 26px; border-radius: 50%; padding: 0 }
+  .grow { flex: 1 }
+  .muted { color: var(--muted); font-size: 13px }
+  #list { padding: 12px; display: grid; gap: 8px; max-width: 700px; margin: 0 auto }
+  #list button { text-align: left; padding: 12px }
+  #pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px; overflow-y: auto; height: calc(100vh - 56px); -webkit-overflow-scrolling: touch }
+  .page { position: relative; background: #fff; box-shadow: 0 2px 10px #0003; flex: none }
+  .page canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; touch-action: none }
+  #state { font-size: 12px }
+</style>
+</head>
+<body>
+<header id="top"><strong>Write</strong><span class="grow"></span><span id="state" class="muted"></span></header>
+<div id="list"></div>
+<div id="pages" hidden></div>
+<script>
+(function () {
+  var hash = location.hash.replace(/^#/, '')
+  if (/^[0-9a-f]{24,}$/.test(hash)) { try { localStorage.setItem('bd-key', hash) } catch (e) {} history.replaceState(null, '', location.pathname) }
+  var key = ''
+  try { key = localStorage.getItem('bd-key') || hash } catch (e) { key = hash }
+  var device = ''
+  try { device = localStorage.getItem('bd-ink-device') || '' } catch (e) {}
+  if (!/^[0-9a-f]{16}$/.test(device)) { device = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(function (b) { return b.toString(16).padStart(2, '0') }).join(''); try { localStorage.setItem('bd-ink-device', device) } catch (e) {} }
+  var $ = function (id) { return document.getElementById(id) }
+  function api(path, body) {
+    var opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Key': key } }
+    if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json' }
+    return fetch(path, opts).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Failed'); return j }) })
+  }
+  function el(tag, attrs, text) { var e = document.createElement(tag); for (var k in attrs || {}) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; return e }
+
+  // ---- The strokes, as src/features/notes/ink/model.ts keeps them ----
+  function decode(text) {
+    var out = [], x = 0, y = 0, p = 0
+    var parts = text.split(';')
+    for (var i = 0; i < parts.length; i++) {
+      var v = parts[i].split(',').map(Number)
+      if (v.length < 3 || !v.every(isFinite)) break
+      if (out.length) { x += v[0]; y += v[1]; p += v[2] } else { x = v[0]; y = v[1]; p = v[2] }
+      out.push({ x: x / 10, y: y / 10, p: p / 100 })
+    }
+    return out
+  }
+  function encode(points) {
+    var last = { x: 0, y: 0, p: 0 }
+    return points.map(function (pt, i) {
+      var cur = { x: Math.round(pt.x * 10), y: Math.round(pt.y * 10), p: Math.round(Math.max(0, Math.min(1, pt.p)) * 100) }
+      var o = i === 0 ? cur : { x: cur.x - last.x, y: cur.y - last.y, p: cur.p - last.p }
+      last = cur
+      return o.x + ',' + o.y + ',' + o.p
+    }).join(';')
+  }
+  function merge(logs) {
+    var strokes = {}, erased = {}
+    logs.forEach(function (log) { log[1].forEach(function (line) {
+      var v; try { v = JSON.parse(line) } catch (e) { return }
+      if (Array.isArray(v.e)) { v.e.forEach(function (id) { erased[id] = true }); return }
+      if (typeof v.s !== 'string' || typeof v.p !== 'string') return
+      var pts = decode(v.p); if (!pts.length) return
+      strokes[v.s] = { id: v.s, page: Number(v.pg) || 0, t: Number(v.t) || 0, tool: v.tool === 'hl' ? 'hl' : 'pen', color: /^#[0-9a-f]{6}$/i.test(v.c) ? v.c : '#111111', width: Number(v.w) || 2, points: pts }
+    }) })
+    return Object.keys(strokes).map(function (k) { return strokes[k] }).filter(function (s) { return !erased[s.id] }).sort(function (a, b) { return a.t - b.t })
+  }
+  var newId = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }
+
+  // ---- List of handwriting ----
+  function showList() {
+    $('pages').hidden = true; $('list').hidden = false
+    $('top').innerHTML = '<strong>Write</strong><span class="grow"></span><span id="state" class="muted"></span>'
+    api('/api/ink/list').then(function (data) {
+      var list = $('list'); list.innerHTML = ''
+      var form = el('div'); form.style.display = 'flex'; form.style.gap = '6px'; form.style.flexWrap = 'wrap'
+      var title = el('input', { placeholder: 'New notes, e.g. Lecture 12' }); title.style.flex = '1'
+      var course = el('select'); course.appendChild(el('option', { value: '' }, 'No course'))
+      ;(data.courses || []).forEach(function (c) { course.appendChild(el('option', { value: c }, c)) })
+      var add = el('button', {}, 'New page')
+      add.onclick = function () { api('/api/ink/new', { title: title.value, course: course.value }).then(function (r) { openInk(r.id, title.value || 'Handwritten notes') }).catch(function (e) { alert(e.message) }) }
+      form.appendChild(title); form.appendChild(course); form.appendChild(add); list.appendChild(form)
+      if (!data.inks.length) list.appendChild(el('p', { class: 'muted' }, 'No handwriting yet. Start a new page, or add Handwriting to a note on the computer.'))
+      data.inks.forEach(function (ink) { var b = el('button', {}, ink.note + (ink.folder ? '  ·  ' + ink.folder : '')); b.onclick = function () { openInk(ink.id, ink.note) }; list.appendChild(b) })
+    }).catch(function (e) { $('list').innerHTML = ''; $('list').appendChild(el('p', {}, e.message)) })
+  }
+
+  // ---- Writing ----
+  var ink = null
+  function openInk(id, name) {
+    var queueKey = 'bd-ink-queue-' + id
+    var queue = []
+    try { queue = JSON.parse(localStorage.getItem(queueKey) || '[]') } catch (e) {}
+    ink = { id: id, doc: { pages: 1, size: 'letter', paper: 'lines' }, strokes: [], bgs: {}, mine: [], tool: 'pen', color: '#111111', width: 2, pages: [], queue: queue, queueKey: queueKey }
+    $('list').hidden = true; $('pages').hidden = false
+    var top = $('top'); top.innerHTML = ''
+    var back = el('button', {}, '‹ Back'); back.onclick = function () { flush(); ink = null; showList() }; top.appendChild(back)
+    top.appendChild(el('strong', {}, name))
+    ;[['pen', 'Pen'], ['hl', 'Highlighter'], ['eraser', 'Eraser']].forEach(function (t) {
+      var b = el('button', { 'data-tool': t[0] }, t[1]); b.onclick = function () { ink.tool = t[0]; tools() }; top.appendChild(b)
+    })
+    ;['#111111', '#1d4ed8', '#b91c1c', '#15803d'].forEach(function (c) { var b = el('button', { class: 'dot', 'data-color': c }); b.style.background = c; b.onclick = function () { ink.color = c; if (ink.tool === 'eraser') ink.tool = 'pen'; tools() }; top.appendChild(b) })
+    var undo = el('button', {}, 'Undo'); undo.onclick = function () { var last = ink.mine.pop(); if (last) { ink.strokes = ink.strokes.filter(function (s) { return s.id !== last }); save(JSON.stringify({ e: [last], t: Date.now() })); redraw() } }; top.appendChild(undo)
+    var more = el('button', {}, '+ Page'); more.onclick = function () { ink.doc.pages++; api('/api/ink/pages?id=' + encodeURIComponent(id), { pages: ink.doc.pages }).catch(function () {}); build() }; top.appendChild(more)
+    top.appendChild(el('span', { class: 'grow' })); top.appendChild(el('span', { id: 'state', class: 'muted' }))
+    tools(); load(true)
+  }
+  function tools() { document.querySelectorAll('[data-tool]').forEach(function (b) { b.className = b.getAttribute('data-tool') === ink.tool ? 'on' : '' }); document.querySelectorAll('[data-color]').forEach(function (b) { b.className = 'dot' + (b.getAttribute('data-color') === ink.color ? ' on' : '') }) }
+  function state(text) { var s = $('state'); if (s) s.textContent = text }
+
+  function load(first) {
+    if (!ink || ink.drawing) return
+    var id = ink.id
+    api('/api/ink/doc?id=' + encodeURIComponent(id)).then(function (data) {
+      if (!ink || ink.id !== id) return
+      var doc = {}; try { doc = JSON.parse(data.doc || '{}') } catch (e) {}
+      var pages = Math.max(Number(doc.pages) || 1, ink.doc.pages)
+      var rebuild = first || pages !== ink.doc.pages
+      ink.doc = { pages: pages, size: doc.size === 'a4' ? 'a4' : 'letter', paper: doc.paper || 'lines' }
+      // Strokes not sent yet are kept on top of what the computer has.
+      ink.strokes = merge(data.logs.concat([['queue', ink.queue]]))
+      ;(data.backgrounds || []).forEach(function (p) { if (ink.bgs[p] === undefined) { ink.bgs[p] = null; api('/api/ink/bg?id=' + encodeURIComponent(id) + '&page=' + p).then(function (r) { var img = new Image(); img.onload = function () { if (ink) { ink.bgs[p] = img; redraw() } }; img.src = r.url }).catch(function () {}) } })
+      if (rebuild) build(); else redraw()
+      state(ink.queue.length ? 'Saving…' : 'Saved')
+    }).catch(function (e) { state(e.message) })
+  }
+
+  function size() { return ink.doc.size === 'a4' ? [595, 842] : [612, 792] }
+  function build() {
+    var box = $('pages'); box.innerHTML = ''; ink.pages = []
+    var wh = size(), cssW = Math.min(window.innerWidth - 28, 900), scale = cssW / wh[0], ratio = window.devicePixelRatio || 1
+    for (var i = 0; i < ink.doc.pages; i++) {
+      var page = el('div', { class: 'page' }); page.style.width = cssW + 'px'; page.style.height = (wh[1] * scale) + 'px'
+      var c = el('canvas'); c.width = cssW * ratio; c.height = wh[1] * scale * ratio
+      page.appendChild(c); box.appendChild(page)
+      ink.pages.push({ canvas: c, scale: scale * ratio, css: scale })
+      attach(c, i)
+    }
+    redraw()
+  }
+  function drawStroke(ctx, s, k) {
+    var pts = s.points; if (!pts.length) return
+    ctx.globalAlpha = s.tool === 'hl' ? 0.35 : 1
+    ctx.strokeStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    for (var i = 1; i < pts.length || i === 1; i++) {
+      var a = pts[i - 1], b = pts[Math.min(i, pts.length - 1)]
+      ctx.lineWidth = (s.tool === 'hl' ? s.width * 6 : s.width * 2 * (0.45 + 0.75 * (b.p || 0.5))) * k
+      ctx.beginPath(); ctx.moveTo(a.x * k, a.y * k); ctx.lineTo(b.x * k + (i >= pts.length ? 0.1 : 0), b.y * k); ctx.stroke()
+      if (i >= pts.length) break
+    }
+    ctx.globalAlpha = 1
+  }
+  function paper(ctx, k) {
+    var wh = size()
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, wh[0] * k, wh[1] * k)
+    ctx.strokeStyle = '#c9d6e8'; ctx.fillStyle = '#b6c3d6'; ctx.lineWidth = Math.max(0.5, 0.6 * k)
+    if (ink.doc.paper === 'lines') { for (var y = 72; y < wh[1] - 24; y += 24) { ctx.beginPath(); ctx.moveTo(36 * k, y * k); ctx.lineTo((wh[0] - 36) * k, y * k); ctx.stroke() } ctx.strokeStyle = '#efb0b0'; ctx.beginPath(); ctx.moveTo(72 * k, 0); ctx.lineTo(72 * k, wh[1] * k); ctx.stroke() }
+    else if (ink.doc.paper === 'grid') { for (var x = 18; x < wh[0]; x += 18) { ctx.beginPath(); ctx.moveTo(x * k, 0); ctx.lineTo(x * k, wh[1] * k); ctx.stroke() } for (var y2 = 18; y2 < wh[1]; y2 += 18) { ctx.beginPath(); ctx.moveTo(0, y2 * k); ctx.lineTo(wh[0] * k, y2 * k); ctx.stroke() } }
+    else if (ink.doc.paper === 'dots') { for (var x2 = 18; x2 < wh[0]; x2 += 18) for (var y3 = 18; y3 < wh[1]; y3 += 18) ctx.fillRect(x2 * k - k * 0.6, y3 * k - k * 0.6, k * 1.2, k * 1.2) }
+  }
+  function redraw(only) {
+    if (!ink) return
+    ink.pages.forEach(function (pg, i) {
+      if (only !== undefined && only !== i) return
+      var ctx = pg.canvas.getContext('2d'), k = pg.scale, wh = size()
+      paper(ctx, k)
+      if (ink.bgs[i]) ctx.drawImage(ink.bgs[i], 0, 0, wh[0] * k, wh[1] * k)
+      ink.strokes.forEach(function (s) { if (s.page === i) drawStroke(ctx, s, k) })
+      if (ink.live && ink.live.page === i) drawStroke(ctx, ink.live, k)
+    })
+  }
+  function near(s, p, r) { for (var i = 0; i < s.points.length; i++) { var q = s.points[i]; if (Math.hypot(q.x - p.x, q.y - p.y) <= r + s.width) return true } return false }
+
+  function attach(canvas, page) {
+    var scrollFrom = null
+    function at(e) { var r = canvas.getBoundingClientRect(), wh = size(); return { x: (e.clientX - r.left) / r.width * wh[0], y: (e.clientY - r.top) / r.height * wh[1], p: e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5 } }
+    canvas.addEventListener('pointerdown', function (e) {
+      // The Pencil writes; a finger scrolls (so a resting hand doesn't draw).
+      if (e.pointerType === 'touch') { scrollFrom = { y: e.clientY, top: $('pages').scrollTop }; return }
+      e.preventDefault(); canvas.setPointerCapture(e.pointerId)
+      ink.drawing = true
+      var p = at(e)
+      if (ink.tool === 'eraser') { erase(p, page); return }
+      ink.live = { id: newId(), page: page, t: Date.now(), tool: ink.tool === 'hl' ? 'hl' : 'pen', color: ink.tool === 'hl' && ink.color === '#111111' ? '#facc15' : ink.color, width: ink.width, points: [p] }
+    })
+    canvas.addEventListener('pointermove', function (e) {
+      if (e.pointerType === 'touch') { if (scrollFrom) $('pages').scrollTop = scrollFrom.top - (e.clientY - scrollFrom.y); return }
+      if (!ink || !ink.drawing) return
+      var events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
+      if (!events.length) events = [e]
+      if (ink.tool === 'eraser') { events.forEach(function (ev) { erase(at(ev), page) }); return }
+      if (!ink.live) return
+      events.forEach(function (ev) { ink.live.points.push(at(ev)) })
+      redraw(page)
+    })
+    function up(e) {
+      if (e.pointerType === 'touch') { scrollFrom = null; return }
+      if (!ink || !ink.drawing) return
+      ink.drawing = false
+      var s = ink.live; ink.live = null
+      if (s && s.points.length) {
+        if (s.points.length === 1) s.points.push({ x: s.points[0].x + 0.1, y: s.points[0].y, p: s.points[0].p })
+        ink.strokes.push(s); ink.mine.push(s.id)
+        save(JSON.stringify({ s: s.id, pg: s.page, t: s.t, tool: s.tool, c: s.color, w: s.width, p: encode(s.points) }))
+      }
+      redraw(page)
+    }
+    canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up)
+  }
+  function erase(p, page) {
+    var hit = ink.strokes.filter(function (s) { return s.page === page && near(s, p, 8) }).map(function (s) { return s.id })
+    if (!hit.length) return
+    ink.strokes = ink.strokes.filter(function (s) { return hit.indexOf(s.id) < 0 })
+    save(JSON.stringify({ e: hit, t: Date.now() })); redraw(page)
+  }
+
+  // Strokes wait in this iPad's storage until the computer has them, so none are lost when the
+  // Wi-Fi drops.
+  function save(line) {
+    ink.queue.push(line)
+    try { localStorage.setItem(ink.queueKey, JSON.stringify(ink.queue)) } catch (e) {}
+    state('Saving…'); flush()
+  }
+  var sending = false
+  function flush() {
+    if (!ink || sending || !ink.queue.length) return
+    sending = true
+    var batch = ink.queue.slice(0, 50), target = ink
+    api('/api/ink/append?id=' + encodeURIComponent(target.id) + '&d=' + device, { lines: batch }).then(function () {
+      target.queue = target.queue.slice(batch.length)
+      try { localStorage.setItem(target.queueKey, JSON.stringify(target.queue)) } catch (e) {}
+      sending = false
+      if (ink === target) { state(target.queue.length ? 'Saving…' : 'Saved'); flush() }
+    }).catch(function () { sending = false; state('Not saved yet: retrying') })
+  }
+  setInterval(function () { if (ink) { flush(); if (!ink.drawing && !ink.queue.length) load(false) } }, 5000)
+  window.addEventListener('resize', function () { if (ink) build() })
+  showList()
+})()
+</script>
+</body>
+</html>

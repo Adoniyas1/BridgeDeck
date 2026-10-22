@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Eraser, Highlighter, PenLine, Plus, Redo2, Undo2, X } from 'lucide-react'
+import { listen } from '@tauri-apps/api/event'
 import { inkAppend, inkBackground, inkCompact, inkLoad, inkSetDoc } from '../../../lib/bridge'
 import { errorText } from '../../../core/util'
 import { compacted, eraseLine, mergeLogs, newStrokeId, readDoc, strokeLine, type InkDoc, type Paper, type Point, type Stroke, type Tool } from './model'
@@ -46,8 +47,10 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
   useEffect(() => {
     const onFocus = () => void reload()
     window.addEventListener('focus', onFocus)
+    // The iPad sends strokes through the phone page as they're written.
+    const stop = listen<{ id?: string }>('ink-changed', e => { if (e.payload.id === id) void reload() })
     const timer = window.setInterval(() => { if (document.hasFocus()) void reload() }, 5000)
-    return () => { window.removeEventListener('focus', onFocus); window.clearInterval(timer) }
+    return () => { window.removeEventListener('focus', onFocus); window.clearInterval(timer); void stop.then(f => f()).catch(() => undefined) }
   }, [reload])
 
   const write = async (lines: string[]) => {
