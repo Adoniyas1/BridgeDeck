@@ -373,6 +373,29 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .collect();
             Ok(json!(blocks))
         }
+        // A photo in a course (a homework sheet, a whiteboard) for Mimir to look at. Only pictures
+        // in the Study library, never any other file.
+        "/mimir/study/photo" => {
+            let root = crate::study::root_or_default();
+            let library = crate::study::read_library(&root)?;
+            let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?;
+            let file = need(body, "file")?;
+            let encode = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+            let path = crate::study::resolve(&root, &format!("/{}/{}", encode(&course.name), encode(file))).ok_or("No such photo in that course")?;
+            let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+                Some("jpg" | "jpeg") => "image/jpeg",
+                Some("png") => "image/png",
+                Some("webp") => "image/webp",
+                Some("heic") => return Err("That photo is HEIC, which the models can't read; take it with the phone page or save it as JPEG".into()),
+                _ => return Err("That isn't a photo".into()),
+            };
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            if bytes.len() > 12 * 1024 * 1024 {
+                return Err("That photo is too big (over 12 MB)".into());
+            }
+            use base64::Engine;
+            Ok(json!({ "mime": mime, "data": base64::engine::general_purpose::STANDARD.encode(&bytes), "bytes": bytes.len() }))
+        }
         "/mimir/study/search" => {
             let (library, dir) = crate::study::library_for_search()?;
             let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
@@ -644,8 +667,12 @@ mod tests {
         assert!(due.as_array().unwrap().is_empty());
     }
 
+    /// Tests that point the Study library somewhere (a setting for the whole program) take turns.
+    static LIBRARY_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn mimir_searches_reads_and_makes_flashcards_from_the_users_books() {
+        let _turn = LIBRARY_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let base = std::env::temp_dir().join(format!("bd-mimir-study-{}", Uuid::new_v4()));
         let course_dir = base.join("Study").join("Math 221");
         std::fs::create_dir_all(&course_dir).unwrap();
@@ -712,5 +739,25 @@ mod tests {
             let want: Vec<(String, Option<u64>)> = v["cards"].as_array().unwrap().iter().map(|c| (c["sub"].as_str().unwrap().to_string(), c["due"].as_u64())).collect();
             assert_eq!(card_subs(v["text"].as_str().unwrap()), want, "{}", v["text"]);
         }
+    }
+
+    #[test]
+    fn mimir_sees_only_photos_in_a_course() {
+        let _turn = LIBRARY_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("bd-mimir-photo-{}", Uuid::new_v4()));
+        let course_dir = base.join("Study").join("EE 310");
+        std::fs::create_dir_all(&course_dir).unwrap();
+        std::fs::write(course_dir.join("hw sheet.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(course_dir.join("book.pdf"), b"%PDF").unwrap();
+        crate::study::study_library(base.to_string_lossy().to_string()).unwrap();
+        let manager = BridgeLinkManager::default();
+        let photo = call(&manager, "/mimir/study/photo", json!({ "course": "ee 310", "file": "hw sheet.jpg" }));
+        assert_eq!(photo["mime"], "image/jpeg");
+        assert_eq!(photo["data"], "/9j/4A==");
+        for file in ["book.pdf", "../../etc/passwd", "missing.jpg"] {
+            let (status, _) = route(&manager, "/mimir/study/photo", &json!({ "course": "EE 310", "file": file }).to_string());
+            assert_ne!(status, 200, "{file}");
+        }
+        let _ = std::fs::remove_dir_all(base);
     }
 }
