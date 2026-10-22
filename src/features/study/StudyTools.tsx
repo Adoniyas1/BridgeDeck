@@ -7,7 +7,8 @@ import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore, openNoteRequest } from '../notes/state'
 import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, examDeck, GRADES, masteryMap, type FlashCard } from './cards'
-import { allAssignments, useExams } from './assignments'
+import { allAssignments, useAssignments, useExams } from './assignments'
+import { guessHours } from './planner'
 import { isOldExam, practiceProblems, practiceQuestionsPrompt } from './practice'
 import { aiAllowed } from '../../core/exam'
 import { askMimir } from '../mimir'
@@ -19,7 +20,7 @@ import { importLines, toCsv } from './deckio'
 import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
-import { studyMinutes, weekStart } from './model'
+import { assignmentHours, studyMinutes, weekStart } from './model'
 import { openBook, openBookLink, openLecture } from './open'
 import { clock as lectureClock } from './lecture'
 import { activateTab } from '../../core/tabs'
@@ -32,10 +33,17 @@ const clock = (ms: number) => {
 }
 
 /** A focus timer (25 or 50 minutes, then a break); finished sessions go in the calendar. */
-export function FocusCard({ course }: { course: string }) {
+export function FocusCard({ course, info }: { course: string; info?: { code: string; canvasCode: string } }) {
   const focus = useStore(focusStore)
   const events = useStore(eventsStore)
   const config = useConfig()
+  const assignments = useAssignments().filter(a => !a.done && a.kind !== 'event' && (a.course === course || belongsTo({ name: course, code: info?.code, canvasCode: info?.canvasCode }, a.course)) && (a.due == null || a.due > Date.now() - 86_400_000))
+  const [forId, setForId] = useState('')
+  const [block, setBlock] = useState(() => { try { return localStorage.getItem('bd-focus-block') === 'on' } catch { return false } })
+  const chosen = assignments.find(a => a.id === forId)
+  const opts = { assignment: chosen ? { id: chosen.id, title: chosen.title } : undefined, block }
+  const spent = focus?.assignment ? assignmentHours(events, focus.assignment.id) : chosen ? assignmentHours(events, chosen.id) : 0
+  const target = chosen ? guessHours(chosen.kind, chosen.title) : focus?.assignment ? guessHours('assignment', focus.assignment.title) : 0
   const [, setNow] = useState(0)
   useEffect(() => {
     if (!focus) return
@@ -49,12 +57,20 @@ export function FocusCard({ course }: { course: string }) {
   return <Card><SectionTitle title="Focus" subtitle={`Today ${day} min · this week ${week} min`} />
     {focus ? <div className="study-focus">
       <span className={`study-clock${focus.kind === 'break' ? ' break' : ''}`}>{clock(focus.endsAt - Date.now())}</span>
-      <div className="grow"><strong>{focus.kind === 'break' ? 'Break' : mine ? 'Focusing' : `Focusing on ${focus.course}`}</strong><small>{focus.kind === 'break' ? 'Stand up, look away from the screen.' : 'Kept in your calendar when it ends.'}</small></div>
+      <div className="grow"><strong>{focus.kind === 'break' ? 'Break' : focus.assignment ? `On ${focus.assignment.title}` : mine ? 'Focusing' : `Focusing on ${focus.course}`}</strong><small>{focus.kind === 'break' ? 'Stand up, look away from the screen.' : `Kept in your calendar when it ends${focus.assignment ? ` · ${spent.toFixed(1)} of ~${target} h on it so far` : ''}${focus.block ? ' · distracting sites closed' : ''}.`}</small></div>
       <button className="ghost" onClick={() => void stopFocus()}><Pause size={14} /> Stop</button>
-    </div> : <div className="actions">
-      <button onClick={() => startFocus(course, 25, 5)}><Play size={14} />25 min</button>
-      <button className="secondary" onClick={() => startFocus(course, 50, 10)}><Timer size={14} />50 min</button>
-    </div>}
+    </div> : <>
+      {assignments.length > 0 && <select className="study-focus-for" value={forId} onChange={e => setForId(e.target.value)}>
+        <option value="">Not for one assignment</option>
+        {assignments.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+      </select>}
+      {chosen && <p className="hint">{spent.toFixed(1)} h on it so far · it usually takes about {target} h (“~{target}h” in its title changes that)</p>}
+      <div className="actions">
+        <button onClick={() => startFocus(course, 25, 5, opts)}><Play size={14} />25 min</button>
+        <button className="secondary" onClick={() => startFocus(course, 50, 10, opts)}><Timer size={14} />50 min</button>
+      </div>
+      <label className="study-quiet"><input type="checkbox" checked={block} onChange={e => { setBlock(e.target.checked); try { localStorage.setItem('bd-focus-block', e.target.checked ? 'on' : 'off') } catch { /* not remembered */ } }} /> Close distracting sites while focusing (the exam-mode list)</label>
+    </>}
     <label className="study-quiet"><input type="checkbox" checked={config.study.quietFocus} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, quietFocus: e.target.checked } }))} /> Quiet Mail, Messages and AI notifications while focusing (verification codes still come through)</label>
   </Card>
 }

@@ -13,3 +13,11 @@ describe('mistakes and predictions', () => {
     expect(calibration(predictions, {})).toBeNull()
   })
 })
+
+describe('hours per assignment', () => {
+  it('adds up focus sessions tagged with the assignment', async () => {
+    const { assignmentHours, assignmentTag } = await import('./model')
+    const ev = (notes: string, hours: number, deleted = false) => ({ id: notes, title: 'Studied EE', start: 0, end: hours * 3_600_000, allDay: false, location: '', notes, color: '', repeat: null, skip: [], reminder: null, updated: 0, by: '', deleted, seq: 0 })
+    expect(assignmentHours([ev(`For: HW ${assignmentTag('a1')}`, 1.5), ev(`x ${assignmentTag('a1')}`, 1, true), ev(`For ${assignmentTag('a2')}`, 2)], 'a1')).toBe(1.5)
+  })
+})

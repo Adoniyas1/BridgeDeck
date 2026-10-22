@@ -217,7 +217,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     <GradesCard course={course} onStatus={onStatus} />
     <CoursePhotos course={name} photos={photos} root={root} />
     <div className="study-tools">
-      <FocusCard course={name} />
+      <FocusCard course={name} info={course.info} />
       <FlashcardsCard course={name} info={course.info} onStatus={onStatus} />
       <ExamCard course={name} />
     </div>
