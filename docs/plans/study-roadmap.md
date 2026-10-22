@@ -107,7 +107,7 @@ Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a res
   - GradesCard / grades.ts fill category scores from Canvas submission.score/points_possible, with manual override kept. At-risk alert when the projected letter drops below the target (letters without +/-, as at CSULB, grades.ts:10).
 - [x] **3.10 Drop lowest, extra credit and points mode** (S). Items: 41 (part 2 of 2). Needs: 3.9.
   - Extend readGrading in grades.ts with {dropLowest, extraCredit, mode:'weights'|'points'} per category, saved via patch; vitest cases for each rule.
-- [ ] **3.11 Major GPA, what-if GPA, semester wrap-up** (M). Items: 42. Needs: 3.9, 1.2.
+- [x] **3.11 Major GPA, what-if GPA, semester wrap-up** (M). Items: 42. Needs: 3.9, 1.2.
   - courseSettings units and major flag; major GPA next to the existing overall GPA; what-if sliders per current course; a wrap-up view at term end (final letters, GPA change, hours studied when available) that feeds the 1.5 semester export.
 
 ## Phase 4: Flashcards 2.0 and the engineering math engine
