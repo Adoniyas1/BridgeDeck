@@ -8,7 +8,7 @@ import { eventsStore, useItems } from '../calendar/state'
 import { DAY, dateInput, formatTime, fromInputs, startOfDay } from '../calendar/model'
 import { newId } from '../notes/model'
 import { useAssignments, useExams } from './assignments'
-import { DEFAULT_PLAN, guessHours, hoursLeft, learnedFactor, missedBlocks, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
+import { DEFAULT_PLAN, guessHours, hoursLeft, learnedFactor, missedBlocks, overloadWarnings, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
 import { assignmentHours, assignmentTag } from './model'
 
 const PREFS_KEY = 'bridgedeck.study.planner'
@@ -47,6 +47,7 @@ export function StudyPlanner() {
   // Busy: anything timed on the calendar (classes, events), except this planner's own blocks.
   const busy = useMemo(() => items.filter(i => !i.allDay && i.source !== 'canvas' && i.source !== 'todo' && !i.event?.notes.includes(PLAN_TAG)), [items])
   const plan = useMemo(() => planStudy(chosen, busy, prefs.options, now), [chosen, busy, prefs.options, now])
+  const warnings = useMemo(() => overloadWarnings(chosen, plan.blocks, busy), [chosen, plan, busy])
   const old = events.filter(e => !e.deleted && e.notes.includes(PLAN_TAG) && e.start > now)
   const byDay = useMemo(() => {
     const m = new Map<number, typeof plan.blocks>()
@@ -105,6 +106,7 @@ export function StudyPlanner() {
     </Card>
     <Card>
       <SectionTitle title={`The plan: ${plan.blocks.length} block${plan.blocks.length === 1 ? '' : 's'}`} subtitle={plan.blocks.length ? `${(plan.blocks.reduce((n, b) => n + b.end - b.start, 0) / 3_600_000).toFixed(1)} hours over ${byDay.length} day${byDay.length === 1 ? '' : 's'}` : 'Set the hours above'} />
+      {warnings.map(w => <p key={w.text} className="notice-line">{w.text}</p>)}
       <div className="planner-days">
         {byDay.map(([day, blocks]) => <div key={day} className="planner-day">
           <strong>{dayText(day)}</strong>
