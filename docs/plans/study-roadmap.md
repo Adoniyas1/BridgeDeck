@@ -103,9 +103,9 @@ Give Rust and Mimir the Canvas data, make exam mode real (AI off, survives a res
   - Reminder pass reads the Canvas data (3.1) and manual assignments; 24 h and 1 h notifications for hand-added items; done marks (canvasDone) suppress them; muted in exam mode. Pushed into the phone SNAPSHOT (phone.rs phone_publish).
 - [x] **3.8 Warning: ticked done but not submitted on Canvas** (S). Items: 21. Needs: 3.1.
   - Compare canvasDone / problem ticks with submission.workflow_state/submitted_at; a 'Not submitted yet' badge plus a notification before the due time, with a link to html_url.
-- [ ] **3.9 Canvas scores into the grade sheet with an at-risk alert** (M). Items: 41 (part 1 of 2). Needs: 3.1, 1.2.
+- [x] **3.9 Canvas scores into the grade sheet with an at-risk alert** (M). Items: 41 (part 1 of 2). Needs: 3.1, 1.2.
   - GradesCard / grades.ts fill category scores from Canvas submission.score/points_possible, with manual override kept. At-risk alert when the projected letter drops below the target (letters without +/-, as at CSULB, grades.ts:10).
-- [ ] **3.10 Drop lowest, extra credit and points mode** (S). Items: 41 (part 2 of 2). Needs: 3.9.
+- [x] **3.10 Drop lowest, extra credit and points mode** (S). Items: 41 (part 2 of 2). Needs: 3.9.
   - Extend readGrading in grades.ts with {dropLowest, extraCredit, mode:'weights'|'points'} per category, saved via patch; vitest cases for each rule.
 - [ ] **3.11 Major GPA, what-if GPA, semester wrap-up** (M). Items: 42. Needs: 3.9, 1.2.
   - courseSettings units and major flag; major GPA next to the existing overall GPA; what-if sliders per current course; a wrap-up view at term end (final letters, GPA change, hours studied when available) that feeds the 1.5 semester export.

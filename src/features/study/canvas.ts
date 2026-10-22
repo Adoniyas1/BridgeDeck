@@ -20,6 +20,8 @@ export type Assignment = {
   done: boolean
   /** Canvas said whether it's been handed in on Canvas (from the API, not the calendar feed). */
   online?: boolean
+  /** The points got, once it's graded (from the API). */
+  score?: number | null
   noteId?: string
   block?: NoteBlock
 }
@@ -60,7 +62,7 @@ export function feedAssignments(ics: string): Assignment[] {
 }
 
 type ApiCourse = { id: number; name?: string; course_code?: string; access_restricted_by_date?: boolean; enrollments?: Array<{ computed_current_score?: number | null; computed_current_grade?: string | null }> }
-type ApiAssignment = { id: number; name?: string; due_at?: string | null; html_url?: string; points_possible?: number | null; submission_types?: string[]; submission?: { submitted_at?: string | null; workflow_state?: string; grade?: string | null; missing?: boolean } }
+type ApiAssignment = { id: number; name?: string; due_at?: string | null; html_url?: string; points_possible?: number | null; submission_types?: string[]; submission?: { submitted_at?: string | null; workflow_state?: string; grade?: string | null; score?: number | null; missing?: boolean } }
 type ApiAnnouncement = { id: number; title?: string; posted_at?: string | null; html_url?: string; message?: string; context_code?: string }
 
 export function apiCourses(list: unknown): CanvasCourse[] {
@@ -91,6 +93,7 @@ export function apiAssignments(list: unknown, course: CanvasCourse): Assignment[
       missing: !!sub?.missing,
       grade: sub?.grade ?? '',
       done: false,
+      score: typeof sub?.score === 'number' && sub.workflow_state === 'graded' ? sub.score : null,
       // Handed in on Canvas (not on paper, in class or nowhere).
       online: types.some(t => t.startsWith('online_')) && !types.includes('online_quiz'),
     } satisfies Assignment

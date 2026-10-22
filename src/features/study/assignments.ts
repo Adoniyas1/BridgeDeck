@@ -11,6 +11,7 @@ import { apiAnnouncements, apiAssignments, apiCourses, assignmentRemindersDue, n
 import { libraryStore, refreshLibrary, termStore } from './state'
 import { classesBetween, classRemindersDue } from './schedule'
 import { examsFrom } from './exams'
+import { currentPercent, letterFor, readGrading } from './grades'
 import { eventsStore } from '../calendar/state'
 import { catalogTitle, sameCourseTitle } from './plans'
 import { CACHE, canvasDoneStore, canvasStore, emptyCanvas, type CanvasData } from './canvasStore'
@@ -164,6 +165,21 @@ export function checkClassReminders(now = Date.now()) {
     const minutes = Math.max(1, Math.round((c.start - now) / 60_000))
     const where = c.room ? `${c.moved ? 'moved to ' : ''}${c.room}` : ''
     notify('reminders', `${c.course}${c.kind ? ` ${c.kind.toLowerCase()}` : ''} in ${minutes} min`, [where, ...due.slice(0, 3).map(a => `${a.title} due`)].filter(Boolean).join(' · '))
+  }
+}
+
+/** Once a day per course: a grade that's fallen below the goal set in its grade sheet. */
+export function checkGradeRisk(now = Date.now()) {
+  const library = libraryStore.get().library
+  if (!library) return
+  const today = new Date(now).toDateString()
+  for (const c of library.courses.filter(x => !x.archived)) {
+    const grading = readGrading(c.info.grading)
+    const current = currentPercent(grading)
+    if (!grading.goal || current == null || current >= grading.goal) continue
+    const key = `bd-grade-risk:${c.name}`
+    try { if (localStorage.getItem(key) === today) continue; localStorage.setItem(key, today) } catch { continue }
+    notify('reminders', `${c.name} is below your goal`, `${current.toFixed(1)}% (${letterFor(current)}), aiming for ${grading.goal}% (${letterFor(grading.goal)}). The grade sheet shows what you need on what's left.`)
   }
 }
 
