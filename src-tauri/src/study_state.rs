@@ -222,6 +222,11 @@ fn study_root() -> Result<PathBuf, String> {
     crate::study::current_root()
 }
 
+/// The merged state for `key` in the current Study folder (for Mimir's routes).
+pub fn current_values(key: &str) -> BTreeMap<String, Value> {
+    study_root().map(|root| values(&read_all(&root, key))).unwrap_or_default()
+}
+
 /// The merged state for `key`: entry id to value.
 #[tauri::command]
 pub fn study_state_get(key: String) -> Result<BTreeMap<String, Value>, String> {
@@ -285,7 +290,6 @@ fn put_canvas(study: &Path, device: &str, data: &Value) -> Result<(), String> {
 }
 
 /// The newest copy of what Canvas sent, from either computer (null when there's none).
-#[allow(dead_code)] // read by Mimir's study routes (roadmap 5.1)
 pub fn canvas_snapshot() -> Option<Value> {
     newest_canvas(&study_root().ok()?)
 }

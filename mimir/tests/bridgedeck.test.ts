@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { bridgeDeckFromEnv, type BridgeDeckClient } from "../src/main/bridgedeck/client.js";
-import { buildBridgeDeckToolset, parseTime } from "../src/main/bridgedeck/tools.js";
+import { buildBridgeDeckToolset, classDays, parseTime } from "../src/main/bridgedeck/tools.js";
 import { MEMORY_NOTE_ID, syncMemory } from "../src/main/bridgedeck/memory.js";
 import { defaultProjectsRoot } from "../src/main/projects/paths.js";
 
@@ -134,5 +134,21 @@ describe("memory sync", () => {
     expect(file).toBe("# Memory\n- Likes coffee now");
     expect(await syncMemory(opts)).toBe("same");
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("class days for Mimir", () => {
+  it("lists classes in the semester, skips breaks and shows changes", () => {
+    const data = {
+      term: { start: "2026-10-01", end: "2026-12-15", breaks: [{ start: "2026-10-23", end: "2026-10-23", name: "Fall recess" }] },
+      courses: [{ course: "EE 310", meetings: [{ days: [4, 5], start: "10:00", end: "11:15", room: "ECS 302", kind: "" }], changes: [{ date: "2026-10-29", room: "VEC 115" }, { date: "2026-10-30", cancelled: true }] }]
+    };
+    // Thursday 22 Oct to Friday 30 Oct.
+    const lines = classDays(data, new Date(2026, 9, 22), 9);
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatch(/Oct 22, 2026 10:00–11:15: EE 310 in ECS 302$/);
+    expect(lines[1]).toMatch(/no classes \(Fall recess\)/);
+    expect(lines[2]).toMatch(/in VEC 115 \(moved\)$/);
+    expect(lines[3]).toMatch(/CANCELLED$/);
   });
 });

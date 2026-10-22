@@ -137,7 +137,7 @@ Build a single expression/units engine, then grow the card format (cloze, both-w
 
 Let Mimir read assignments, grades, class times and plans, require approval before anything is written, turn on local vision, and replace ChatGPT for homework photos.
 
-- [ ] **5.1 Mimir study routes and tools: assignments, grades, class times, plan** (M). Items: 4 (part 1 of 2). Needs: 3.1, 3.3, 3.4.
+- [x] **5.1 Mimir study routes and tools: assignments, grades, class times, plan** (M). Items: 4 (part 1 of 2). Needs: 3.1, 3.3, 3.4.
   - mimir_api.rs: /mimir/study/assignments (canvas.json + canvasDone + manual Assignments note), /grades, /schedule (meetings, term, cancelled), /plan. tools.ts defs and handlers; study_assignments and study_policy join the core tools (:309); new bd_assignments module in modules.ts triggered by due|grade|class|schedule.
 - [ ] **5.2 Approval inbox: Mimir deadlines wait for approval** (M). Items: 4 (part 2 of 2). Needs: 5.1, 1.1.
   - /mimir/study/inbox/add appends {kind:'card'|'deadline'|'exam'|'problems'|'syllabus'|'words', course, payload, from:'mimir'} to state key inbox. A Study 'From Mimir' card accepts or rejects; accepting calls the existing add paths. Mimir's deadline/exam writes go through it; confirm() stays only for instant actions.

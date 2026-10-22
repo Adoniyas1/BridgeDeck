@@ -403,6 +403,20 @@ export const PROMPT_MODULES: PromptModule[] = [
     coreTools: ["study_search"]
   },
   {
+    id: "bd_assignments",
+    title: "Assignments, grades and classes",
+    summary: "What's due, how your courses are going, when and where classes are.",
+    when: "You ask what's due, about grades, classes or your study plan",
+    required: false,
+    tiers: ["core", "full"],
+    triggers: [/\b(due|deadlines?|homework|assignments?|grades?|gpa|classes|class|schedule|midterms?|finals?|study plan)\b/i],
+    text:
+      "For deadlines, grades, class times and the study plan, look them up with the study tools rather than guessing, " +
+      "and give times in the user's own time zone.",
+    tools: ["study_assignments", "study_grades", "study_schedule", "study_plan"],
+    coreTools: ["study_assignments"]
+  },
+  {
     id: "bd_messages",
     title: "Messages",
     summary: "Read your chats and send messages or files.",

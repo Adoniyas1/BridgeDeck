@@ -44,6 +44,7 @@ mod study;
 mod scan_pdf;
 mod study_slides;
 mod study_state;
+mod study_mimir;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;

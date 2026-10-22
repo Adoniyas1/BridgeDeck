@@ -70,6 +70,10 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "clipboard_write", description: "Put text on the clipboard (it also reaches the paired computer when clipboard sharing is on).", inputSchema: object({ text: s("Text") }, ["text"]) },
     { name: "daily_brief", description: "The user's day at a glance from BridgeDeck: today's events, checklist items due or overdue, exams and project milestones in the next week, and flashcards to review. Use it for 'what's my day', 'what's due', 'what should I study'.", inputSchema: object({}) },
     { name: "study_courses", description: "The user's Study courses in BridgeDeck: their textbooks (and whether each is searchable), course notes and checklists (ids for note_read), and flashcard counts.", inputSchema: object({}) },
+    { name: "study_assignments", description: "The user's assignments, quizzes and labs from Canvas and ones they added by hand, with due times and whether each is done. Use it for 'what's due', 'what homework do I have', planning the week.", inputSchema: object({ course: s("Optional course name"), include_done: { type: "boolean", description: "Also list finished ones (default false)" } }) },
+    { name: "study_grades", description: "The user's grade in each course, worked out from their grade sheets in BridgeDeck (by category, with the goal they set) and Canvas's grade. Use it for 'how am I doing', 'what do I need on the final'.", inputSchema: object({ course: s("Optional course name") }) },
+    { name: "study_schedule", description: "The user's class times for the next days (room, cancelled or moved classes, breaks), from BridgeDeck's Study tab.", inputSchema: object({ days: { type: "number", description: "Days ahead (default 7, max 30)" } }) },
+    { name: "study_plan", description: "The study blocks BridgeDeck's planner put in the calendar for the next days, and what each is for.", inputSchema: object({ days: { type: "number", description: "Days ahead (default 7)" } }) },
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
     { name: "flashcards_add", description: "Add flashcards to a course's deck in BridgeDeck; the user reviews them with spaced repetition in the Study tab. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
@@ -244,6 +248,42 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
         ].join("\n")).join("\n\n"));
       } catch (error) { return fail(error); }
     },
+    study_assignments: async (input) => {
+      try {
+        const list = await call<Array<{ course: string; title: string; kind: string; due: number | null; points?: number | null; score?: number | null; done: boolean; missing?: boolean; source: string }>>("study/assignments", { course: str(input, "course") || undefined });
+        const now = Date.now();
+        // Done ones only when asked; old ones (two weeks overdue) drop off as on the Study tab.
+        const shown = list.filter((a) => (input.include_done === true || !a.done) && (a.due == null || a.due > now - 14 * 86_400_000));
+        if (!shown.length) return ok(list.length ? "Nothing left to do." : "No assignments: Canvas isn't connected and none were added by hand.");
+        return ok(shown.slice(0, 60).map((a) => `- ${a.course ? `${a.course}: ` : ""}${a.title}${a.kind !== "assignment" ? ` (${a.kind})` : ""} — ${a.due == null ? "no due date" : `${a.due < now && !a.done ? "OVERDUE since " : "due "}${when(a.due)}`}${a.done ? " — done" : ""}${a.missing ? " — Canvas says missing" : ""}${a.score != null && a.points ? ` — ${a.score}/${a.points}` : ""}`).join("\n"));
+      } catch (error) { return fail(error); }
+    },
+    study_grades: async (input) => {
+      try {
+        type Grade = { percent: number | null; letter: string | null; goal: number | null; categories: Array<{ name: string; weight: number; percent: number | null; items: Array<{ name: string; got: number | null; max: number }> }>; canvas: { score: number | null; grade: string } | null };
+        const courses = await call<Array<{ course: string; grade: Grade }>>("study/grades", { course: str(input, "course") || undefined });
+        if (!courses.length) return ok("No courses match.");
+        return ok(courses.map(({ course, grade: g }) => [
+          `## ${course}: ${g.percent == null ? "no grades entered yet" : `${g.percent}% (${g.letter})`}${g.goal ? `, goal ${g.goal}%` : ""}${g.canvas?.score != null ? `; Canvas says ${g.canvas.score}%${g.canvas.grade ? ` ${g.canvas.grade}` : ""}` : ""}`,
+          ...g.categories.map((c) => `- ${c.name}${c.weight ? ` (${c.weight}%)` : ""}: ${c.percent == null ? "nothing graded" : `${c.percent}%`}; ${c.items.map((i) => `${i.name} ${i.got == null ? "not graded" : `${i.got}/${i.max}`}`).join(", ")}`)
+        ].join("\n")).join("\n\n"));
+      } catch (error) { return fail(error); }
+    },
+    study_schedule: async (input) => {
+      try {
+        const data = await call<{ term: { start: string; end: string; breaks: Array<{ start: string; end: string; name: string }> } | null; courses: Array<{ course: string; meetings: Array<{ days: number[]; start: string; end: string; room: string; kind: string }>; changes: Array<{ date: string; cancelled?: boolean; room?: string; note?: string }> }> }>("study/schedule");
+        const days = Math.min(30, Math.max(1, typeof input.days === "number" ? Math.round(input.days) : 7));
+        const lines = classDays(data, new Date(), days);
+        return ok(lines.length ? lines.join("\n") : "No classes in that time (no class times are set, or it's a break).");
+      } catch (error) { return fail(error); }
+    },
+    study_plan: async (input) => {
+      try {
+        const blocks = await call<Array<{ title: string; start: number; end: number; for: string }>>("study/plan", { days: typeof input.days === "number" ? input.days : undefined });
+        if (!blocks.length) return ok("No study blocks planned; the user makes a plan with the planner in BridgeDeck's Study tab.");
+        return ok(blocks.map((b) => `- ${when(b.start)}–${new Date(b.end).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}: ${b.title}${b.for ? ` (${b.for})` : ""}`).join("\n"));
+      } catch (error) { return fail(error); }
+    },
     study_search: async (input) => {
       try {
         const hits = await call<Array<{ course: string; book: string; page: number; text: string; link: string }>>("study/search", { query: str(input, "query"), course: str(input, "course") || undefined, limit: typeof input.limit === "number" ? input.limit : undefined });
@@ -306,4 +346,29 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
 }
 
 /** Tools small local models also get: the everyday ones. */
-export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add", "study_search", "daily_brief"];
+export const BRIDGEDECK_CORE_TOOLS = ["notes_search", "note_read", "checklist_add", "checklist_tick", "calendar_list", "calendar_add", "study_search", "study_assignments", "daily_brief"];
+
+type Schedule = { term: { start: string; end: string; breaks: Array<{ start: string; end: string; name: string }> } | null; courses: Array<{ course: string; meetings: Array<{ days: number[]; start: string; end: string; room: string; kind: string }>; changes: Array<{ date: string; cancelled?: boolean; room?: string; note?: string }> }> };
+
+/** Each class in the next `days` days, in this computer's time: inside the semester and outside its
+ *  breaks, with one-off changes (cancelled, another room). */
+export function classDays(data: Schedule, from: Date, days: number): string[] {
+  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const lines: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+    const date = key(day);
+    if (data.term && (date < data.term.start || date > data.term.end)) continue;
+    const off = data.term?.breaks.find((b) => date >= b.start && date <= b.end);
+    if (off) { lines.push(`- ${when(day.getTime(), true)}: no classes (${off.name || "break"})`); continue; }
+    const weekday = day.getDay() === 0 ? 7 : day.getDay();
+    for (const c of data.courses) {
+      const change = c.changes.find((x) => x.date === date);
+      for (const m of c.meetings.filter((m) => Array.isArray(m.days) && m.days.includes(weekday)).sort((a, b) => a.start.localeCompare(b.start))) {
+        const room = change?.room || m.room;
+        lines.push(`- ${when(day.getTime(), true)} ${m.start}–${m.end}: ${c.course}${m.kind ? ` ${m.kind}` : ""}${change?.cancelled ? " — CANCELLED" : room ? ` in ${room}${change?.room ? " (moved)" : ""}` : ""}${change?.note ? ` — ${change.note}` : ""}`);
+      }
+    }
+  }
+  return lines;
+}

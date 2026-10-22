@@ -315,6 +315,59 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .collect();
             Ok(json!({ "root": library.root, "courses": courses }))
         }
+        "/mimir/study/assignments" => {
+            let snapshot = crate::study_state::canvas_snapshot();
+            let done = crate::study_state::current_values("canvasDone");
+            let manual: Vec<(String, Option<i64>, bool)> = manager
+                .lock()?
+                .notes
+                .list()
+                .into_iter()
+                .find(|n| !n.deleted && n.title == "Assignments" && n.folder.eq_ignore_ascii_case("Study"))
+                .map(|n| n.blocks.into_iter().filter(|b| !b.deleted && b.kind == "todo" && !b.text.trim().is_empty()).map(|b| (b.text, b.due.map(|d| d as i64), b.checked)).collect())
+                .unwrap_or_default();
+            let wanted = text(body, "course").map(str::to_lowercase);
+            let list = crate::study_mimir::assignments(snapshot.as_ref(), &done, &manual);
+            Ok(json!(list.into_iter().filter(|a| wanted.as_ref().is_none_or(|w| a["course"].as_str().unwrap_or("").to_lowercase().contains(w.as_str()))).collect::<Vec<_>>()))
+        }
+        "/mimir/study/grades" => {
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let snapshot = crate::study_state::canvas_snapshot();
+            let canvas_courses: Vec<Value> = snapshot.as_ref().and_then(|s| s["courses"].as_array().cloned()).unwrap_or_default();
+            let wanted = text(body, "course").map(str::to_lowercase);
+            let courses: Vec<Value> = library
+                .courses
+                .iter()
+                .filter(|c| !c.archived && wanted.as_ref().is_none_or(|w| c.name.to_lowercase().contains(w.as_str())))
+                .map(|c| {
+                    let canvas = canvas_courses.iter().find(|k| (!c.info.canvas_id.is_empty() && k["id"].as_str() == Some(c.info.canvas_id.as_str())) || k["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&c.name.to_lowercase())));
+                    json!({ "course": c.name, "grade": crate::study_mimir::grade_summary(c.info.more.get("grading"), canvas) })
+                })
+                .collect();
+            Ok(json!(courses))
+        }
+        "/mimir/study/schedule" => {
+            let library = crate::study::read_library(&crate::study::root_or_default())?;
+            let term = crate::study_state::current_values("term").remove("term").unwrap_or(Value::Null);
+            let courses: Vec<Value> = library
+                .courses
+                .iter()
+                .filter(|c| !c.archived)
+                .map(|c| json!({ "course": c.name, "meetings": c.info.more.get("meetings").cloned().unwrap_or(json!([])), "changes": c.info.more.get("classChanges").cloned().unwrap_or(json!([])) }))
+                .collect();
+            Ok(json!({ "term": term, "courses": courses }))
+        }
+        "/mimir/study/plan" => {
+            let now = now_ms() as i64;
+            let days = body.get("days").and_then(|v| v.as_i64()).unwrap_or(7).clamp(1, 60);
+            let events = manager.lock()?.calendar.list();
+            let blocks: Vec<Value> = events
+                .iter()
+                .filter(|e| !e.deleted && e.notes.contains("[BridgeDeck study plan]") && e.end >= now && e.start <= now + days * 86_400_000)
+                .map(|e| json!({ "title": e.title, "start": e.start, "end": e.end, "for": e.notes.lines().next().unwrap_or("") }))
+                .collect();
+            Ok(json!(blocks))
+        }
         "/mimir/study/search" => {
             let (library, dir) = crate::study::library_for_search()?;
             let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).clamp(1, 30) as usize;
