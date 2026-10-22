@@ -46,7 +46,7 @@ export function preview(note: Note) {
 /** Block kinds this build edits as text. Others (handwriting and pictures, which get their own
  *  views, or a kind made by a newer BridgeDeck) are shown but never edited as text, so their data
  *  is kept as it is. */
-const TEXT_KINDS = new Set(['p', 'h1', 'h2', 'h3', 'li', 'ol', 'todo', 'quote', 'code', 'graph', 'python', 'locked'])
+const TEXT_KINDS = new Set(['p', 'h1', 'h2', 'h3', 'li', 'ol', 'todo', 'quote', 'code', 'graph', 'python', 'calc', 'locked'])
 export const editableAsText = (kind: string) => TEXT_KINDS.has(kind)
 
 /** Markdown typed at the start of a paragraph that turns it into another kind of block. */
@@ -54,7 +54,7 @@ export function shortcut(text: string): { kind: NoteBlockKind; text: string; che
   const rules: Array<[RegExp, NoteBlockKind, boolean?]> = [
     [/^### /, 'h3'], [/^## /, 'h2'], [/^# /, 'h1'],
     [/^\[[xX]\] /, 'todo', true], [/^\[ ?\] /, 'todo'], [/^- \[[xX]\] /, 'todo', true], [/^- \[ ?\] /, 'todo'],
-    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'], [/^```graph$/, 'graph'], [/^```(python|py)$/, 'python'],
+    [/^[-*] /, 'li'], [/^1[.)] /, 'ol'], [/^> /, 'quote'], [/^```$/, 'code'], [/^```graph$/, 'graph'], [/^```calc$/, 'calc'], [/^```(python|py)$/, 'python'],
   ]
   for (const [pattern, kind, checked] of rules) {
     const match = text.match(pattern)
@@ -197,6 +197,7 @@ export function toMarkdown(note: Note) {
       case 'code': lines.push('```', block.text, '```'); break
       case 'graph': lines.push('```graph', block.text, '```'); break
       case 'python': lines.push('```python', block.text, '```'); break
+      case 'calc': lines.push('```calc', block.text, '```'); break
       case 'drawing': lines.push(`![Drawing](bridgedeck-drawing:${block.text})`, ''); break
       case 'ink': lines.push(`![Ink](bridgedeck-ink:${block.text})`, ''); break
       case 'image': lines.push(`![Image](bridgedeck-image:${block.text})`, ''); break

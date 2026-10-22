@@ -45,6 +45,7 @@ describe('notes', () => {
     expect(shortcut('- [x] done')).toEqual({ kind: 'todo', text: 'done', checked: true })
     expect(shortcut('- item')).toEqual({ kind: 'li', text: 'item' })
     expect(shortcut('1. one')).toEqual({ kind: 'ol', text: 'one' })
+    expect(shortcut('```calc')).toEqual({ kind: 'calc', text: '' })
     expect(shortcut('plain')).toBeNull()
   })
 

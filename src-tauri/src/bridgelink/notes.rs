@@ -18,7 +18,7 @@ const MAX_TITLE: usize = 300;
 const MAX_INDENT: u8 = 4;
 /// Keeps each pull answer well under the link's 1 MB frame.
 const PAGE_BYTES: usize = 600 * 1024;
-const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python", "locked", "ink", "image"];
+const BLOCK_KINDS: &[&str] = &["p", "h1", "h2", "h3", "li", "ol", "todo", "quote", "code", "drawing", "graph", "python", "calc", "locked", "ink", "image"];
 
 /// A block kind this build may not know yet (made by a newer BridgeDeck): kept as it is, so a
 /// computer that hasn't been updated doesn't turn it into a paragraph and sync that back. Only
@@ -722,6 +722,7 @@ pub fn to_markdown(note: &Note) -> String {
             "code" => format!("```\n{}\n```", block.text),
             "graph" => format!("```graph\n{}\n```", block.text),
             "python" => format!("```python\n{}\n```", block.text),
+            "calc" => format!("```calc\n{}\n```", block.text),
             // A password-locked note's content, encrypted in the window (never the password).
             "locked" => format!("```bridgedeck-locked\n{}\n```", block.text),
             // The picture lives in the shared folder; this link brings the drawing back on import.
@@ -780,6 +781,7 @@ pub fn blocks_from_markdown(markdown: &str, after: &str, device: &str, now: u64)
             flush(&mut blocks, &mut paragraph);
             fence = match lang.trim().to_ascii_lowercase().as_str() {
                 "graph" => "graph",
+                "calc" => "calc",
                 "python" | "py" | "python3" => "python",
                 "bridgedeck-locked" => "locked",
                 _ => "code",

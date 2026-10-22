@@ -1224,6 +1224,14 @@ main.fill .logic{height:auto}
 .notes-graph text{font-size:10px;fill:var(--faint)}
 .notes-graph-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
 .notes-graph-legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.notes-calc{display:flex;flex-direction:column;gap:2px;font-size:13px;padding:6px 0}
+.notes-calc.clickable{cursor:text}
+.notes-calc-line{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
+.notes-calc-line code{background:none;padding:0;color:var(--muted)}
+.notes-calc-line span{font-family:ui-monospace,monospace;color:var(--text)}
+.notes-calc-line.bad span{color:var(--danger,#f87171)}
+.notes-calc-line.note code{font-style:italic}
+.notes-calc-gap{height:6px}
 .notes-python-bar{display:flex;align-items:center;gap:8px;margin-top:6px}
 .notes-python-bar small{color:var(--muted)}
 .notes-python-out{margin:6px 0 0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto}

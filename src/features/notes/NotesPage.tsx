@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
+import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Calculator, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
 import { noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { layoutGraph } from './graph'
@@ -9,7 +9,7 @@ import { MIMIR_MEMORY_ID, editableAsText, allTags, backlinks, between, bumpLabel
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
 import { openBookLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
-import { PlotView, PythonOutput } from './CellBlocks'
+import { CalcView, PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
 import { LockDialog, LockedNote } from './LockedNote'
 import { lockText } from './lock'
@@ -17,11 +17,11 @@ import { lockText } from './lock'
 const KINDS: Array<[NoteBlockKind, string, typeof Pilcrow]> = [
   ['p', 'Text', Pilcrow], ['h1', 'Heading', Heading1], ['h2', 'Subheading', Heading2], ['li', 'Bulleted list', List],
   ['ol', 'Numbered list', ListOrdered], ['todo', 'Checklist', CheckSquare], ['quote', 'Quote', Quote], ['code', 'Code', Code], ['drawing', 'Drawing', PenTool],
-  ['graph', 'Graph', LineChart], ['python', 'Python', Terminal],
+  ['graph', 'Graph', LineChart], ['python', 'Python', Terminal], ['calc', 'Calculator', Calculator],
 ]
 
 /** Blocks typed like code: Enter is a new line (Shift+Enter a new block), no spell check. */
-const codeLike = (kind: NoteBlockKind) => kind === 'code' || kind === 'graph' || kind === 'python'
+const codeLike = (kind: NoteBlockKind) => kind === 'code' || kind === 'graph' || kind === 'python' || kind === 'calc'
 
 const SECTIONS: Array<[Section, string, typeof Pilcrow]> = [['mine', 'My notes', StickyNote], ['lists', 'Checklists', ListChecks], ['mimir', 'Mimir', Sparkles]]
 
@@ -395,7 +395,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
     if (!id) return
     const current = blocks.find(b => b.id === id)
     // A new graph starts with an example to change.
-    updateBlock(id, kind === 'graph' && !current?.text.trim() ? { kind, text: 'y = sin(x)\nx: -2pi..2pi' } : { kind })
+    updateBlock(id, kind === 'graph' && !current?.text.trim() ? { kind, text: 'y = sin(x)\nx: -2pi..2pi' } : kind === 'calc' && !current?.text.trim() ? { kind, text: 'R = 4.7k ohm\nC = 10uF\nf = 1/(2pi R C)' } : { kind })
     setFocus({ id, caret: 'end' })
   }
 
@@ -566,7 +566,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
     el.setSelectionRange(at, at)
   }, [focus])
 
-  const placeholder = block.kind === 'todo' ? 'To do' : block.kind.startsWith('h') ? 'Heading' : block.kind === 'code' ? 'Code' : block.kind === 'python' ? 'Python, e.g. print(2 ** 10)' : block.kind === 'graph' ? 'y = sin(x)' : editing ? 'Type, or start with # - [] > for formatting' : ''
+  const placeholder = block.kind === 'todo' ? 'To do' : block.kind.startsWith('h') ? 'Heading' : block.kind === 'code' ? 'Code' : block.kind === 'python' ? 'Python, e.g. print(2 ** 10)' : block.kind === 'graph' ? 'y = sin(x)' : block.kind === 'calc' ? 'R = 4.7k ohm, then R || 10k ohm' : editing ? 'Type, or start with # - [] > for formatting' : ''
   const marker = block.kind === 'li' ? <span className="notes-bullet">•</span>
     : block.kind === 'ol' ? <span className="notes-bullet">{number}.</span>
     : block.kind === 'todo' ? <input type="checkbox" className="notes-check" checked={block.checked} onChange={onCheck} />
@@ -584,6 +584,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
             onChange={e => { onText(e.target.value); const q = linkQuery(e.target.value, e.target.selectionStart); setSuggest(q ? { ...q, index: 0 } : null) }}
             onKeyDown={keyDown} onFocus={onFocused} onBlur={() => { window.setTimeout(() => setSuggest(null), 150); onBlurred() }} />
         : block.kind === 'graph' ? <PlotView text={block.text} onClick={onEdit} />
+        : block.kind === 'calc' ? <CalcView text={block.text} onClick={onEdit} />
         : block.kind === 'p' && displayMath(block.text) !== null
           ? <div className="notes-rendered notes-math-block" onClick={onEdit} dangerouslySetInnerHTML={{ __html: renderMath(displayMath(block.text)!, true) }} />
           : <div className="notes-rendered" onClick={e => { if (!(e.target instanceof HTMLAnchorElement)) onEdit() }}>
@@ -602,6 +603,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
             })}
           </div>}
       {showArea && block.kind === 'graph' && <PlotView text={block.text} />}
+      {showArea && block.kind === 'calc' && <CalcView text={block.text} />}
       {block.kind === 'python' && <PythonOutput code={block.text} />}
       {suggest && options.length > 0 && <div className="notes-suggest">
         {options.map((title, i) => <button key={title} className={i === suggest.index ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(title) }}>
