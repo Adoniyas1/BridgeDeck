@@ -168,7 +168,7 @@ Keep lecture audio with timestamps, live transcription and Mimir summaries; down
   - Second Canvas pass for modules/files (canvas.rs proxy) into Study/<course>/Canvas/ (slides, old exams, syllabus), with size checks against Syncthing/backup limits and skip-if-unchanged. PDFs are indexed by the existing indexer. Done: 'Canvas files' on a linked course downloads its files (books, slides, pictures; 150 MB each, 1 GB a run; unchanged ones skipped by .canvas-files.json) beside its books, grouped as 'From Canvas', so they're listed and indexed. Module pages (not files) aren't read.
 - [x] **6.7 Search covers EPUBs, lecture transcripts and notes; timestamp citations; re-checks pages** (M). Items: 5. Needs: 6.1, 5.1.
   - study_save_index accepts kind epub (EpubTab/indexer via epubjs) and transcripts (minute paragraphs as pages); notes searched through the notes store; Hit gains t for lectures. bd_study rules: cite (Book, p. N) and lecture [mm:ss], and re-read the page through study_search before quoting. Done: EPUBs were already indexed by chapter; search now also covers each minute of a lecture transcript (hits carry t and open the player there) and course notes (not flashcards); Mimir cites [mm:ss] and re-reads pages before quoting.
-- [ ] **6.8 Syllabus reader proposes weights, exams, office hours and AI policy** (M). Items: 26. Needs: 6.6, 5.2, 3.4.
+- [x] **6.8 Syllabus reader proposes weights, exams, office hours and AI policy** (M). Items: 26. Needs: 6.6, 5.2, 3.4.
   - Mimir reads the syllabus (downloaded by 6.6 or picked) and posts kind 'syllabus' to the inbox; accepting fills grading weights, exams (source syllabus), officeHours and aiPolicy via patch, showing a diff first.
 
 ## Phase 7: Homework, exam prep and planning

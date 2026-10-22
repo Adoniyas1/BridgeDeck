@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, CloudDownload, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CloudDownload, Sparkles, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, canvasDownloadFiles, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -18,6 +18,8 @@ import { indexLibrary } from './indexer'
 import { BookSearchCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
 import { MimirInbox } from './MimirInbox'
+import { syllabusPrompt } from './syllabus'
+import { askMimir } from '../mimir'
 import { canvasConnected } from './assignments'
 import { configStore } from '../../core/config'
 import { readCollections } from './collections'
@@ -198,7 +200,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     {stitching && <Suspense fallback={null}><StitchPdf course={course} onClose={() => setStitching(false)} onStatus={onStatus} /></Suspense>}
     {archived && <div className="notice"><Archive size={15} /><span>{name} is archived: it’s hidden from your courses, and its files are kept.</span><button className="ghost" onClick={() => onArchive(false)}>Unarchive</button></div>}
     <Card><SectionTitle title={course.info.title && course.info.title !== name ? `${name} · ${course.info.title}` : name} subtitle={[count(readable.length, 'book'), ...(slides.length ? [count(slides.length, 'presentation')] : []), count(mine.length, 'note')].join(' · ')}
-      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button>{course.info.canvasId && canvasConnected() && <button className="secondary" title="Download the course’s files from Canvas (syllabus, slides, old exams) into this course" onClick={() => void canvasFiles()}><CloudDownload size={15} />Canvas files</button>}<button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
+      action={<div className="actions"><button onClick={() => void addBooks()} title="PDF or EPUB books, and PowerPoint or Keynote presentations"><Plus size={15} />Add books or slides</button><button className="secondary" title="Put PDFs and photos together into one PDF (homework to upload)" onClick={() => setStitching(true)}><Combine size={15} />Stitch PDFs</button><button className="secondary" onClick={() => void openPath(`${root}/${name}`)}><FolderOpen size={15} />Folder</button>{books.some(b => /syllabus/i.test(b.title)) && <button className="secondary" title="Mimir reads the syllabus and suggests grade weights, exams, office hours and the AI policy for you to check" onClick={() => { const b = books.find(b => /syllabus/i.test(b.title))!; void askMimir(syllabusPrompt(name, b.title), true, name) }}><Sparkles size={15} />Read syllabus</button>}{course.info.canvasId && canvasConnected() && <button className="secondary" title="Download the course’s files from Canvas (syllabus, slides, old exams) into this course" onClick={() => void canvasFiles()}><CloudDownload size={15} />Canvas files</button>}<button className="secondary" title="Open ChatGPT ready to help with this course" onClick={() => void askChatGPT(coursePrompt(name, books.map(b => b.title)), courseFolder(name)).catch(e => onStatus(String(e)))}><MessageCircleQuestion size={15} />ChatGPT</button>
         {archived ? <button className="secondary" title="Back into your courses" onClick={() => onArchive(false)}><ArchiveRestore size={15} /></button>
           : <button className="secondary" title="Archive: hide it from your courses, keep its files" onClick={() => onArchive(true)}><Archive size={15} /></button>}
         <button className="secondary" title="Delete the course" onClick={onDelete}><Trash2 size={15} /></button></div>} />

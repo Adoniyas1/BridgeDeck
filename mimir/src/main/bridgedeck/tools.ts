@@ -78,6 +78,7 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
     { name: "study_photo", description: "Look at a photo saved in one of the user's courses (a homework sheet, a whiteboard, a page of notes). The picture is attached for you to read.", inputSchema: object({ course: s("Course name"), file: s("The photo's file name in the course") }, ["course", "file"]) },
     { name: "study_lecture", description: "The user's lecture recordings in a course, or one lecture's transcript with [mm:ss] times, the moments they marked as lost, and the id of its note (for notes_append).", inputSchema: object({ course: s("Course name"), file: s("Optional: the recording's file name, for its transcript") }, ["course"]) },
+    { name: "study_syllabus", description: "Suggest a course's setup from its syllabus: grade weights, people with office hours, exams and the AI policy. It waits in BridgeDeck's Study tab, showing what would change, until the user accepts.", inputSchema: object({ course: s("Course name"), weights: { type: "array", items: object({ name: s("Category, e.g. Homework"), weight: { type: "number", description: "Percent of the grade" } }, ["name", "weight"]) }, people: { type: "array", items: object({ role: s("Professor, TA…"), name: s("Name"), email: s("Email"), hours: s("Office hours and room") }, ["name"]) }, exams: { type: "array", items: object({ title: s("Midterm 1, Final…"), when: s("2026-10-20T10:00 (this computer's time)"), room: s("Room (optional)"), covers: s("What it covers (optional)") }, ["title", "when"]) }, ai_policy: { type: "string", enum: ["none", "hints", "full"], description: "What the syllabus allows" } }, ["course"]) },
     { name: "study_suggest", description: "Suggest a deadline (homework, lab, project) or an exam for a course. It waits in BridgeDeck's Study tab under 'From Mimir' until the user adds it; tell them that.", inputSchema: object({ kind: { type: "string", enum: ["deadline", "exam"], description: "deadline or exam" }, course: s("Course name"), title: s("What it is, e.g. 'Problem set 5' or 'Midterm 2'"), when: s("Due time or exam start: 2026-10-03T15:00 (this computer's time) or 2026-10-03"), room: s("Exam room (optional)"), covers: s("What the exam covers (optional)"), allowed: s("What may be brought (optional)") }, ["kind", "course", "title"]) },
     { name: "flashcards_add", description: "Suggest flashcards for a course's deck in BridgeDeck; they wait in the Study tab under 'From Mimir' until the user adds them, then are reviewed with spaced repetition. Keep each side short and one idea per card. Give book and page when a card comes from a textbook.", inputSchema: object({ course: s("Course name"), cards: { type: "array", items: object({ front: s("Question"), back: s("Answer"), book: s("Optional book title"), page: { type: "number" } }, ["front", "back"]) } }, ["course", "cards"]) },
     { name: "projects_list", description: "The user's BridgeDeck projects: each one's folder (the same folder list_project_files and read_project_file work in), notes (ids for note_read), task board columns with their cards, and upcoming milestones.", inputSchema: object({}) },
@@ -318,6 +319,18 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
         }
         const l = await call<{ file: string; note: string | null; transcript: string; lostAt: string[] }>("study/lectures", { course: str(input, "course"), file: str(input, "file") });
         return ok(`# ${l.file}${l.note ? ` (note id=${l.note})` : ""}${l.lostAt.length ? `\nThe user marked being lost at: ${l.lostAt.join(", ")}` : ""}\n\n${l.transcript}`);
+      } catch (error) { return fail(error); }
+    },
+    study_syllabus: async (input) => {
+      const exams = (Array.isArray(input.exams) ? input.exams : []).flatMap((e) => {
+        const x = e as Record<string, unknown>;
+        const t = parseTime(x.when);
+        return t ? [{ title: String(x.title ?? "Exam"), start: Math.round(t.dateOnly ? t.ms + 9 * 3_600_000 : t.ms), room: x.room, covers: x.covers }] : [];
+      });
+      const payload = { weights: input.weights, people: input.people, exams, aiPolicy: input.ai_policy };
+      try {
+        await call("study/inbox/add", { kind: "syllabus", course: str(input, "course"), payload });
+        return ok(`Suggested. It's waiting in the Study tab under "From Mimir", showing what would change, for the user to accept.`);
       } catch (error) { return fail(error); }
     },
     study_suggest: async (input) => {

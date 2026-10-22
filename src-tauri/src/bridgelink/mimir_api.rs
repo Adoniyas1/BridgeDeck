@@ -481,10 +481,15 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             let ok = match kind {
                 "deadline" => payload["title"].as_str().is_some_and(|t| !t.trim().is_empty()) && (payload["due"].is_null() || payload["due"].is_u64()),
                 "exam" => payload["start"].is_u64(),
-                _ => return Err("`kind` is deadline or exam (flashcards go through flashcards/add)".into()),
+                "syllabus" => payload.is_object() && ["weights", "people", "exams", "aiPolicy"].iter().any(|k| !payload[*k].is_null()),
+                _ => return Err("`kind` is deadline, exam or syllabus (flashcards go through flashcards/add)".into()),
             };
             if !ok {
-                return Err(if kind == "exam" { "An exam needs `start` (ms)".into() } else { "A deadline needs a `title` and `due` (ms, or null)".into() });
+                return Err(match kind {
+                    "exam" => "An exam needs `start` (ms)".into(),
+                    "syllabus" => "Give at least one of weights, people, exams or aiPolicy".into(),
+                    _ => "A deadline needs a `title` and `due` (ms, or null)".into(),
+                });
             }
             let library = crate::study::read_library(&crate::study::root_or_default())?;
             let course = crate::study::find_course(&library, need(body, "course")?).ok_or("No such course")?.name.clone();

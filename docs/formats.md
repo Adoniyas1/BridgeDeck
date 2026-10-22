@@ -62,6 +62,7 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 ## Mimir inbox (study state `inbox`)
 
 - Each entry is `{kind, course, payload, from: "mimir", at}`. `kind` is `cards` (`payload.lines`: card lines), `deadline` (`title`, `due` ms or null) or `exam` (`title`, `start` ms, optional `end`, `room`, `covers`, `allowed`).
+- `syllabus` entries carry `weights` ([{name, weight}]), `people` ([{role, name, email, hours}]), `exams` ([{title, start, room?, covers?}]) and `aiPolicy`; accepting merges them into the course (nothing removed) after showing what changes.
 - The Study tab adds an entry when the user accepts it, and removes it (null) when it's accepted or turned down. Builds that don't know a kind leave it alone.
 
 ## Lectures (`Study/<course>/Lectures/`, `src-tauri/src/study_lectures.rs`)
