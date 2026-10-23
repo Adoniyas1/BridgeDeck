@@ -229,8 +229,8 @@ Make huge books into clickable chapter books with download, write with a pen or 
 
 Engineering lab tools (circuit checker, drills, lab notebook, Octave reports), a phone page that works on campus and offline, and sharing with lab partners.
 
-- [ ] **9.1 Analog circuit checker in Logic via ngspice** (M). Items: 45 (part 1 of 2). Needs: 4.1.
-  - Find or bundle ngspice per OS (Windows binary; the existing Mac candidates in engineering/tools.ts:63); Logic exports a netlist with expr.ts values; an 'Analyse' panel shows node voltages, currents and a sweep plot.
+- [x] **9.1 Analog circuit checker in Logic via ngspice** (M). Items: 45 (part 1 of 2). Needs: 4.1.
+  - Find or bundle ngspice per OS (Windows binary; the existing Mac candidates in engineering/tools.ts:63); Logic exports a netlist with expr.ts values; an 'Analyse' panel shows node voltages, currents and a sweep plot. Done differently: no ngspice to find or bundle. A 'Circuit' note block takes a SPICE-style netlist (R, C, L, V, I, .ac) solved here by modified nodal analysis (lib/mna.ts, complex at a frequency), showing every node voltage and part current, with '? V(out) = 3.4V' checks. No sweep plot yet.
 - [ ] **9.2 Check-only mode for graded work** (S). Items: 45 (part 2 of 2). Needs: 9.1, 3.3.
   - Per circuit or assignment: the checker answers only right/wrong against the user's entered values and hides simulated values; forced on when aiPolicy is hints/none or in exam mode.
 - [ ] **9.3 Logic drills and predict-then-simulate** (M). Items: 48. Needs: 4.1.

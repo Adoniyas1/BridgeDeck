@@ -1990,3 +1990,11 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .typeset-menu{position:absolute;right:0;top:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 4px 14px #0003;white-space:nowrap}
 .typeset-menu button{background:none;border:0;padding:6px 10px;text-align:left;color:var(--text);font-size:12px;cursor:pointer;border-radius:5px}
 .typeset-menu button:hover{background:var(--line)}
+.notes-circuit{display:flex;flex-direction:column;gap:4px;font-size:13px;padding:6px 0}
+.notes-circuit.clickable{cursor:text}
+.notes-circuit-net{margin:0;font-size:12px;color:var(--muted);white-space:pre-wrap}
+.notes-circuit-check{margin:0}
+.notes-circuit-check.good{color:#4ade80}
+.notes-circuit-check.bad{color:#f87171}
+.notes-circuit-table td{padding:1px 12px 1px 0;font-family:ui-monospace,monospace;font-size:12px}
+.notes-circuit details{font-size:12px}
