@@ -394,7 +394,7 @@ export async function upgradePeerStatus(instanceId: string): Promise<{ ok: boole
   return invokeSafe('upgrade_peer_status', { instanceId })
 }
 /** Notes and checklists (src-tauri/src/bridgelink/notes.rs), kept on every paired computer. */
-export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python' | 'calc' | 'locked' | 'ink' | 'image'
+export type NoteBlockKind = 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'ol' | 'todo' | 'quote' | 'code' | 'drawing' | 'graph' | 'python' | 'calc' | 'spice' | 'locked' | 'ink' | 'image'
 export type NoteBlock = { id: string; kind: NoteBlockKind; text: string; checked: boolean; indent?: number; due: number | null; pos: string; updated: number; by: string; deleted: boolean }
 export type Note = { id: string; title: string; folder: string; pinned: boolean; mimir?: boolean; kind: 'note' | 'list'; created: number; titleUpdated: number; metaUpdated: number; deleted: boolean; blocks: NoteBlock[]; seq: number }
 export type NotePatch = { id: string; title?: string; folder?: string; pinned?: boolean; mimir?: boolean; kind?: 'note' | 'list'; blocks?: NoteBlock[]; removed?: string[] }
@@ -704,6 +704,8 @@ export const codeStop = (id: number) => native<void>('code_stop', { id })
 export const codeOctaveInstall = (name: string) => native<string>('code_octave_install', { name })
 export const codeFiles = () => native<CodeFile[]>('code_files')
 export const codeLoad = (name: string, language: string) => native<string>('code_load', { name, language })
+/** A MATLAB/Octave script published as an HTML report beside it; returns its path (code.rs). */
+export const codePublish = (name: string, source: string) => native<string>('code_publish', { name, source })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
 export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
@@ -728,7 +730,7 @@ export const notesReplaceMarkdown = (id: string, markdown: string) => native<Not
 export const noteHistoryClear = (id: string) => native<void>('note_history_clear', { id })
 /** The phone page on the local network (src-tauri/src/phone.rs). */
 export type PhoneStatus = { running: boolean; urls: string[]; error: string }
-export const phoneSettings = (enabled: boolean) => native<PhoneStatus>('phone_settings', { enabled })
+export const phoneSettings = (enabled: boolean, tailscale = false) => native<PhoneStatus>('phone_settings', { enabled, tailscale })
 export const phoneStatus = () => native<PhoneStatus>('phone_status')
 export const phoneNewKey = () => native<PhoneStatus>('phone_new_key')
 export const phonePublish = (snapshot: unknown) => native<void>('phone_publish', { snapshot })

@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { CalendarRange, CalendarX, Clock, Plus, Trash2 } from 'lucide-react'
-import { studyPatchCourseInfo, type StudyCourse } from '../../lib/bridge'
+import { calendarSave, studyPatchCourseInfo, type CalEvent, type StudyCourse } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { classChangesOf, DAY_LETTERS, dayKey, meetingsOf, meetingText, type ClassChange, type Meeting, type Term } from './schedule'
-import { refreshLibrary, saveTerm, termStore } from './state'
+import { eventsStore } from '../calendar/state'
+import { newId } from '../notes/model'
+import { finalFor, readFinals } from './finals'
+import { libraryStore, refreshLibrary, saveTerm, termStore } from './state'
 
 /** A course's weekly class times: they show in the Calendar and on Home, and date homework. */
 export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus: (s: string) => void }) {
@@ -67,6 +70,28 @@ export function TermCard() {
   const [draft, setDraft] = useState<Term>(() => term ?? { start: '', end: '', breaks: [] })
   const [brk, setBrk] = useState({ name: '', start: '', end: '' })
   const [error, setError] = useState('')
+  const [finals, setFinals] = useState('')
+  const [finalsStatus, setFinalsStatus] = useState('')
+  /** Each course's final from the pasted finals schedule, put in the calendar (where the exam
+   *  cards and reminders find it); the room is added on the exam once it's known. */
+  async function addFinals() {
+    const rows = readFinals(finals)
+    if (!rows.length) return setFinalsStatus('No rows read: paste the table with the class days and times, the date, and the exam time.')
+    const year = Number((draft.end || new Date().toISOString()).slice(0, 4))
+    const events = eventsStore.get()
+    const added: string[] = [], missed: string[] = []
+    for (const c of libraryStore.get().library?.courses.filter(c => !c.archived) ?? []) {
+      const meetings = meetingsOf(c.info)
+      if (!meetings.length) continue
+      const f = finalFor(meetings, rows, year)
+      if (!f) { missed.push(c.name); continue }
+      const title = `${c.name}: Final`
+      if (events.some(e => !e.deleted && e.title === title && Math.abs(e.start - f.start) < 86_400_000)) continue
+      const event: CalEvent = { id: newId(), title, start: f.start, end: f.end, allDay: false, location: '', notes: 'From the finals schedule', color: 'red', repeat: null, skip: [], reminder: 1440, updated: 0, by: '', deleted: false, seq: 0 }
+      try { const saved = await calendarSave(event); eventsStore.set(list => [...list, saved]); added.push(c.name) } catch (e) { setFinalsStatus(errorText(e, 'Couldn’t add it')); return }
+    }
+    setFinalsStatus(`${added.length ? `Added finals for ${added.join(', ')}.` : 'No new finals added.'}${missed.length ? ` No row matched ${missed.join(', ')}: check its class times.` : ''}`)
+  }
   async function save(next: Term) {
     setError('')
     try { await saveTerm(next.start && next.end ? next : null) } catch (e) { setError(errorText(e, 'Couldn’t save it')) }
@@ -87,5 +112,9 @@ export function TermCard() {
     </div>
     <div className="actions"><button disabled={!draft.start || !draft.end || draft.start > draft.end} onClick={() => void save(draft).then(() => setOpen(false))}>Save</button><button className="ghost" onClick={() => setOpen(false)}>Cancel</button></div>
     {error && <p className="cal-error">{error}</p>}
+    <strong>Finals schedule</strong>
+    <textarea rows={4} placeholder="Paste the university's finals table (class days and time, exam date, exam time)" value={finals} onChange={e => setFinals(e.target.value)} />
+    <button className="ghost" disabled={!finals.trim()} title="Matches each course's lecture time to its row" onClick={() => void addFinals()}>Add finals to the calendar</button>
+    {finalsStatus && <p className="hint">{finalsStatus}</p>}
   </div>
 }

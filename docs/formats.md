@@ -24,6 +24,7 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 
 - A block kind that isn't known (a short lowercase name) is kept as it is, and shown read-only.
 - `ink` and `image` blocks hold an id. In Markdown they are written as `![Ink](bridgedeck-ink:<id>)` and `![Image](bridgedeck-image:<id>)`.
+- `spice` blocks hold a SPICE-style netlist (R, C, L, V, I, `.ac`, `? V(node) = value` checks). In Markdown they are a ```` ```spice ```` fence. Older builds show them read-only.
 - `calc` blocks hold calculator lines as text (units, complex numbers, `name = …`). In Markdown they are a ```` ```calc ```` fence. Builds before 0.9.2 show them read-only.
 
 ## Course settings (`Study/<course>/.course.json`)

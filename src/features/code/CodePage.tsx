@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, Download, FlaskConical, Plus, ExternalLink, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, ShieldCheck, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
-import { codeDelete, codeFiles, codeInput, codeOctaveInstall, codeRun, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
+import { AlertTriangle, CheckCircle2, Code2, CornerDownLeft, Download, FileText, FlaskConical, Plus, ExternalLink, FilePlus, FolderOpen, Loader2, Play, RefreshCw, Save, ShieldCheck, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
+import { codeDelete, codePublish, openPath, codeFiles, codeInput, codeOctaveInstall, codeRun, codeLanguages, codeLoad, codeSave, codeStart, codeStop, isTauri, type CodeEvent, type CodeFile, type CodeLanguage } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { askMimir } from '../mimir'
 import { openTab } from '../../core/tabs'
@@ -140,6 +140,16 @@ export default function CodePage({ active }: { active: boolean }) {
     setError('')
     try { await codeSave(draft.name.trim(), lang, draft.source); setMessage(`Saved as ${draft.name.trim()}.${info?.ext ?? ''} in the shared Code folder.`); setFiles(await codeFiles()) } catch (e) { setError(errorText(e, 'Couldn’t save')) }
   }
+  const [publishing, setPublishing] = useState(false)
+  async function publish() {
+    setError(''); setPublishing(true)
+    try {
+      await codeSave(draft.name.trim(), lang, draft.source)
+      const path = await codePublish(draft.name.trim(), draft.source)
+      setMessage(`Published ${path.split(/[\\/]/).pop()} beside the script.`)
+      void openPath(path)
+    } catch (e) { setError(errorText(e, 'It didn’t publish')) } finally { setPublishing(false) }
+  }
   async function open(f: CodeFile) {
     setError('')
     try {
@@ -257,6 +267,7 @@ export default function CodePage({ active }: { active: boolean }) {
         {LIMITS.map(s => <option key={s} value={s}>{s === 0 ? 'No limit' : s >= 60 ? `${s / 60} min limit` : `${s} s limit`}</option>)}
       </select>
       <button className="ghost" onClick={() => void save()} disabled={!isTauri()} title={`Save in the shared Code folder (${MOD} S)`}><Save size={14} /> Save</button>
+      {lang === 'matlab' && <button className="ghost" disabled={!isTauri() || publishing || !draft.name.trim()} title={draft.name.trim() ? 'A report of the code, its output and figures (MATLAB’s publish), saved beside it and opened' : 'Name the script first'} onClick={() => void publish()}><FileText size={14} /> {publishing ? 'Publishing…' : 'Publish report'}</button>}
       <details className="logic-open code-open">
         <summary className="ghost"><FolderOpen size={14} /> Open</summary>
         <div className="logic-files">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, BookOpen, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
 import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
@@ -12,6 +12,7 @@ import { levelColor, PartShape } from './Symbols'
 import Breadboard from './Breadboard'
 import { CircuitMenu } from './Preview'
 import FsmEditor from './FsmEditor'
+const Drills = lazy(() => import('./DrillsPanel'))
 import { buildFsmCircuit, loadCircuit } from './fsm'
 import { reportHtml, reportMarkdown } from './report'
 import { delayRun, levelAt } from './delays'
@@ -64,7 +65,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [running, setRunning] = useState(false)
   const [clock, setClock] = useState(false)
   /** The canvas shows the schematic or the same circuit on a breadboard. */
-  const [view, setView] = useState<'schematic' | 'breadboard' | 'fsm'>('schematic')
+  const [view, setView] = useState<'schematic' | 'breadboard' | 'fsm' | 'drills'>('schematic')
   const [speed, setSpeed] = useState(1)
   const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
   const [file, setFile] = useState(() => draft?.file ?? { project: '', name: 'Untitled circuit' })
@@ -424,6 +425,7 @@ export default function LogicPage({ active }: { active: boolean }) {
         <button role="tab" aria-selected={view === 'schematic'} className={view === 'schematic' ? 'on' : ''} onClick={() => setView('schematic')}>Schematic</button>
         <button role="tab" aria-selected={view === 'breadboard'} className={view === 'breadboard' ? 'on' : ''} onClick={() => setView('breadboard')}>Breadboard</button>
         <button role="tab" aria-selected={view === 'fsm'} className={view === 'fsm' ? 'on' : ''} onClick={() => setView('fsm')} title="Design a state machine and build it with flip-flops">State machine</button>
+        <button role="tab" aria-selected={view === 'drills'} className={view === 'drills' ? 'on' : ''} onClick={() => setView('drills')} title="Practice number bases, two's complement and K-maps">Drills</button>
       </div>
       <span className="grow" />
       <button className={`ghost${running ? ' active' : ''}`} onClick={() => setRunning(r => !r)} title="Run the clock parts">{running ? <Pause size={14} /> : <Play size={14} />} Clock</button>
@@ -444,7 +446,8 @@ export default function LogicPage({ active }: { active: boolean }) {
         setMessage(`Opened the version saved before ${new Date(at).toLocaleString()}. Save to keep it (the current one stays in Versions).`)
       }) }}
       onDelete={f => { if (window.confirm(`Delete ${f.name}?`)) void run(async () => { await circuitDelete(f.project, f.name); refreshFiles() }) }} />}
-    {view === 'fsm' ? <div className="logic-main logic-main--wide"><FsmEditor fsm={circuit.fsm} onChange={fsm => change(c => ({ ...c, fsm }))}
+    {view === 'drills' ? <div className="logic-main logic-main--wide"><Suspense fallback={null}><Drills /></Suspense></div>
+    : view === 'fsm' ? <div className="logic-main logic-main--wide"><FsmEditor fsm={circuit.fsm} onChange={fsm => change(c => ({ ...c, fsm }))}
       onBuild={fsm => { if (!circuit.parts.length || window.confirm('Replace the circuit on the canvas with this state machine’s?')) { setCircuit(buildFsmCircuit(fsm)); setDirty(true); flops.current = {}; setView('schematic'); setPanel('table') } }} /></div> :
     <div className="logic-main">
       <aside className="logic-palette">

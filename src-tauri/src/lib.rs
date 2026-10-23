@@ -668,6 +668,7 @@ pub fn run() {
             canvas::canvas_download_files,
             handwriting_mac::handwriting_vision,
             typst_export::typst_pdf,
+            code::code_publish,
             ink::ink_load,
             ink::ink_set_doc,
             ink::ink_append,
