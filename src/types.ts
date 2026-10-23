@@ -46,7 +46,7 @@ export type AppConfig = {
   /** The Mail tab: email accounts' web pages (Outlook, Gmail…), and whether they're checked in the background for new mail. */
   mail: { accounts: MailAccount[]; background: boolean }
   /** The phone page: a web page phones on the same Wi-Fi open to send things here and see the agenda. */
-  phone: { enabled: boolean }
+  phone: { enabled: boolean; /** Reachable over Tailscale too (the phone off the home network). */ tailscale?: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */

@@ -55,10 +55,10 @@ async function applyPhoneReviews(reviews: Array<{ card: string; grade: number; a
 
 /** Starts or stops the page with the setting, keeps its agenda current, and tells you what arrived. */
 export function PhoneBackground() {
-  const enabled = useStore(configStore).phone.enabled
+  const { enabled, tailscale } = useStore(configStore).phone
   useEffect(() => {
-    if (isTauri()) void phoneSettings(enabled).then(phoneStore.set).catch(() => undefined)
-  }, [enabled])
+    if (isTauri()) void phoneSettings(enabled, tailscale === true).then(phoneStore.set).catch(() => undefined)
+  }, [enabled, tailscale])
   usePeriodicRefresh(async () => { if (isTauri() && enabled) await phonePublish(phoneSnapshot()) }, 60_000, [enabled], 'same')
   useEffect(() => {
     if (!isTauri()) return
@@ -89,7 +89,8 @@ export function PhoneCard() {
   usePeriodicRefresh(async () => { if (isTauri() && on) phoneStore.set(await phoneStatus()) }, 15_000, [on])
   const url = status.urls[0]
   return <Card><SectionTitle title="Phone" subtitle="Send text, links and photos from your phone, see today and what’s due, tick checklists. No app needed." action={<StatusPill online={on && status.running} label={on ? (status.running ? 'On' : 'Starting') : 'Off'} />} />
-    <Toggle checked={on} onChange={next => setConfig(c => ({ ...c, phone: { enabled: next } }))} label="Let my phone open BridgeDeck’s page on this Wi-Fi" />
+    <Toggle checked={on} onChange={next => setConfig(c => ({ ...c, phone: { ...c.phone, enabled: next } }))} label="Let my phone open BridgeDeck’s page on this Wi-Fi" />
+    {on && <Toggle checked={config.phone.tailscale === true} onChange={next => setConfig(c => ({ ...c, phone: { ...c.phone, tailscale: next } }))} label="Also over Tailscale (on campus): needs Tailscale on this computer and the phone. The page is plain HTTP inside Tailscale’s encrypted network; anyone on your tailnet with the link can open it." />}
     {on && status.error && <p className="error-text">{status.error}</p>}
     {on && url && <div className="phone-link">
       <Suspense fallback={<div className="phone-qr" />}><QrCode text={url} /></Suspense>

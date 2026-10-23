@@ -33,6 +33,8 @@ struct Server {
 
 static SERVER: Mutex<Option<Server>> = Mutex::new(None);
 static ERROR: Mutex<String> = Mutex::new(String::new());
+/// Whether the page may be opened over Tailscale (from the phone on campus); off unless chosen.
+static TAILSCALE: AtomicBool = AtomicBool::new(false);
 /// Today's agenda and what's due, as the window last worked it out (it knows recurring events and
 /// Canvas); the page shows it as is.
 static SNAPSHOT: Mutex<Option<Value>> = Mutex::new(None);
@@ -81,10 +83,29 @@ fn lan_address() -> Option<std::net::IpAddr> {
     socket.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
 }
 
+/// Tailscale's addresses (100.64.0.0/10).
+pub fn is_tailscale(ip: &std::net::IpAddr) -> bool {
+    matches!(ip, std::net::IpAddr::V4(v4) if v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1]))
+}
+
+/// This computer's Tailscale address, if Tailscale is on: the address it would use to reach
+/// Tailscale's own DNS (no packet is sent).
+fn tailscale_address() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("100.100.100.100:53").ok()?;
+    socket.local_addr().ok().map(|a| a.ip()).filter(is_tailscale)
+}
+
 fn status(app: &AppHandle) -> PhoneStatus {
     let running = SERVER.lock().map(|s| s.is_some()).unwrap_or(false);
     let urls = match (running, key(app)) {
-        (true, Ok(key)) => lan_address().map(|ip| vec![format!("http://{ip}:{PORT}/#{key}")]).unwrap_or_default(),
+        (true, Ok(key)) => {
+            let mut urls: Vec<String> = lan_address().filter(|ip| !is_tailscale(ip)).map(|ip| vec![format!("http://{ip}:{PORT}/#{key}")]).unwrap_or_default();
+            if TAILSCALE.load(Ordering::Relaxed) {
+                urls.extend(tailscale_address().map(|ip| format!("http://{ip}:{PORT}/#{key}")));
+            }
+            urls
+        }
         _ => Vec::new(),
     };
     PhoneStatus { running, urls, error: ERROR.lock().map(|e| e.clone()).unwrap_or_default() }
@@ -219,7 +240,11 @@ fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-fn handle(app: &AppHandle, mut stream: TcpStream, _addr: SocketAddr) {
+fn handle(app: &AppHandle, mut stream: TcpStream, addr: SocketAddr) {
+    // Over Tailscale only when it's been turned on.
+    if is_tailscale(&addr.ip()) && !TAILSCALE.load(Ordering::Relaxed) {
+        return;
+    }
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
     let Ok(request) = read_head(&mut stream) else { return };
@@ -463,7 +488,8 @@ fn save_upload(dir: &Path, stream: &mut TcpStream, request: &Request, name: &str
 // ---- Commands ----
 
 #[tauri::command]
-pub fn phone_settings(app: AppHandle, enabled: bool) -> PhoneStatus {
+pub fn phone_settings(app: AppHandle, enabled: bool, tailscale: Option<bool>) -> PhoneStatus {
+    TAILSCALE.store(tailscale.unwrap_or(false), Ordering::Relaxed);
     let result = if enabled { start(&app) } else { stop(); Ok(()) };
     if let Ok(mut error) = ERROR.lock() {
         *error = result.err().unwrap_or_default();
@@ -555,5 +581,12 @@ mod tests {
         for bad in [None, Some(""), Some("short"), Some("../../etc/xx"), Some("zzzzzzzzzz")] {
             assert!(scan_batch(bad).is_err());
         }
+    }
+
+    #[test]
+    fn tailscale_addresses_are_known() {
+        assert!(is_tailscale(&"100.101.5.7".parse().unwrap()));
+        assert!(!is_tailscale(&"100.200.5.7".parse().unwrap()));
+        assert!(!is_tailscale(&"192.168.1.20".parse().unwrap()));
     }
 }
