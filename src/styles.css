@@ -1998,3 +1998,13 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .notes-circuit-check.bad{color:#f87171}
 .notes-circuit-table td{padding:1px 12px 1px 0;font-family:ui-monospace,monospace;font-size:12px}
 .notes-circuit details{font-size:12px}
+.logic-drills{max-width:640px;margin:24px auto;display:flex;flex-direction:column;gap:12px;padding:0 16px}
+.logic-drills-kinds{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.logic-drills-kinds button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 15%,transparent)}
+.logic-drills-kinds .grow{flex:1}
+.logic-drills-question{font-size:20px;margin:8px 0}
+.logic-drills-answer{display:flex;gap:6px}
+.logic-drills-answer input{flex:1;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);padding:9px 11px;font:16px ui-monospace,monospace}
+.logic-drills-right{color:#4ade80;margin:0}
+.logic-drills-wrong{color:#f87171;margin:0}
+.logic-drills-card{display:flex;gap:6px}
