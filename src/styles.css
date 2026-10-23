@@ -2008,3 +2008,7 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .logic-drills-right{color:#4ade80;margin:0}
 .logic-drills-wrong{color:#f87171;margin:0}
 .logic-drills-card{display:flex;gap:6px}
+.group-slots{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:12px;margin:6px 0}
+.group-slots>div{display:flex;flex-direction:column;gap:2px}
+.group-slots span{background:color-mix(in srgb,#4ade80 20%,transparent);border-radius:4px;padding:2px 5px}
+.group-slots small{color:var(--muted)}

@@ -61,7 +61,7 @@ export function CoursePeople({ course, onStatus }: { course: StudyCourse; onStat
     {!people.length && !officeHours.length && !adding && <span className="hint">No professor or TA yet</span>}
     {!adding ? <button className="ghost" onClick={() => setAdding(true)}><Plus size={12} />Professor or TA</button>
       : <form className="class-time-add" onSubmit={e => { e.preventDefault(); if (!draft.name.trim() && !draft.email.trim()) return; if (draft.email.trim() && !validEmail(draft.email.trim())) { onStatus('That email address doesn’t look right.'); return } void save([...people, { ...draft, email: draft.email.trim() }]); setAdding(false); setDraft({ role: 'TA', name: '', email: '', hours: '' }) }}>
-        <select value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}><option>Professor</option><option>TA</option><option>Lab TA</option><option>Tutor</option></select>
+        <select value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}><option>Professor</option><option>TA</option><option>Lab TA</option><option>Tutor</option><option>Lab partner</option><option>Classmate</option></select>
         <input placeholder="Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
         <input placeholder="Email" type="email" value={draft.email} onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} />
         <input placeholder="Office hours, e.g. Tu 2–4 ECS 515" value={draft.hours} onChange={e => setDraft(d => ({ ...d, hours: e.target.value }))} />

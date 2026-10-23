@@ -18,6 +18,7 @@ import { indexLibrary } from './indexer'
 import { BookSearchCard, ExamPrepCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
 import { MimirInbox } from './MimirInbox'
+import { StudyGroupCard } from './StudyGroupCard'
 import { labNotebookMarkdown } from './labNotebook'
 import { syllabusPrompt } from './syllabus'
 import { askMimir } from '../mimir'
@@ -220,6 +221,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
       <CourseDetails course={course} onStatus={onStatus} />
       <ClassTimes course={course} onStatus={onStatus} />
       <CoursePeople course={course} onStatus={onStatus} />
+      <StudyGroupCard course={course} />
       <CourseFiles course={course} books={books} onOpen={open} onOpenExternally={openExternally} onRemove={book => void removeBook(book.file, book.title)} onStatus={onStatus} />
     </Card>
     <ExamPrepCard course={name} info={course.info} onStatus={onStatus} />
