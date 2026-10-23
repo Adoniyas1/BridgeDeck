@@ -4,7 +4,7 @@ import { isTauri, studyAddCourse, studyArchiveCourse, studyPlanRead, studyPlanWr
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
 import { courseKey } from './canvas'
-import { Timetable } from './Timetable'
+import { Timetable } from './TimetableCard'
 import { codesOf, DECLARE_COURSES, eligibleNext, emptyPlanState, gpa, GRADE_POINTS, majorIds, PLANS, plannedCode, planTotals, readPlanState, sameCourseTitle, withExpected, wrapUp, type CourseStatus, type PlanCourse, type PlanState } from './plans'
 import { currentPercent, letterFor, readGrading } from './grades'
 import { refreshLibrary } from './state'
