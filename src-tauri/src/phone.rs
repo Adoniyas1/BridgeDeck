@@ -313,6 +313,13 @@ fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<V
             let _ = app.emit("study-scan", json!({ "course": course, "file": file, "pages": pages.len() }));
             Ok(json!({ "ok": true, "file": file, "pages": pages.len() }))
         }
+        // Flashcards reviewed on the phone (queued there while offline): the app applies them.
+        ("POST", "/api/cards/review") => {
+            let body = body_json(stream)?;
+            let reviews: Vec<Value> = body["reviews"].as_array().ok_or("Bad request")?.iter().filter(|r| r["card"].is_string() && r["grade"].as_u64().is_some_and(|g| (1..=4).contains(&g)) && r["at"].is_u64()).take(500).cloned().collect();
+            let _ = app.emit("phone-reviews", json!({ "reviews": reviews }));
+            Ok(json!({ "ok": true, "received": reviews.len() }))
+        }
         // Handwriting from the iPad (src-tauri/src/ink.rs): its strokes go to its own log.
         ("GET", "/api/ink/list") => Ok(json!({ "inks": crate::bridgelink::notes::phone_inks(&manager)?, "courses": crate::study::course_names() })),
         ("GET", "/api/ink/doc") => {

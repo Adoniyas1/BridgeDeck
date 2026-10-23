@@ -24,6 +24,9 @@ button.plain{background:transparent;color:var(--accent);padding:6px 4px}
 .note{color:var(--muted);font-size:13px;margin:8px 0 0}
 .ok{color:var(--good)}.err{color:var(--bad)}
 .item{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.card{display:flex;flex-direction:column;gap:10px}
+.card .front{font-size:18px}
+.card .back{font-size:16px;padding-top:8px;border-top:1px solid var(--line)}
 .item:first-child{border-top:0}
 .item time{color:var(--muted);min-width:72px;font-variant-numeric:tabular-nums}
 .item .due{color:var(--muted);font-size:13px}
@@ -45,6 +48,7 @@ select{width:100%;font:inherit;padding:8px;border-radius:8px}
 <header><h1>BridgeDeck</h1><small id="computer"></small></header>
 <div id="locked" class="locked" hidden><h2>Not connected</h2><p class="note" id="lockedText">Open this page from the link or QR code in BridgeDeck → Settings → Phone.</p></div>
 <main id="main" hidden>
+  <p id="offline" class="note err" hidden>Can’t reach the computer: showing the last copy. Ticks and reviews are kept here and sent when it’s back.</p>
   <section>
     <h2>Send to the computer</h2>
     <textarea id="text" placeholder="Text or a link. It lands on the computer's clipboard."></textarea>
@@ -64,6 +68,7 @@ select{width:100%;font:inherit;padding:8px;border-radius:8px}
     <div id="scanPages" class="thumbs"></div>
     <div class="row"><span class="note" id="scanState">Take or pick photos of each page, in order. They become one PDF in the course.</span><button id="scanMake">Make PDF</button></div>
   </section>
+  <section><h2>Flashcards</h2><div id="cards"></div></section>
   <section><h2>Today</h2><div id="today"></div></section>
   <section><h2>Due soon</h2><div id="due"></div></section>
   <section><h2>Checklists</h2><div id="lists"></div></section>
@@ -103,7 +108,7 @@ window.addEventListener('hashchange', function () { location.reload() })
       l.items.forEach(function (i) {
         var lab = el('label', { class: 'check' + (i.checked ? ' done' : '') }); lab.style.paddingLeft = (i.indent || 0) * 22 + 'px'
         var box = el('input', { type: 'checkbox' }); box.checked = i.checked
-        box.addEventListener('change', function () { lab.className = 'check' + (box.checked ? ' done' : ''); api('/api/check', { note: l.id, block: i.id, checked: box.checked }).catch(function (e) { alert(e.message); box.checked = !box.checked }) })
+        box.addEventListener('change', function () { lab.className = 'check' + (box.checked ? ' done' : ''); i.checked = box.checked; later('checks', { note: l.id, block: i.id, checked: box.checked }); keep(data) })
         lab.appendChild(box); lab.appendChild(el('span', {}, i.text)); d.appendChild(lab)
       })
       var add = el('div', { class: 'row' }); var input = el('input', { type: 'text', placeholder: 'Add an item' }); var btn = el('button', { class: 'plain' }, 'Add')
@@ -114,9 +119,57 @@ window.addEventListener('hashchange', function () { location.reload() })
     })
     if (!(data.lists || []).length) lists.appendChild(el('p', { class: 'note' }, 'No checklists yet.'))
   }
+  // Offline (out of Wi-Fi range of the computer): the page shows its last copy, and ticks and card
+  // reviews wait here and are sent when the computer can be reached again.
+  function load(name, fallback) { try { return JSON.parse(localStorage.getItem(name) || '') } catch (e) { return fallback } }
+  function store(name, value) { try { localStorage.setItem(name, JSON.stringify(value)) } catch (e) {} }
+  function keep(data) { store('bd-summary', data) }
+  function later(kind, item) { var q = load('bd-queue-' + kind, []); q.push(item); store('bd-queue-' + kind, q); flush() }
+  var flushing = false
+  function flush() {
+    if (flushing) return
+    var checks = load('bd-queue-checks', []), reviews = load('bd-queue-reviews', [])
+    if (!checks.length && !reviews.length) return
+    flushing = true
+    var sendChecks = checks.reduce(function (p, c) { return p.then(function () { return api('/api/check', c) }).then(function () { var q = load('bd-queue-checks', []); q.shift(); store('bd-queue-checks', q) }) }, Promise.resolve())
+    sendChecks.then(function () { return reviews.length ? api('/api/cards/review', { reviews: reviews }).then(function () { store('bd-queue-reviews', load('bd-queue-reviews', []).slice(reviews.length)) }) : null })
+      .then(function () { flushing = false; offline(false) }).catch(function () { flushing = false; offline(true) })
+  }
+  function offline(on) { var n = $('offline'); if (n) n.hidden = !on }
+  function renderCards(data) {
+    var box = $('cards'); box.textContent = ''
+    var done = load('bd-reviewed', {})
+    var cards = ((data.snapshot || {}).cards || []).filter(function (c) { return !done[c.id] })
+    if (!cards.length) { box.appendChild(el('p', { class: 'note' }, 'Nothing to review right now.')); return }
+    var card = cards[0], shown = false
+    var view = el('div', { class: 'card' })
+    view.appendChild(el('div', { class: 'due' }, card.course + ' · ' + cards.length + ' to go'))
+    view.appendChild(el('div', { class: 'front' }, card.front))
+    var back = el('div', { class: 'back' }, card.back); back.hidden = true; view.appendChild(back)
+    var row = el('div', { class: 'row' })
+    var show = el('button', {}, 'Show answer'); row.appendChild(show)
+    show.addEventListener('click', function () {
+      if (shown) return; shown = true; back.hidden = false; row.textContent = ''
+      ;[['Again', 1], ['Hard', 2], ['Good', 3], ['Easy', 4]].forEach(function (g) {
+        var b = el('button', { class: g[1] === 3 ? '' : 'plain' }, g[0])
+        b.addEventListener('click', function () { done[card.id] = 1; store('bd-reviewed', done); later('reviews', { card: card.id, grade: g[1], at: Date.now() }); renderCards(data) })
+        row.appendChild(b)
+      })
+    })
+    view.appendChild(row); box.appendChild(view)
+  }
   function refresh() {
     if (document.activeElement && document.activeElement.type === 'text') return
-    api('/api/summary').then(function (data) { $('locked').hidden = true; $('main').hidden = false; render(data); showCourses(data.courses || []) }).catch(function (e) { $('main').hidden = true; $('locked').hidden = false; if (key) $('lockedText').textContent = e.message })
+    api('/api/summary').then(function (data) {
+      $('locked').hidden = true; $('main').hidden = false; offline(false)
+      // A fresh list of due cards: the ones reviewed here are already sent or waiting to be.
+      if (!load('bd-queue-reviews', []).length) store('bd-reviewed', {})
+      keep(data); render(data); renderCards(data); showCourses(data.courses || []); flush()
+    }).catch(function (e) {
+      var cached = load('bd-summary', null)
+      if (cached && key) { $('locked').hidden = true; $('main').hidden = false; offline(true); render(cached); renderCards(cached); return }
+      $('main').hidden = true; $('locked').hidden = false; if (key) $('lockedText').textContent = e.message
+    })
   }
   $('send').addEventListener('click', function () {
     var text = $('text').value; if (!text.trim()) return
