@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Camera, FileText, Image, Smartphone, Trash2 } from 'lucide-react'
-import { isTauri, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyRemoveBook, type StudyBook } from '../../lib/bridge'
+import { Camera, Crop, FileText, PenLine, Image, Smartphone, Trash2 } from 'lucide-react'
+import { ScanCrop } from './ScanCrop'
+import { ScanReview } from './ScanReview'
+import { isTauri, notesCreateMarkdown, studySavePhoto, openPath, pickTransferPaths, studyAddBooks, studyRemoveBook, type StudyBook } from '../../lib/bridge'
 import { activateTab } from '../../core/tabs'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
@@ -27,7 +29,7 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
       await refreshLibrary()
       for (const photo of added) {
         setStatus(`Reading the text in ${photo.file}…`)
-        const text = await recogniseImage(convertFileSrc(`${course}/${photo.file}`, 'bdbook')).catch(() => '')
+        const text = await recogniseImage(convertFileSrc(`${course}/${photo.file}`, 'bdbook')).catch(e => { setStatus(`The text in ${photo.file} couldn’t be read: ${errorText(e, 'unknown error')}`); return '' })
         const when = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
         const note = await notesCreateMarkdown(`${course} photo · ${when}`, courseFolder(course), 'note', `${text.trim() || '(No text recognised.)'}\n\n*From the photo ${photo.file} in the ${course} folder.*`)
         notesStore.set(list => [note, ...list])
@@ -51,6 +53,25 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
     if (!window.confirm(`Remove ${photo.file} from ${course}? Its note stays.`)) return
     try { await studyRemoveBook(course, photo.file); await refreshLibrary() } catch (e) { setStatus(errorText(e, 'Couldn’t remove it')) }
   }
+  const [cropping, setCropping] = useState<StudyBook | null>(null)
+  const [reviewing, setReviewing] = useState<StudyBook | null>(null)
+  /** A straightened, whitened copy of a page photo, added beside it (and read like any photo). */
+  async function keepStraightened(photo: StudyBook, jpeg: Blob) {
+    setCropping(null)
+    try {
+      const file = await studySavePhoto(course, `${photo.title} (scan)`, new Uint8Array(await jpeg.arrayBuffer()))
+      await refreshLibrary()
+      setStatus(`Saved ${file}.`)
+      void readInto(file)
+    } catch (e) { setStatus(errorText(e, 'Couldn’t save it')) }
+  }
+  async function readInto(file: string) {
+    const text = await recogniseImage(convertFileSrc(`${course}/${file}`, 'bdbook')).catch(e => { setStatus(`The text couldn’t be read: ${errorText(e, 'unknown error')}`); return '' })
+    void stopRecognition()
+    if (!text.trim()) return
+    const note = await notesCreateMarkdown(`${course} scan · ${file}`, courseFolder(course), 'note', `${text.trim()}\n\n*From the photo ${file} in the ${course} folder.*`)
+    notesStore.set(list => [note, ...list])
+  }
   const noteFor = (photo: StudyBook) => notesStore.get().find(n => !n.deleted && n.folder.toLowerCase() === courseFolder(course).toLowerCase() && n.blocks.some(b => !b.deleted && b.text.includes(`photo ${photo.file}`)))
 
   return <Card><SectionTitle title="Photos" subtitle="Notes and whiteboards, read into text you can search" action={<div className="actions">
@@ -62,8 +83,12 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
       <button className="course-photo" title="Open the photo" onClick={() => void openPath(`${root}/${course}/${p.file}`)}><img src={convertFileSrc(`${course}/${p.file}`, 'bdbook')} alt={p.title} loading="lazy" /></button>
       <figcaption><span title={p.file}>{p.title}</span>
         {note && <button className="cal-icon" title="Open its text in Notes" onClick={() => { openNoteRequest.set(note.id); activateTab('notes') }}><FileText size={12} /></button>}
+        {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Straighten and whiten the page" onClick={() => setCropping(p)}><Crop size={12} /></button>}
+        {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Read the handwriting into a note (check it first)" onClick={() => setReviewing(p)}><PenLine size={12} /></button>}
         <button className="cal-icon" title="Remove" onClick={() => void remove(p)}><Trash2 size={12} /></button></figcaption>
     </figure> })}</div> : !waiting && <p className="hint"><Camera size={13} /> Snap a page of notes or the whiteboard after class; its text goes into a note for this course.</p>}
     {status && <p className="hint">{status}</p>}
+    {reviewing && <ScanReview course={course} file={reviewing.file} src={convertFileSrc(`${course}/${reviewing.file}`, 'bdbook')} onClose={() => setReviewing(null)} onStatus={setStatus} />}
+    {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
   </Card>
 }

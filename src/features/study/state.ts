@@ -1,16 +1,17 @@
 import type { Card } from 'ts-fsrs'
-import { calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyReviewLog, studyStateGet, studyStateSet, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
+import { examSites, calendarSave, isTauri, notesCreateMarkdown, notesSave, studyLibrary, studyReviewLog, studyStateGet, studyStateSet, type CalEvent, type NoteBlock, type StudyLibrary } from '../../lib/bridge'
 import { configStore } from '../../core/config'
-import { aiPolicyOf, aiPolicyStore, quietUntilStore } from '../../core/exam'
+import { aiPolicyOf, aiPolicyStore, examOn, quietUntilStore } from '../../core/exam'
 import { notify } from '../../core/notify'
 import { createStore } from '../../core/store'
 import { eventsStore } from '../calendar/state'
 import { between, newId, visible } from '../notes/model'
 import { notesStore } from '../notes/state'
 import { flashcardsTitle, hasMark, LEECH_LAPSES, setMark, withState, type FlashCard } from './cards'
-import { courseFolder, studiedTitle } from './model'
+import { assignmentTag, courseFolder, studiedTitle } from './model'
 import { readTerm, type Term } from './schedule'
-import { problemId, problemsFromState } from './problems'
+import { readMistakes, type Mistake, type Prediction } from './mistakes'
+import { nextRating, problemId, problemsFromState, ratingsFromState, type Problem, type RatedProblem, type Rating } from './problems'
 
 export const libraryStore = createStore<{ library: StudyLibrary | null; error: string }>({ library: null, error: '' })
 /** The semester's dates and breaks (Study → courses → Semester). */
@@ -50,6 +51,41 @@ export function tickProblem(assignment: string, key: string) {
   })
   if (isTauri()) void studyStateSet('problems', { [problemId(assignment, key)]: ticked ? true : null }).catch(() => undefined)
 }
+
+/** Problems marked as needing help or stuck, from both computers. */
+export const ratingsStore = createStore<RatedProblem[]>([])
+let ratingsLoaded = false
+export async function loadRatings(force = false) {
+  if ((ratingsLoaded && !force) || !isTauri()) return
+  ratingsLoaded = true
+  ratingsStore.set(ratingsFromState(await studyStateGet('ratings').catch(() => ({}))))
+}
+/** Moves a problem's rating on (none → help → stuck → none). */
+export function rateProblem(assignment: { id: string; title: string; course: string }, problem: Problem, to?: Rating | null) {
+  const id = problemId(assignment.id, problem.key)
+  const current = ratingsStore.get().find(r => r.id === id)
+  const next = to !== undefined ? to : nextRating(current?.rating)
+  const entry = next ? { id, rating: next, course: assignment.course, assignment: assignment.title, section: problem.section, number: problem.number, at: Date.now() } : null
+  ratingsStore.set(list => ratingsFromState(Object.fromEntries([...list.filter(r => r.id !== id), ...(entry ? [entry] : [])].map(r => [r.id, r]))))
+  if (isTauri()) void studyStateSet('ratings', { [id]: entry }).catch(() => undefined)
+}
+
+/** Mistakes from graded work and the scores expected before handing in (study/mistakes.ts). */
+export const mistakesStore = createStore<{ mistakes: Mistake[]; predictions: Prediction[] }>({ mistakes: [], predictions: [] })
+let mistakesLoaded = false
+export async function loadMistakes(force = false) {
+  if ((mistakesLoaded && !force) || !isTauri()) return
+  mistakesLoaded = true
+  mistakesStore.set(readMistakes(await studyStateGet('mistakes').catch(() => ({}))))
+}
+async function putMistakes(changes: Record<string, unknown>) {
+  await studyStateSet('mistakes', changes)
+  mistakesLoaded = false
+  await loadMistakes()
+}
+export const addMistake = (course: string, assignment: string, text: string) => putMistakes({ [`m:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`]: { course, assignment, text: text.trim(), at: Date.now() } })
+export const removeMistake = (id: string) => putMistakes({ [id]: null })
+export const predictScore = (assignmentId: string, course: string, assignment: string, predicted: number | null) => putMistakes({ [`p:${assignmentId}`]: predicted == null ? null : { course, assignment, predicted, at: Date.now() } })
 
 export async function saveTerm(term: Term | null) {
   termStore.set(term)
@@ -103,14 +139,15 @@ export async function saveReview(card: FlashCard, next: Card, grade?: number, ms
 
 // ---- Focus timer ----
 
-export type Focus = { course: string; kind: 'focus' | 'break'; startedAt: number; endsAt: number; breakMinutes: number }
+export type Focus = { course: string; kind: 'focus' | 'break'; startedAt: number; endsAt: number; breakMinutes: number; /** What it's for. */ assignment?: { id: string; title: string }; /** Distracting sites closed while focusing. */ block?: boolean }
 export const focusStore = createStore<Focus | null>(null)
 let ticker: number | undefined
 
 /** Starts a focus session; when it ends it's kept in the calendar as "Studied <course>". */
-export function startFocus(course: string, minutes: number, breakMinutes = 5) {
+export function startFocus(course: string, minutes: number, breakMinutes = 5, opts: { assignment?: { id: string; title: string }; block?: boolean } = {}) {
   const now = Date.now()
-  focusStore.set({ course, kind: 'focus', startedAt: now, endsAt: now + minutes * 60_000, breakMinutes })
+  focusStore.set({ course, kind: 'focus', startedAt: now, endsAt: now + minutes * 60_000, breakMinutes, ...opts })
+  if (opts.block && isTauri()) void examSites(configStore.get().study.examBlock).catch(() => undefined)
   quietUntilStore.set(configStore.get().study.quietFocus ? now + minutes * 60_000 : 0)
   window.clearInterval(ticker)
   ticker = window.setInterval(tick, 1000)
@@ -122,7 +159,8 @@ export async function stopFocus() {
   window.clearInterval(ticker)
   focusStore.set(null)
   quietUntilStore.set(0)
-  if (focus?.kind === 'focus' && Date.now() - focus.startedAt >= 5 * 60_000) await logStudy(focus.course, focus.startedAt, Date.now())
+  unblock(focus)
+  if (focus?.kind === 'focus' && Date.now() - focus.startedAt >= 5 * 60_000) await logStudy(focus.course, focus.startedAt, Date.now(), focus.assignment)
 }
 
 function tick() {
@@ -130,7 +168,8 @@ function tick() {
   if (!focus) return window.clearInterval(ticker)
   if (Date.now() < focus.endsAt) return
   if (focus.kind === 'focus') {
-    void logStudy(focus.course, focus.startedAt, focus.endsAt)
+    void logStudy(focus.course, focus.startedAt, focus.endsAt, focus.assignment)
+    unblock(focus)
     notify('reminders', 'Focus session done', `${Math.round((focus.endsAt - focus.startedAt) / 60_000)} minutes of ${focus.course}. Take ${focus.breakMinutes} minutes off.`)
     focusStore.set({ ...focus, kind: 'break', startedAt: focus.endsAt, endsAt: focus.endsAt + focus.breakMinutes * 60_000 })
   } else {
@@ -140,8 +179,13 @@ function tick() {
   }
 }
 
-async function logStudy(course: string, start: number, end: number) {
-  const event: CalEvent = { id: newId(), title: studiedTitle(course), start, end, allDay: false, location: '', notes: 'Focus session (Study tab)', color: 'green', repeat: null, skip: [], reminder: null, updated: 0, by: '', deleted: false, seq: 0 }
+/** Sites closed for a focus session open again (unless an exam is on, which keeps them closed). */
+function unblock(focus: Focus | null) {
+  if (focus?.block && !examOn() && isTauri()) void examSites([]).catch(() => undefined)
+}
+
+async function logStudy(course: string, start: number, end: number, assignment?: { id: string; title: string }) {
+  const event: CalEvent = { id: newId(), title: studiedTitle(course), start, end, allDay: false, location: '', notes: `Focus session (Study tab)${assignment ? `\nFor: ${assignment.title} ${assignmentTag(assignment.id)}` : ''}`, color: 'green', repeat: null, skip: [], reminder: null, updated: 0, by: '', deleted: false, seq: 0 }
   try {
     const saved = await calendarSave(event)
     eventsStore.set(list => [...list, saved])

@@ -79,3 +79,49 @@ export function planStudy(tasks: StudyTask[], busy: Array<{ start: number; end: 
   }
   return { blocks: blocks.sort((a, b) => a.start - b.start), short }
 }
+
+/** How long assignments really take compared with the first guess, from finished ones with focus
+ *  time logged (at least three): the median of actual ÷ guess, between 0.5 and 2.5; null without
+ *  enough to go on. */
+export function learnedFactor(finished: Array<{ kind: string; title: string; hours: number }>): number | null {
+  const ratios = finished.filter(f => f.hours >= 0.5).map(f => f.hours / guessHours(f.kind, f.title)).sort((a, b) => a - b)
+  if (ratios.length < 3) return null
+  const mid = ratios.length / 2
+  const median = ratios.length % 2 ? ratios[Math.floor(mid)] : (ratios[mid - 1] + ratios[mid]) / 2
+  return Math.min(2.5, Math.max(0.5, Math.round(median * 10) / 10))
+}
+
+/** Hours still needed: the estimate less the time already spent, in half hours. */
+export const hoursLeft = (estimate: number, spent: number) => Math.max(0, Math.round((estimate - spent) * 2) / 2)
+
+/** Study blocks from the plan in the last week that passed without any study logged during them
+ *  (no "Studied …" event overlapping): missed, so planning again fits them in. */
+export function missedBlocks(events: Array<{ title: string; start: number; end: number; notes: string; deleted: boolean }>, now: number) {
+  const studied = events.filter(e => !e.deleted && e.title.startsWith('Studied '))
+  return events.filter(e => !e.deleted && e.notes.includes(PLAN_TAG) && e.end < now && e.start > now - 7 * 86_400_000 && !studied.some(s => overlaps(s, e)))
+}
+
+export type Warning = { kind: 'late' | 'long' | 'cluster'; text: string }
+
+/** What looks like too much: study blocks late at night (after 11 pm or before 7 am), days with
+ *  more than `maxDayHours` of classes, events and study together, and three or more deadlines or
+ *  exams within 48 hours (to start some of them sooner). */
+export function overloadWarnings(tasks: StudyTask[], blocks: StudyBlock[], busy: Array<{ start: number; end: number }>, maxDayHours = 10): Warning[] {
+  const out: Warning[] = []
+  const late = blocks.filter(b => { const s = new Date(b.start).getHours(), e = new Date(b.end - 1).getHours(); return e >= 23 || s < 7 })
+  if (late.length) out.push({ kind: 'late', text: `${late.length} block${late.length === 1 ? ' is' : 's are'} late at night; sleep helps more than late study. Set the planner to stop earlier.` })
+  const perDay = new Map<number, number>()
+  for (const x of [...blocks, ...busy]) { const d = startOfDay(x.start); perDay.set(d, (perDay.get(d) ?? 0) + (x.end - x.start) / 3_600_000) }
+  for (const [day, hours] of [...perDay.entries()].sort((a, b) => a[0] - b[0])) {
+    if (hours > maxDayHours) out.push({ kind: 'long', text: `${new Date(day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} has ${Math.round(hours)} hours of classes, events and study: move a block to a lighter day.` })
+  }
+  const sorted = [...tasks].sort((a, b) => a.due - b.due)
+  for (let i = 0; i < sorted.length; i++) {
+    const group = sorted.filter(t => t.due >= sorted[i].due && t.due - sorted[i].due <= 48 * 3_600_000)
+    if (group.length >= 3) {
+      out.push({ kind: 'cluster', text: `${group.length} things due within 48 hours (${group.map(t => t.title).join(', ')}): start ${group.length > 3 ? 'some' : 'one'} of them a few days early.` })
+      i += group.length - 1
+    }
+  }
+  return out
+}

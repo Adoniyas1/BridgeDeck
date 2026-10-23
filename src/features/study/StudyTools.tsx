@@ -1,23 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Brain, Download, ImagePlus, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, studyFsrsTune, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
+import { BookOpen, Brain, Download, FileText, ImagePlus, ListChecks, Sparkles, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
+import { isTauri, notesCreateMarkdown, studyFsrsTune, studySavePdf, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore } from '../calendar/state'
 import { notesStore, openNoteRequest } from '../notes/state'
-import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, GRADES, masteryMap, type FlashCard } from './cards'
+import { cardBody, cardLine, clozeLine, deckOf, hasMark, isLeech, parseCards, setMark, withBody, deckStats, dueCards, examDeck, GRADES, masteryMap, type FlashCard } from './cards'
+import { allAssignments, useAssignments, useExams } from './assignments'
+import { guessHours } from './planner'
+import { isOldExam, practiceProblems, practiceQuestionsPrompt } from './practice'
+import { aiAllowed } from '../../core/exam'
+import { askMimir } from '../mimir'
+import { belongsTo } from './canvas'
+import { startOfDay } from '../calendar/model'
+import { courseFolder } from './model'
 import { savedStarts } from './chapters'
 import { importLines, toCsv } from './deckio'
 import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
-import { studyMinutes, weekStart } from './model'
+import { assignmentHours, studyMinutes, weekStart } from './model'
 import { openBook, openBookLink, openLecture } from './open'
 import { clock as lectureClock } from './lecture'
 import { activateTab } from '../../core/tabs'
 import { CardText, cardSource, pictureRef } from './CardText'
-import { addCards, changeCardLine, focusStore, saveReview, startFocus, stopFocus } from './state'
+import { addCards, changeCardLine, focusStore, libraryStore, loadRatings, ratingsStore, refreshLibrary, saveReview, startFocus, stopFocus } from './state'
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -25,10 +33,17 @@ const clock = (ms: number) => {
 }
 
 /** A focus timer (25 or 50 minutes, then a break); finished sessions go in the calendar. */
-export function FocusCard({ course }: { course: string }) {
+export function FocusCard({ course, info }: { course: string; info?: { code: string; canvasCode: string } }) {
   const focus = useStore(focusStore)
   const events = useStore(eventsStore)
   const config = useConfig()
+  const assignments = useAssignments().filter(a => !a.done && a.kind !== 'event' && (a.course === course || belongsTo({ name: course, code: info?.code, canvasCode: info?.canvasCode }, a.course)) && (a.due == null || a.due > Date.now() - 86_400_000))
+  const [forId, setForId] = useState('')
+  const [block, setBlock] = useState(() => { try { return localStorage.getItem('bd-focus-block') === 'on' } catch { return false } })
+  const chosen = assignments.find(a => a.id === forId)
+  const opts = { assignment: chosen ? { id: chosen.id, title: chosen.title } : undefined, block }
+  const spent = focus?.assignment ? assignmentHours(events, focus.assignment.id) : chosen ? assignmentHours(events, chosen.id) : 0
+  const target = chosen ? guessHours(chosen.kind, chosen.title) : focus?.assignment ? guessHours('assignment', focus.assignment.title) : 0
   const [, setNow] = useState(0)
   useEffect(() => {
     if (!focus) return
@@ -42,12 +57,20 @@ export function FocusCard({ course }: { course: string }) {
   return <Card><SectionTitle title="Focus" subtitle={`Today ${day} min · this week ${week} min`} />
     {focus ? <div className="study-focus">
       <span className={`study-clock${focus.kind === 'break' ? ' break' : ''}`}>{clock(focus.endsAt - Date.now())}</span>
-      <div className="grow"><strong>{focus.kind === 'break' ? 'Break' : mine ? 'Focusing' : `Focusing on ${focus.course}`}</strong><small>{focus.kind === 'break' ? 'Stand up, look away from the screen.' : 'Kept in your calendar when it ends.'}</small></div>
+      <div className="grow"><strong>{focus.kind === 'break' ? 'Break' : focus.assignment ? `On ${focus.assignment.title}` : mine ? 'Focusing' : `Focusing on ${focus.course}`}</strong><small>{focus.kind === 'break' ? 'Stand up, look away from the screen.' : `Kept in your calendar when it ends${focus.assignment ? ` · ${spent.toFixed(1)} of ~${target} h on it so far` : ''}${focus.block ? ' · distracting sites closed' : ''}.`}</small></div>
       <button className="ghost" onClick={() => void stopFocus()}><Pause size={14} /> Stop</button>
-    </div> : <div className="actions">
-      <button onClick={() => startFocus(course, 25, 5)}><Play size={14} />25 min</button>
-      <button className="secondary" onClick={() => startFocus(course, 50, 10)}><Timer size={14} />50 min</button>
-    </div>}
+    </div> : <>
+      {assignments.length > 0 && <select className="study-focus-for" value={forId} onChange={e => setForId(e.target.value)}>
+        <option value="">Not for one assignment</option>
+        {assignments.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+      </select>}
+      {chosen && <p className="hint">{spent.toFixed(1)} h on it so far · it usually takes about {target} h (“~{target}h” in its title changes that)</p>}
+      <div className="actions">
+        <button onClick={() => startFocus(course, 25, 5, opts)}><Play size={14} />25 min</button>
+        <button className="secondary" onClick={() => startFocus(course, 50, 10, opts)}><Timer size={14} />50 min</button>
+      </div>
+      <label className="study-quiet"><input type="checkbox" checked={block} onChange={e => { setBlock(e.target.checked); try { localStorage.setItem('bd-focus-block', e.target.checked ? 'on' : 'off') } catch { /* not remembered */ } }} /> Close distracting sites while focusing (the exam-mode list)</label>
+    </>}
     <label className="study-quiet"><input type="checkbox" checked={config.study.quietFocus} onChange={e => setConfig(c => ({ ...c, study: { ...c.study, quietFocus: e.target.checked } }))} /> Quiet Mail, Messages and AI notifications while focusing (verification codes still come through)</label>
   </Card>
 }
@@ -308,5 +331,73 @@ export function BookSearchCard({ course, books }: { course: string; books: Array
     {hits && (hits.length ? <div className="study-hits">{hits.slice(0, 12).map(h => <button key={`${h.kind}-${h.file}-${h.page}`} onClick={() => h.kind === 'lecture' ? openLecture(h.course, h.file, h.t ?? 0) : h.kind === 'note' ? (openNoteRequest.set(h.file), activateTab('notes')) : openBook(h.course, h.file, h.book, h.page)}>
       <strong>{h.kind === 'lecture' ? `${h.book} [${lectureClock(h.t ?? 0)}]` : h.kind === 'note' ? `Note: ${h.book}` : `${h.book}, p. ${h.page}`}</strong><span>{h.snippet}</span></button>)}</div> : <p className="hint">Nothing matches.</p>)}
     <p className="hint">Scanned books are searchable too: pages that are pictures of text are read by text recognition on this computer, which takes a few seconds a page the first time. Mimir uses the same search to answer questions from these books with page references, write summaries and quizzes, and make flashcards.</p>
+  </Card>
+}
+
+/** The next exam of the course (within three weeks): days left, the cards from the chapters it
+ *  covers, the problems to redo, and a formula sheet to fill in. */
+export function ExamPrepCard({ course, info, onStatus }: { course: string; info: { code: string; canvasCode: string; chapters?: unknown }; onStatus: (s: string) => void }) {
+  const exams = useExams()
+  const notes = useStore(notesStore)
+  const ratings = useStore(ratingsStore)
+  const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
+  const [making, setMaking] = useState(false)
+  const books = useStore(libraryStore).library?.courses.find(c => c.name === course)?.books ?? []
+  useEffect(() => { void loadRatings() }, [])
+  const now = Date.now()
+  const exam = exams.find(e => e.course === course && e.start > now && e.start - now < 21 * 86_400_000)
+  const deck = useMemo(() => deckOf(notes, course), [notes, course])
+  const scoped = useMemo(() => exam ? examDeck(deck, exam.covers, file => savedStarts(info, file)) : [], [deck, exam?.covers, info])
+  if (!exam) return null
+  const days = Math.ceil((startOfDay(exam.start) - startOfDay(now)) / 86_400_000)
+  const ready = dueCards(scoped, now, 200)
+  const hard = ratings.filter(r => r.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course)).length
+  const sheetTitle = `${course} — formulas: ${exam.title}`
+
+  /** A practice paper: a front page of problems (stuck ones first, then a mix from the covered
+   *  chapters, in random order), then the course's old exams. Saved in the course and opened. */
+  async function practicePaper() {
+    setMaking(true)
+    try {
+      const assignments = allAssignments().filter(a => a.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, a.course))
+      const mine = ratings.filter(r => r.course === course || belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course))
+      const problems = practiceProblems(assignments, mine, exam!.covers, 10, Date.now() % 100_000)
+      const old = books.filter(isOldExam)
+      if (!problems.length && !old.length) { onStatus('No old exams or homework problems for this course yet.'); return }
+      const { stitchPdf, textPdf } = await import('../../lib/pdfwrite')
+      const front = await textPdf(`Practice: ${course} ${exam!.title}`, [
+        `${new Date().toLocaleDateString()} · ${exam!.covers ? `covers ${exam!.covers} · ` : ''}time yourself: ${Math.round((exam!.end - exam!.start) / 60_000) || 120} minutes, closed book${exam!.allowed ? ` (allowed: ${exam!.allowed})` : ''}.`,
+        '',
+        ...(problems.length ? ['From your homework (in a random order, so you don’t know which section it is):', ...problems.map((p, i) => `${i + 1}. ${p}`), ''] : []),
+        ...(old.length ? [`Then: ${old.map(b => b.title).join('; ')}.`] : []),
+      ])
+      const parts = [{ bytes: front, kind: 'pdf' as const }]
+      for (const b of old.slice(0, 4)) parts.push({ bytes: await (await import('./pdf')).loadBookBytes(course, b.file), kind: 'pdf' as const })
+      const file = await studySavePdf(course, `Practice exam ${exam!.title} ${new Date().toISOString().slice(0, 10)}`, await stitchPdf(parts))
+      await refreshLibrary()
+      openBook(course, file, file.replace(/\.pdf$/i, ''))
+    } catch (e) { onStatus(String(e)) } finally { setMaking(false) }
+  }
+
+  async function formulaSheet() {
+    const existing = notes.find(n => !n.deleted && n.title === sheetTitle)
+    try {
+      const note = existing ?? await notesCreateMarkdown(sheetTitle, courseFolder(course), 'list', `## ${exam!.title}${exam!.covers ? ` (${exam!.covers})` : ''}\n\n- [ ] `)
+      if (!existing) notesStore.set(list => [note, ...list])
+      openNoteRequest.set(note.id)
+      activateTab('notes')
+    } catch (e) { onStatus(String(e)) }
+  }
+
+  return <Card className="exam-prep"><SectionTitle title={`${exam.title}: ${days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}`} subtitle={exam.covers ? `Covers ${exam.covers}` : 'Add what it covers to the exam to scope the cards'} action={<Timer size={18} />} />
+    <div className="exam-prep-row">
+      <button className="ghost" disabled={!ready.length} onClick={() => setReviewing(ready)}><Layers size={14} />{exam.covers ? `Review ${ready.length} card${ready.length === 1 ? '' : 's'} from it` : 'No cards scoped yet'}</button>
+      <button className="ghost" onClick={() => void formulaSheet()}><ListChecks size={14} />Formula sheet</button>
+      <button className="ghost" disabled={making || !isTauri()} title="Old exams in this course and homework problems from the chapters it covers, mixed, as one PDF" onClick={() => void practicePaper()}><FileText size={14} />{making ? 'Making…' : 'Practice exam'}</button>
+      {aiAllowed(course) && <button className="ghost" title="New questions like the exam's from Mimir, answers worked out in Python" onClick={() => void askMimir(practiceQuestionsPrompt(course, exam.title, exam.covers), true, course)}><Sparkles size={14} />Questions from Mimir</button>}
+      {hard > 0 && <small>{hard} problem{hard === 1 ? '' : 's'} to redo below</small>}
+    </div>
+    {days > 2 && <p className="hint">Little and often: the planner (Study → Plan study time) puts study blocks for it in the calendar, more as it gets close.</p>}
+    {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>
 }

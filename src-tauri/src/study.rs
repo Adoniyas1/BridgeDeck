@@ -476,6 +476,19 @@ fn save_csv(dir: &Path, name: &str, text: &str) -> Result<String, String> {
     Ok(file)
 }
 
+/// A photo made here (a page straightened from a photo), as the request body; the course and a
+/// name in the `x-course` and `x-name` headers, URI-encoded. JPEG or PNG only.
+#[tauri::command]
+pub fn study_save_photo(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |key: &str| request.headers().get(key).and_then(|v| v.to_str().ok()).and_then(percent_decode).ok_or_else(|| format!("Missing {key}"));
+    let (course, name) = (header("x-course")?, header("x-name")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Send the photo as bytes".into()) };
+    let kind = picture_kind(bytes).filter(|k| *k != "webp" && bytes.len() <= MAX_CARD_PICTURE).ok_or("Only JPEG or PNG photos up to 15 MB")?;
+    let dir = course_dir(&current_root()?, &course)?;
+    let stem = Path::new(name.trim()).file_stem().and_then(|s| s.to_str()).unwrap_or("Scan");
+    save_course_file(&dir, None, &format!("{stem}.{kind}"), bytes)
+}
+
 /// The PDF is sent as the request body (not JSON); the course and file name come in the
 /// `x-course` and `x-name` headers, URI-encoded.
 #[tauri::command]

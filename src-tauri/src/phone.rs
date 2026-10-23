@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const PORT: u16 = 41420;
 const PAGE: &str = include_str!("phone.html");
+const INK_PAGE: &str = include_str!("ink.html");
 const MAX_JSON: usize = 256 * 1024;
 const MAX_UPLOAD: u64 = 500 * 1024 * 1024;
 const KEY_FILE: &str = "phone-key";
@@ -225,6 +226,9 @@ fn handle(app: &AppHandle, mut stream: TcpStream, _addr: SocketAddr) {
     if request.method == "GET" && (request.path == "/" || request.path == "/index.html") {
         return respond(&mut stream, 200, "text/html; charset=utf-8", PAGE.as_bytes());
     }
+    if request.method == "GET" && request.path == "/ink" {
+        return respond(&mut stream, 200, "text/html; charset=utf-8", INK_PAGE.as_bytes());
+    }
     if !request.path.starts_with("/api/") {
         return respond(&mut stream, 404, "text/plain", b"Not found");
     }
@@ -309,8 +313,67 @@ fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<V
             let _ = app.emit("study-scan", json!({ "course": course, "file": file, "pages": pages.len() }));
             Ok(json!({ "ok": true, "file": file, "pages": pages.len() }))
         }
+        // Handwriting from the iPad (src-tauri/src/ink.rs): its strokes go to its own log.
+        ("GET", "/api/ink/list") => Ok(json!({ "inks": crate::bridgelink::notes::phone_inks(&manager)?, "courses": crate::study::course_names() })),
+        ("GET", "/api/ink/doc") => {
+            let ink = crate::ink::load(&ink_dir(app, request)?);
+            Ok(json!({ "doc": ink.doc, "logs": ink.logs, "backgrounds": ink.backgrounds }))
+        }
+        ("GET", "/api/ink/bg") => {
+            use base64::Engine;
+            let page: u32 = request.param("page").and_then(|p| p.parse().ok()).ok_or("Bad page")?;
+            let png = std::fs::read(ink_dir(app, request)?.join("bg").join(format!("{page}.png"))).map_err(|_| "No background")?;
+            Ok(json!({ "url": format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)) }))
+        }
+        ("POST", "/api/ink/append") => {
+            let dir = ink_dir(app, request)?;
+            let body = body_json(stream)?;
+            let lines: Vec<String> = body["lines"].as_array().ok_or("Bad request")?.iter().filter_map(|l| l.as_str().map(str::to_string)).collect();
+            crate::ink::append(&dir, &phone_device(request)?, &lines)?;
+            let _ = app.emit("ink-changed", json!({ "id": request.param("id") }));
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/ink/pages") => {
+            let dir = ink_dir(app, request)?;
+            let body = body_json(stream)?;
+            let mut doc: Value = std::fs::read(dir.join("doc.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({ "v": 1, "paper": "lines", "size": "letter", "pages": 1 }));
+            let pages = body["pages"].as_u64().filter(|p| (1..=2000).contains(p)).ok_or("Bad page count")?;
+            if doc["pages"].as_u64().unwrap_or(1) < pages {
+                doc["pages"] = json!(pages);
+                crate::ink::set_doc(&dir, &doc.to_string())?;
+            }
+            Ok(json!({ "ok": true }))
+        }
+        ("POST", "/api/ink/new") => {
+            let body = body_json(stream)?;
+            let id = uuid::Uuid::new_v4().to_string();
+            let shared = shared_root(app);
+            let dir = crate::ink::folder_in(&shared, &id)?;
+            crate::ink::set_doc(&dir, &json!({ "v": 1, "paper": body["paper"].as_str().filter(|p| ["lines", "grid", "dots", "blank"].contains(p)).unwrap_or("lines"), "size": "letter", "pages": 1 }).to_string())?;
+            let course = body["course"].as_str().unwrap_or_default();
+            let folder = if course.is_empty() { String::new() } else { format!("Study/{course}") };
+            let title = body["title"].as_str().filter(|t| !t.trim().is_empty()).unwrap_or("Handwritten notes");
+            crate::bridgelink::notes::phone_new_ink(&manager, title, &folder, &id)?;
+            let _ = app.emit("notes-changed", ());
+            Ok(json!({ "id": id }))
+        }
         _ => Err("Unknown request".into()),
     }
+}
+
+fn shared_root(app: &AppHandle) -> PathBuf {
+    let shared = crate::shared_folder(app);
+    if shared.trim().is_empty() { crate::study::default_shared() } else { PathBuf::from(shared.trim()) }
+}
+
+fn ink_dir(app: &AppHandle, request: &Request) -> Result<PathBuf, String> {
+    crate::ink::folder_in(&shared_root(app), &request.param("id").unwrap_or_default())
+}
+
+/// The iPad's (or phone's) own stroke log: `phone-<its id>` (hex, from the page).
+fn phone_device(request: &Request) -> Result<String, String> {
+    let d = request.param("d").unwrap_or_default();
+    if (8..=32).contains(&d.len()) && d.chars().all(|c| c.is_ascii_hexdigit()) { Ok(format!("phone-{d}")) } else { Err("Bad device".into()) }
 }
 
 const MAX_SCAN_PAGE: usize = 30 * 1024 * 1024;

@@ -155,21 +155,24 @@ export function cardSource(text: string): { label: string; href: string; page: n
 
 export type Mastery = { label: string; cards: number; learned: number; recall: number }
 
+/** Where a card came from: "Book: chapter" (from the chapter starts saved for that book), the book,
+ *  or "Other cards"; `order` sorts chapters in book order. */
+export function cardChapter(c: FlashCard, chapterStarts: (file: string) => Array<{ title: string; page: number }>): { label: string; order: number } {
+  const source = cardSource(c.back) ?? cardSource(c.front)
+  if (!source) return { label: 'Other cards', order: Infinity }
+  const file = decodeURIComponent(source.href.slice(5).split('#')[0].split('/').slice(1).join('/'))
+  const book = source.label.replace(/,\s*p\.\s*\d+$/, '').split(',')[0].trim() || file
+  const chapter = chapterStarts(file).filter(s => s.page <= source.page).sort((a, b) => b.page - a.page)[0]
+  return chapter ? { label: `${book}: ${chapter.title}`, order: chapter.page } : { label: book, order: 0 }
+}
+
 /** How well each part of a course is known: cards grouped by the chapter they came from (from the
  *  chapter starts saved for that book), else by book, with the average chance of remembering them
  *  now (`recall`, 0-1; new cards count as 0). */
 export function masteryMap(deck: FlashCard[], chapterStarts: (file: string) => Array<{ title: string; page: number }>, retrievability: (c: Card) => number): Mastery[] {
   const groups = new Map<string, { cards: number; learned: number; sum: number; order: number }>()
   for (const c of deck) {
-    const source = cardSource(c.back) ?? cardSource(c.front)
-    let label = 'Other cards', order = Infinity
-    if (source) {
-      const file = decodeURIComponent(source.href.slice(5).split('#')[0].split('/').slice(1).join('/'))
-      const book = source.label.replace(/,\s*p\.\s*\d+$/, '').split(',')[0].trim() || file
-      const chapter = chapterStarts(file).filter(s => s.page <= source.page).sort((a, b) => b.page - a.page)[0]
-      label = chapter ? `${book}: ${chapter.title}` : book
-      order = chapter ? chapter.page : 0
-    }
+    const { label, order } = cardChapter(c, chapterStarts)
     const g = groups.get(label) ?? { cards: 0, learned: 0, sum: 0, order }
     g.cards++
     if (c.card.state === REVIEW) g.learned++
@@ -178,6 +181,25 @@ export function masteryMap(deck: FlashCard[], chapterStarts: (file: string) => A
   }
   return [...groups.entries()].sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0]))
     .map(([label, g]) => ({ label, cards: g.cards, learned: g.learned, recall: g.sum / g.cards }))
+}
+
+/** Whether a chapter label is in what an exam covers ("Ch 3-5, 7", "chapters 3 to 5", "Fourier
+ *  series"): its chapter number is listed, or a word of the covers text is in its title. */
+export function coversChapter(label: string, covers: string): boolean {
+  if (!covers.trim()) return false
+  const numbers = new Set<number>()
+  for (const m of covers.matchAll(/(\d+)\s*(?:-|–|to|through)\s*(\d+)/gi)) for (let n = Number(m[1]); n <= Number(m[2]) && n - Number(m[1]) < 40; n++) numbers.add(n)
+  for (const m of covers.replace(/(\d+)\s*(?:-|–|to|through)\s*(\d+)/gi, ' ').matchAll(/(?<![\d.])(\d{1,2})(?![\d])/g)) numbers.add(Number(m[1]))
+  const title = label.includes(': ') ? label.slice(label.indexOf(': ') + 2) : label
+  const n = title.match(/^\s*(?:chapter|ch\.?|unit|part)?\s*(\d{1,2})\b/i)
+  if (n && numbers.has(Number(n[1]))) return true
+  const words = covers.toLowerCase().match(/[a-z]{5,}/g)?.filter(w => !['chapter', 'chapters', 'through', 'sections', 'section', 'except'].includes(w)) ?? []
+  return words.some(w => title.toLowerCase().includes(w))
+}
+
+/** The cards from the chapters an exam covers. */
+export function examDeck(deck: FlashCard[], covers: string, chapterStarts: (file: string) => Array<{ title: string; page: number }>) {
+  return deck.filter(c => coversChapter(cardChapter(c, chapterStarts).label, covers))
 }
 
 /** Cards to review now: those due, oldest due first, then new ones (up to `newLimit`). */

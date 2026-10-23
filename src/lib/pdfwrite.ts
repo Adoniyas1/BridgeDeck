@@ -1,4 +1,4 @@
-import { degrees, PDFDocument } from 'pdf-lib'
+import { degrees, PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
 /** One source for a stitched PDF: a PDF (some of its pages, or all) or a picture (one page). */
 export type StitchPart = { bytes: ArrayBuffer; kind: 'pdf' | 'image'; mime?: string; pages?: number[]; rotate?: number }
@@ -82,4 +82,35 @@ export async function splitPdf(bytes: ArrayBuffer, ranges: Array<{ start: number
     onPart?.(out.length)
   }
   return out
+}
+
+/** A plain text page (or pages): a title and numbered lines, for a practice exam's front page. */
+export async function textPdf(title: string, lines: string[]): Promise<ArrayBuffer> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+  // Helvetica here only has Latin-1: anything else is written as "?".
+  const latin = (t: string) => t.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/§/g, 'Sec. ').replace(/[^\x20-\xFF]/g, '?')
+  let page = doc.addPage(LETTER)
+  let y = LETTER[1] - 72
+  page.drawText(latin(title), { x: 72, y, size: 18, font: bold, color: rgb(0, 0, 0) })
+  y -= 34
+  for (const line of lines) {
+    // Long lines wrap at the margin.
+    const words = latin(line).split(' ')
+    let current = ''
+    const flush = () => {
+      if (y < 72) { page = doc.addPage(LETTER); y = LETTER[1] - 72 }
+      page.drawText(current, { x: 72, y, size: 12, font })
+      y -= 18
+      current = ''
+    }
+    for (const w of words) {
+      if (current && font.widthOfTextAtSize(`${current} ${w}`, 12) > LETTER[0] - 144) flush()
+      current = current ? `${current} ${w}` : w
+    }
+    flush()
+  }
+  const bytes = await doc.save()
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }

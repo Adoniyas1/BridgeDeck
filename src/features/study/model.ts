@@ -89,6 +89,15 @@ export function studyMinutes(events: CalEvent[], course: string, from: number, t
     .reduce((sum, e) => sum + Math.min(e.end, to) - Math.max(e.start, from), 0) / 60_000)
 }
 
+/** The tag a focus session's calendar event carries for the assignment it was spent on. */
+export const assignmentTag = (id: string) => `[a:${id}]`
+
+/** Hours spent on an assignment in focus sessions (from the calendar, so both computers count). */
+export function assignmentHours(events: CalEvent[], id: string) {
+  const tag = assignmentTag(id)
+  return events.filter(e => !e.deleted && e.notes.includes(tag)).reduce((sum, e) => sum + (e.end - e.start), 0) / 3_600_000
+}
+
 /** Monday 00:00 of this week, local time. */
 export function weekStart(now = Date.now()) {
   const d = new Date(now)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PLAN, guessHours, planStudy } from './planner'
+import { DEFAULT_PLAN, guessHours, hoursLeft, learnedFactor, overloadWarnings, missedBlocks, PLAN_TAG, planStudy } from './planner'
 
 const H = 3_600_000
 // Monday 8:00 local time.
@@ -36,5 +36,29 @@ describe('planStudy', () => {
     expect(guessHours('assignment', 'Final exam review')).toBe(6)
     expect(guessHours('quiz', 'Quiz 3')).toBe(2)
     expect(guessHours('assignment', 'Lab 5 report')).toBe(4)
+  })
+})
+
+describe('learning from what happened', () => {
+  it('learns how long things take and finds missed blocks', () => {
+    expect(learnedFactor([{ kind: 'assignment', title: 'HW 1', hours: 3 }, { kind: 'assignment', title: 'HW 2', hours: 4 }])).toBeNull()
+    expect(learnedFactor([2, 3, 4, 0.2].map((hours, i) => ({ kind: 'assignment', title: `HW ${i}`, hours })))).toBe(1.5)
+    expect(hoursLeft(4, 1.3)).toBe(2.5)
+    expect(hoursLeft(1, 3)).toBe(0)
+    const now = 10 * 86_400_000
+    const plan = (start: number) => ({ title: 'Study: HW', start, end: start + 3_600_000, notes: `x\n${PLAN_TAG}`, deleted: false })
+    const studied = { title: 'Studied EE', start: now - 5 * 3_600_000, end: now - 4.5 * 3_600_000, notes: '', deleted: false }
+    expect(missedBlocks([plan(now - 5 * 3_600_000), plan(now - 30 * 3_600_000), plan(now + 3_600_000), studied], now).map(b => b.start)).toEqual([now - 30 * 3_600_000])
+  })
+})
+
+describe('overload guard', () => {
+  it('warns about late blocks, long days and clusters of deadlines', () => {
+    const day = new Date(2026, 9, 26).getTime()
+    const at = (h: number) => day + h * 3_600_000
+    const tasks = [1, 20, 40].map((h, i) => ({ id: `t${i}`, title: `HW ${i}`, course: '', due: at(h), hours: 2 }))
+    const warnings = overloadWarnings(tasks, [{ task: 't0', title: 'HW', start: at(23), end: at(24) }], [{ start: at(9), end: at(20) }])
+    expect(warnings.map(w => w.kind)).toEqual(['late', 'long', 'cluster'])
+    expect(overloadWarnings(tasks.slice(0, 2), [{ task: 't0', title: 'HW', start: at(14), end: at(15) }], [])).toEqual([])
   })
 })

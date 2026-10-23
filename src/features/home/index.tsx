@@ -1,4 +1,4 @@
-import { ExamDayCard } from '../study/ExamDay'
+import { CrunchStrip, ExamDayCard } from '../study/ExamDay'
 import { ArrowLeftRight, CheckCircle2, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing, wakeDevice } from '../../core/bridgelink'
@@ -155,6 +155,7 @@ function HomePage() {
     <Leftovers />
     <AwayCard />
     <ExamDayCard />
+    <CrunchStrip />
     <TodayCard />
     <TodayAgenda />
     <DueSoonCard />

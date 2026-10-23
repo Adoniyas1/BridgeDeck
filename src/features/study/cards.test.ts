@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Rating, State } from 'ts-fsrs'
 import type { Note } from '../../lib/bridge'
 import { inline } from '../notes/model'
-import { allDue, cardBody, cardLine, masteryMap, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
+import { allDue, cardBody, cardLine, coversChapter, masteryMap, deckOf, deckStats, dueCards, hasMark, makeCloze, setMark, withBody, parseCard, parseCards, span, withState } from './cards'
 import vectors from './card-vectors.json'
 import { intervals, review } from './review'
 import { pageText } from './indexer'
@@ -127,5 +127,15 @@ describe('mastery map', () => {
     const deck = [card('a', 5, 2), card('b', 40, 2), card('c', 45, 0), { ...card('d', 1, 2), back: 'plain' }]
     const map = masteryMap(deck, file => file === 'circuits.pdf' ? [{ title: '1 Basics', page: 1 }, { title: '2 Nodes', page: 30 }] : [], () => 0.9)
     expect(map.map(m => [m.label, m.cards, m.learned, Number(m.recall.toFixed(2))])).toEqual([['Circuits: 1 Basics', 1, 1, 0.9], ['Circuits: 2 Nodes', 2, 1, 0.45], ['Other cards', 1, 1, 0.9]])
+  })
+})
+
+describe('exam scope', () => {
+  it('matches chapters by number range and by words', () => {
+    expect(coversChapter('Circuits: 3 Nodal analysis', 'Ch 3-5, 7')).toBe(true)
+    expect(coversChapter('Circuits: Chapter 6 Op amps', 'Ch 3-5, 7')).toBe(false)
+    expect(coversChapter('Circuits: 7 First-order circuits', 'chapters 3 to 5 and 7')).toBe(true)
+    expect(coversChapter('Signals: Fourier series', 'Fourier series and transforms')).toBe(true)
+    expect(coversChapter('Other cards', '')).toBe(false)
   })
 })

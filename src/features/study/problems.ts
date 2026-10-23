@@ -38,6 +38,34 @@ export const problemLabel = (p: Problem, many: boolean) => many && p.section ? `
 const SEP = '\u001f'
 export const problemId = (assignment: string, problem: string) => `${assignment}${SEP}${problem}`
 
+/** How a problem went: needed help, or got stuck. Hard ones come back before exams. Kept in study
+ *  state `ratings` by problemId, with what's needed to show it again without the assignment. */
+export type Rating = 'help' | 'stuck'
+export type RatedProblem = { id: string; rating: Rating; course: string; assignment: string; section: string; number: string; at: number }
+
+export function ratingsFromState(state: Record<string, unknown>): RatedProblem[] {
+  return Object.entries(state).flatMap(([id, v]) => {
+    const r = v as Partial<RatedProblem> | null
+    if (!r || (r.rating !== 'help' && r.rating !== 'stuck') || typeof r.number !== 'string') return []
+    return [{ id, rating: r.rating, course: String(r.course ?? ''), assignment: String(r.assignment ?? ''), section: String(r.section ?? ''), number: r.number, at: Number(r.at) || 0 }]
+  }).sort((a, b) => (a.rating === b.rating ? 0 : a.rating === 'stuck' ? -1 : 1) || b.at - a.at)
+}
+
+/** The next rating when clicked again: none → help → stuck → none. */
+export const nextRating = (r: Rating | undefined): Rating | null => r === undefined ? 'help' : r === 'help' ? 'stuck' : null
+
+/** What Mimir is asked when a problem has the user stuck: worked examples from the book, then a
+ *  twin problem (same idea, other numbers) whose answer is checked in Python before it's shown,
+ *  and hints only for the real one. */
+export function stuckPrompt(course: string, assignment: string, section: string, number: string) {
+  return [
+    `I'm stuck on problem ${section ? `${section} ` : ''}#${number} from “${assignment}” in ${course}.`,
+    `1) Find the worked examples for it in my textbook with study_search${section ? ` (section ${section})` : ''} and read them with study_read; tell me which examples (book, page) to look at and the idea they use.`,
+    `2) Make a twin problem: the same idea with different numbers. Work its answer out with run_python before you show it, and show the twin problem with its full worked solution.`,
+    `3) For my real problem, give me only a first hint, then wait for me.`,
+  ].join('\n')
+}
+
 /** Ticks by assignment from the merged study state. */
 export function problemsFromState(state: Record<string, unknown>): Record<string, string[]> {
   const out: Record<string, string[]> = {}

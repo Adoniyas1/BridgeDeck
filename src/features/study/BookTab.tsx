@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, Brain, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
+import { BookMarked, Brain, PenLine, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { notesCreateMarkdown, notesSave, openPath, type NoteBlock } from '../../lib/bridge'
@@ -16,12 +16,13 @@ import { useTabContext } from '../../core/tabContext'
 import { aiPolicyStore } from '../../core/exam'
 import { askMimir } from '../mimir'
 import { mimirPassagePrompt, readingContext } from './model'
-import { isSlideFile, loadBook, pdfjs } from './pdf'
+import { isSlideFile, loadBook, pdfjs, resolveOutline } from './pdf'
 import EpubTab from './EpubTab'
 import { BookChapters } from './BookChapters'
 import { chapterAt, chaptersFromOutline, fromStarts, savedStarts } from './chapters'
 import { bookOf, readCollections } from './collections'
 import { flushPlaces, placeOf, rememberPlace } from './reading'
+import { inkOpenRequest } from '../notes/InkBlock'
 
 const NO_MARKS: string[] = []
 const pageKey = (course: string, file: string) => `bd-book-page:${course}/${file}`
@@ -30,20 +31,6 @@ function savedPage(course: string, file: string) {
 }
 function savePage(course: string, file: string, page: number) {
   try { localStorage.setItem(pageKey(course, file), String(page)) } catch { /* private window: not remembered */ }
-}
-
-type Outline = Array<{ title: string; dest: unknown; items: Outline }>
-
-async function resolveOutline(doc: PDFDocumentProxy, items: Outline | null): Promise<OutlineItem[]> {
-  if (!items) return []
-  return Promise.all(items.map(async item => {
-    let page: number | null = null
-    try {
-      const dest = typeof item.dest === 'string' ? await doc.getDestination(item.dest) : item.dest as unknown[] | null
-      if (Array.isArray(dest) && dest[0]) page = (await doc.getPageIndex(dest[0] as never)) + 1
-    } catch { /* a broken link in the book: no page */ }
-    return { title: item.title, page, items: await resolveOutline(doc, item.items) }
-  }))
 }
 
 /** One page: drawn when it comes near the screen, with a text layer so passages can be selected. */
@@ -112,6 +99,23 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   const askedPage = Number(tab.params?.page ?? 0)
   const askedAt = String(tab.params?.at ?? '')
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
+  const [inking, setInking] = useState('')
+
+  /** A handwriting note over this PDF's pages, opened in Notes to write on. */
+  async function writeOnIt() {
+    if (!doc) return
+    const id = newId()
+    try {
+      setInking('Preparing pages…')
+      const { inkForPdf } = await import('../notes/ink/pdfInk')
+      await inkForPdf(id, doc, { course, file }, (n, of) => setInking(`Preparing page ${n} of ${of}…`))
+      const note = await notesCreateMarkdown(`${title} (handwriting)`, courseFolder(course), 'note', `![Ink](bridgedeck-ink:${id})`)
+      notesStore.set(list => [note, ...list])
+      openNoteRequest.set(note.id)
+      inkOpenRequest.set(id)
+      activateTab('notes')
+    } catch (e) { setStatus(String(e)) } finally { setInking('') }
+  }
   const [size, setSize] = useState({ width: 612, height: 792 })
   const [error, setError] = useState('')
   // 'fit' fits the page to the width of the reading area; a number is a chosen zoom (1.3 shows as 100%).
@@ -162,7 +166,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
         const viewport = first.getViewport({ scale: 1 })
         setSize({ width: viewport.width, height: viewport.height })
         setDoc(loaded)
-        setOutline(await resolveOutline(loaded, await loaded.getOutline() as Outline | null))
+        setOutline(await resolveOutline(loaded, await loaded.getOutline() as Parameters<typeof resolveOutline>[1]))
       } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     })()
     return () => { cancelled = true; void loaded?.destroy() }
@@ -362,6 +366,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
       <button className="ghost" disabled={!selection} title="Ask Mimir to explain this passage (opens beside the book)" onMouseDown={e => e.preventDefault()} onClick={() => void askMimir(mimirPassagePrompt(title, page, selection), true, course)}><Brain size={14} /> Ask Mimir</button>
       <button className="ghost" disabled={!selection} title="Open ChatGPT with this passage, ready for you to send" onMouseDown={e => e.preventDefault()} onClick={() => void askChatGPT(passagePrompt(title, page, selection), courseFolder(course)).catch(e => setStatus(String(e)))}><MessageCircleQuestion size={14} /> Ask ChatGPT</button>
       <button className="ghost" onClick={() => void chapterChecklist()}><ListChecks size={14} /> Chapter checklist</button>
+      {doc && !isSlideFile(file) && <button className="ghost" disabled={!!inking} title="Write on the pages with a pen or Apple Pencil (a handwriting note in this course; export the marked-up PDF from there)" onClick={() => void writeOnIt()}><PenLine size={14} /> {inking || 'Write on it'}</button>}
     </div>
     {card && <form className="book-card-form" onSubmit={e => { e.preventDefault(); void saveCard() }}>
       <input autoFocus placeholder="Question for this card" value={question} onChange={e => setQuestion(e.target.value)} />

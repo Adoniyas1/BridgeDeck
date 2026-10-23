@@ -490,6 +490,25 @@ fn changed(manager: &BridgeLinkManager) {
 // ---- The phone page (phone.rs) ----
 
 /// Checklists (notes with tasks, locked ones left out), newest first, for the phone page.
+/// Handwriting in notes, newest first, for the iPad's pen page.
+pub fn phone_inks(manager: &BridgeLinkManager) -> Result<serde_json::Value, String> {
+    let runtime = manager.lock()?;
+    let mut notes: Vec<&Note> = runtime.notes.notes.values().filter(|n| !n.deleted && n.blocks.iter().any(|b| !b.deleted && b.kind == "ink")).collect();
+    notes.sort_by(|a, b| b.updated().cmp(&a.updated()));
+    Ok(serde_json::Value::Array(
+        notes.into_iter().take(60).flat_map(|n| n.blocks.iter().filter(|b| !b.deleted && b.kind == "ink").map(move |b| serde_json::json!({ "id": b.text, "note": display_title(n), "folder": n.folder }))).collect(),
+    ))
+}
+
+/// A new note holding one handwriting block (made on the iPad).
+pub fn phone_new_ink(manager: &BridgeLinkManager, title: &str, folder: &str, ink: &str) -> Result<Note, String> {
+    if !crate::drawings::valid_id(ink) {
+        return Err("Bad ink id".into());
+    }
+    let (title, folder, markdown) = (title.trim().chars().take(MAX_TITLE).collect::<String>(), folder.trim().to_string(), format!("![Ink](bridgedeck-ink:{ink})"));
+    local(manager, move |store, device, now| store.create_from_markdown(None, "note", &title, &folder, &markdown, device, now))
+}
+
 pub fn phone_lists(manager: &BridgeLinkManager) -> Result<serde_json::Value, String> {
     let runtime = manager.lock()?;
     let mut notes: Vec<&Note> = runtime.notes.notes.values().filter(|n| !n.deleted && !n.blocks.iter().any(|b| !b.deleted && b.kind == "locked") && n.blocks.iter().any(|b| !b.deleted && b.kind == "todo")).collect();
