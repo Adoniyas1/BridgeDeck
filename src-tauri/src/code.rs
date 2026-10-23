@@ -793,6 +793,54 @@ pub fn code_files(app: AppHandle) -> Vec<CodeFile> {
     out
 }
 
+/// The pictures in a published report folded into its HTML (data: URLs), so it's one file.
+pub fn inline_images(html: &str, dir: &Path) -> String {
+    use base64::Engine;
+    let mut out = html.to_string();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let mime = if name.ends_with(".png") { "image/png" } else if name.ends_with(".jpg") || name.ends_with(".jpeg") { "image/jpeg" } else { continue };
+        if let Ok(bytes) = std::fs::read(entry.path()) {
+            let data = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+            out = out.replace(&format!("src=\"{name}\""), &format!("src=\"{data}\""));
+        }
+    }
+    out
+}
+
+/// A MATLAB/Octave script published as a report (its code, output and figures, with its %% section
+/// titles), saved as `<name>.html` beside the script and returned as its path.
+#[tauri::command]
+pub async fn code_publish(app: AppHandle, name: String, source: String) -> Result<String, String> {
+    // Checks the name, then the report sits beside the script.
+    let target = file(&app, &name, "m")?.with_extension("html");
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = prepare("matlab", &source)?;
+        let l = lang("matlab").ok_or("No MATLAB")?;
+        let tool = found(l).ok_or("MATLAB or Octave isn’t installed on this computer")?.swap_remove(0);
+        let script = "publish('main.m', 'format', 'html', 'outputDir', 'published');";
+        let program: Vec<String> = if is_matlab(&tool) {
+            vec![tool, "-batch".into(), script.into()]
+        } else {
+            let cli = Path::new(&tool).file_stem().is_some_and(|n| n.to_string_lossy().contains("cli"));
+            [vec![tool], if cli { vec!["--no-gui".into(), "--no-window-system".into()] } else { vec!["--no-gui".into()] }, vec!["--quiet".into(), "--no-init-file".into(), "--eval".into(), script.into()]].concat()
+        };
+        let result = (|| {
+            let ran = step(&program, &p.dir, "", Duration::from_secs(MAX_RUN_LIMIT))?;
+            let out = p.dir.join("published");
+            let html = std::fs::read_to_string(out.join("main.html")).map_err(|_| format!("It didn’t publish: {}", ran.stderr.lines().take(4).collect::<Vec<_>>().join(" ")))?;
+            let html = inline_images(&html, &out);
+            std::fs::create_dir_all(target.parent().ok_or("No folder")?).map_err(|e| e.to_string())?;
+            std::fs::write(&target, html).map_err(|e| e.to_string())?;
+            Ok(target.to_string_lossy().into_owned())
+        })();
+        let _ = std::fs::remove_dir_all(&p.dir);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn code_load(app: AppHandle, name: String, language: String) -> Result<String, String> {
     let l = lang(&language).ok_or("Unknown language")?;
@@ -937,5 +985,16 @@ mod tests {
     fn refuses_unknown_languages_and_odd_file_names() {
         assert!(run("cobol", "", "", 1).is_err());
         assert!(LANGS.iter().all(|l| !l.ext.contains('.')));
+    }
+
+    #[test]
+    fn published_figures_are_folded_into_the_html() {
+        let dir = std::env::temp_dir().join(format!("bd-publish-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main_01.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        let html = inline_images(r#"<p>x</p><img src="main_01.png"><img src="missing.png">"#, &dir);
+        assert!(html.contains(r#"src="data:image/png;base64,iVBORw==""#), "{html}");
+        assert!(html.contains(r#"src="missing.png""#));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

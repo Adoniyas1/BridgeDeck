@@ -704,6 +704,8 @@ export const codeStop = (id: number) => native<void>('code_stop', { id })
 export const codeOctaveInstall = (name: string) => native<string>('code_octave_install', { name })
 export const codeFiles = () => native<CodeFile[]>('code_files')
 export const codeLoad = (name: string, language: string) => native<string>('code_load', { name, language })
+/** A MATLAB/Octave script published as an HTML report beside it; returns its path (code.rs). */
+export const codePublish = (name: string, source: string) => native<string>('code_publish', { name, source })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
 export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
