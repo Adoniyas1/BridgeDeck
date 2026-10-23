@@ -1986,3 +1986,7 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .scan-review-text{display:flex;flex-direction:column;gap:6px;min-height:0}
 .scan-review-text textarea{flex:1;background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;color:var(--text);padding:10px;font:14px/1.5 ui-monospace,monospace;resize:none}
 @media (max-width:760px){.scan-review-panes{grid-template-columns:1fr}}
+.typeset{position:relative;display:inline-flex}
+.typeset-menu{position:absolute;right:0;top:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 4px 14px #0003;white-space:nowrap}
+.typeset-menu button{background:none;border:0;padding:6px 10px;text-align:left;color:var(--text);font-size:12px;cursor:pointer;border-radius:5px}
+.typeset-menu button:hover{background:var(--line)}

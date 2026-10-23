@@ -472,6 +472,8 @@ export async function studySavePhoto(course: string, name: string, bytes: Uint8A
 }
 /** Apple Vision's reading of a course photo, line by line (Mac only; study/handwriting_mac.rs). */
 export const handwritingVision = (course: string, file: string, words: string[]) => native<Array<{ text: string; confidence: number }>>('handwriting_vision', { course, file, words })
+/** Typst source typeset into a PDF (base64); Typst is downloaded the first time (typst_export.rs). */
+export const typstPdf = (source: string) => native<string>('typst_pdf', { source })
 export const studySaveCsv = (course: string, name: string, text: string) => native<string>('study_save_csv', { course, name, text })
 /** Lecture recordings in a course's Lectures folder, with their transcripts (study_lectures.rs). */
 export type LectureSidecar = { segments?: Array<{ start: number; end: number; text: string }>; markers?: Array<{ t: number; note?: string }>; photos?: Array<{ t: number; file: string }>; started?: number; note?: string; summary?: string }

@@ -13,6 +13,7 @@ import { InkBlock, inkOpenRequest } from './InkBlock'
 import { newDoc as newInkDoc } from './ink/model'
 import { CalcView, PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
+import { TypesetButton } from './TypesetButton'
 import { LockDialog, LockedNote } from './LockedNote'
 import { lockText } from './lock'
 
@@ -444,6 +445,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
         <button className="notes-icon" title={draft.pinned ? 'Unpin' : 'Pin to the top'} onClick={() => change({ ...draftRef.current, pinned: !draftRef.current.pinned })}>{draft.pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
         {!lockedBlock && <button className="notes-icon" title="Lock with a password" onClick={() => setLocking(true)}><Lock size={15} /></button>}
         {!lockedBlock && <button className="notes-icon" title="Earlier versions" onClick={() => setHistory(true)}><History size={15} /></button>}
+        {!lockedBlock && <TypesetButton note={draft} />}
         <button className="notes-icon" title="Copy as Markdown" onClick={() => void copyMarkdown()}><Copy size={15} /></button>
         <button className="notes-icon danger-icon" title="Delete" onClick={() => void remove()}><Trash2 size={15} /></button>
       </div>
