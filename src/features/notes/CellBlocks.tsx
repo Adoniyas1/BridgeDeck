@@ -84,25 +84,25 @@ export function CalcView({ text, onClick }: { text: string; onClick?: () => void
 
 /** A circuit block: a SPICE-style netlist solved here (lib/mna.ts), with every node's voltage and
  *  part's current, and "?" lines checked. */
-export function CircuitView({ text, onClick }: { text: string; onClick?: () => void }) {
+export function CircuitView({ text, onClick, checkOnly = false }: { text: string; onClick?: () => void; checkOnly?: boolean }) {
   const out = useMemo(() => {
     const net = parseNetlist(text)
     if (net.errors.length || !net.parts.length) return { net, error: net.errors.join(' · ') }
     try { return { net, sol: solve(net) } } catch (e) { return { net, error: e instanceof Error ? e.message : String(e) } }
   }, [text])
   if (!text.trim()) return <p className="hint" onClick={onClick}>A netlist, one part a line: <code>R1 in out 4.7k</code>, <code>V1 in 0 12V</code>, <code>C1 out 0 10uF</code>, <code>.ac 1kHz</code>, and <code>? V(out) = 3.4V</code> to check.</p>
-  const checks = out.sol ? runChecks(out.net, out.sol, false) : []
+  const checks = out.sol ? runChecks(out.net, out.sol, checkOnly) : []
   return <div className={`notes-circuit${onClick ? ' clickable' : ''}`} onClick={onClick} title={onClick ? 'Edit the circuit' : undefined}>
     <pre className="notes-circuit-net">{text}</pre>
     {out.error && <p className="error-text">{out.error}</p>}
     {out.sol && <>
       {checks.map((c, i) => <p key={i} className={`notes-circuit-check${c.right === true ? ' good' : c.right === false ? ' bad' : ''}`}><code>{c.what}</code> {c.message}</p>)}
-      <details><summary>{out.sol.freq ? `At ${formatQuantity({ re: out.sol.freq, im: 0, dim: [0, 0, -1, 0] })}` : 'DC'}: every node and part</summary>
+      {checkOnly ? <p className="hint">Check-only: this course’s work is graded, so only your own values are checked (write them as ? V(node) = 3.4V).</p> : <details><summary>{out.sol.freq ? `At ${formatQuantity({ re: out.sol.freq, im: 0, dim: [0, 0, -1, 0] })}` : 'DC'}: every node and part</summary>
         <table className="notes-circuit-table"><tbody>
           {Object.entries(out.sol.voltages).map(([n, v]) => <tr key={`v${n}`}><td>V({n})</td><td>{formatQuantity({ ...v, dim: [2, 1, -3, -1] })}</td></tr>)}
           {Object.entries(out.sol.currents).map(([n, v]) => <tr key={`i${n}`}><td>I({n})</td><td>{formatQuantity({ ...v, dim: [0, 0, 0, 1] })}</td></tr>)}
         </tbody></table>
-      </details>
+      </details>}
     </>}
   </div>
 }

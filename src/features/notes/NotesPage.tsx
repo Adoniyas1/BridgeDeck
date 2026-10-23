@@ -4,6 +4,7 @@ import 'katex/dist/katex.min.css'
 import { CalendarClock, CheckSquare, ChevronDown, ChevronRight, Code, LineChart, Terminal, Calculator, CircuitBoard, Signature, Copy, FilePlus, ListPlus, Folder, Heading1, Heading2, List, ListChecks, ListOrdered, Pilcrow, Sparkles, User, StickyNote, PenTool, Pin, PinOff, Quote, Search, Share2, Hash, History, Link2, Lock, Trash2, X } from 'lucide-react'
 import { inkSetDoc, noteHistoryClear, notesMarkdown, noteVersionRestore, notesCreate, notesDelete, notesSave, openExternal, type Note, type NoteBlock, type NoteBlockKind } from '../../lib/bridge'
 import { useStore } from '../../core/store'
+import { aiPolicyStore, courseOfFolder, examStore } from '../../core/exam'
 import { layoutGraph } from './graph'
 import { MIMIR_MEMORY_ID, editableAsText, allTags, backlinks, between, bumpLabel, descendants, diff, displayMath, findByTitle, graphOf, linkQuery, tagsOf, firstSubLabel, folders, formatDue, indentOf, inline, labelOnly, matches, MAX_INDENT, newId, nextKind, nextLabel, noteTitle, parentIndex, preview, previousSibling, rebase, sectionOf, shortcut, type Section, subProgress, toggleTask, toMarkdown, visible } from './model'
 import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './state'
@@ -34,6 +35,8 @@ type Filter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; name: str
 /** What a block needs to follow links and tags. */
 type Nav = { notes: Note[]; openTitle: (title: string) => void; filterTag: (tag: string) => void }
 const NavContext = createContext<Nav>({ notes: [], openTitle: () => undefined, filterTag: () => undefined })
+/** The open note's folder, for blocks that act by course (a circuit's check-only mode). */
+const FolderContext = createContext('')
 
 function renderMath(tex: string, displayMode: boolean) {
   // KaTeX builds its own markup from the formula and escapes text; trust stays off, so a note
@@ -457,7 +460,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
       <span>{checked.length} of {todos.length} done</span>
       {checked.length > 0 && <button className="ghost" onClick={() => change({ ...draftRef.current, blocks: draftRef.current.blocks.filter(b => !(b.kind === 'todo' && b.checked && !b.deleted)) })}>Clear done</button>}
     </div>}
-    {lockedBlock ? <LockedNote note={draft} block={lockedBlock} onSaved={adopt} /> : <div className="notes-blocks">
+    {lockedBlock ? <LockedNote note={draft} block={lockedBlock} onSaved={adopt} /> : <FolderContext.Provider value={draft.folder}><div className="notes-blocks">
       {blocks.map((block, index) => {
         const level = indentOf(block)
         if (level > hideDeeperThan) return null
@@ -481,7 +484,7 @@ function NoteEditor({ stored, fresh, folderNames, onDeleted, onMoved }: { stored
         if (last && !last.text) setFocus({ id: last.id, caret: 0 })
         else insertAfter(last?.id ?? null, { kind: draft.kind === 'list' ? 'todo' : 'p' })
       }} />
-    </div>}
+    </div></FolderContext.Provider>}
     <Backlinks note={draft} />
     <p className="notes-status">{status || 'Markdown works: # heading, - list, [] checklist, > quote, ``` code, [[link]], #tag, $math$. Tab makes a sub-task, Shift+Tab moves it back. ⌘/Ctrl+Enter ticks an item.'}</p>
   </section>
@@ -520,6 +523,13 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
 }) {
   const area = useRef<HTMLTextAreaElement>(null)
   const nav = useContext(NavContext)
+  const folder = useContext(FolderContext)
+  // Graded work: in exam mode, or in a course whose AI rule isn't 'full', the circuit only says
+  // whether your own values are right.
+  const policies = useStore(aiPolicyStore)
+  const exam = useStore(examStore)
+  const course = courseOfFolder(folder)
+  const checkOnly = (!!exam && exam.until > Date.now()) || (!!course && (policies[course] ?? 'hints') !== 'full')
   const [pickingDue, setPickingDue] = useState(false)
   const showArea = editing || focus !== null || !block.text
   // Typing [[ suggests notes to link to.
@@ -597,7 +607,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
             onKeyDown={keyDown} onFocus={onFocused} onBlur={() => { window.setTimeout(() => setSuggest(null), 150); onBlurred() }} />
         : block.kind === 'graph' ? <PlotView text={block.text} onClick={onEdit} />
         : block.kind === 'calc' ? <CalcView text={block.text} onClick={onEdit} />
-        : block.kind === 'spice' ? <CircuitView text={block.text} onClick={onEdit} />
+        : block.kind === 'spice' ? <CircuitView text={block.text} onClick={onEdit} checkOnly={checkOnly} />
         : block.kind === 'p' && displayMath(block.text) !== null
           ? <div className="notes-rendered notes-math-block" onClick={onEdit} dangerouslySetInnerHTML={{ __html: renderMath(displayMath(block.text)!, true) }} />
           : <div className="notes-rendered" onClick={e => { if (!(e.target instanceof HTMLAnchorElement)) onEdit() }}>
@@ -617,7 +627,7 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
           </div>}
       {showArea && block.kind === 'graph' && <PlotView text={block.text} />}
       {showArea && block.kind === 'calc' && <CalcView text={block.text} />}
-      {showArea && block.kind === 'spice' && <CircuitView text={block.text} />}
+      {showArea && block.kind === 'spice' && <CircuitView text={block.text} checkOnly={checkOnly} />}
       {block.kind === 'python' && <PythonOutput code={block.text} />}
       {suggest && options.length > 0 && <div className="notes-suggest">
         {options.map((title, i) => <button key={title} className={i === suggest.index ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(title) }}>
