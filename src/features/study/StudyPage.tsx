@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, CloudDownload, Sparkles, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CloudDownload, FlaskConical, Sparkles, Link2, Map as MapIcon, CalendarPlus, CalendarRange, Combine, FilePlus, FolderOpen, GraduationCap, ListChecks, MessageCircleQuestion, NotebookPen, Plus, Trash2 } from 'lucide-react'
 import { askChatGPT, coursePrompt } from '../../core/chatgpt'
 import { calendarSave, canvasDownloadFiles, notesCreateMarkdown, openPath, pickTransferPaths, studyAddBooks, studyAddCourse, studyArchiveCourse, studyDeleteCourse, studyRemoveBook, studyPatchCourseInfo, type CalEvent, type CourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -18,6 +18,7 @@ import { indexLibrary } from './indexer'
 import { BookSearchCard, ExamPrepCard, FlashcardsCard, FocusCard, Review } from './StudyTools'
 import { allDue } from './cards'
 import { MimirInbox } from './MimirInbox'
+import { labNotebookMarkdown } from './labNotebook'
 import { syllabusPrompt } from './syllabus'
 import { askMimir } from '../mimir'
 import { canvasConnected } from './assignments'
@@ -168,6 +169,17 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     } catch (e) { onStatus(String(e)) }
   }
 
+  async function newLab() {
+    const title = window.prompt('Lab title', `${name} lab`)?.trim()
+    if (!title) return
+    try {
+      const note = await notesCreateMarkdown(title, courseFolder(name), 'note', labNotebookMarkdown(name, title))
+      notesStore.set(list => [note, ...list])
+      openNoteRequest.set(note.id)
+      activateTab('notes')
+    } catch (e) { onStatus(String(e)) }
+  }
+
   async function newNote() {
     try {
       const note = await notesCreateMarkdown(`${name} notes`, courseFolder(name), 'note', '')
@@ -225,7 +237,7 @@ function CourseView({ course, name, archived, courses, books, root, status, onSt
     <LectureCard course={name} info={course.info} />
     <BookSearchCard course={name} books={books} />
     <div className="two-col">
-      <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button>} />
+      <Card><SectionTitle title="Notes and checklists" subtitle={`In Notes, folder ${courseFolder(name)}`} action={<div className="actions"><button className="ghost" onClick={() => void newNote()}><FilePlus size={14} /> New note</button><button className="ghost" title="A lab report to fill in: circuit check, theory and data with % error" onClick={() => void newLab()}><FlaskConical size={14} /> Lab notebook</button></div>} />
         {mine.length ? <div className="study-notes">{mine.map(({ note, done, total }) => <button key={note.id} onClick={() => { openNoteRequest.set(note.id); activateTab('notes') }}>
           {total ? <ListChecks size={14} /> : <NotebookPen size={14} />}<span className="grow">{noteTitle(note)}</span>
           {total > 0 && <span className="study-progress"><i style={{ width: `${(done / total) * 100}%` }} /></span>}
