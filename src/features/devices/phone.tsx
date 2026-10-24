@@ -12,7 +12,7 @@ import { appleStore, eventsStore, itemsBetween } from '../calendar/state'
 import { addDays, startOfDay } from '../calendar/model'
 import { notesStore } from '../notes/state'
 import { allAssignments } from '../study/assignments'
-import { allDue, deckOf } from '../study/cards'
+import { allDue, deckOf, isNewReview } from '../study/cards'
 import { showAnswer } from '../study/answer'
 import { libraryStore, saveReview } from '../study/state'
 import { courseOfFolder } from '../../core/exam'
@@ -47,7 +47,7 @@ async function applyPhoneReviews(reviews: Array<{ card: string; grade: number; a
   for (const r of [...reviews].sort((a, b) => a.at - b.at)) {
     if (![1, 2, 3, 4].includes(r.grade)) continue
     const card = courses.flatMap(c => deckOf(notesStore.get(), c)).find(c => c.id === r.card)
-    if (!card) continue
+    if (!card || !isNewReview(card.card, r.at)) continue
     try { await saveReview(card, review(card.card, r.grade as 1 | 2 | 3 | 4, new Date(r.at)), r.grade); applied++ } catch { /* the next sync tries again from the phone's copy */ }
   }
   if (applied) setNotice(`Saved ${applied} flashcard review${applied === 1 ? '' : 's'} from your phone.`)
