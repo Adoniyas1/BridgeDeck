@@ -470,6 +470,8 @@ export async function studySavePhoto(course: string, name: string, bytes: Uint8A
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_photo', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** A course's HEIC photo turned into a JPEG in its place; returns the JPEG's name (heic.rs). */
+export const studyConvertHeic = (course: string, file: string) => native<string>('study_convert_heic', { course, file })
 /** Apple Vision's reading of a course photo, line by line (Mac only; study/handwriting_mac.rs). */
 export const handwritingVision = (course: string, file: string, words: string[]) => native<Array<{ text: string; confidence: number }>>('handwriting_vision', { course, file, words })
 /** Typst source typeset into a PDF (base64); Typst is downloaded the first time (typst_export.rs). */
