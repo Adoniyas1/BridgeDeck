@@ -48,7 +48,7 @@ async function applyPhoneReviews(reviews: Array<{ card: string; grade: number; a
     if (![1, 2, 3, 4].includes(r.grade)) continue
     const card = courses.flatMap(c => deckOf(notesStore.get(), c)).find(c => c.id === r.card)
     if (!card || !isNewReview(card.card, r.at)) continue
-    try { await saveReview(card, review(card.card, r.grade as 1 | 2 | 3 | 4, new Date(r.at)), r.grade); applied++ } catch { /* the next sync tries again from the phone's copy */ }
+    try { await saveReview(card, review(card.card, r.grade as 1 | 2 | 3 | 4, new Date(r.at)), r.grade, 0, r.at); applied++ } catch { /* the next sync tries again from the phone's copy */ }
   }
   if (applied) setNotice(`Saved ${applied} flashcard review${applied === 1 ? '' : 's'} from your phone.`)
 }

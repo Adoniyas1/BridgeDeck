@@ -125,7 +125,8 @@ export async function changeCardLine(noteId: string, blockId: string, text: stri
 }
 
 /** Saves a card's new review state into its note line. */
-export async function saveReview(card: FlashCard, next: Card, grade?: number, ms = 0) {
+/** `at`: when it was reviewed (a phone review arrives later). */
+export async function saveReview(card: FlashCard, next: Card, grade?: number, ms = 0, at = Date.now()) {
   // The block as it is now: another sub-card of the same line may have been reviewed already.
   const block = notesStore.get().find(n => n.id === card.noteId)?.blocks.find(b => b.id === card.block.id) ?? card.block
   let text = withState(block.text, next, card.sub)
@@ -134,7 +135,7 @@ export async function saveReview(card: FlashCard, next: Card, grade?: number, ms
   const saved = await notesSave({ id: card.noteId, blocks: [{ ...block, text }] })
   notesStore.set(list => list.map(n => n.id === saved.id ? saved : n))
   // The review log, for tuning FSRS to how this person remembers; losing an entry is harmless.
-  if (grade) void studyReviewLog({ card: card.id, at: Date.now(), grade, ms: Math.min(ms, 3_600_000) }).catch(() => {})
+  if (grade) void studyReviewLog({ card: card.id, at, grade, ms: Math.min(ms, 3_600_000) }).catch(() => {})
 }
 
 // ---- Focus timer ----
