@@ -4,6 +4,7 @@
 
 import type { Note, NoteBlock } from '../../lib/bridge'
 import { displayMath, indentOf, inline, noteTitle, visible } from './model'
+import { graphSvg } from './plot'
 
 export type TypstStyle = 'clean' | 'hand'
 
@@ -42,7 +43,8 @@ function blockTypst(b: NoteBlock, number: number): string {
     case 'ol': return `${pad}${number}. ${inlineTypst(text)}`
     case 'todo': return `${pad}- ${b.checked ? '☑' : '☐'} ${inlineTypst(text)}`
     case 'quote': return `#quote(block: true)[${inlineTypst(text)}]`
-    case 'code': case 'python': case 'calc': case 'graph': return `#raw(${JSON.stringify(text)}, block: true${b.kind === 'python' ? ', lang: "python"' : ''})`
+    case 'graph': { const svg = graphSvg(text); if (svg) return `#align(center, image(bytes(${JSON.stringify(svg)}), format: "svg", width: 90%))`; return `#raw(${JSON.stringify(text)}, block: true)` }
+    case 'code': case 'python': case 'calc': return `#raw(${JSON.stringify(text)}, block: true${b.kind === 'python' ? ', lang: "python"' : ''})`
     case 'drawing': case 'ink': case 'image': return `#text(fill: gray)[(${b.kind === 'ink' ? 'handwriting' : b.kind === 'image' ? 'picture' : 'drawing'}: see the note in BridgeDeck)]`
     case 'locked': return ''
     default: {

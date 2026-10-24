@@ -1322,6 +1322,7 @@ main.fill .logic{height:auto}
 .notes-graph text{font-size:10px;fill:var(--faint)}
 .notes-graph-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
 .notes-graph-legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.notes-graph-legend i.dot{width:7px;height:7px;border-radius:50%}
 .notes-calc{display:flex;flex-direction:column;gap:2px;font-size:13px;padding:6px 0}
 .notes-calc.clickable{cursor:text}
 .notes-calc-line{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
@@ -1996,6 +1997,8 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .typeset-menu{position:absolute;right:0;top:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 4px 14px #0003;white-space:nowrap}
 .typeset-menu button{background:none;border:0;padding:6px 10px;text-align:left;color:var(--text);font-size:12px;cursor:pointer;border-radius:5px}
 .typeset-menu button:hover{background:var(--line)}
+.typeset-attach{padding:8px;gap:4px;max-height:320px;overflow:auto;font-size:12px}
+.typeset-attach label{display:flex;gap:6px;align-items:center}
 .notes-circuit{display:flex;flex-direction:column;gap:4px;font-size:13px;padding:6px 0}
 .notes-circuit.clickable{cursor:text}
 .notes-circuit-net{margin:0;font-size:12px;color:var(--muted);white-space:pre-wrap}
