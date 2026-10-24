@@ -88,7 +88,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     clipboard: { ...defaultConfig.clipboard, ...(input.clipboard || {}) },
     notifications: { ...defaultConfig.notifications, ...(input.notifications || {}) },
     sendTo: { ...defaultConfig.sendTo, ...(input.sendTo || {}) },
-    phone: { enabled: input.phone?.enabled === true, tailscale: input.phone?.tailscale === true },
+    phone: { enabled: input.phone?.enabled === true, tailscale: input.phone?.tailscale === true, https: input.phone?.https === true },
     updates: { ...defaultConfig.updates, ...(input.updates || {}) },
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
     calendar: {

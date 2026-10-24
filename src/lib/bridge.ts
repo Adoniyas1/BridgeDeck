@@ -741,7 +741,7 @@ export const notesReplaceMarkdown = (id: string, markdown: string) => native<Not
 export const noteHistoryClear = (id: string) => native<void>('note_history_clear', { id })
 /** The phone page on the local network (src-tauri/src/phone.rs). */
 export type PhoneStatus = { running: boolean; urls: string[]; error: string }
-export const phoneSettings = (enabled: boolean, tailscale = false) => native<PhoneStatus>('phone_settings', { enabled, tailscale })
+export const phoneSettings = (enabled: boolean, tailscale = false, https = false) => native<PhoneStatus>('phone_settings', { enabled, tailscale, https })
 export const phoneStatus = () => native<PhoneStatus>('phone_status')
 export const phoneNewKey = () => native<PhoneStatus>('phone_new_key')
 export const phonePublish = (snapshot: unknown) => native<void>('phone_publish', { snapshot })
