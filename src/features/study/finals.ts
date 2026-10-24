@@ -56,3 +56,15 @@ export function finalFor(meetings: Meeting[], rows: FinalRow[], year: number): {
   const day = new Date(year, row.date.month, row.date.day)
   return { start: day.getTime() + row.from * 60_000, end: day.getTime() + row.to * 60_000 }
 }
+
+/** A schedule web page's tables as lines of cells ("MW 9:30 AM | Monday, December 15 | 10:15 AM -
+ *  12:15 PM"), for readFinals. Scripts and styles are dropped; tags go, entities are decoded. */
+export function tableText(html: string): string {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<\/t[dh]>/gi, ' | ')
+    .replace(/<\/tr>|<br\s*\/?>|<\/p>|<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/g, ' ').replace(/&ndash;|&#8211;/g, '–').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .split('\n').map(l => l.replace(/[ \t]+/g, ' ').replace(/(\s*\|\s*)+$/, '').trim()).filter(Boolean).join('\n')
+}

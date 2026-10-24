@@ -667,6 +667,8 @@ export const circuitSave = (project: string, name: string, circuit: string) => n
 export const reportSave = (project: string, name: string, html: string) => native<string>('report_save', { project, name, html })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
+/** A final exam schedule page's HTML (canvas.rs finals_page). */
+export const finalsPage = (url: string) => native<string>('finals_page', { url })
 export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
 /** Downloads a Canvas course's files into its Study folder; unchanged ones are skipped (canvas.rs). */

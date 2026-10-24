@@ -739,7 +739,7 @@ pub fn run() {
             backups::backups_list,
             canvas::canvas_feed,
             canvas::canvas_api,
-            canvas::calendar_subscription,
+            canvas::calendar_subscription, canvas::finals_page,
             phone::phone_settings,
             phone::phone_status,
             phone::phone_new_key,

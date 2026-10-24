@@ -102,6 +102,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       examBlock: Array.isArray(input.study?.examBlock) ? cleanSites(input.study.examBlock) : [...defaultConfig.study.examBlock],
       quietFocus: input.study?.quietFocus !== false,
       ...(Array.isArray(input.study?.fsrsWeights) ? { fsrsWeights: input.study.fsrsWeights.filter((n): n is number => Number.isFinite(n)).slice(0, 32) } : {}),
+      ...(typeof input.study?.finalsUrl === 'string' && input.study.finalsUrl.trim() ? { finalsUrl: input.study.finalsUrl.trim().slice(0, 400) } : {}),
       ...(['text', 'mimir'].includes(String(input.study?.handwritingReader)) ? { handwritingReader: input.study!.handwritingReader } : {}),
       commuteMinutes: Number.isFinite(input.study?.commuteMinutes) ? Math.max(0, Math.min(240, Math.round(Number(input.study!.commuteMinutes)))) : defaultConfig.study.commuteMinutes,
       classRemindMinutes: Number.isFinite(input.study?.classRemindMinutes) ? Math.max(0, Math.min(120, Math.round(Number(input.study!.classRemindMinutes)))) : defaultConfig.study.classRemindMinutes,
