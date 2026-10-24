@@ -95,6 +95,10 @@ incremental = true
 
 [profile.dev]
 opt-level = 2
+# Line numbers only (enough for panics and backtraces): full debug info made the build folder
+# many gigabytes larger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
