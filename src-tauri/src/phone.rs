@@ -301,7 +301,8 @@ fn read_body(stream: &mut dyn Conn, request: &Request, max: usize) -> Result<Vec
     while body.len() < length {
         let n = stream.read(&mut chunk).map_err(|e| e.to_string())?;
         if n == 0 {
-            break;
+            // Cut off: a half-sent page or request is refused, not saved.
+            return Err("The request stopped part way".into());
         }
         body.extend_from_slice(&chunk[..n.min(length - body.len())]);
     }
