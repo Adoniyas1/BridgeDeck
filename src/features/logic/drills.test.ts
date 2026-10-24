@@ -20,3 +20,11 @@ describe('logic drills', () => {
     expect(checkDrill(kmap, 'A + Z').message).toMatch(/Only A, B, C/)
   })
 })
+
+describe('predict, then simulate', () => {
+  it('marks guesses against the table, skipping don’t-cares', async () => {
+    const { markPrediction } = await import('./drills')
+    const rows: Array<{ out: Array<0 | 1 | null> }> = [{ out: [0, null] }, { out: [1, 1] }]
+    expect(markPrediction(rows, { '0:0': 0, '1:0': 0 })).toEqual({ right: 1, total: 3, wrong: [{ row: 1, out: 0 }, { row: 1, out: 1 }] })
+  })
+})
