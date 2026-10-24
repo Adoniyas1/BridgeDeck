@@ -50,6 +50,7 @@ mod ink;
 mod handwriting_mac;
 mod typst_export;
 mod heic;
+mod note_images;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -665,7 +666,7 @@ pub fn run() {
             study::study_save_pdf,
             study::study_save_card_picture,
             study::study_save_csv,
-            study::study_save_photo, study::study_convert_heic,
+            study::study_save_photo, study::study_convert_heic, note_images::note_image_save, note_images::note_image_load,
             canvas::canvas_download_files,
             handwriting_mac::handwriting_vision,
             typst_export::typst_pdf,

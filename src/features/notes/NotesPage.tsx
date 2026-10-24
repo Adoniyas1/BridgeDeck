@@ -11,6 +11,7 @@ import { notesLoadedStore, notesStore, openNoteRequest, refreshNotes } from './s
 import { openBookLink, openLectureLink } from '../study/open'
 import { DrawingBlock } from './DrawingBlock'
 import { InkBlock, inkOpenRequest } from './InkBlock'
+import { ImageBlock } from './ImageBlock'
 import { newDoc as newInkDoc } from './ink/model'
 import { CalcView, CircuitView, PlotView, PythonOutput } from './CellBlocks'
 import { NoteHistory } from './NoteHistory'
@@ -595,7 +596,8 @@ function BlockRow({ block, number, sub, folded, onFold, onAddSub, editing, focus
   const overdue = block.due && !block.checked && block.due <= Date.now()
   if (block.kind === 'drawing') return <div className="notes-block kind-drawing"><span className="notes-fold-space" /><DrawingBlock id={block.text} /></div>
   if (block.kind === 'ink') return <div className="notes-block kind-ink"><span className="notes-fold-space" /><InkBlock id={block.text} /></div>
-  if (!editableAsText(block.kind)) return <div className="notes-block kind-other"><span className="notes-fold-space" /><p className="notes-other">{block.kind === 'image' ? '🖼 Picture' : `A “${block.kind}” block`}, made with a newer BridgeDeck. Update BridgeDeck on this computer to see it; it’s kept as it is.</p></div>
+  if (block.kind === 'image') return <div className="notes-block kind-image"><span className="notes-fold-space" /><ImageBlock id={block.text} /></div>
+  if (!editableAsText(block.kind)) return <div className="notes-block kind-other"><span className="notes-fold-space" /><p className="notes-other">A “{block.kind}” block, made with a newer BridgeDeck. Update BridgeDeck on this computer to see it; it’s kept as it is.</p></div>
 
   return <div className={`notes-block kind-${block.kind}${block.checked ? ' checked' : ''}`} style={{ paddingLeft: indentOf(block) * 26 }}>
     {folded !== null ? <button className="notes-fold" title={folded ? 'Show sub-tasks' : 'Hide sub-tasks'} onClick={onFold}>{folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button> : <span className="notes-fold-space" />}

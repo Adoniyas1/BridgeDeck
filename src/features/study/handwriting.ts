@@ -29,3 +29,35 @@ export function handwritingPrompt(course: string, file: string, folder: string) 
     `Don't add anything that isn't on the page; mark a word you can't read as [?]. Save it with note_create (title “${file.replace(/\.[^.]+$/, '')} — notes”, folder “${folder}”) and tell me what you weren't sure of.`,
   ].join('\n')
 }
+
+/** Words fixed by hand after reading a photo: single words the reader got wrong and what they
+ *  were, found by lining up the words read with the words kept (longest common run). Kept with the
+ *  course (`handwriting`: "misread=>right"), so the next photo is read with them fixed, and the
+ *  right words are given to Apple Vision as words to expect. */
+export function corrections(before: string, after: string): Array<[string, string]> {
+  const a = before.split(/\s+/).filter(Boolean).slice(0, 1500), b = after.split(/\s+/).filter(Boolean).slice(0, 1500)
+  const n = a.length, m = b.length
+  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+  const out: Array<[string, string]> = []
+  let i = 0, j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    // One word swapped for one word: a fix. Anything else (words added, removed) is just editing.
+    if (lcs[i + 1][j + 1] === lcs[i][j] && i + 1 <= n && j + 1 <= m) {
+      const [wrong, right] = [a[i].replace(/^[^\w$\\]+|[^\w$}]+$/g, ''), b[j].replace(/^[^\w$\\]+|[^\w$}]+$/g, '')]
+      if (wrong && right && wrong !== right && !/\$/.test(wrong + right) && right.length >= 2 && !out.some(([w]) => w === wrong)) out.push([wrong, right])
+      i++; j++
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++
+    else j++
+  }
+  return out
+}
+
+/** The course's saved fixes merged with new ones (newest win), at most 300. */
+export function mergeFixes(saved: unknown, fresh: Array<[string, string]>): string[] {
+  const list = Array.isArray(saved) ? saved.filter((x): x is string => typeof x === 'string' && x.includes('=>')) : []
+  const map = new Map(list.map(x => { const [w, r] = x.split('=>').map(s => s.trim()); return [w, r] as const }))
+  for (const [w, r] of fresh) map.set(w, r)
+  return [...map].slice(-300).map(([w, r]) => `${w}=>${r}`)
+}
