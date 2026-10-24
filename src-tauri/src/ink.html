@@ -103,21 +103,22 @@
     var queueKey = 'bd-ink-queue-' + id
     var queue = []
     try { queue = JSON.parse(localStorage.getItem(queueKey) || '[]') } catch (e) {}
-    ink = { id: id, doc: { pages: 1, size: 'letter', paper: 'lines' }, strokes: [], bgs: {}, mine: [], tool: 'pen', color: '#111111', width: 2, pages: [], queue: queue, queueKey: queueKey }
+    ink = { id: id, doc: { pages: 1, size: 'letter', paper: 'lines' }, strokes: [], bgs: {}, mine: [], sel: [], tool: 'pen', color: '#111111', width: 2, pages: [], queue: queue, queueKey: queueKey }
     $('list').hidden = true; $('pages').hidden = false
     var top = $('top'); top.innerHTML = ''
     var back = el('button', {}, '‹ Back'); back.onclick = function () { flush(); ink = null; showList() }; top.appendChild(back)
     top.appendChild(el('strong', {}, name))
-    ;[['pen', 'Pen'], ['hl', 'Highlighter'], ['eraser', 'Eraser']].forEach(function (t) {
-      var b = el('button', { 'data-tool': t[0] }, t[1]); b.onclick = function () { ink.tool = t[0]; tools() }; top.appendChild(b)
+    ;[['pen', 'Pen'], ['hl', 'Highlighter'], ['eraser', 'Eraser'], ['lasso', 'Lasso']].forEach(function (t) {
+      var b = el('button', { 'data-tool': t[0] }, t[1]); b.onclick = function () { ink.tool = t[0]; if (t[0] !== 'lasso') ink.sel = []; tools(); redraw() }; top.appendChild(b)
     })
+    var del = el('button', { id: 'del', hidden: '' }, 'Delete'); del.onclick = function () { if (!ink.sel.length) return; var ids = ink.sel; ink.sel = []; ink.strokes = ink.strokes.filter(function (s) { return ids.indexOf(s.id) < 0 }); save(JSON.stringify({ e: ids, t: Date.now() })); tools(); redraw() }; top.appendChild(del)
     ;['#111111', '#1d4ed8', '#b91c1c', '#15803d'].forEach(function (c) { var b = el('button', { class: 'dot', 'data-color': c }); b.style.background = c; b.onclick = function () { ink.color = c; if (ink.tool === 'eraser') ink.tool = 'pen'; tools() }; top.appendChild(b) })
     var undo = el('button', {}, 'Undo'); undo.onclick = function () { var last = ink.mine.pop(); if (last) { ink.strokes = ink.strokes.filter(function (s) { return s.id !== last }); save(JSON.stringify({ e: [last], t: Date.now() })); redraw() } }; top.appendChild(undo)
     var more = el('button', {}, '+ Page'); more.onclick = function () { ink.doc.pages++; api('/api/ink/pages?id=' + encodeURIComponent(id), { pages: ink.doc.pages }).catch(function () {}); build() }; top.appendChild(more)
     top.appendChild(el('span', { class: 'grow' })); top.appendChild(el('span', { id: 'state', class: 'muted' }))
     tools(); load(true)
   }
-  function tools() { document.querySelectorAll('[data-tool]').forEach(function (b) { b.className = b.getAttribute('data-tool') === ink.tool ? 'on' : '' }); document.querySelectorAll('[data-color]').forEach(function (b) { b.className = 'dot' + (b.getAttribute('data-color') === ink.color ? ' on' : '') }) }
+  function tools() { var d = $('del'); if (d) d.hidden = !ink.sel.length; document.querySelectorAll('[data-tool]').forEach(function (b) { b.className = b.getAttribute('data-tool') === ink.tool ? 'on' : '' }); document.querySelectorAll('[data-color]').forEach(function (b) { b.className = 'dot' + (b.getAttribute('data-color') === ink.color ? ' on' : '') }) }
   function state(text) { var s = $('state'); if (s) s.textContent = text }
 
   function load(first) {
@@ -179,8 +180,21 @@
       if (ink.bgs[i]) ctx.drawImage(ink.bgs[i], 0, 0, wh[0] * k, wh[1] * k)
       ink.strokes.forEach(function (s) { if (s.page === i) drawStroke(ctx, s, k) })
       if (ink.live && ink.live.page === i) drawStroke(ctx, ink.live, k)
+      // The lasso's line while it's drawn, and the box round what it took.
+      if (ink.loop && ink.loop.page === i) { ctx.setLineDash([4 * k, 3 * k]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = k; ctx.beginPath(); ink.loop.points.forEach(function (p, j) { j ? ctx.lineTo(p.x * k, p.y * k) : ctx.moveTo(p.x * k, p.y * k) }); ctx.stroke(); ctx.setLineDash([]) }
+      var b = selBox(i)
+      if (b) { ctx.setLineDash([4 * k, 3 * k]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = k; ctx.strokeRect(b.x * k, b.y * k, b.w * k, b.h * k); ctx.setLineDash([]) }
     })
   }
+  function inside(pt, poly) { var hit = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) { var a = poly[i], b = poly[j]; if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < (b.x - a.x) * (pt.y - a.y) / (b.y - a.y) + a.x) hit = !hit } return hit }
+  function selBox(page) {
+    var pick = ink.strokes.filter(function (s) { return s.page === page && ink.sel.indexOf(s.id) >= 0 })
+    if (!pick.length) return null
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    pick.forEach(function (s) { s.points.forEach(function (p) { x0 = Math.min(x0, p.x - s.width); y0 = Math.min(y0, p.y - s.width); x1 = Math.max(x1, p.x + s.width); y1 = Math.max(y1, p.y + s.width) }) })
+    return { x: x0 - 4, y: y0 - 4, w: x1 - x0 + 8, h: y1 - y0 + 8 }
+  }
+  function line(s) { return JSON.stringify({ s: s.id, pg: s.page, t: s.t, tool: s.tool, c: s.color, w: s.width, p: encode(s.points) }) }
   function near(s, p, r) { for (var i = 0; i < s.points.length; i++) { var q = s.points[i]; if (Math.hypot(q.x - p.x, q.y - p.y) <= r + s.width) return true } return false }
 
   function attach(canvas, page) {
@@ -193,6 +207,13 @@
       ink.drawing = true
       var p = at(e)
       if (ink.tool === 'eraser') { erase(p, page); return }
+      if (ink.tool === 'lasso') {
+        // Inside the selection's box: pick it up to move it. Elsewhere: draw a new lasso.
+        var b = selBox(page)
+        if (b && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) ink.drag = { page: page, from: p, last: p }
+        else ink.loop = { page: page, points: [p] }
+        return
+      }
       ink.live = { id: newId(), page: page, t: Date.now(), tool: ink.tool === 'hl' ? 'hl' : 'pen', color: ink.tool === 'hl' && ink.color === '#111111' ? '#facc15' : ink.color, width: ink.width, points: [p] }
     })
     canvas.addEventListener('pointermove', function (e) {
@@ -201,6 +222,12 @@
       var events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
       if (!events.length) events = [e]
       if (ink.tool === 'eraser') { events.forEach(function (ev) { erase(at(ev), page) }); return }
+      if (ink.drag) {
+        var q = at(e), dx = q.x - ink.drag.last.x, dy = q.y - ink.drag.last.y; ink.drag.last = q
+        ink.strokes.forEach(function (s) { if (ink.sel.indexOf(s.id) >= 0) s.points.forEach(function (pt) { pt.x += dx; pt.y += dy }) })
+        redraw(page); return
+      }
+      if (ink.loop) { events.forEach(function (ev) { ink.loop.points.push(at(ev)) }); redraw(page); return }
       if (!ink.live) return
       events.forEach(function (ev) { ink.live.points.push(at(ev)) })
       redraw(page)
@@ -209,11 +236,27 @@
       if (e.pointerType === 'touch') { scrollFrom = null; return }
       if (!ink || !ink.drawing) return
       ink.drawing = false
+      if (ink.loop) {
+        var poly = ink.loop.points; ink.loop = null
+        ink.sel = poly.length < 3 ? [] : ink.strokes.filter(function (s) { return s.page === page && s.points.filter(function (pt) { return inside(pt, poly) }).length * 2 > s.points.length }).map(function (s) { return s.id })
+        tools(); redraw(page); return
+      }
+      if (ink.drag) {
+        // A move is the strokes written again where they were dropped, and the old ones erased.
+        var d = ink.drag; ink.drag = null
+        if (Math.hypot(d.last.x - d.from.x, d.last.y - d.from.y) > 0.5) {
+          var old = ink.sel.slice(), now = Date.now(), fresh = []
+          ink.strokes = ink.strokes.map(function (s, i) { var j = old.indexOf(s.id); if (j < 0) return s; var n = { id: newId() + j, page: s.page, t: now + j, tool: s.tool, color: s.color, width: s.width, points: s.points }; fresh.push(n); var m = ink.mine.indexOf(s.id); if (m >= 0) ink.mine[m] = n.id; return n })
+          ink.sel = fresh.map(function (s) { return s.id })
+          save(JSON.stringify({ e: old, t: now - 1 })); fresh.forEach(function (s) { save(line(s)) })
+        }
+        redraw(page); return
+      }
       var s = ink.live; ink.live = null
       if (s && s.points.length) {
         if (s.points.length === 1) s.points.push({ x: s.points[0].x + 0.1, y: s.points[0].y, p: s.points[0].p })
         ink.strokes.push(s); ink.mine.push(s.id)
-        save(JSON.stringify({ s: s.id, pg: s.page, t: s.t, tool: s.tool, c: s.color, w: s.width, p: encode(s.points) }))
+        save(line(s))
       }
       redraw(page)
     }
