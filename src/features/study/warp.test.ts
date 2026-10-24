@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply, homography, outputSize, warp, whiten } from './warp'
+import { apply, findCorners, homography, outputSize, warp, whiten } from './warp'
 
 describe('straightening a page photo', () => {
   it('maps four corners exactly', () => {
@@ -20,5 +20,24 @@ describe('straightening a page photo', () => {
     whiten(page, 4)
     expect(page.data[(0 * 4 + 3) * 4]).toBe(255)
     expect(page.data[0]).toBeLessThan(20)
+  })
+  it('finds a tilted page on a dark desk', () => {
+    const w = 200, h = 150
+    const gray = new Uint8Array(w * h).fill(40)
+    const page = [{ x: 30, y: 20 }, { x: 170, y: 35 }, { x: 160, y: 135 }, { x: 25, y: 120 }]
+    // Fill the quad (with a little noise and some dark writing inside).
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let hit = false
+      for (let i = 0, j = 3; i < 4; j = i++) { const a = page[i], b = page[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) hit = !hit }
+      if (hit) gray[y * w + x] = (x % 17 === 0 && y % 3 === 0) ? 60 : 225 + ((x * 7 + y * 3) % 20)
+    }
+    const found = findCorners(gray, w, h)!
+    expect(found).not.toBeNull()
+    found.forEach((p, i) => expect(Math.hypot(p.x - page[i].x, p.y - page[i].y)).toBeLessThan(4))
+  })
+  it('gives up on a photo with no page in it', () => {
+    expect(findCorners(new Uint8Array(100 * 100).fill(200), 100, 100)).toBeNull()
+    const speck = new Uint8Array(100 * 100).fill(30); speck[5050] = 250
+    expect(findCorners(speck, 100, 100)).toBeNull()
   })
 })

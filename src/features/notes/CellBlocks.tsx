@@ -28,17 +28,18 @@ export function PlotView({ text, onClick }: { text: string; onClick?: () => void
   const sx = (v: number) => PAD + ((v - p.x[0]) / (p.x[1] - p.x[0])) * w
   const sy = (v: number) => h - ((v - p.y[0]) / (p.y[1] - p.y[0])) * h
   return <div className={`notes-graph${onClick ? ' clickable' : ''}`} onClick={onClick} title={onClick ? 'Edit the graph' : undefined}>
-    {p.curves.length > 0 && <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={p.curves.map(c => `${c.name} = ${c.source}`).join(', ')}>
+    {(p.curves.length > 0 || p.data.length > 0) && <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={[...p.curves.map(c => `${c.name} = ${c.source}`), ...p.data.map(d => `${d.name}: ${d.points.length} points`)].join(', ')}>
       <defs><clipPath id="graph-clip"><rect x={0} y={0} width={w} height={h} /></clipPath></defs>
       {ticks(p.x[0], p.x[1]).map(v => <g key={`x${v}`}><line x1={sx(v)} y1={0} x2={sx(v)} y2={h} className={v === 0 ? 'axis' : 'grid'} /><text x={sx(v)} y={h + 14} textAnchor="middle">{label(v)}</text></g>)}
       {ticks(p.y[0], p.y[1], 6).map(v => <g key={`y${v}`}><line x1={PAD} y1={sy(v)} x2={PAD + w} y2={sy(v)} className={v === 0 ? 'axis' : 'grid'} /><text x={PAD - 4} y={sy(v) + 3} textAnchor="end">{label(v)}</text></g>)}
       <g clipPath="url(#graph-clip)" transform={`translate(${PAD},0)`}>
         {p.curves.map((c, i) => <path key={c.name + i} d={pathOf(c, p, w, h)} fill="none" stroke={COLORS[i % COLORS.length]} strokeWidth={2} />)}
+        {p.data.map((d, i) => <g key={`d${d.name}${i}`} fill={COLORS[(p.curves.length + i) % COLORS.length]}>{d.points.map(([x, y], j) => <circle key={j} cx={sx(x) - PAD} cy={sy(y)} r={3.5} />)}</g>)}
       </g>
     </svg>}
-    {p.curves.length > 0 && <div className="notes-graph-legend">{p.curves.map((c, i) => <span key={c.name + i}><i style={{ background: COLORS[i % COLORS.length] }} />{c.name} = {c.source}</span>)}</div>}
+    {(p.curves.length > 0 || p.data.length > 0) && <div className="notes-graph-legend">{p.curves.map((c, i) => <span key={c.name + i}><i style={{ background: COLORS[i % COLORS.length] }} />{c.name} = {c.source}</span>)}{p.data.map((d, i) => <span key={`d${d.name}${i}`}><i className="dot" style={{ background: COLORS[(p.curves.length + i) % COLORS.length] }} />{d.name} ({d.points.length} points)</span>)}</div>}
     {p.errors.map(e => <p key={e} className="error-text">{e}</p>)}
-    {!p.curves.length && !p.errors.length && <p className="hint">Write a function per line, like <code>y = sin(x)</code> or <code>f(x) = x^2 - 2x</code>, and optionally <code>x: -5..5</code> or <code>y: -2..2</code>.</p>}
+    {!p.curves.length && !p.data.length && !p.errors.length && <p className="hint">Write a function per line, like <code>y = sin(x)</code> or <code>f(x) = x^2 - 2x</code>, measured points like <code>measured: 1, 2.1; 2, 3.9</code>, and optionally <code>x: -5..5</code> or <code>y: -2..2</code>.</p>}
   </div>
 }
 

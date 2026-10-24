@@ -1,6 +1,7 @@
 import type { ToolDef, ToolResult, Toolset } from "../brain/Provider.js";
 import type { BridgeDeckClient } from "./client.js";
 import { occurrences, type CalEvent, type CalRepeat } from "./recur.js";
+import { visionReading, withReading } from "../team/vision.js";
 
 /** The longest tool answer handed back to the model. */
 const MAX_ANSWER = 12_000;
@@ -307,7 +308,8 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     study_photo: async (input) => {
       try {
         const photo = await call<{ mime: string; data: string; bytes: number }>("study/photo", { course: str(input, "course"), file: str(input, "file") });
-        return { content: `The photo ${str(input, "file")} (${Math.round(photo.bytes / 1024)} KB) is attached for you to look at.`, modelImages: [{ mimeType: photo.mime, data: photo.data }] };
+        const images = [{ mimeType: photo.mime, data: photo.data }];
+        return { content: withReading(`The photo ${str(input, "file")} (${Math.round(photo.bytes / 1024)} KB) is attached for you to look at.`, await visionReading(images)), modelImages: images };
       } catch (error) { return fail(error); }
     },
     study_lecture: async (input) => {

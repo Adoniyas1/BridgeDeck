@@ -35,6 +35,10 @@ static SERVER: Mutex<Option<Server>> = Mutex::new(None);
 static ERROR: Mutex<String> = Mutex::new(String::new());
 /// Whether the page may be opened over Tailscale (from the phone on campus); off unless chosen.
 static TAILSCALE: AtomicBool = AtomicBool::new(false);
+/// Over Tailscale with HTTPS too (a certificate from `tailscale cert`), for what browsers only
+/// allow on a secure page (the camera, working offline). The address it's served on.
+static HTTPS: Mutex<Option<String>> = Mutex::new(None);
+const HTTPS_PORT: u16 = PORT + 1;
 /// Today's agenda and what's due, as the window last worked it out (it knows recurring events and
 /// Canvas); the page shows it as is.
 static SNAPSHOT: Mutex<Option<Value>> = Mutex::new(None);
@@ -102,7 +106,10 @@ fn status(app: &AppHandle) -> PhoneStatus {
         (true, Ok(key)) => {
             let mut urls: Vec<String> = lan_address().filter(|ip| !is_tailscale(ip)).map(|ip| vec![format!("http://{ip}:{PORT}/#{key}")]).unwrap_or_default();
             if TAILSCALE.load(Ordering::Relaxed) {
-                urls.extend(tailscale_address().map(|ip| format!("http://{ip}:{PORT}/#{key}")));
+                match HTTPS.lock().ok().and_then(|h| h.clone()) {
+                    Some(name) => urls.push(format!("https://{name}:{HTTPS_PORT}/#{key}")),
+                    None => urls.extend(tailscale_address().map(|ip| format!("http://{ip}:{PORT}/#{key}"))),
+                }
             }
             urls
         }
@@ -139,7 +146,94 @@ fn start(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// The Tailscale command line, where each system puts it.
+fn tailscale_cli() -> PathBuf {
+    let known = if cfg!(target_os = "macos") {
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    } else if cfg!(target_os = "windows") {
+        r"C:\Program Files\Tailscale\tailscale.exe"
+    } else {
+        ""
+    };
+    if !known.is_empty() && Path::new(known).is_file() { PathBuf::from(known) } else { PathBuf::from("tailscale") }
+}
+
+fn tailscale(args: &[&str]) -> Result<Vec<u8>, String> {
+    let mut command = std::process::Command::new(tailscale_cli());
+    command.args(args);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let out = command.output().map_err(|_| "Tailscale isn't installed on this computer".to_string())?;
+    if out.status.success() { Ok(out.stdout) } else { Err(String::from_utf8_lossy(&out.stderr).trim().chars().take(300).collect()) }
+}
+
+/// This computer's name in the tailnet ("laptop.tail1234.ts.net"), from `tailscale status`.
+pub fn tailnet_name(status_json: &[u8]) -> Option<String> {
+    let v: Value = serde_json::from_slice(status_json).ok()?;
+    let name = v.get("Self")?.get("DNSName")?.as_str()?.trim_end_matches('.').to_string();
+    (name.ends_with(".ts.net") && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')).then_some(name)
+}
+
+/// The tailnet certificate for this computer (renewed when it's over a month old; Tailscale's last
+/// 90 days), and the TLS setup that serves it.
+fn tls_config(app: &AppHandle) -> Result<(Arc<rustls::ServerConfig>, String), String> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+    let name = tailnet_name(&tailscale(&["status", "--json"])?).ok_or("Tailscale has no name for this computer: turn on MagicDNS in the Tailscale admin page")?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("tailscale-cert");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let (cert, key) = (dir.join(format!("{name}.crt")), dir.join(format!("{name}.key")));
+    let stale = std::fs::metadata(&cert).and_then(|m| m.modified()).map(|t| t.elapsed().unwrap_or_default() > Duration::from_secs(30 * 86_400)).unwrap_or(true);
+    if stale {
+        let (c, k) = (cert.to_string_lossy().to_string(), key.to_string_lossy().to_string());
+        tailscale(&["cert", "--cert-file", &c, "--key-file", &k, &name]).map_err(|e| format!("No HTTPS certificate from Tailscale (turn on HTTPS Certificates in the Tailscale admin page): {e}"))?;
+    }
+    let certs = CertificateDer::pem_file_iter(&cert).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let key = PrivateKeyDer::from_pem_file(&key).map_err(|e| e.to_string())?;
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| e.to_string())?;
+    Ok((Arc::new(config), name))
+}
+
+/// HTTPS on the Tailscale address only, stopped with the page.
+fn start_https(app: &AppHandle) -> Result<(), String> {
+    let ip = tailscale_address().ok_or("Tailscale isn't connected on this computer")?;
+    let (config, name) = tls_config(app)?;
+    let listener = TcpListener::bind((ip, HTTPS_PORT)).map_err(|e| format!("Port {HTTPS_PORT} is in use or blocked: {e}"))?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let stop = SERVER.lock().map_err(|_| "lock poisoned")?.as_ref().map(|s| s.stop.clone()).ok_or("The page isn't on")?;
+    let app = app.clone();
+    std::thread::Builder::new()
+        .name("phone-page-https".into())
+        .spawn(move || {
+            while !stop.load(Ordering::Relaxed) && HTTPS.lock().map(|h| h.is_some()).unwrap_or(false) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let (app, config) = (app.clone(), config.clone());
+                        std::thread::spawn(move || handle_tls(&app, stream, config));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(80)),
+                    Err(_) => std::thread::sleep(Duration::from_millis(200)),
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    if let Ok(mut h) = HTTPS.lock() {
+        *h = Some(name);
+    }
+    Ok(())
+}
+
 fn stop() {
+    if let Ok(mut h) = HTTPS.lock() {
+        *h = None;
+    }
     if let Ok(mut server) = SERVER.lock() {
         if let Some(s) = server.take() {
             s.stop.store(true, Ordering::Relaxed);
@@ -170,7 +264,7 @@ impl Request {
     }
 }
 
-fn read_head(stream: &mut TcpStream) -> Result<Request, String> {
+fn read_head(stream: &mut dyn Conn) -> Result<Request, String> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 8192];
     let end = loop {
@@ -196,7 +290,7 @@ fn read_head(stream: &mut TcpStream) -> Result<Request, String> {
     Ok(Request { method, path, query, headers, rest: buffer[end + 4..].to_vec() })
 }
 
-fn read_body(stream: &mut TcpStream, request: &Request, max: usize) -> Result<Vec<u8>, String> {
+fn read_body(stream: &mut dyn Conn, request: &Request, max: usize) -> Result<Vec<u8>, String> {
     let length = request.length() as usize;
     if length > max {
         return Err("too large".into());
@@ -214,7 +308,7 @@ fn read_body(stream: &mut TcpStream, request: &Request, max: usize) -> Result<Ve
     Ok(body)
 }
 
-fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8]) {
+fn respond(stream: &mut dyn Conn, status: u16, kind: &str, body: &[u8]) {
     let label = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -231,7 +325,7 @@ fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8]) {
     let _ = stream.write_all(body);
 }
 
-fn json_reply(stream: &mut TcpStream, status: u16, value: &Value) {
+fn json_reply(stream: &mut dyn Conn, status: u16, value: &Value) {
     respond(stream, status, "application/json", value.to_string().as_bytes());
 }
 
@@ -240,39 +334,59 @@ fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-fn handle(app: &AppHandle, mut stream: TcpStream, addr: SocketAddr) {
+/// A connection the page is served on: plain TCP, or TLS over it (HTTPS through Tailscale).
+pub trait Conn: Read + Write {}
+impl<T: Read + Write> Conn for T {}
+
+fn handle(app: &AppHandle, stream: TcpStream, addr: SocketAddr) {
     // Over Tailscale only when it's been turned on.
     if is_tailscale(&addr.ip()) && !TAILSCALE.load(Ordering::Relaxed) {
         return;
     }
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-    let Ok(request) = read_head(&mut stream) else { return };
+    let mut stream = stream;
+    serve(app, &mut stream)
+}
+
+/// HTTPS through Tailscale: the same page, with the tailnet's certificate.
+fn handle_tls(app: &AppHandle, stream: TcpStream, config: Arc<rustls::ServerConfig>) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    let Ok(conn) = rustls::ServerConnection::new(config) else { return };
+    let mut tls = rustls::StreamOwned::new(conn, stream);
+    serve(app, &mut tls);
+    tls.conn.send_close_notify();
+    let _ = tls.flush();
+}
+
+fn serve(app: &AppHandle, stream: &mut dyn Conn) {
+    let Ok(request) = read_head(stream) else { return };
     if request.method == "GET" && (request.path == "/" || request.path == "/index.html") {
-        return respond(&mut stream, 200, "text/html; charset=utf-8", PAGE.as_bytes());
+        return respond(stream, 200, "text/html; charset=utf-8", PAGE.as_bytes());
     }
     if request.method == "GET" && request.path == "/ink" {
-        return respond(&mut stream, 200, "text/html; charset=utf-8", INK_PAGE.as_bytes());
+        return respond(stream, 200, "text/html; charset=utf-8", INK_PAGE.as_bytes());
     }
     if !request.path.starts_with("/api/") {
-        return respond(&mut stream, 404, "text/plain", b"Not found");
+        return respond(stream, 404, "text/plain", b"Not found");
     }
     let authorized = key(app).is_ok_and(|key| request.header("x-key").is_some_and(|given| same(given, &key)));
     if !authorized {
         // Slows down guessing.
         std::thread::sleep(Duration::from_millis(400));
-        return json_reply(&mut stream, 401, &json!({ "error": "This link is old. Open the new one from BridgeDeck → Settings → Phone." }));
+        return json_reply(stream, 401, &json!({ "error": "This link is old. Open the new one from BridgeDeck → Settings → Phone." }));
     }
-    let result = route(app, &mut stream, &request);
+    let result = route(app, stream, &request);
     match result {
-        Ok(value) => json_reply(&mut stream, 200, &value),
-        Err(error) => json_reply(&mut stream, 400, &json!({ "error": error })),
+        Ok(value) => json_reply(stream, 200, &value),
+        Err(error) => json_reply(stream, 400, &json!({ "error": error })),
     }
 }
 
-fn route(app: &AppHandle, stream: &mut TcpStream, request: &Request) -> Result<Value, String> {
+fn route(app: &AppHandle, stream: &mut dyn Conn, request: &Request) -> Result<Value, String> {
     let manager = app.state::<BridgeLinkManager>().inner().clone();
-    let body_json = |stream: &mut TcpStream| -> Result<Value, String> { serde_json::from_slice(&read_body(stream, request, MAX_JSON)?).map_err(|_| "Bad request".to_string()) };
+    let body_json = |stream: &mut dyn Conn| -> Result<Value, String> { serde_json::from_slice(&read_body(stream, request, MAX_JSON)?).map_err(|_| "Bad request".to_string()) };
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/api/summary") => {
             let computer = manager.computer_name();
@@ -443,7 +557,7 @@ fn free_path(dir: &Path, name: &str) -> PathBuf {
     (2..1000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
 }
 
-fn upload(app: &AppHandle, stream: &mut TcpStream, request: &Request, name: &str) -> Result<PathBuf, String> {
+fn upload(app: &AppHandle, stream: &mut dyn Conn, request: &Request, name: &str) -> Result<PathBuf, String> {
     let length = request.length();
     if length == 0 {
         return Err("The file is empty".into());
@@ -457,7 +571,7 @@ fn upload(app: &AppHandle, stream: &mut TcpStream, request: &Request, name: &str
 }
 
 /// Streams the body to a new file in `dir` (complete files only: a broken upload leaves nothing).
-fn save_upload(dir: &Path, stream: &mut TcpStream, request: &Request, name: &str, length: u64) -> Result<PathBuf, String> {
+fn save_upload(dir: &Path, stream: &mut dyn Conn, request: &Request, name: &str, length: u64) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = free_path(dir, &clean_file_name(name));
     let partial = path.with_extension("partial-upload");
@@ -488,9 +602,21 @@ fn save_upload(dir: &Path, stream: &mut TcpStream, request: &Request, name: &str
 // ---- Commands ----
 
 #[tauri::command]
-pub fn phone_settings(app: AppHandle, enabled: bool, tailscale: Option<bool>) -> PhoneStatus {
+pub fn phone_settings(app: AppHandle, enabled: bool, tailscale: Option<bool>, https: Option<bool>) -> PhoneStatus {
     TAILSCALE.store(tailscale.unwrap_or(false), Ordering::Relaxed);
+    let want_https = enabled && tailscale.unwrap_or(false) && https.unwrap_or(false);
+    let has_https = HTTPS.lock().map(|h| h.is_some()).unwrap_or(false);
+    if !want_https && has_https {
+        if let Ok(mut h) = HTTPS.lock() {
+            *h = None;
+        }
+    }
     let result = if enabled { start(&app) } else { stop(); Ok(()) };
+    // HTTPS needs Tailscale's certificate; when it can't be had, the page stays on plain HTTP and says why.
+    let result = match (result, want_https && !has_https) {
+        (Ok(()), true) => start_https(&app),
+        (other, _) => other,
+    };
     if let Ok(mut error) = ERROR.lock() {
         *error = result.err().unwrap_or_default();
     }
@@ -581,6 +707,13 @@ mod tests {
         for bad in [None, Some(""), Some("short"), Some("../../etc/xx"), Some("zzzzzzzzzz")] {
             assert!(scan_batch(bad).is_err());
         }
+    }
+
+    #[test]
+    fn reads_the_tailnet_name() {
+        assert_eq!(tailnet_name(br#"{"Self":{"DNSName":"laptop.tail1234.ts.net."}}"#).as_deref(), Some("laptop.tail1234.ts.net"));
+        assert_eq!(tailnet_name(br#"{"Self":{"DNSName":"evil.com."}}"#), None);
+        assert_eq!(tailnet_name(b"nonsense"), None);
     }
 
     #[test]

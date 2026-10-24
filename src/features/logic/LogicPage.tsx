@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, BookOpen, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { Activity, BookOpen, Brain, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
+import { markPrediction } from './drills'
 import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
 import { errorText } from '../../core/util'
@@ -68,6 +69,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const [view, setView] = useState<'schematic' | 'breadboard' | 'fsm' | 'drills'>('schematic')
   const [speed, setSpeed] = useState(1)
   const [panel, setPanel] = useState<'table' | 'kmap' | 'timing' | 'design' | 'chips'>('table')
+  const [predicting, setPredicting] = useState(false)
   const [file, setFile] = useState(() => draft?.file ?? { project: '', name: 'Untitled circuit' })
   const [files, setFiles] = useState<CircuitFile[]>([])
   const [projects, setProjects] = useState<string[]>([])
@@ -565,7 +567,8 @@ export default function LogicPage({ active }: { active: boolean }) {
         {sim.warnings.length > 0 && <ul className="logic-warnings">{sim.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
         {panel === 'table' && <>
           {table.error ? <p className="hint">{table.error}</p> : !table.inputs.length || !table.outputs.length ? <p className="hint">Add at least one switch and one LED: the table fills itself in from the circuit.</p> : <>
-            <TableView table={table} highlight={current} />
+            {predicting && !table.sequential ? <PredictView table={table} onDone={() => setPredicting(false)} /> : <TableView table={table} highlight={current} />}
+            {!predicting && !table.sequential && <button className="ghost" title="Hide the outputs, write what you think they are, then check against the simulation" onClick={() => setPredicting(true)}><Brain size={13} /> Predict first</button>}
             {table.sequential ? <p className="hint">This circuit has a clock or flip-flops: its outputs depend on what happened before, so the table shows only the state right after power-up.</p>
               : <div className="logic-exprs">{Object.entries(exprs).map(([k, v]) => <div key={k}><strong>{k}</strong> = {v}</div>)}</div>}
             <button className="ghost" onClick={() => void toNote(`${file.name} – truth table`, tableMarkdown(table, exprs))}><NotebookPen size={13} /> Save as a note</button>
@@ -592,6 +595,32 @@ export default function LogicPage({ active }: { active: boolean }) {
 
 function PaletteButton({ item, onAdd }: { item: PaletteItem; onAdd: (item: PaletteItem) => void }) {
   return <button className="logic-palette-item" draggable onDragStart={e => e.dataTransfer.setData('application/x-logic', JSON.stringify(item))} onClick={() => onAdd(item)} title={item.kind === 'chip' ? chipDef(item.chip)?.name : undefined}>{item.title}</button>
+}
+
+/** "Predict, then simulate": the outputs hidden until each is guessed, then marked against the
+ *  circuit. Click a cell to cycle blank → 0 → 1. */
+function PredictView({ table, onDone }: { table: TruthTable; onDone: () => void }) {
+  const [guesses, setGuesses] = useState<Record<string, 0 | 1>>({})
+  const [checked, setChecked] = useState(false)
+  const mark = markPrediction(table.rows, guesses)
+  const missed = new Set(mark.wrong.map(w => `${w.row}:${w.out}`))
+  const cycle = (key: string) => { if (checked) return; setGuesses(g => { const next = { ...g }; if (g[key] === undefined) next[key] = 0; else if (g[key] === 0) next[key] = 1; else delete next[key]; return next }) }
+  return <>
+    <p className="hint">{checked ? `${mark.right} of ${mark.total} right.${mark.wrong.length ? ' The red ones show what the circuit really gives.' : ' All of them!'}` : 'Work out each output from the circuit, then check.'}</p>
+    <div className="logic-table-wrap"><table className="logic-table">
+      <thead><tr>{table.inputs.map(n => <th key={`i${n}`}>{n}</th>)}{table.outputs.map(n => <th key={`o${n}`} className="out">{n}</th>)}</tr></thead>
+      <tbody>{table.rows.map((row, r) => <tr key={r}>
+        {row.in.map((v, i) => <td key={i}>{v}</td>)}
+        {row.out.map((v, o) => { const key = `${r}:${o}`; return <td key={`o${o}`} className={`out edit${checked && v !== null ? missed.has(key) ? ' predict-wrong' : ' predict-right' : ''}`} onClick={() => cycle(key)}>
+          {checked ? (v === null ? 'X' : missed.has(key) ? <>{v}<small> (you: {guesses[key] ?? '–'})</small></> : v) : guesses[key] ?? ''}
+        </td> })}
+      </tr>)}</tbody>
+    </table></div>
+    <div className="actions">
+      {checked ? <button className="ghost" onClick={() => { setGuesses({}); setChecked(false) }}>Try again</button> : <button onClick={() => setChecked(true)}>Check</button>}
+      <button className="ghost" onClick={onDone}>Show the table</button>
+    </div>
+  </>
 }
 
 function TableView({ table, highlight, onCell }: { table: TruthTable; highlight?: number; onCell?: (row: number, out: number) => void }) {

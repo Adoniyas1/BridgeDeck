@@ -11,6 +11,7 @@ import { estimateTokens, STICKY_TURNS } from "../prompts/loader.js";
 import { PROMPT_MODULES } from "../prompts/modules.js";
 import { loadTeamConfig, roleSettings } from "../team/config.js";
 import { createRoleProvider } from "../team/endpoints.js";
+import { visionReading, withReading } from "../team/vision.js";
 import { runTeamTurn, type RoleKit, type TeamEvent, type TeamMember } from "../team/graph.js";
 import type { BrainProvider, ToolDef, ToolResult } from "../brain/Provider.js";
 import { buildPersonaToolset } from "../persona/tools.js";
@@ -163,6 +164,14 @@ export class AgentSession {
     }
 
     const team = await loadTeamConfig();
+    // Pictures sent with the message are read by the vision model, when one is set, so a chat
+    // model that can't see (or an outside agent that gets text only) can still work with them.
+    const pictures = (attachments ?? []).filter((a) => a.kind === "image");
+    if (team.vision && pictures.length) {
+      win.webContents.send(IPC.faceState, "thinking");
+      userText = withReading(userText, await visionReading(pictures));
+      if (turnId !== this.activeTurnId) return;
+    }
     if (team.engine !== "mimir") {
       await this.runEngine(team, turnId, userText, attachments);
       return;

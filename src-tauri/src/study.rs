@@ -489,6 +489,25 @@ pub fn study_save_photo(request: tauri::ipc::Request<'_>) -> Result<String, Stri
     save_course_file(&dir, None, &format!("{stem}.{kind}"), bytes)
 }
 
+/// A HEIC photo in a course turned into a JPEG in its place (src/heic.rs), so every part of the
+/// Study tab can read it. Returns the JPEG's file name.
+#[tauri::command]
+pub async fn study_convert_heic(course: String, file: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = course_dir(&current_root()?, &course)?;
+        let clean = clean_name(&file)?;
+        if !clean.to_lowercase().ends_with(".heic") || !dir.join(&clean).is_file() {
+            return Err("No such HEIC photo".into());
+        }
+        let jpeg = crate::heic::to_jpeg(&dir.join(&clean))?;
+        let stem = Path::new(&clean).file_stem().and_then(|s| s.to_str()).unwrap_or("Photo");
+        let saved = save_course_file(&dir, None, &format!("{stem}.jpg"), &jpeg)?;
+        let _ = fs::remove_file(dir.join(&clean));
+        crate::activity::info("study", &format!("Converted {clean} to {saved} in {course}."));
+        Ok(saved)
+    }).await.map_err(|e| e.to_string())?
+}
+
 /// The PDF is sent as the request body (not JSON); the course and file name come in the
 /// `x-course` and `x-name` headers, URI-encoded.
 #[tauri::command]

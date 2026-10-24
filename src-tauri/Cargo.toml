@@ -74,13 +74,14 @@ dispatch2 = { version = "0.3", default-features = false, features = ["std", "obj
 objc2 = "0.6"
 block2 = "0.6"
 # Reading handwriting with Apple's Vision (handwriting_mac.rs).
-objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "VNDetectDocumentSegmentationRequest", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKContentRuleList", "WKContentRuleListStore", "WKPreferences", "WKUserContentController", "WKWebView", "WKWebViewConfiguration"] }
 keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_Media_MediaFoundation", "Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Foundation", "Media_Control", "Storage_Streams"] }
+windows = { version = "0.62", features = ["Win32_System_Com", "Win32_Graphics_Imaging", "Win32_System_Ole", "Win32_System_Variant", "Win32_Media_MediaFoundation", "Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Foundation", "Media_Control", "Storage_Streams"] }
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -95,6 +96,10 @@ incremental = true
 
 [profile.dev]
 opt-level = 2
+# Line numbers only (enough for panics and backtraces): full debug info made the build folder
+# many gigabytes larger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

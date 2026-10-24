@@ -138,6 +138,24 @@ export default function TeamSettings() {
           )}
         </>
       )}
+      <div className="team-role">
+        <div className="team-role__head">
+          <strong>Pictures</strong>
+          <span className="hint">A model that can see reads photos (homework, whiteboards, handwriting) for a chat model that can't.</span>
+        </div>
+        {config.vision ? (
+          <>
+            <EndpointEditor key={endpointKey(config.vision)} label="Vision model" endpoint={config.vision} onChange={(vision) => void patch({ vision })} />
+            <button type="button" className="btn btn--ghost" onClick={() => void patch({ vision: null })}>
+              Don't use one (send pictures as they are)
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn btn--ghost" onClick={() => void patch({ vision: { provider: "openai-compatible", model: "qwen3.5-9b", baseUrl: "http://127.0.0.1:8080" } })}>
+            Use a vision model
+          </button>
+        )}
+      </div>
       {message && <p className="hint">{message}</p>}
     </section>
   );

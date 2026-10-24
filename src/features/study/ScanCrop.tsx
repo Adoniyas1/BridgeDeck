@@ -1,15 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RotateCcw, Wand2, X } from 'lucide-react'
-import { defaultCorners, outputSize, type Pt } from './warp'
+import { handwritingPageCorners } from '../../lib/bridge'
+import { defaultCorners, findCorners, outputSize, type Pt } from './warp'
+
+/** The page's corners guessed from a small copy of the photo, in the photo's pixels. */
+function guessCorners(image: HTMLImageElement): Pt[] | null {
+  const k = Math.min(1, 320 / Math.max(image.naturalWidth, image.naturalHeight))
+  const w = Math.max(1, Math.round(image.naturalWidth * k)), h = Math.max(1, Math.round(image.naturalHeight * k))
+  const canvas = document.createElement('canvas')
+  canvas.width = w; canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.drawImage(image, 0, 0, w, h)
+  const rgba = ctx.getImageData(0, 0, w, h).data
+  const gray = new Uint8Array(w * h)
+  for (let i = 0; i < gray.length; i++) gray[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2])
+  return findCorners(gray, w, h)?.map(p => ({ x: Math.min(image.naturalWidth, p.x / k), y: Math.min(image.naturalHeight, p.y / k) })) ?? null
+}
 
 /** Marking a page's four corners on a photo, then a flat, white copy of it to keep. */
-export function ScanCrop({ src, onDone, onCancel }: { src: string; onDone: (jpeg: Blob) => void; onCancel: () => void }) {
+/** `photo`: the course photo, for Apple Vision's page finding on the Mac. */
+export function ScanCrop({ src, photo, onDone, onCancel }: { src: string; photo?: { course: string; file: string }; onDone: (jpeg: Blob) => void; onCancel: () => void }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [corners, setCorners] = useState<Pt[]>([])
   const [white, setWhite] = useState(true)
   const [result, setResult] = useState<{ url: string; blob: Blob } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [found, setFound] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const dragging = useRef<number | null>(null)
 
@@ -17,7 +35,17 @@ export function ScanCrop({ src, onDone, onCancel }: { src: string; onDone: (jpeg
     const image = new Image()
     // Served with CORS by the bdbook scheme, so its pixels can be read.
     image.crossOrigin = 'anonymous'
-    image.onload = () => { setImg(image); setCorners(defaultCorners(image.naturalWidth, image.naturalHeight)) }
+    image.onload = () => {
+      setImg(image)
+      let guess: Pt[] | null = null
+      try { guess = guessCorners(image) } catch { /* the user marks them */ }
+      setFound(!!guess)
+      setCorners(guess ?? defaultCorners(image.naturalWidth, image.naturalHeight))
+      // On the Mac, Vision's document detection finds pages better (on a light desk, too).
+      if (photo) void handwritingPageCorners(photo.course, photo.file).then(page => {
+        if (page?.length === 4) { setFound(true); setCorners(page.map(p => ({ x: p.x * image.naturalWidth, y: p.y * image.naturalHeight }))) }
+      }).catch(() => undefined)
+    }
     image.onerror = () => setError(/\.heic($|\?)/i.test(src) ? 'This computer can’t open HEIC photos. On the iPhone, set Camera → Formats → Most Compatible, or send it from the phone page (which sends JPEG).' : 'The photo couldn’t be opened.')
     image.src = src
   }, [src])
@@ -56,7 +84,7 @@ export function ScanCrop({ src, onDone, onCancel }: { src: string; onDone: (jpeg
   const pct = (p: Pt) => img ? { left: `${(p.x / img.naturalWidth) * 100}%`, top: `${(p.y / img.naturalHeight) * 100}%` } : {}
   return <div className="scan-crop" role="dialog" aria-label="Straighten the page">
     <div className="scan-crop-bar">
-      <strong className="grow">{result ? 'The straightened page' : 'Drag the four dots to the page’s corners'}</strong>
+      <strong className="grow">{result ? 'The straightened page' : found ? 'Found the page: drag a dot if a corner is off' : 'Drag the four dots to the page’s corners'}</strong>
       {!result && <label><input type="checkbox" checked={white} onChange={e => setWhite(e.target.checked)} /> Whiten paper</label>}
       {result ? <>
         <button className="ghost" onClick={() => setResult(null)}><RotateCcw size={14} />Adjust</button>

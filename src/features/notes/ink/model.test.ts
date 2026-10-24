@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compacted, decodePoints, encodePoints, eraseLine, mergeLogs, readDoc, strokeLine, type Stroke } from './model'
+import { bounds, compacted, inside, lassoed, moved, decodePoints, encodePoints, eraseLine, mergeLogs, readDoc, strokeLine, type Stroke } from './model'
 
 const stroke = (id: string, t: number, page = 0): Stroke => ({ id, page, t, tool: 'pen', color: '#112233', width: 2, points: [{ x: 10, y: 20.25, p: 0.5 }, { x: 11.5, y: 21, p: 0.62 }] })
 
@@ -42,5 +42,17 @@ describe('annotated PDF', () => {
     const bytes = await annotatedPdf([stroke('a', 1, 0), stroke('b', 2, 1)], { v: 1, paper: 'lines', size: 'letter', pages: 2 }, null)
     const { PDFDocument } = await import('pdf-lib')
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2)
+  })
+  it('lassoes the strokes drawn round and moves them as new strokes', () => {
+    const square = [{ x: 0, y: 0, p: 0 }, { x: 50, y: 0, p: 0 }, { x: 50, y: 50, p: 0 }, { x: 0, y: 50, p: 0 }]
+    expect(inside({ x: 25, y: 25 }, square)).toBe(true)
+    expect(inside({ x: 75, y: 25 }, square)).toBe(false)
+    const far = { ...stroke('far', 2), points: [{ x: 100, y: 100, p: 0.5 }, { x: 120, y: 100, p: 0.5 }] }
+    expect(lassoed([stroke('a', 1), far], square)).toEqual(['a'])
+    const [m] = moved([stroke('a', 1)], 5, -2, 9)
+    expect(m.id).not.toBe('a')
+    expect(m.t).toBe(9)
+    expect(m.points[0]).toEqual({ x: 15, y: 18.25, p: 0.5 })
+    expect(bounds([stroke('a', 1)])).toEqual({ x: 8, y: 18.25, w: 5.5, h: 4.75 })
   })
 })
