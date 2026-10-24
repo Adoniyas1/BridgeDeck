@@ -29,3 +29,11 @@ describe('problem ratings', () => {
     expect([nextRating(undefined), nextRating('help'), nextRating('stuck')]).toEqual(['help', 'stuck', null])
   })
 })
+
+describe('problems as cards', () => {
+  it('says what to redo and where to look', async () => {
+    const { problemCardBack, problemCardFront } = await import('./problems')
+    expect(problemCardFront({ assignment: 'HW 3', section: '1.4', number: '12' })).toBe('Redo 1.4 #12 from HW 3 on paper')
+    expect(problemCardBack({ section: '1.4', rating: 'stuck' })).toBe("Check it against the answers; if it doesn't come, reread 1.4 (you were stuck on it)")
+  })
+})

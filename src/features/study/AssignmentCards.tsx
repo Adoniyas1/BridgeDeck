@@ -17,14 +17,16 @@ import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } fr
 import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { ExamNotices } from './ExamDay'
-import { expandProblems, problemId, problemLabel, stuckPrompt } from './problems'
+import { expandProblems, problemCardBack, problemCardFront, problemId, problemLabel, stuckPrompt, type RatedProblem } from './problems'
 import { askMimir } from '../mimir'
 import { addCards, addMistake, libraryStore, loadMistakes, loadProblems, loadRatings, mistakesStore, predictScore, removeMistake, problemsStore, rateProblem, ratingsStore, refreshLibrary, termStore, tickProblem } from './state'
 import { parseQuickAdd } from './quickAdd'
 import { meetingsOf } from './schedule'
 import { canvasStore } from './canvasStore'
 import { calibration } from './mistakes'
-import { cardLine } from './cards'
+import { cardLine, flashcardsTitle } from './cards'
+import { courseFolder } from './model'
+import { notesStore } from '../notes/state'
 import { ANSWERS, findPlaces, savedPlaces, textbooks, type Place } from './sections'
 import { openBook } from './open'
 
@@ -144,13 +146,22 @@ export function HardProblemsCard({ course, info }: { course: string; info: { cod
   const all = useStore(ratingsStore)
   useEffect(() => { void loadRatings() }, [])
   const mine = all.filter(r => belongsTo({ name: course, code: info.code, canvasCode: info.canvasCode }, r.course) || r.course === course)
+  const notes = useStore(notesStore)
+  const deck = useMemo(() => notes.find(n => !n.deleted && n.title === flashcardsTitle(course) && n.folder.toLowerCase() === courseFolder(course).toLowerCase()), [notes, course])
+  const carded = (r: RatedProblem) => !!deck?.blocks.some(b => !b.deleted && b.text.startsWith(problemCardFront(r)))
+  const toCards = (list: RatedProblem[]) => {
+    const fresh = list.filter(r => !carded(r))
+    if (fresh.length) void addCards(course, fresh.map(r => cardLine(problemCardFront(r), problemCardBack(r), r.assignment))).then(() => setNotice(`${fresh.length} problem${fresh.length === 1 ? '' : 's'} added to ${course}'s flashcards.`)).catch(e => setNotice(errorText(e, 'Couldn’t add them')))
+  }
   if (!mine.length) return null
-  return <Card><SectionTitle title="Problems to redo" subtitle={`${mine.filter(r => r.rating === 'stuck').length} stuck · ${mine.filter(r => r.rating === 'help').length} needed help`} />
+  return <Card><SectionTitle title="Problems to redo" subtitle={`${mine.filter(r => r.rating === 'stuck').length} stuck · ${mine.filter(r => r.rating === 'help').length} needed help`}
+    action={mine.some(r => !carded(r)) ? <button className="ghost" title="Each comes back in flashcard review until it's easy" onClick={() => toCards(mine)}><Layers size={12} />All as cards</button> : undefined} />
     <div className="hard-problems">{mine.slice(0, 30).map(r => <div key={r.id} className="hard-problem">
       <span className={`hard-tag ${r.rating}`}>{r.rating === 'stuck' ? 'stuck' : 'help'}</span>
       <span className="grow">{r.section ? `${r.section} ` : ''}#{r.number} <small>{r.assignment}</small></span>
       {r.section && <SectionLinks assignment={{ course: r.course || course }} sections={[r.section]} answers={false} />}
       {aiAllowed(course) && <button className="ghost" title="Mimir finds worked examples in your book and makes a twin problem with checked numbers; hints only for this one" onClick={() => void askMimir(stuckPrompt(course, r.assignment, r.section, r.number), true, course)}><LifeBuoy size={12} />Stuck?</button>}
+      {!carded(r) && <button className="ghost" title="As a flashcard: it comes back in review until it's easy" onClick={() => toCards([r])}><Layers size={12} /></button>}
       <button className="ghost" title="Solved it on my own now" onClick={() => rateProblem({ id: r.id.split('\u001f')[0], title: r.assignment, course: r.course }, { key: r.id.split('\u001f')[1], section: r.section, number: r.number }, null)}><Check size={12} />Got it</button>
     </div>)}</div>
   </Card>
