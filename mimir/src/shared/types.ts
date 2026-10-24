@@ -205,6 +205,9 @@ export interface TeamConfig {
   checkEachStep: boolean;
   /** The preset this came from, if any. */
   preset: string | null;
+  /** A model that can see pictures, which reads photos for a chat model that can't (team or
+   * single mode). Null: pictures go to the chat model as they are. */
+  vision: RoleEndpoint | null;
 }
 
 export interface TeamPreset {

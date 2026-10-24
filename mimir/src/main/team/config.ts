@@ -38,7 +38,8 @@ export const DEFAULT_TEAM: TeamConfig = {
   },
   checkerSameAsHead: true,
   checkEachStep: false,
-  preset: null
+  preset: null,
+  vision: null
 };
 
 export const TEAM_PRESETS: TeamPreset[] = [
@@ -141,7 +142,8 @@ export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): 
     },
     checkerSameAsHead: typeof c.checkerSameAsHead === "boolean" ? c.checkerSameAsHead : base.checkerSameAsHead,
     checkEachStep: typeof c.checkEachStep === "boolean" ? c.checkEachStep : base.checkEachStep,
-    preset: typeof c.preset === "string" ? c.preset : c.preset === null ? null : base.preset
+    preset: typeof c.preset === "string" ? c.preset : c.preset === null ? null : base.preset,
+    vision: c.vision === null ? null : c.vision ? cleanEndpoint(c.vision, base.vision ?? endpoint(MODELS.pcChecker)) : base.vision
   };
 }
 
