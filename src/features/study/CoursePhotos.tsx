@@ -101,6 +101,6 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
     </figure> })}</div> : !waiting && <p className="hint"><Camera size={13} /> Snap a page of notes or the whiteboard after class; its text goes into a note for this course.</p>}
     {status && <p className="hint">{status}</p>}
     {reviewing && <ScanReview course={course} file={reviewing.file} src={convertFileSrc(`${course}/${reviewing.file}`, 'bdbook')} onClose={() => setReviewing(null)} onStatus={setStatus} />}
-    {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
+    {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} photo={{ course, file: cropping.file }} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
   </Card>
 }

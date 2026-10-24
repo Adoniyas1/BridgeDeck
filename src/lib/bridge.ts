@@ -473,6 +473,8 @@ export async function studySavePhoto(course: string, name: string, bytes: Uint8A
 /** A course's HEIC photo turned into a JPEG in its place; returns the JPEG's name (heic.rs). */
 export const studyConvertHeic = (course: string, file: string) => native<string>('study_convert_heic', { course, file })
 /** Apple Vision's reading of a course photo, line by line (Mac only; study/handwriting_mac.rs). */
+/** The page's corners in a course photo, as fractions from the top-left (Mac: Vision's document detection). */
+export const handwritingPageCorners = (course: string, file: string) => native<Array<{ x: number; y: number }> | null>('handwriting_page_corners', { course, file })
 export const handwritingVision = (course: string, file: string, words: string[]) => native<Array<{ text: string; confidence: number }>>('handwriting_vision', { course, file, words })
 /** Typst source typeset into a PDF (base64); Typst is downloaded the first time (typst_export.rs). */
 export const typstPdf = (source: string) => native<string>('typst_pdf', { source })

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RotateCcw, Wand2, X } from 'lucide-react'
+import { handwritingPageCorners } from '../../lib/bridge'
 import { defaultCorners, findCorners, outputSize, type Pt } from './warp'
 
 /** The page's corners guessed from a small copy of the photo, in the photo's pixels. */
@@ -18,7 +19,8 @@ function guessCorners(image: HTMLImageElement): Pt[] | null {
 }
 
 /** Marking a page's four corners on a photo, then a flat, white copy of it to keep. */
-export function ScanCrop({ src, onDone, onCancel }: { src: string; onDone: (jpeg: Blob) => void; onCancel: () => void }) {
+/** `photo`: the course photo, for Apple Vision's page finding on the Mac. */
+export function ScanCrop({ src, photo, onDone, onCancel }: { src: string; photo?: { course: string; file: string }; onDone: (jpeg: Blob) => void; onCancel: () => void }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [corners, setCorners] = useState<Pt[]>([])
   const [white, setWhite] = useState(true)
@@ -39,6 +41,10 @@ export function ScanCrop({ src, onDone, onCancel }: { src: string; onDone: (jpeg
       try { guess = guessCorners(image) } catch { /* the user marks them */ }
       setFound(!!guess)
       setCorners(guess ?? defaultCorners(image.naturalWidth, image.naturalHeight))
+      // On the Mac, Vision's document detection finds pages better (on a light desk, too).
+      if (photo) void handwritingPageCorners(photo.course, photo.file).then(page => {
+        if (page?.length === 4) { setFound(true); setCorners(page.map(p => ({ x: p.x * image.naturalWidth, y: p.y * image.naturalHeight }))) }
+      }).catch(() => undefined)
     }
     image.onerror = () => setError(/\.heic($|\?)/i.test(src) ? 'This computer can’t open HEIC photos. On the iPhone, set Camera → Formats → Most Compatible, or send it from the phone page (which sends JPEG).' : 'The photo couldn’t be opened.')
     image.src = src

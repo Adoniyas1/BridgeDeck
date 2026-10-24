@@ -74,7 +74,8 @@ dispatch2 = { version = "0.3", default-features = false, features = ["std", "obj
 objc2 = "0.6"
 block2 = "0.6"
 # Reading handwriting with Apple's Vision (handwriting_mac.rs).
-objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "VNDetectDocumentSegmentationRequest", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKContentRuleList", "WKContentRuleListStore", "WKPreferences", "WKUserContentController", "WKWebView", "WKWebViewConfiguration"] }
 keyring = { version = "3", features = ["apple-native"] }
 

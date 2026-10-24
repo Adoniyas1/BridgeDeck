@@ -3,6 +3,7 @@ import katex from 'katex'
 import { Check, ImagePlus, Sparkles, X } from 'lucide-react'
 import { handwritingVision, noteImageSave, notesCreateMarkdown, studyPatchCourseInfo } from '../../lib/bridge'
 import { useStore } from '../../core/store'
+import { configStore, useConfig } from '../../core/config'
 import { libraryStore, refreshLibrary } from './state'
 import { aiAllowed } from '../../core/exam'
 import { errorText } from '../../core/util'
@@ -30,12 +31,17 @@ export function ScanReview({ course, file, src, onClose, onStatus }: { course: s
   const [reading, setReading] = useState(true)
   const [unsure, setUnsure] = useState<number[]>([])
   const info = useStore(libraryStore).library?.courses.find(c => c.name === course)?.info
+  const config = useConfig()
+  const reader = config.study.handwritingReader ?? 'auto'
+  const setReader = (r: 'auto' | 'text' | 'mimir') => configStore.set(c => ({ ...c, study: { ...c.study, handwritingReader: r === 'auto' ? undefined : r } }))
+  const toMimir = () => { void askMimir(handwritingPrompt(course, file, courseFolder(course)), true, course); onClose() }
   useEffect(() => {
+    if (reader === 'mimir' && aiAllowed(course)) { toMimir(); return }
     let live = true
     // On the Mac, Apple's Vision reads handwriting far better than text recognition in the window.
     const fixes = wordFixes(info?.handwriting)
     const words = [...(Array.isArray(info?.words) ? info!.words as string[] : []), ...(Array.isArray(info?.handwriting) ? info!.handwriting as string[] : [])].map(w => w.split('=>').pop()!.trim()).filter(Boolean)
-    const vision = handwritingVision(course, file, words).then(lines => {
+    const vision = (reader === 'text' ? Promise.reject(new Error('text recognition chosen')) : handwritingVision(course, file, words)).then(lines => {
       setUnsure(lines.flatMap((l, i) => l.confidence < 0.5 ? [i] : []))
       return lines.map(l => l.text).join('\n')
     })
@@ -46,7 +52,7 @@ export function ScanReview({ course, file, src, onClose, onStatus }: { course: s
       setText(fixed); setRead(fixed)
     }).catch(e => { if (live) onStatus(`The text couldn’t be read here: ${errorText(e, 'unknown error')}`) }).finally(() => { if (live) setReading(false); void stopRecognition() })
     return () => { live = false }
-  }, [src])
+  }, [src, reader])
   const flagged = useMemo(() => new Set([...badMathLines(text, typesets), ...doubtfulLines(text), ...unsure]), [text, unsure])
 
   async function save() {
@@ -89,7 +95,12 @@ export function ScanReview({ course, file, src, onClose, onStatus }: { course: s
   return <div className="scan-review" role="dialog" aria-label="Check the read notes">
     <div className="scan-crop-bar">
       <strong className="grow">Check what was read</strong>
-      {aiAllowed(course) && <button className="ghost" title="Mimir reads the handwriting and math with its own model and saves a note" onClick={() => { void askMimir(handwritingPrompt(course, file, courseFolder(course)), true, course); onClose() }}><Sparkles size={14} />Read it with Mimir instead</button>}
+      <select value={reader} title="What reads the photo first (remembered)" onChange={e => setReader(e.target.value as 'auto' | 'text' | 'mimir')}>
+        <option value="auto">Read with: Apple Vision (Mac), else text recognition</option>
+        <option value="text">Read with: text recognition</option>
+        {aiAllowed(course) && <option value="mimir">Read with: Mimir (its vision model)</option>}
+      </select>
+      {aiAllowed(course) && reader !== 'mimir' && <button className="ghost" title="Mimir reads the handwriting and math with its own model and saves a note" onClick={toMimir}><Sparkles size={14} />Read it with Mimir instead</button>}
       {figure && Math.abs(figure.x1 - figure.x0) > 0.02 && Math.abs(figure.y1 - figure.y0) > 0.02 && !dragging.current && <button className="ghost" title="Put the boxed part of the photo in the note, where the cursor is" onClick={() => void addFigure()}><ImagePlus size={14} />Add the figure</button>}
       <button disabled={!text.trim()} onClick={() => void save()}><Check size={14} />Save as a note</button>
       <button className="ghost" title="Close" onClick={onClose}><X size={14} /></button>

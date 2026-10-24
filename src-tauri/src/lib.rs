@@ -668,7 +668,7 @@ pub fn run() {
             study::study_save_csv,
             study::study_save_photo, study::study_convert_heic, note_images::note_image_save, note_images::note_image_load,
             canvas::canvas_download_files,
-            handwriting_mac::handwriting_vision,
+            handwriting_mac::handwriting_vision, handwriting_mac::handwriting_page_corners,
             typst_export::typst_pdf,
             code::code_publish,
             ink::ink_load,
