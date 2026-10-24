@@ -39,7 +39,9 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
   const live = useRef<{ stop: () => void } | null>(null)
   const liveBox = useRef<HTMLDivElement>(null)
   useEffect(() => { liveBox.current?.scrollTo({ top: liveBox.current.scrollHeight }) }, [heard])
-  useEffect(() => () => live.current?.stop(), [])
+  // Leaving the course while recording: the recording is stopped and saved (it would otherwise
+  // keep the microphone on with nothing on screen, and never be kept).
+  useEffect(() => () => { if (recorder.current?.state === 'recording') recorder.current.stop(); else live.current?.stop() }, [])
   const allowed = info.recording === true
 
   const reload = () => { if (isTauri()) void studyLectures(course).then(setLectures).catch(() => undefined) }
