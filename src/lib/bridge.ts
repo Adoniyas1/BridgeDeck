@@ -133,6 +133,8 @@ export type MimirStatus = { phase: 'stopped' | 'setup' | 'starting' | 'running' 
 export const mimirStatus = () => native<MimirStatus>('mimir_status')
 export const mimirStart = () => native<MimirStatus>('mimir_start')
 export const mimirStop = () => native<MimirStatus>('mimir_stop')
+/** One of Mimir's settings channels (CONTROL_CHANNELS in mimir/src/main/server.ts), while it runs. */
+export const mimirControl = <T,>(channel: string, args: unknown[] = []) => native<T>('mimir_control', { channel, args })
 export const diagnosticsReport = () => native<string>('diagnostics_report')
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')

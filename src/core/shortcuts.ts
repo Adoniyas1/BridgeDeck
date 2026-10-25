@@ -4,12 +4,13 @@ import { activateTab, splitTab, tabsStore, unsplit } from './tabs'
 
 /** Shortcuts that work all over BridgeDeck, web pages included (src-tauri/src/webkeys.rs passes
  *  them on from a focused page). `key` is what's pressed with ⌘ on a Mac, Ctrl on Windows. */
-export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address' | 'code' | 'split'
+export type ShortcutName = 'search' | 'chatgpt' | 'ask' | 'shortcuts' | 'new-tab' | 'close-tab' | 'address' | 'code' | 'split' | 'jarvis'
 export const SHORTCUTS: Array<{ keys: string; what: string; name?: ShortcutName; shift?: boolean; key?: string }> = [
   { keys: 'K', what: 'Search everything: tabs, notes, books, bookmarks, history', name: 'search', key: 'k' },
   { keys: 'J', what: 'Open or close the ChatGPT panel', name: 'chatgpt', key: 'j' },
   { keys: 'Shift A', what: 'Ask ChatGPT about the selected text (on any tab or web page)', name: 'ask', shift: true, key: 'a' },
   { keys: 'Shift O', what: 'Fill in the latest verification code from Messages (and copy it)', name: 'code', shift: true, key: 'o' },
+  { keys: 'Shift J', what: 'Mimir in Jarvis mode: full screen, for talking', name: 'jarvis', shift: true, key: 'j' },
   { keys: '/', what: 'This list of shortcuts', name: 'shortcuts', key: '/' },
   { keys: '1–9', what: 'Go to the first, second… tab' },
   { keys: '\\', what: 'Split screen: the tab used before this one beside it (again: one tab)', name: 'split', key: '\\' },
@@ -44,6 +45,9 @@ export function openInBrowser(url: string) {
 /** Asks for the latest verification code to be filled in (the tab bar's code chip does it). */
 export const codeRequestStore = createStore(0)
 
+/** Asks for Mimir in Jarvis mode (the Mimir feature opens it). */
+export const jarvisRequestStore = createStore(0)
+
 export function useOverlayOpen() {
   const palette = useStore(paletteStore)
   const help = useStore(shortcutsHelpStore)
@@ -71,6 +75,7 @@ export function runShortcut(name: ShortcutName, from: { text?: string; url?: str
     case 'shortcuts': paletteStore.set(false); shortcutsHelpStore.set(open => !open); return true
     case 'chatgpt': toggleChatPanel(); return true
     case 'code': codeRequestStore.set(Date.now()); return true
+    case 'jarvis': jarvisRequestStore.set(Date.now()); return true
     case 'split': {
       const { split, history, active } = tabsStore.get()
       const previous = history.find(id => id !== active)

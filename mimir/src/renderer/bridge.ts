@@ -52,6 +52,7 @@ const token = params.get("token") ?? "";
 const listeners = new Map<string, Set<Listener>>();
 /** Questions from BridgeDeck (not an IPC channel: they come from the page around this one). */
 const ASK = "bridgedeck:ask";
+const JARVIS = "bridgedeck:jarvis";
 
 /** Inside BridgeDeck (its Mimir tab): this page is in a frame BridgeDeck made. */
 const embedded = window.parent !== window;
@@ -186,7 +187,9 @@ const api = {
     open: (id: string | null): Promise<MimirChat | null> => invoke(IPC.chatsOpen, id)
   },
   jarvis: {
-    brief: (): Promise<JarvisBrief> => invoke(IPC.jarvisBrief)
+    brief: (): Promise<JarvisBrief> => invoke(IPC.jarvisBrief),
+    /** BridgeDeck asked for Jarvis mode (its button or ⌘/Ctrl+Shift+J). */
+    onOpen: (cb: () => void) => on(JARVIS, cb)
   },
   memory: {
     get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),
@@ -282,6 +285,7 @@ window.addEventListener("message", (event) => {
   const ask = event.data as { source?: string; type?: string; text?: unknown } | null;
   const text = typeof ask?.text === "string" ? ask.text.trim().slice(0, 20000) : "";
   if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
+  if (data?.source === "bridgedeck" && data.type === "jarvis") listeners.get(JARVIS)?.forEach((cb) => cb());
   const reply = event.data as { source?: string; type?: string; id?: unknown; context?: { title?: unknown; text?: unknown } | null } | null;
   if (reply?.source === "bridgedeck" && reply.type === "context" && typeof reply.id === "number") {
     const done = contextWaiting.get(reply.id);

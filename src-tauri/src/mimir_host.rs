@@ -417,6 +417,38 @@ pub fn stop() {
     }
 }
 
+/// Where Mimir's control channel is, and its token, while it runs.
+fn control_target() -> Option<(String, String)> {
+    let host = host();
+    let url = host.url.as_ref()?;
+    let base = url.split("/?").next()?.to_string();
+    Some((base, host.token.clone()))
+}
+
+/// One of Mimir's settings channels (CONTROL_CHANNELS in mimir/src/main/server.ts), for
+/// BridgeDeck's own settings: its webview can't open Mimir's WebSocket, and the token stays here.
+#[tauri::command]
+pub async fn mimir_control(channel: String, args: Option<Vec<serde_json::Value>>) -> Result<serde_json::Value, String> {
+    let (base, token) = control_target().ok_or("Mimir isn't running.")?;
+    let reply: serde_json::Value = reqwest::Client::new()
+        .post(format!("{base}/control"))
+        .bearer_auth(token)
+        // Asking Hugging Face or starting llama-swap can take a while.
+        .timeout(std::time::Duration::from_secs(120))
+        .json(&serde_json::json!({ "ch": channel, "args": args.unwrap_or_default() }))
+        .send()
+        .await
+        .map_err(|e| format!("Couldn't reach Mimir: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Mimir's answer wasn't readable: {e}"))?;
+    if reply.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+        Ok(reply.get("value").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(reply.get("error").and_then(|v| v.as_str()).unwrap_or("Mimir refused that.").to_string())
+    }
+}
+
 #[tauri::command]
 pub fn mimir_status() -> Status {
     status()

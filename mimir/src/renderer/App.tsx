@@ -56,7 +56,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") { e.preventDefault(); setJarvisOn((v) => !v); } };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const offOpen = window.mimir.jarvis.onOpen(() => setJarvisOn(true));
+    return () => { window.removeEventListener("keydown", onKey); offOpen(); };
   }, []);
 
   const assistantMessageId = useRef<string | null>(null);
