@@ -2,6 +2,9 @@
  *  courses; a partner's are typed in their contact's "hours" ("MW 10:00-11:15, TuTh 2-3:15pm"). */
 
 import { readDays, readTimes } from './timetable'
+import { occurrences } from '../calendar/recur'
+import type { CalEvent } from '../../lib/bridge'
+import { DAY_LETTERS } from './schedule'
 
 export type Busy = { days: number[]; start: number; end: number }
 export type Slot = { day: number; start: number; end: number }
@@ -42,3 +45,30 @@ export function freeSlots(busy: Busy[], from = 8 * 60, to = 20 * 60, min = 60): 
 }
 
 export const clockText = (m: number) => { const h = Math.floor(m / 60), mm = m % 60; return `${(h + 11) % 12 + 1}${mm ? `:${String(mm).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}` }
+
+/** A partner's calendar (an .ics they sent) as busy times for a typical week: what happens on each
+ *  weekday in the week starting at `weekStart` (repeating classes and one-offs alike). All-day
+ *  events are left out. */
+export function busyFromEvents(events: CalEvent[], weekStart: number): Busy[] {
+  const out: Busy[] = []
+  for (const e of events) {
+    if (e.deleted || e.allDay) continue
+    for (const o of occurrences(e, weekStart, weekStart + 7 * 86_400_000)) {
+      const start = new Date(o.start), end = new Date(o.end)
+      const day = start.getDay()
+      if (day < 1 || day > 5 || end.getTime() - start.getTime() > 12 * 3_600_000) continue
+      const [s, f] = [start.getHours() * 60 + start.getMinutes(), end.toDateString() === start.toDateString() ? end.getHours() * 60 + end.getMinutes() : 24 * 60]
+      if (s < f) out.push({ days: [day], start: s, end: f })
+    }
+  }
+  return out
+}
+
+/** Busy times written the way a partner's hours are typed ("MW 10:00-11:15, TuTh 14:00-15:15"):
+ *  the same times on several days are put together. */
+export function busyText(busy: Busy[]): string {
+  const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  const byTime = new Map<string, Set<number>>()
+  for (const b of busy) { const key = `${hhmm(b.start)}-${hhmm(b.end)}`; const set = byTime.get(key) ?? new Set(); b.days.forEach(d => set.add(d)); byTime.set(key, set) }
+  return [...byTime].sort((a, b) => a[0].localeCompare(b[0])).map(([time, days]) => `${[...days].sort().map(d => DAY_LETTERS[d - 1]).join('')} ${time}`).join(', ')
+}

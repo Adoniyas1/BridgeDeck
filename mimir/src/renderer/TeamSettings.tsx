@@ -9,7 +9,8 @@ const ROLE_TEXT: Record<BrainRole, { title: string; job: string }> = {
 const ENGINES: Array<{ id: AgentEngine; label: string; hint: string }> = [
   { id: "mimir", label: "Mimir", hint: "Mimir's own tools and skills, with one model or the team below." },
   { id: "claude-code", label: "Claude Code", hint: "Claude Code runs headless in the coding folder, with its own tools (Read, Edit, Bash, …)." },
-  { id: "opencode", label: "OpenCode", hint: "OpenCode runs headless in the coding folder, with its own tools." }
+  { id: "opencode", label: "OpenCode", hint: "OpenCode runs headless in the coding folder, with its own tools." },
+  { id: "hermes", label: "Hermes", hint: "Hermes Agent (Nous Research) runs the chat with its own loop, skills and memory, and starts each conversation knowing what Mimir knows about you. Install it from hermes-agent.nousresearch.com with its ACP extra." }
 ];
 const PROVIDERS: Array<{ id: BrainProviderKind; label: string }> = [
   { id: "openai-compatible", label: "OpenAI-compatible (MLX, llama.cpp, llama-swap)" },
@@ -138,6 +139,24 @@ export default function TeamSettings() {
           )}
         </>
       )}
+      <div className="team-role">
+        <div className="team-role__head">
+          <strong>Pictures</strong>
+          <span className="hint">A model that can see reads photos (homework, whiteboards, handwriting) for a chat model that can't.</span>
+        </div>
+        {config.vision ? (
+          <>
+            <EndpointEditor key={endpointKey(config.vision)} label="Vision model" endpoint={config.vision} onChange={(vision) => void patch({ vision })} />
+            <button type="button" className="btn btn--ghost" onClick={() => void patch({ vision: null })}>
+              Don't use one (send pictures as they are)
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn btn--ghost" onClick={() => void patch({ vision: { provider: "openai-compatible", model: "qwen3.5-9b", baseUrl: "http://127.0.0.1:8080" } })}>
+            Use a vision model
+          </button>
+        )}
+      </div>
       {message && <p className="hint">{message}</p>}
     </section>
   );
@@ -157,7 +176,7 @@ function EngineSection({ config, onPatch }: { config: TeamConfig; onPatch: (next
     setCheck(null);
   }
 
-  async function runCheck(which: "claude-code" | "opencode") {
+  async function runCheck(which: "claude-code" | "opencode" | "hermes") {
     setChecking(true);
     try {
       setCheck(await window.mimir.team.checkEngine(which));
@@ -184,11 +203,11 @@ function EngineSection({ config, onPatch }: { config: TeamConfig; onPatch: (next
           </label>
           <label className="checkbox-row">
             <input type="radio" checked={config.engineModels === "own"} onChange={() => onPatch({ engineModels: "own" })} />
-            {engine === "claude-code" ? "Use Claude's own models (your Claude login)" : "Use OpenCode's own models and logins"}
+            {engine === "claude-code" ? "Use Claude's own models (your Claude login)" : engine === "hermes" ? "Use Hermes's own setup (your ~/.hermes profile)" : "Use OpenCode's own models and logins"}
           </label>
           <div className="key-row">
             <input
-              placeholder={engine === "claude-code" ? "claude" : "opencode"}
+              placeholder={engine === "claude-code" ? "claude" : engine}
               title="The command, if it isn't on PATH"
               value={command}
               onChange={(e) => setCommand(e.target.value)}
@@ -200,6 +219,43 @@ function EngineSection({ config, onPatch }: { config: TeamConfig; onPatch: (next
           </div>
           {check && <p className={`hint ${check.ok ? "ok" : "down"}`}>{check.detail}</p>}
           <p className="hint">It works in the coding folder (Settings → Coding). Every command, and every file change outside Projects, waits for your Allow in the chat.</p>
+          {engine === "hermes" && <HonchoSection config={config} onPatch={onPatch} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Honcho (honcho.dev) as Hermes's long-term memory: it builds a model of you from your chats.
+ * Off by default: honcho.dev bills about $2 per million tokens it reads, or it can be self-hosted. */
+function HonchoSection({ config, onPatch }: { config: TeamConfig; onPatch: (next: Partial<TeamConfig>) => void }) {
+  const h = config.honcho;
+  const [key, setKey] = useState("");
+  const [url, setUrl] = useState(h.baseUrl ?? "");
+  const [peer, setPeer] = useState(h.peerName);
+  return (
+    <div className="team-role">
+      <div className="team-role__head">
+        <strong>Honcho memory</strong>
+        <span className="hint">Hermes remembers you across chats with Honcho: it learns how you work and what you care about, not only facts.</span>
+      </div>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={h.enabled} onChange={(e) => onPatch({ honcho: { ...h, enabled: e.target.checked } })} />
+        Use Honcho (needs the plugin once: hermes plugins install honcho)
+      </label>
+      {h.enabled && (
+        <>
+          <div className="key-row">
+            <input type="password" placeholder={h.keySaved ? "API key saved (type to replace)" : "honcho.dev API key"} value={key} onChange={(e) => setKey(e.target.value)} />
+            <button type="button" className="btn" disabled={!key.trim()} onClick={() => void window.mimir.team.setHonchoKey(key).then(() => { setKey(""); onPatch({ honcho: { ...h, keySaved: true } }); })}>Save key</button>
+          </div>
+          <div className="key-row">
+            <input placeholder="Or a self-hosted server, e.g. http://localhost:8000" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => url.trim() !== (h.baseUrl ?? "") && onPatch({ honcho: { ...h, baseUrl: url.trim() || null } })} />
+          </div>
+          <div className="key-row">
+            <input placeholder="Your name to Honcho" value={peer} onChange={(e) => setPeer(e.target.value)} onBlur={() => peer.trim() && peer.trim() !== h.peerName && onPatch({ honcho: { ...h, peerName: peer.trim() } })} />
+          </div>
+          <p className="hint">honcho.dev charges about $2 per million tokens of chat it reads (new accounts get some free credit); a self-hosted Honcho is free but needs its own server and model. Honcho only runs while Hermes is the engine and uses the team's models.</p>
         </>
       )}
     </div>

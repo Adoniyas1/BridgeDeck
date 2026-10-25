@@ -15,15 +15,22 @@ const FONTS: &[(&str, &str)] = &[
     ("Kalam-Bold.ttf", "https://github.com/google/fonts/raw/main/ofl/kalam/Kalam-Bold.ttf"),
 ];
 
-fn asset() -> Result<&'static str, String> {
+/// The release archive for this computer, and its SHA-256 (the download is checked against it
+/// before the program in it is ever run).
+fn asset() -> Result<(&'static str, &'static str), String> {
     Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "typst-aarch64-apple-darwin.tar.xz",
-        ("macos", _) => "typst-x86_64-apple-darwin.tar.xz",
-        ("windows", _) => "typst-x86_64-pc-windows-msvc.zip",
-        ("linux", "aarch64") => "typst-aarch64-unknown-linux-musl.tar.xz",
-        ("linux", _) => "typst-x86_64-unknown-linux-musl.tar.xz",
+        ("macos", "aarch64") => ("typst-aarch64-apple-darwin.tar.xz", "541e4f9eaca3f34ee865f81fc663e4839cb84d6253f71a372cd855b0a7283213"),
+        ("macos", _) => ("typst-x86_64-apple-darwin.tar.xz", "4dabfe647f7f01ed9cc13ad8196a6c7f5e16f0732821b522d50740d3a9f5207b"),
+        ("windows", _) => ("typst-x86_64-pc-windows-msvc.zip", "44170d0632298ba68cbabc43dbfb6908b17ca9236859e0767b0e5d54b2d19f48"),
+        ("linux", "aarch64") => ("typst-aarch64-unknown-linux-musl.tar.xz", "4f5b7ee6e57fb639019ee0f6bffcf940edad228ede6ff5269a9f05a1544ceed4"),
+        ("linux", _) => ("typst-x86_64-unknown-linux-musl.tar.xz", "7d214bfeffc2e585dc422d1a09d2b144969421281e8c7f5d784b65fc69b5673f"),
         _ => return Err("Typeset PDFs aren't available on this computer".into()),
     })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn tools_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -81,8 +88,11 @@ fn ensure(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let fonts = dir.join("fonts");
     std::fs::create_dir_all(&fonts).map_err(|e| e.to_string())?;
     if !program.is_file() {
-        let name = asset()?;
+        let (name, sha) = asset()?;
         let archive = fetch(&format!("https://github.com/typst/typst/releases/download/v{VERSION}/{name}"), 80 * 1024 * 1024)?;
+        if sha256_hex(&archive) != sha {
+            return Err("The Typst download didn't match the expected file, so it wasn't used. Try again later.".into());
+        }
         let bytes = extract_program(&archive, name.ends_with(".zip"))?;
         let part = program.with_extension("partial");
         std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
@@ -139,6 +149,14 @@ pub async fn typst_pdf(app: AppHandle, source: String) -> Result<String, String>
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn downloads_are_checked_against_a_known_hash() {
+        assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        let (_, sha) = asset().unwrap();
+        assert_eq!(sha.len(), 64);
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn the_program_comes_out_of_either_archive() {

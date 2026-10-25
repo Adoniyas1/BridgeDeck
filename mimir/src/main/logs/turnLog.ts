@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MIMIR_HOME } from "../config/store.js";
+import { todayISO } from "../persona/paths.js";
 import type { BrainMessage, BrainProvider, ChatEvent, ChatOpts, ToolDef, ToolResult } from "../brain/Provider.js";
 
 /**
@@ -32,7 +33,7 @@ export class TurnLog {
   private began = Date.now();
 
   constructor(mode: string, userText: string, private dir: string = LOG_DIR) {
-    this.file = path.join(dir, `${new Date().toISOString().slice(0, 10)}.md`);
+    this.file = path.join(dir, `${todayISO()}.md`);
     this.write(`\n## ${time()} · ${mode}\n\n- message: ${clip(oneLine(userText), 500)}\n- ${memoryInUse()}`);
   }
 

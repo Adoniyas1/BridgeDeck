@@ -76,3 +76,12 @@ export function problemsFromState(state: Record<string, unknown>): Record<string
   }
   return out
 }
+
+/** A problem to redo as a flashcard, so it comes back on the review schedule until it's easy: work
+ *  it again on paper, then check. */
+export function problemCardFront(r: Pick<RatedProblem, 'assignment' | 'section' | 'number'>) {
+  return `Redo ${r.section ? `${r.section} ` : ''}#${r.number} from ${r.assignment} on paper`
+}
+export function problemCardBack(r: Pick<RatedProblem, 'section' | 'rating'>) {
+  return `Check it against the answers${r.section ? `; if it doesn't come, reread ${r.section}` : ''}${r.rating === 'stuck' ? ' (you were stuck on it)' : ''}`
+}

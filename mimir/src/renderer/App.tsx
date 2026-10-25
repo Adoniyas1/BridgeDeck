@@ -6,6 +6,7 @@ import QuickControls from "./QuickControls.js";
 import Skills from "./Skills.js";
 import ChatGpt from "./ChatGpt.js";
 import Memory from "./Memory.js";
+import Jarvis, { type JarvisActivity } from "./jarvis/Jarvis.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
 import type { AutoStopReason } from "./voice/vad.js";
 import { sanitizeSpeech, takeCompleteSentences } from "./voice/speech.js";
@@ -48,6 +49,15 @@ export default function App() {
   const [showSkills, setShowSkills] = useState(false);
   const [showChatGpt, setShowChatGpt] = useState(false);
   const [turnContext, setTurnContext] = useState<{ modules: LoadedPromptModule[]; tokens: number } | null>(null);
+  // Jarvis mode (full screen, made for talking), remembered between launches.
+  const [jarvisOn, setJarvisOn] = useState(() => { try { return localStorage.getItem("mimir.jarvis") === "1"; } catch { return false; } });
+  const [activity, setActivity] = useState<JarvisActivity[]>([]);
+  useEffect(() => { try { localStorage.setItem("mimir.jarvis", jarvisOn ? "1" : "0"); } catch { /* not kept */ } }, [jarvisOn]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") { e.preventDefault(); setJarvisOn((v) => !v); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const assistantMessageId = useRef<string | null>(null);
   const voiceOrigin = useRef(false);
@@ -149,7 +159,17 @@ export default function App() {
       } else if (event.type === "team-plan" || event.type === "team-step" || ((event.type === "tool-start" || event.type === "tool-end") && event.step != null)) {
         const id = assistantMessageId.current;
         setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, team: applyTeamEvent(m.team, event) } : m)));
-      } else if (event.type === "context") {
+      }
+      // Every tool step, for Jarvis mode's list of what Mimir is doing.
+      if (event.type === "tool-start") {
+        setActivity((prev) => [...prev.slice(-19), { id: newId(), name: event.name, done: false, isError: false }]);
+      } else if (event.type === "tool-end") {
+        setActivity((prev) => {
+          const i = prev.map((a) => !a.done && a.name === event.name).lastIndexOf(true);
+          return i < 0 ? prev : prev.map((a, j) => (j === i ? { ...a, done: true, isError: event.isError } : a));
+        });
+      }
+      if (event.type === "context") {
         setTurnContext({ modules: event.modules, tokens: event.tokens });
       } else if (event.type === "approval-pending") {
         setApprovals((prev) => [...prev, event.approval]);
@@ -269,6 +289,7 @@ export default function App() {
 
     voiceOrigin.current = viaVoice;
     speechBuffer.current = "";
+    setActivity([]);
     thinkingStarted.current = null;
     unsaved.current = true;
     busyRef.current = true;
@@ -438,6 +459,24 @@ export default function App() {
 
   return (
     <div className={`app app--${faceState}`}>
+      {jarvisOn && (
+        <Jarvis
+          messages={messages}
+          faceState={faceState}
+          busy={busy}
+          openMicActive={openMicActive}
+          approvals={approvals}
+          activity={activity}
+          onDecide={(id, allow) => {
+            window.mimir.approval.decide(id, allow);
+            setApprovals((prev) => prev.filter((a) => a.id !== id));
+          }}
+          onSend={(text) => void handleSend(text)}
+          onToggleMic={() => void toggleOpenMic()}
+          onStop={handleStop}
+          onExit={() => setJarvisOn(false)}
+        />
+      )}
       <div className="app-backdrop" aria-hidden="true">
         <div className="app-aurora" />
         <div className="app-grid" />
@@ -448,6 +487,9 @@ export default function App() {
           <div className="system-ident">
             <strong>Mimir</strong>
           </div>
+          <button type="button" className="settings-toggle jarvis-toggle" onClick={() => setJarvisOn(true)} aria-label="Jarvis mode" title={`Jarvis mode: full screen, for talking (${navigator.userAgent.includes("Mac") ? "⌘J" : "Ctrl+J"})`}>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor" /><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" /></svg>
+          </button>
           <button
             type="button"
             className="settings-toggle"

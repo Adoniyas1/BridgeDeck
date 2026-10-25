@@ -54,3 +54,17 @@ describe('graph blocks', () => {
     expect(ticks(0, 1, 5)).toEqual([0, 0.2, 0.4, 0.6, 0.8, 1])
   })
 })
+
+describe('measured points', () => {
+  it('reads data lines and fits the axes to them', async () => {
+    const { plot } = await import('./plot')
+    const p = plot('Vout = 12x/(4.7 + x)\nmeasured: 1, 2.1; 4.7, 6.0; 10, 8.05\nx: 0..12')
+    expect(p.curves).toHaveLength(1)
+    expect(p.data).toEqual([{ name: 'measured', points: [[1, 2.1], [4.7, 6], [10, 8.05]] }])
+    expect(p.x).toEqual([0, 12])
+    const q = plot('data: (0, 1) (10, 5)')
+    expect(q.data[0].points).toEqual([[0, 1], [10, 5]])
+    expect(q.x[0]).toBeLessThan(0); expect(q.x[1]).toBeGreaterThan(10)
+    expect(plot('x: -5..5').data).toEqual([])
+  })
+})

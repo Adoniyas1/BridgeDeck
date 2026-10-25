@@ -49,6 +49,8 @@ mod study_lectures;
 mod ink;
 mod handwriting_mac;
 mod typst_export;
+mod heic;
+mod note_images;
 mod study_reviews;
 mod sync_conflicts;
 mod sync_sidecar;
@@ -664,9 +666,9 @@ pub fn run() {
             study::study_save_pdf,
             study::study_save_card_picture,
             study::study_save_csv,
-            study::study_save_photo,
+            study::study_save_photo, study::study_convert_heic, note_images::note_image_save, note_images::note_image_load,
             canvas::canvas_download_files,
-            handwriting_mac::handwriting_vision,
+            handwriting_mac::handwriting_vision, handwriting_mac::handwriting_page_corners,
             typst_export::typst_pdf,
             code::code_publish,
             ink::ink_load,
@@ -737,7 +739,7 @@ pub fn run() {
             backups::backups_list,
             canvas::canvas_feed,
             canvas::canvas_api,
-            canvas::calendar_subscription,
+            canvas::calendar_subscription, canvas::finals_page,
             phone::phone_settings,
             phone::phone_status,
             phone::phone_new_key,

@@ -86,3 +86,35 @@ export function compacted(own: string[], all: Stroke[]): string[] | null {
 }
 
 export const newStrokeId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+
+// ---- Lasso ----
+
+/** Whether a point is inside a closed outline (even-odd rule). */
+export function inside(pt: { x: number; y: number }, poly: Array<{ x: number; y: number }>) {
+  let hit = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j]
+    if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x) hit = !hit
+  }
+  return hit
+}
+
+/** The strokes a lasso drawn round them takes: most of each one's points inside the outline. */
+export function lassoed(strokes: Stroke[], poly: Point[]): string[] {
+  if (poly.length < 3) return []
+  return strokes.filter(s => s.points.filter(p => inside(p, poly)).length * 2 > s.points.length).map(s => s.id)
+}
+
+/** The box round some strokes, for the selection outline and for picking it up to move. */
+export function bounds(strokes: Stroke[]) {
+  if (!strokes.length) return null
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const s of strokes) for (const p of s.points) { x0 = Math.min(x0, p.x - s.width); y0 = Math.min(y0, p.y - s.width); x1 = Math.max(x1, p.x + s.width); y1 = Math.max(y1, p.y + s.width) }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/** Strokes moved: strokes never change once written, so a move is new strokes (new ids, now) in
+ *  place of the old ones, which are erased. */
+export function moved(strokes: Stroke[], dx: number, dy: number, t = Date.now()): Stroke[] {
+  return strokes.map((s, i) => ({ ...s, id: newStrokeId(), t: t + i, points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) }))
+}

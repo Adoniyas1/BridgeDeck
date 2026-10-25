@@ -246,3 +246,8 @@ export function span(ms: number) {
   if (days < 365) return `${Math.round(days / 30)}mo`
   return `${(days / 365).toFixed(1)}y`
 }
+
+/** Whether a review made at `at` (on the phone, sent later) is new for this card: a review the
+ *  card already has, or one older than its last review here, isn't applied (the phone may send the
+ *  same reviews again when its reply was lost). */
+export const isNewReview = (card: Card, at: number) => !card.last_review || at > card.last_review.getTime()

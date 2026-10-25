@@ -12,7 +12,7 @@ import { appleStore, eventsStore, itemsBetween } from '../calendar/state'
 import { addDays, startOfDay } from '../calendar/model'
 import { notesStore } from '../notes/state'
 import { allAssignments } from '../study/assignments'
-import { allDue, deckOf } from '../study/cards'
+import { allDue, deckOf, isNewReview } from '../study/cards'
 import { showAnswer } from '../study/answer'
 import { libraryStore, saveReview } from '../study/state'
 import { courseOfFolder } from '../../core/exam'
@@ -47,18 +47,18 @@ async function applyPhoneReviews(reviews: Array<{ card: string; grade: number; a
   for (const r of [...reviews].sort((a, b) => a.at - b.at)) {
     if (![1, 2, 3, 4].includes(r.grade)) continue
     const card = courses.flatMap(c => deckOf(notesStore.get(), c)).find(c => c.id === r.card)
-    if (!card) continue
-    try { await saveReview(card, review(card.card, r.grade as 1 | 2 | 3 | 4, new Date(r.at)), r.grade); applied++ } catch { /* the next sync tries again from the phone's copy */ }
+    if (!card || !isNewReview(card.card, r.at)) continue
+    try { await saveReview(card, review(card.card, r.grade as 1 | 2 | 3 | 4, new Date(r.at)), r.grade, 0, r.at); applied++ } catch { /* the next sync tries again from the phone's copy */ }
   }
   if (applied) setNotice(`Saved ${applied} flashcard review${applied === 1 ? '' : 's'} from your phone.`)
 }
 
 /** Starts or stops the page with the setting, keeps its agenda current, and tells you what arrived. */
 export function PhoneBackground() {
-  const { enabled, tailscale } = useStore(configStore).phone
+  const { enabled, tailscale, https } = useStore(configStore).phone
   useEffect(() => {
-    if (isTauri()) void phoneSettings(enabled, tailscale === true).then(phoneStore.set).catch(() => undefined)
-  }, [enabled, tailscale])
+    if (isTauri()) void phoneSettings(enabled, tailscale === true, https === true).then(phoneStore.set).catch(() => undefined)
+  }, [enabled, tailscale, https])
   usePeriodicRefresh(async () => { if (isTauri() && enabled) await phonePublish(phoneSnapshot()) }, 60_000, [enabled], 'same')
   useEffect(() => {
     if (!isTauri()) return
@@ -91,6 +91,7 @@ export function PhoneCard() {
   return <Card><SectionTitle title="Phone" subtitle="Send text, links and photos from your phone, see today and what’s due, tick checklists. No app needed." action={<StatusPill online={on && status.running} label={on ? (status.running ? 'On' : 'Starting') : 'Off'} />} />
     <Toggle checked={on} onChange={next => setConfig(c => ({ ...c, phone: { ...c.phone, enabled: next } }))} label="Let my phone open BridgeDeck’s page on this Wi-Fi" />
     {on && <Toggle checked={config.phone.tailscale === true} onChange={next => setConfig(c => ({ ...c, phone: { ...c.phone, tailscale: next } }))} label="Also over Tailscale (on campus): needs Tailscale on this computer and the phone. The page is plain HTTP inside Tailscale’s encrypted network; anyone on your tailnet with the link can open it." />}
+    {on && config.phone.tailscale && <Toggle checked={config.phone.https === true} onChange={next => setConfig(c => ({ ...c, phone: { ...c.phone, https: next } }))} label="Use HTTPS over Tailscale (the phone's camera and offline use need it): turn on MagicDNS and HTTPS Certificates in the Tailscale admin page first. The address becomes this computer's name in your tailnet." />}
     {on && status.error && <p className="error-text">{status.error}</p>}
     {on && url && <div className="phone-link">
       <Suspense fallback={<div className="phone-qr" />}><QrCode text={url} /></Suspense>

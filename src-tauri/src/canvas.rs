@@ -144,6 +144,18 @@ pub async fn calendar_subscription(url: String) -> Result<String, String> {
     Ok(text)
 }
 
+/// A university's final exam schedule page (https), as HTML, for Study → Semester to read the
+/// table from (study/finals.ts). Saves pasting it each term.
+#[tauri::command]
+pub async fn finals_page(url: String) -> Result<String, String> {
+    let url = https(&url)?;
+    let response = client()?.get(url).send().await.map_err(|e| format!("Couldn’t reach the page: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("The page answered {}", response.status()));
+    }
+    Ok(String::from_utf8_lossy(&body(response, MAX_FEED).await?).into_owned())
+}
+
 /// A GET from the Canvas API with the person's access token, or without one with their sign-in in
 /// BridgeDeck's browser. Lists are followed across pages (up to ten) and returned as one array.
 #[tauri::command]

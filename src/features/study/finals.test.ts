@@ -22,3 +22,13 @@ describe('finals schedule', () => {
     expect(finalFor([{ days: [5], start: '09:00', end: '10:00', room: '', kind: '' }], rows, 2026)).toBeNull()
   })
 })
+
+describe('reading the schedule page', () => {
+  it('turns its table into rows readFinals takes', async () => {
+    const { tableText } = await import('./finals')
+    const html = '<html><style>td{}</style><table><tr><th>Class</th><th>Exam</th><th>Time</th></tr><tr><td>TuTh&nbsp;2:00 PM</td><td>Thursday, Dec 18</td><td>2:45 &ndash; 4:45 PM</td></tr></table></html>'
+    const text = tableText(html)
+    expect(text).toBe('Class | Exam | Time\nTuTh 2:00 PM | Thursday, Dec 18 | 2:45 – 4:45 PM')
+    expect(readFinals(text)).toHaveLength(1)
+  })
+})

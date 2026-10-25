@@ -163,7 +163,7 @@ export type BrainProviderKind = "anthropic" | "openai-compatible" | "ollama";
 export type BrainRole = "head" | "checker" | "executor";
 
 /** What runs a conversation: Mimir's own team loop, or a coding agent run headless (phase 5). */
-export type AgentEngine = "mimir" | "claude-code" | "opencode";
+export type AgentEngine = "mimir" | "claude-code" | "opencode" | "hermes";
 
 /** How many tools a role's model gets: "auto" guesses from the model's size. */
 export type ToolTierChoice = "auto" | "core" | "full";
@@ -196,7 +196,7 @@ export interface TeamConfig {
    * can spend minutes thinking about a one-line answer. */
   thinking: boolean;
   /** The command for each agent, when it isn't on PATH as `claude` / `opencode`. */
-  engineCommands: { "claude-code": string | null; opencode: string | null };
+  engineCommands: { "claude-code": string | null; opencode: string | null; hermes: string | null };
   roles: Record<BrainRole, RoleConfig>;
   /** The Checker uses the Head's model (no extra model to load). */
   checkerSameAsHead: boolean;
@@ -205,6 +205,22 @@ export interface TeamConfig {
   checkEachStep: boolean;
   /** The preset this came from, if any. */
   preset: string | null;
+  /** A model that can see pictures, which reads photos for a chat model that can't (team or
+   * single mode). Null: pictures go to the chat model as they are. */
+  vision: RoleEndpoint | null;
+  /** Honcho as Hermes's memory (engines/hermes.ts): off, or on with honcho.dev (the API key is in
+   * the keychain) or a self-hosted server. */
+  honcho: { enabled: boolean; baseUrl: string | null; peerName: string; keySaved: boolean };
+}
+
+/** What the Jarvis view shows beside the orb (jarvis/brief.ts). */
+export interface JarvisBrief {
+  events: Array<{ title: string; start: number; end: number; allDay: boolean; location: string }>;
+  due: Array<{ title: string; course: string; due: number }>;
+  flashcards: number;
+  system: { memUsed: number; memTotal: number; cpu: number };
+  /** Who's answering: "Mimir · qwen3.5-9b", "Hermes · team models"… */
+  engine: string;
 }
 
 export interface TeamPreset {
@@ -423,6 +439,10 @@ export const IPC = {
   /** MEMORY.md and USER.md: what Mimir remembers, to read and edit. */
   memoryGet: "mimir:memory:get",
   memorySet: "mimir:memory:set",
+  /** The Obsidian vault Mimir keeps its memory in (persona/obsidian.ts). */
+  obsidianGet: "mimir:obsidian:get",
+  obsidianSet: "mimir:obsidian:set",
+  jarvisBrief: "mimir:jarvis:brief",
   chatSpeak: "mimir:chat:speak",
   faceState: "mimir:face:state",
   brainGetConfig: "mimir:brain:get-config",
@@ -445,6 +465,7 @@ export const IPC = {
   teamStatus: "mimir:team:status",
   teamListModels: "mimir:team:list-models",
   teamCheckEngine: "mimir:team:check-engine",
+  teamSetHonchoKey: "mimir:team:set-honcho-key",
   setupGet: "mimir:setup:get",
   setupSetConfig: "mimir:setup:set-config",
   setupRun: "mimir:setup:run",

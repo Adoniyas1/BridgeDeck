@@ -46,7 +46,7 @@ export type AppConfig = {
   /** The Mail tab: email accounts' web pages (Outlook, Gmail…), and whether they're checked in the background for new mail. */
   mail: { accounts: MailAccount[]; background: boolean }
   /** The phone page: a web page phones on the same Wi-Fi open to send things here and see the agenda. */
-  phone: { enabled: boolean; /** Reachable over Tailscale too (the phone off the home network). */ tailscale?: boolean }
+  phone: { enabled: boolean; /** Reachable over Tailscale too (the phone off the home network). */ tailscale?: boolean; /** Over Tailscale with HTTPS (Tailscale's certificate). */ https?: boolean }
   /** Install GitHub updates without asking (never while this computer is being controlled). */
   updates: { auto: boolean }
   /** Mimir, the assistant in mimir/, runs inside BridgeDeck once set up. */
@@ -59,7 +59,7 @@ export type AppConfig = {
   tv: { shortcuts: Array<{ name: string; url: string }> }
   /** Study: languages text recognition reads in scanned books (English is always included), and the
    *  sites exam mode keeps closed in the Browser and TV tabs. */
-  study: { ocrLanguages: string[]; examBlock: string[]; /** Mail, Messages and AI notifications wait while a focus session runs. */ quietFocus: boolean; /** Minutes before a class to say where it is (0: off). */ classRemindMinutes: number; /** Door to exam room, for the exam-day card's leave-by time. */ commuteMinutes: number; /** FSRS weights fitted to the review log (empty: the defaults). */ fsrsWeights?: number[] }
+  study: { ocrLanguages: string[]; examBlock: string[]; /** Mail, Messages and AI notifications wait while a focus session runs. */ quietFocus: boolean; /** Minutes before a class to say where it is (0: off). */ classRemindMinutes: number; /** Door to exam room, for the exam-day card's leave-by time. */ commuteMinutes: number; /** FSRS weights fitted to the review log (empty: the defaults). */ fsrsWeights?: number[]; /** What reads photos of handwriting first: 'auto' (Apple Vision on the Mac, else text recognition), 'text' (text recognition only), or 'mimir' (Mimir's vision model). */ handwritingReader?: 'auto' | 'text' | 'mimir'; /** The university's final exam schedule page, read each term (study/finals.ts). */ finalsUrl?: string }
   /** Canvas: the school's Canvas address, the calendar feed link and an access token (both kept in
    *  the credential store), hours before a due date to remind, and assignments marked done here. */
   canvas: { base: string; feed: string; token: string; remindHours: number; done: string[]; /** Canvas course ids already added to Study (each is added once, so a deleted one stays gone). */ added: string[] }

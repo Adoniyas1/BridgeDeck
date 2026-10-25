@@ -274,6 +274,21 @@ export const PROMPT_MODULES: PromptModule[] = [
     coreTools: []
   },
   {
+    id: "obsidian",
+    title: "Obsidian vault",
+    summary: "Search, read and add to your Obsidian notes.",
+    when: "You mention Obsidian, your vault or your notes, or ask what you wrote about something",
+    required: false,
+    tiers: ["core", "full"],
+    triggers: [/\b(obsidian|vault|my notes?|i wrote|i noted|write (it|this) up|save (it|this) as a note)\b/i],
+    text:
+      "The user's Obsidian vault: obsidian_search finds notes by their words, obsidian_read reads one, and obsidian_write saves " +
+      "a longer note under Mimir/Notes/ (never anywhere else). Your memory (Mimir/Memory.md) and what you know about the user " +
+      "(Mimir/About me.md) are in the vault too and stay in step with memory_replace. Say which note a fact came from.",
+    tools: ["obsidian_search", "obsidian_read", "obsidian_write"],
+    coreTools: ["obsidian_search", "obsidian_read"]
+  },
+  {
     id: "web",
     title: "Web research",
     summary: "Search and read public web pages.",

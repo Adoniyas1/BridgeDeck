@@ -88,7 +88,7 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
     clipboard: { ...defaultConfig.clipboard, ...(input.clipboard || {}) },
     notifications: { ...defaultConfig.notifications, ...(input.notifications || {}) },
     sendTo: { ...defaultConfig.sendTo, ...(input.sendTo || {}) },
-    phone: { enabled: input.phone?.enabled === true, tailscale: input.phone?.tailscale === true },
+    phone: { enabled: input.phone?.enabled === true, tailscale: input.phone?.tailscale === true, https: input.phone?.https === true },
     updates: { ...defaultConfig.updates, ...(input.updates || {}) },
     mimir: { ...defaultConfig.mimir, ...(input.mimir || {}) },
     calendar: {
@@ -101,6 +101,9 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       ocrLanguages: Array.isArray(input.study?.ocrLanguages) ? input.study.ocrLanguages.filter((l): l is string => typeof l === 'string' && /^[a-z_]{3,8}$/.test(l)).slice(0, 12) : [],
       examBlock: Array.isArray(input.study?.examBlock) ? cleanSites(input.study.examBlock) : [...defaultConfig.study.examBlock],
       quietFocus: input.study?.quietFocus !== false,
+      ...(Array.isArray(input.study?.fsrsWeights) ? { fsrsWeights: input.study.fsrsWeights.filter((n): n is number => Number.isFinite(n)).slice(0, 32) } : {}),
+      ...(typeof input.study?.finalsUrl === 'string' && input.study.finalsUrl.trim() ? { finalsUrl: input.study.finalsUrl.trim().slice(0, 400) } : {}),
+      ...(['text', 'mimir'].includes(String(input.study?.handwritingReader)) ? { handwritingReader: input.study!.handwritingReader } : {}),
       commuteMinutes: Number.isFinite(input.study?.commuteMinutes) ? Math.max(0, Math.min(240, Math.round(Number(input.study!.commuteMinutes)))) : defaultConfig.study.commuteMinutes,
       classRemindMinutes: Number.isFinite(input.study?.classRemindMinutes) ? Math.max(0, Math.min(120, Math.round(Number(input.study!.classRemindMinutes)))) : defaultConfig.study.classRemindMinutes,
     },

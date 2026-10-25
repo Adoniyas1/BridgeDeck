@@ -265,10 +265,13 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
   const spec = useMemo(() => card ? answerSpec(card.back) : null, [card])
   const source = card ? cardSource(card.back) ?? cardSource(card.front) : null
 
+  // A second key press while the answer is saving would grade the same card twice.
+  const saving = useRef(false)
   async function answer(grade: (typeof GRADES)[number]['grade']) {
-    if (!card) return
+    if (!card || saving.current) return
+    saving.current = true
     const next = review(card.card, grade)
-    try { await saveReview(card, next, grade, Date.now() - shownAt.current) } catch (e) { onStatus(String(e)) }
+    try { await saveReview(card, next, grade, Date.now() - shownAt.current) } catch (e) { onStatus(String(e)) } finally { saving.current = false }
     setShown(false)
     setDone(d => d + 1)
     // Cards answered "Again" come back in this session when they're due within 20 minutes.

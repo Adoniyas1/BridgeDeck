@@ -31,6 +31,7 @@ import {
   type RoleEndpoint,
   type RoleStatus,
   type TeamConfig,
+  type JarvisBrief,
   type TeamPreset,
   type ChatStreamEvent,
   type FaceState,
@@ -169,7 +170,8 @@ const api = {
     applyPreset: (id: string, pcAddress?: string): Promise<TeamConfig> => invoke(IPC.teamApplyPreset, id, pcAddress),
     status: (): Promise<RoleStatus[]> => invoke(IPC.teamStatus),
     listModels: (endpoint: RoleEndpoint): Promise<string[]> => invoke(IPC.teamListModels, endpoint),
-    checkEngine: (engine: "claude-code" | "opencode"): Promise<{ ok: boolean; detail: string }> => invoke(IPC.teamCheckEngine, engine)
+    checkEngine: (engine: "claude-code" | "opencode" | "hermes"): Promise<{ ok: boolean; detail: string }> => invoke(IPC.teamCheckEngine, engine),
+    setHonchoKey: (key: string): Promise<TeamConfig> => invoke(IPC.teamSetHonchoKey, key)
   },
   setup: {
     get: (): Promise<SetupView> => invoke(IPC.setupGet),
@@ -183,9 +185,14 @@ const api = {
     remove: (id: string): Promise<void> => invoke(IPC.chatsDelete, id),
     open: (id: string | null): Promise<MimirChat | null> => invoke(IPC.chatsOpen, id)
   },
+  jarvis: {
+    brief: (): Promise<JarvisBrief> => invoke(IPC.jarvisBrief)
+  },
   memory: {
     get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),
-    set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch)
+    set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch),
+    obsidian: (): Promise<{ vault: string | null }> => invoke(IPC.obsidianGet),
+    setObsidian: (vault: string | null): Promise<{ vault: string | null; warning?: string }> => invoke(IPC.obsidianSet, vault)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

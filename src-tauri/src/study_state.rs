@@ -35,6 +35,8 @@ const KEYS: &[&str] = &["term", "problems", "reading", "canvasDone", "exam", "in
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_VALUE: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 20_000;
+/// Removed entries are kept this long (so the other computer sees the removal), then dropped.
+const PRUNE_AFTER_MS: u64 = 120 * 86_400_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -190,6 +192,10 @@ pub fn values(files: &[(String, StateFile)]) -> BTreeMap<String, Value> {
 /// change is stamped after the newest time any computer has for that entry.
 pub fn put(study: &Path, key: &str, device: &str, changes: BTreeMap<String, Value>, now: u64) -> Result<(), String> {
     check_key(key)?;
+    // The window and Mimir's routes save from different threads: one read-change-write at a time,
+    // so neither loses the other's change.
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let all = read_all(study, key);
     let seen = merge(&all);
     let dir = study.join(DIR).join(key);
@@ -208,6 +214,11 @@ pub fn put(study: &Path, key: &str, device: &str, changes: BTreeMap<String, Valu
         let entry = if val.is_null() { Entry { at, del: true, val: Value::Null } } else { Entry { at, del: false, val } };
         mine.entries.insert(id, entry);
     }
+    // Removals older than the prune age have reached the other computer long ago: drop them so
+    // the file doesn't grow for ever. Not while another computer's file still has the entry set
+    // (its older value would come back).
+    let elsewhere = |id: &String| all.iter().any(|(by, f)| by != device && f.entries.get(id).is_some_and(|e| !e.del));
+    mine.entries.retain(|id, e| !e.del || now.saturating_sub(e.at) < PRUNE_AFTER_MS || elsewhere(id));
     if mine.entries.len() > MAX_ENTRIES {
         return Err("There's too much study state; clear some first".into());
     }
@@ -346,6 +357,28 @@ mod tests {
         files.sort();
         assert_eq!(files, ["mac.json", "pc.json"]);
         let _ = fs::remove_dir_all(&study);
+    }
+
+    #[test]
+    fn old_removals_are_dropped_and_recent_ones_kept() {
+        let study = dir("prune");
+        put(&study, "problems", "mac", changes(&[("a", json!(true)), ("b", json!(true))]), 1_000).unwrap();
+        put(&study, "problems", "mac", changes(&[("a", Value::Null)]), 2_000).unwrap();
+        let day = 86_400_000;
+        put(&study, "problems", "mac", changes(&[("b", Value::Null)]), 200 * day).unwrap();
+        let file: StateFile = serde_json::from_str(&fs::read_to_string(study.join(DIR).join("problems").join(device_file("mac"))).unwrap()).unwrap();
+        assert!(!file.entries.contains_key("a"), "a removal from 200 days ago is dropped");
+        assert!(file.entries.get("b").is_some_and(|e| e.del), "a removal just made is kept");
+    }
+
+    #[test]
+    fn a_removal_stays_while_the_other_computer_still_has_the_value() {
+        let study = dir("prune-other");
+        let day = 86_400_000;
+        put(&study, "problems", "pc", changes(&[("a", json!(true))]), 1_000).unwrap();
+        put(&study, "problems", "mac", changes(&[("a", Value::Null)]), 2_000).unwrap();
+        put(&study, "problems", "mac", changes(&[("z", json!(true))]), 200 * day).unwrap();
+        assert!(!values(&read_all(&study, "problems")).contains_key("a"), "the pc's old tick doesn't come back");
     }
 
     #[test]

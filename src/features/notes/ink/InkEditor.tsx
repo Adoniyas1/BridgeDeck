@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Eraser, FileDown, Highlighter, PenLine, Plus, Redo2, Undo2, X } from 'lucide-react'
+import { Eraser, FileDown, Highlighter, Lasso, PenLine, Plus, Redo2, Trash2, Undo2, X } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
 import { inkAppend, inkBackground, inkCompact, inkLoad, inkSetDoc, pickPdfSaveTo, studyDownloadPdf, studySavePdf } from '../../../lib/bridge'
 import { errorText } from '../../../core/util'
-import { compacted, eraseLine, mergeLogs, newStrokeId, readDoc, strokeLine, type InkDoc, type Paper, type Point, type Stroke, type Tool } from './model'
+import { bounds, compacted, eraseLine, lassoed, mergeLogs, moved, newStrokeId, readDoc, strokeLine, type InkDoc, type Paper, type Point, type Stroke, type Tool } from './model'
 import { drawPaper, drawStrokes, pageSize, strokePath, touches } from './render'
 
 const COLORS = ['#111111', '#1d4ed8', '#b91c1c', '#15803d', '#7c3aed']
@@ -16,7 +16,10 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
   const [doc, setDoc] = useState<InkDoc | null>(null)
   const [strokes, setStrokes] = useState<Stroke[]>([])
   const [backgrounds, setBackgrounds] = useState<Record<number, HTMLImageElement>>({})
-  const [tool, setTool] = useState<Tool | 'eraser'>('pen')
+  const [tool, setToolState] = useState<Tool | 'eraser' | 'lasso'>('pen')
+  /** Strokes taken with the lasso, to move or delete. */
+  const [selected, setSelected] = useState<string[]>([])
+  const setTool = (t: Tool | 'eraser' | 'lasso') => { setToolState(t); if (t !== 'lasso') setSelected([]) }
   const [color, setColor] = useState(COLORS[0])
   const [width, setWidth] = useState(WIDTHS[1])
   const [error, setError] = useState('')
@@ -69,6 +72,23 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
     if (!ids.length) return
     setStrokes(list => list.filter(s => !ids.includes(s.id)))
     await write([eraseLine(ids)])
+  }
+
+  /** The lassoed strokes moved: written again where they were dropped, and the old ones erased. */
+  async function moveSelected(dx: number, dy: number) {
+    const picked = strokes.filter(s => selected.includes(s.id))
+    if (!picked.length || (!dx && !dy)) return
+    const next = moved(picked, dx, dy)
+    setStrokes(list => [...list.filter(s => !selected.includes(s.id)), ...next])
+    setSelected(next.map(s => s.id))
+    // A moved stroke of this time's writing is undone as itself, at its new place.
+    mine.current = mine.current.map(id => { const i = picked.findIndex(s => s.id === id); return i < 0 ? id : next[i].id })
+    await write([eraseLine(picked.map(s => s.id)), ...next.map(strokeLine)])
+  }
+  async function deleteSelected() {
+    const ids = selected
+    setSelected([])
+    await erase(ids)
   }
 
   async function undo() {
@@ -129,7 +149,8 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') void close()
+      if (e.key === 'Escape') { if (selected.length) setSelected([]); else void close() }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length) { e.preventDefault(); void deleteSelected() }
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); void (e.shiftKey ? redoLast() : undo()) }
     }
     window.addEventListener('keydown', onKey)
@@ -143,6 +164,8 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
       <button className={tool === 'pen' ? 'on' : ''} title="Pen" onClick={() => setTool('pen')}><PenLine size={16} /></button>
       <button className={tool === 'hl' ? 'on' : ''} title="Highlighter" onClick={() => setTool('hl')}><Highlighter size={16} /></button>
       <button className={tool === 'eraser' ? 'on' : ''} title="Eraser (or the pen's eraser end)" onClick={() => setTool('eraser')}><Eraser size={16} /></button>
+      <button className={tool === 'lasso' ? 'on' : ''} title="Lasso: draw round writing to select it, then drag it to move" onClick={() => setTool('lasso')}><Lasso size={16} /></button>
+      {selected.length > 0 && <button title="Delete the selection (Delete)" onClick={() => void deleteSelected()}><Trash2 size={16} /></button>}
       <span className="ink-sep" />
       {COLORS.map(c => <button key={c} className={`ink-color${color === c ? ' on' : ''}`} style={{ background: c }} title="Colour" onClick={() => { setColor(c); if (tool === 'eraser') setTool('pen') }} />)}
       <span className="ink-sep" />
@@ -162,21 +185,28 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
     <div className="ink-pages">
       {Array.from({ length: doc.pages }, (_, page) => <InkPage key={page} page={page} doc={doc} scale={scale} width={w} height={h}
         background={backgrounds[page]} strokes={strokes.filter(s => s.page === page)} tool={tool} color={color} penWidth={width}
-        penSeen={penSeen} drawing={drawing} onStroke={s => void finishStroke(s)} onErase={ids => void erase(ids)} />)}
+        penSeen={penSeen} drawing={drawing} onStroke={s => void finishStroke(s)} onErase={ids => void erase(ids)}
+        selected={selected} onSelect={setSelected} onMove={(dx, dy) => void moveSelected(dx, dy)} />)}
       {doc.paper !== 'pdf' && <button className="ink-add-page" onClick={() => void addPage()}><Plus size={14} /> Page</button>}
     </div>
   </div>
 }
 
-function InkPage({ page, doc, scale, width, height, background, strokes, tool, color, penWidth, penSeen, drawing, onStroke, onErase }: {
+function InkPage({ page, doc, scale, width, height, background, strokes, tool, color, penWidth, penSeen, drawing, onStroke, onErase, selected, onSelect, onMove }: {
   page: number; doc: InkDoc; scale: number; width: number; height: number; background?: HTMLImageElement; strokes: Stroke[]
-  tool: Tool | 'eraser'; color: string; penWidth: number; penSeen: React.MutableRefObject<boolean>; drawing: React.MutableRefObject<boolean>
+  tool: Tool | 'eraser' | 'lasso'; color: string; penWidth: number; penSeen: React.MutableRefObject<boolean>; drawing: React.MutableRefObject<boolean>
   onStroke: (s: Stroke) => void; onErase: (ids: string[]) => void
+  selected: string[]; onSelect: (ids: string[]) => void; onMove: (dx: number, dy: number) => void
 }) {
   const base = useRef<HTMLCanvasElement>(null)
   const live = useRef<HTMLCanvasElement>(null)
   const points = useRef<Point[]>([])
   const erasing = useRef(false)
+  /** Dragging the selection: where it was picked up, and how far it has gone. */
+  const dragFrom = useRef<Point | null>(null)
+  const [offset, setOffset] = useState<{ dx: number; dy: number } | null>(null)
+  const picked = useMemo(() => strokes.filter(s => selected.includes(s.id)), [strokes, selected])
+  const box = useMemo(() => { const b = bounds(picked); return b && { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 } }, [picked])
   const ratio = window.devicePixelRatio || 1
   const px = scale * ratio
 
@@ -185,8 +215,18 @@ function InkPage({ page, doc, scale, width, height, background, strokes, tool, c
     if (!ctx) return
     drawPaper(ctx, doc, px)
     if (background) ctx.drawImage(background, 0, 0, width * px, height * px)
-    drawStrokes(ctx, strokes, px)
-  }, [doc, strokes, background, px, width, height])
+    // While the selection is dragged it's drawn moved, with its outline.
+    const still = offset ? strokes.filter(s => !selected.includes(s.id)) : strokes
+    drawStrokes(ctx, still, px)
+    if (box) {
+      const { dx, dy } = offset ?? { dx: 0, dy: 0 }
+      if (offset) drawStrokes(ctx, moved(picked, dx, dy, 0), px)
+      ctx.save(); ctx.scale(px, px)
+      ctx.setLineDash([4, 3]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1
+      ctx.strokeRect(box.x + dx, box.y + dy, box.w, box.h)
+      ctx.restore()
+    }
+  }, [doc, strokes, background, px, width, height, box, offset, picked, selected])
 
   const at = (e: React.PointerEvent): Point => {
     const r = live.current!.getBoundingClientRect()
@@ -198,6 +238,12 @@ function InkPage({ page, doc, scale, width, height, background, strokes, tool, c
     ctx.clearRect(0, 0, live.current!.width, live.current!.height)
     if (erasing.current || !points.current.length) return
     ctx.save(); ctx.scale(px, px)
+    if (tool === 'lasso') {
+      ctx.setLineDash([4, 3]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1
+      ctx.beginPath(); points.current.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke()
+      ctx.restore()
+      return
+    }
     ctx.globalAlpha = tool === 'hl' ? 0.35 : 1
     ctx.fillStyle = color
     ctx.fill(new Path2D(strokePath({ points: points.current, width: penWidth, tool: tool === 'hl' ? 'hl' : 'pen' }, true)))
@@ -213,10 +259,17 @@ function InkPage({ page, doc, scale, width, height, background, strokes, tool, c
     live.current!.setPointerCapture(e.pointerId)
     drawing.current = true
     erasing.current = tool === 'eraser' || e.button === 5 || (e.buttons & 32) !== 0
-    points.current = [at(e)]
+    const p0 = at(e)
+    if (tool === 'lasso' && !erasing.current && box && p0.x >= box.x && p0.x <= box.x + box.w && p0.y >= box.y && p0.y <= box.y + box.h) {
+      dragFrom.current = p0
+      setOffset({ dx: 0, dy: 0 })
+      return
+    }
+    points.current = [p0]
     if (erasing.current) eraseAt(points.current[0])
   }
   function move(e: React.PointerEvent) {
+    if (drawing.current && dragFrom.current) { const p = at(e); setOffset({ dx: p.x - dragFrom.current.x, dy: p.y - dragFrom.current.y }); return }
     if (!drawing.current || !points.current.length) return
     const events = 'getCoalescedEvents' in e.nativeEvent ? (e.nativeEvent as PointerEvent).getCoalescedEvents() : []
     for (const ev of events.length ? events : [e.nativeEvent]) {
@@ -228,9 +281,17 @@ function InkPage({ page, doc, scale, width, height, background, strokes, tool, c
   function up() {
     if (!drawing.current) return
     drawing.current = false
+    if (dragFrom.current) {
+      dragFrom.current = null
+      const o = offset
+      setOffset(null)
+      if (o && Math.hypot(o.dx, o.dy) > 0.5) onMove(o.dx, o.dy)
+      return
+    }
     const pts = points.current
     points.current = []
     paintLive()
+    if (tool === 'lasso') { if (!erasing.current) onSelect(lassoed(strokes, pts)); erasing.current = false; return }
     if (!erasing.current && pts.length) onStroke({ id: newStrokeId(), page, t: Date.now(), tool: tool === 'hl' ? 'hl' : 'pen', color: tool === 'hl' && color === COLORS[0] ? '#facc15' : color, width: penWidth, points: pts.length === 1 ? [pts[0], { ...pts[0], x: pts[0].x + 0.1 }] : pts })
     erasing.current = false
   }

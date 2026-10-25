@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Camera, Crop, FileText, PenLine, Image, Smartphone, Trash2 } from 'lucide-react'
+import { Camera, Crop, FileText, PenLine, Image, RefreshCw, Smartphone, Trash2 } from 'lucide-react'
 import { ScanCrop } from './ScanCrop'
 import { ScanReview } from './ScanReview'
-import { isTauri, notesCreateMarkdown, studySavePhoto, openPath, pickTransferPaths, studyAddBooks, studyRemoveBook, type StudyBook } from '../../lib/bridge'
+import { isTauri, notesCreateMarkdown, studyConvertHeic, studySavePhoto, openPath, pickTransferPaths, studyAddBooks, studyRemoveBook, type StudyBook } from '../../lib/bridge'
 import { activateTab } from '../../core/tabs'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
@@ -26,8 +26,15 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
   async function add(paths: string[]) {
     try {
       const added = await studyAddBooks(course, paths)
+      // HEIC (the iPhone's usual format) is made JPEG first, so it can be read and straightened.
+      for (const [i, photo] of added.entries()) {
+        if (!/\.heic$/i.test(photo.file)) continue
+        setStatus(`Converting ${photo.file}…`)
+        try { added[i] = { ...photo, file: await studyConvertHeic(course, photo.file) } } catch (e) { setStatus(errorText(e, 'Couldn’t convert the HEIC photo')) }
+      }
       await refreshLibrary()
       for (const photo of added) {
+        if (/\.heic$/i.test(photo.file)) continue
         setStatus(`Reading the text in ${photo.file}…`)
         const text = await recogniseImage(convertFileSrc(`${course}/${photo.file}`, 'bdbook')).catch(e => { setStatus(`The text in ${photo.file} couldn’t be read: ${errorText(e, 'unknown error')}`); return '' })
         const when = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -72,6 +79,10 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
     const note = await notesCreateMarkdown(`${course} scan · ${file}`, courseFolder(course), 'note', `${text.trim()}\n\n*From the photo ${file} in the ${course} folder.*`)
     notesStore.set(list => [note, ...list])
   }
+  async function convert(photo: StudyBook) {
+    setStatus(`Converting ${photo.file}…`)
+    try { const file = await studyConvertHeic(course, photo.file); await refreshLibrary(); setStatus(`Converted to ${file}.`); void readInto(file) } catch (e) { setStatus(errorText(e, 'Couldn’t convert it')) }
+  }
   const noteFor = (photo: StudyBook) => notesStore.get().find(n => !n.deleted && n.folder.toLowerCase() === courseFolder(course).toLowerCase() && n.blocks.some(b => !b.deleted && b.text.includes(`photo ${photo.file}`)))
 
   return <Card><SectionTitle title="Photos" subtitle="Notes and whiteboards, read into text you can search" action={<div className="actions">
@@ -83,12 +94,13 @@ export function CoursePhotos({ course, photos, root }: { course: string; photos:
       <button className="course-photo" title="Open the photo" onClick={() => void openPath(`${root}/${course}/${p.file}`)}><img src={convertFileSrc(`${course}/${p.file}`, 'bdbook')} alt={p.title} loading="lazy" /></button>
       <figcaption><span title={p.file}>{p.title}</span>
         {note && <button className="cal-icon" title="Open its text in Notes" onClick={() => { openNoteRequest.set(note.id); activateTab('notes') }}><FileText size={12} /></button>}
+        {/\.heic$/i.test(p.file) && <button className="cal-icon" title="Convert to JPEG, so it can be straightened and read" onClick={() => void convert(p)}><RefreshCw size={12} /></button>}
         {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Straighten and whiten the page" onClick={() => setCropping(p)}><Crop size={12} /></button>}
         {!/\.heic$/i.test(p.file) && <button className="cal-icon" title="Read the handwriting into a note (check it first)" onClick={() => setReviewing(p)}><PenLine size={12} /></button>}
         <button className="cal-icon" title="Remove" onClick={() => void remove(p)}><Trash2 size={12} /></button></figcaption>
     </figure> })}</div> : !waiting && <p className="hint"><Camera size={13} /> Snap a page of notes or the whiteboard after class; its text goes into a note for this course.</p>}
     {status && <p className="hint">{status}</p>}
     {reviewing && <ScanReview course={course} file={reviewing.file} src={convertFileSrc(`${course}/${reviewing.file}`, 'bdbook')} onClose={() => setReviewing(null)} onStatus={setStatus} />}
-    {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
+    {cropping && <ScanCrop src={convertFileSrc(`${course}/${cropping.file}`, 'bdbook')} photo={{ course, file: cropping.file }} onCancel={() => setCropping(null)} onDone={jpeg => void keepStraightened(cropping, jpeg)} />}
   </Card>
 }

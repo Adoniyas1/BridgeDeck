@@ -75,6 +75,12 @@ Formats that sync between computers. Each has a version. A reader leaves alone a
 - Links in notes: `lecture:<course>/<file>#t=<seconds>`.
 - Course settings: `recording` (true lets the class be recorded; off by default) and `words` (a list of words, or `heard => written` fixes).
 
+## Note pictures (`<shared>/Note images/<id>.jpg|png`, `src-tauri/src/note_images.rs`)
+
+- An `image` note block's text is the picture's id (letters, digits, `-`, `_`; at most 64). Markdown: `![Image](bridgedeck-image:<id>)` on its own line.
+- JPEG or PNG, up to 12 MB, written whole (a `.partial` file renamed into place). A build that finds no file shows that it hasn't synced yet.
+- Course setting `handwriting`: `misread=>right` fixes made by hand to photos of handwriting (at most 300); they're applied to the next photo's reading, and the right words are given to Apple Vision.
+
 ## Ink (`<shared>/Ink/<id>/`, `src-tauri/src/ink.rs`, `src/features/notes/ink/model.ts`)
 
 - `doc.json`: `{v: 1, paper, size, pages, title?, pdf?}`, replaced as a whole.

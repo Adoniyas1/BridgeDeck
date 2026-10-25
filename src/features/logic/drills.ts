@@ -63,3 +63,18 @@ export function checkDrill(d: Drill, typed: string): Marked {
   }
   return literals(t) <= literals(d.answer) ? { right: true, message: 'Right, and minimal' } : { right: false, message: `The same function, but not minimal: ${d.answer} has ${literals(d.answer)} literals` }
 }
+
+/** "Predict, then simulate": the outputs guessed for each row of a circuit's truth table, marked
+ *  against what the circuit does. Rows are indexed like the table; a blank guess counts as wrong.
+ *  Don't-care outputs (null) aren't marked. */
+export function markPrediction(rows: Array<{ out: Array<0 | 1 | null> }>, guesses: Record<string, 0 | 1>) {
+  let right = 0, total = 0
+  const wrong: Array<{ row: number; out: number }> = []
+  rows.forEach((row, r) => row.out.forEach((v, o) => {
+    if (v === null) return
+    total++
+    if (guesses[`${r}:${o}`] === v) right++
+    else wrong.push({ row: r, out: o })
+  }))
+  return { right, total, wrong }
+}

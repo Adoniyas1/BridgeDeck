@@ -139,3 +139,16 @@ describe('exam scope', () => {
     expect(coversChapter('Other cards', '')).toBe(false)
   })
 })
+
+describe('reviews sent from the phone', () => {
+  it('applies a review once, and never one older than the last', async () => {
+    const { isNewReview } = await import('./cards')
+    const { createEmptyCard } = await import('ts-fsrs')
+    const card = createEmptyCard(new Date(0))
+    expect(isNewReview(card, 1000)).toBe(true)
+    const reviewed = { ...card, last_review: new Date(1000) }
+    expect(isNewReview(reviewed, 1000)).toBe(false)
+    expect(isNewReview(reviewed, 900)).toBe(false)
+    expect(isNewReview(reviewed, 1001)).toBe(true)
+  })
+})

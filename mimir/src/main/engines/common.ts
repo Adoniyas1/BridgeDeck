@@ -26,13 +26,18 @@ export interface EngineTurn {
   approve: Approver;
   emit: (event: EngineEvent) => void;
   signal: AbortSignal;
+  /** What Mimir knows about the user, for agents that keep their own conversations (Hermes). */
+  intro?: string;
+  /** Mimir's own tools (calendar, notes, study…), given to the agent over MCP (engines/tools.ts). */
+  tools?: import("./tools.js").Toolset;
 }
 
 export interface EngineResult {
   text: string;
 }
 
-const ENGINE_NAMES = { "claude-code": "Claude Code", opencode: "OpenCode" } as const;
+const ENGINE_NAMES = { "claude-code": "Claude Code", opencode: "OpenCode", hermes: "Hermes" } as const;
+export type EngineName = keyof typeof ENGINE_NAMES;
 export const engineName = (engine: keyof typeof ENGINE_NAMES) => ENGINE_NAMES[engine];
 
 /** The card text for one tool call an agent wants to make. Tool names differ between agents
@@ -123,7 +128,7 @@ export function spawnCommand(command: string, args: string[], options: SpawnOpti
 /** A friendly error for a command that couldn't start. */
 export function startError(engine: keyof typeof ENGINE_NAMES, command: string, err: NodeJS.ErrnoException): Error {
   if (err.code === "ENOENT") {
-    const how = engine === "claude-code" ? "npm install -g @anthropic-ai/claude-code" : "npm install -g opencode-ai";
+    const how = engine === "claude-code" ? "npm install -g @anthropic-ai/claude-code" : engine === "hermes" ? "from hermes-agent.nousresearch.com, with its ACP extra; check with hermes acp --check" : "npm install -g opencode-ai";
     return new Error(`${engineName(engine)} isn't installed, or “${command}” isn't on PATH. Install it (${how}) or set its path in Settings → Brain team.`);
   }
   return new Error(`${engineName(engine)} couldn't start: ${err.message}`);

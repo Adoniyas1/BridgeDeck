@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { CalendarRange, CalendarX, Clock, Plus, Trash2 } from 'lucide-react'
-import { calendarSave, studyPatchCourseInfo, type CalEvent, type StudyCourse } from '../../lib/bridge'
+import { calendarSave, finalsPage, studyPatchCourseInfo, type CalEvent, type StudyCourse } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { classChangesOf, DAY_LETTERS, dayKey, meetingsOf, meetingText, type ClassChange, type Meeting, type Term } from './schedule'
 import { eventsStore } from '../calendar/state'
 import { newId } from '../notes/model'
-import { finalFor, readFinals } from './finals'
+import { finalFor, readFinals, tableText } from './finals'
+import { configStore } from '../../core/config'
 import { libraryStore, refreshLibrary, saveTerm, termStore } from './state'
 
 /** A course's weekly class times: they show in the Calendar and on Home, and date homework. */
@@ -74,8 +75,19 @@ export function TermCard() {
   const [finalsStatus, setFinalsStatus] = useState('')
   /** Each course's final from the pasted finals schedule, put in the calendar (where the exam
    *  cards and reminders find it); the room is added on the exam once it's known. */
-  async function addFinals() {
-    const rows = readFinals(finals)
+  const [finalsUrl, setFinalsUrl] = useState(() => configStore.get().study.finalsUrl ?? '')
+  /** The schedule read from the university's page (remembered for next term), then added. */
+  async function readPage() {
+    setFinalsStatus('Reading the page…')
+    try {
+      const text = tableText(await finalsPage(finalsUrl))
+      configStore.set(c => ({ ...c, study: { ...c.study, finalsUrl: finalsUrl.trim() } }))
+      setFinals(text)
+      await addFinals(text)
+    } catch (e) { setFinalsStatus(errorText(e, 'Couldn’t read the page')) }
+  }
+  async function addFinals(source = finals) {
+    const rows = readFinals(source)
     if (!rows.length) return setFinalsStatus('No rows read: paste the table with the class days and times, the date, and the exam time.')
     const year = Number((draft.end || new Date().toISOString()).slice(0, 4))
     const events = eventsStore.get()
@@ -113,7 +125,8 @@ export function TermCard() {
     <div className="actions"><button disabled={!draft.start || !draft.end || draft.start > draft.end} onClick={() => void save(draft).then(() => setOpen(false))}>Save</button><button className="ghost" onClick={() => setOpen(false)}>Cancel</button></div>
     {error && <p className="cal-error">{error}</p>}
     <strong>Finals schedule</strong>
-    <textarea rows={4} placeholder="Paste the university's finals table (class days and time, exam date, exam time)" value={finals} onChange={e => setFinals(e.target.value)} />
+    <div className="study-break-add"><input placeholder="The finals schedule page (https://…)" value={finalsUrl} onChange={e => setFinalsUrl(e.target.value)} /><button className="ghost" disabled={!finalsUrl.trim()} title="Read the table from the page and add the finals (the address is kept for next term)" onClick={() => void readPage()}>Read it</button></div>
+    <textarea rows={4} placeholder="…or paste the university's finals table (class days and time, exam date, exam time)" value={finals} onChange={e => setFinals(e.target.value)} />
     <button className="ghost" disabled={!finals.trim()} title="Matches each course's lecture time to its row" onClick={() => void addFinals()}>Add finals to the calendar</button>
     {finalsStatus && <p className="hint">{finalsStatus}</p>}
   </div>

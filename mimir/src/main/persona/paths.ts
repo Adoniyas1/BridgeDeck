@@ -25,6 +25,8 @@ export function dailyLogRelativePath(dateISO: string): string {
   return path.posix.join("persona", "logs", "daily", `${dateISO}.md`);
 }
 
-export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Today's date on this computer ("2026-10-24"), not in UTC: an evening in California is still
+ * today's log, not tomorrow's. */
+export function todayISO(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }

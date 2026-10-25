@@ -440,7 +440,7 @@ export const vaultSettings = (enabled?: boolean, path?: string) => native<VaultS
 /** The Study library (src-tauri/src/study.rs): course folders with textbooks, in the synced folder. */
 export type StudyBook = { file: string; title: string; kind: 'pdf' | 'epub' | 'pptx' | 'ppt' | 'key' | 'odp' | 'jpg' | 'jpeg' | 'png' | 'heic' | 'webp'; bytes: number; indexed: boolean }
 /** A course's catalog code and title, and the Canvas course it's linked to (`.course.json`). */
-export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown; /** 'none', 'hints' (default) or 'full': how much AI help this course allows (core/exam.ts). */ aiPolicy?: unknown; /** Where homework sections and the answers are in the books (study/sections.ts). */ sectionPages?: unknown; /** true when the class may be recorded (off unless turned on; study/LectureCard.tsx). */ recording?: unknown; /** Words the course uses, and "heard => written" fixes, for transcripts (study/lecture.ts). */ words?: unknown }
+export type CourseInfo = { code: string; title: string; canvasId: string; canvasCode: string; /** Weekly class times (study/schedule.ts). */ meetings?: unknown; /** Grade categories and scores (study/grades.ts). */ grading?: unknown; /** Files grouped into bigger books (study/collections.ts). */ collections?: unknown; /** One-off class changes (study/schedule.ts). */ classChanges?: unknown; /** Office hours and contacts (study/CoursePeople.tsx). */ people?: unknown; /** Chapter starts set by hand, by file (study/chapters.ts). */ chapters?: unknown; /** 'none', 'hints' (default) or 'full': how much AI help this course allows (core/exam.ts). */ aiPolicy?: unknown; /** Where homework sections and the answers are in the books (study/sections.ts). */ sectionPages?: unknown; /** true when the class may be recorded (off unless turned on; study/LectureCard.tsx). */ recording?: unknown; /** Words the course uses, and "heard => written" fixes, for transcripts (study/lecture.ts). */ words?: unknown; /** "misread=>right" fixes made by hand to photos of handwriting (study/handwriting.ts). */ handwriting?: unknown }
 export type StudyCourse = { name: string; books: StudyBook[]; archived: boolean; info: CourseInfo }
 export type StudyLibrary = { root: string; courses: StudyCourse[] }
 export const studyLibrary = (shared: string) => native<StudyLibrary>('study_library', { shared })
@@ -470,7 +470,11 @@ export async function studySavePhoto(course: string, name: string, bytes: Uint8A
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_photo', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** A course's HEIC photo turned into a JPEG in its place; returns the JPEG's name (heic.rs). */
+export const studyConvertHeic = (course: string, file: string) => native<string>('study_convert_heic', { course, file })
 /** Apple Vision's reading of a course photo, line by line (Mac only; study/handwriting_mac.rs). */
+/** The page's corners in a course photo, as fractions from the top-left (Mac: Vision's document detection). */
+export const handwritingPageCorners = (course: string, file: string) => native<Array<{ x: number; y: number }> | null>('handwriting_page_corners', { course, file })
 export const handwritingVision = (course: string, file: string, words: string[]) => native<Array<{ text: string; confidence: number }>>('handwriting_vision', { course, file, words })
 /** Typst source typeset into a PDF (base64); Typst is downloaded the first time (typst_export.rs). */
 export const typstPdf = (source: string) => native<string>('typst_pdf', { source })
@@ -619,6 +623,13 @@ export const inkSetDoc = (id: string, doc: string) => native<void>('ink_set_doc'
 export const inkAppend = (id: string, lines: string[]) => native<void>('ink_append', { id, lines })
 export const inkCompact = (id: string, lines: string[]) => native<void>('ink_compact', { id, lines })
 export const inkBackground = (id: string, page: number) => native<string | null>('ink_background', { id, page })
+/** A picture for a note (an image block), by its id (note_images.rs). */
+export async function noteImageSave(id: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke<void>('note_image_save', bytes, { headers: { 'x-id': id } })
+}
+/** A note's picture as a data URL, or null while it isn't on this computer yet. */
+export const noteImageLoad = (id: string) => native<string | null>('note_image_load', { id })
 export async function inkSetBackground(id: string, page: number, png: Uint8Array): Promise<void> {
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<void>('ink_set_background', png, { headers: { 'x-id': id, 'x-page': String(page) } })
@@ -656,6 +667,8 @@ export const circuitSave = (project: string, name: string, circuit: string) => n
 export const reportSave = (project: string, name: string, html: string) => native<string>('report_save', { project, name, html })
 export const circuitDelete = (project: string, name: string) => native<void>('circuit_delete', { project, name })
 /** Canvas: the calendar feed and the API with an access token (src-tauri/src/canvas.rs). */
+/** A final exam schedule page's HTML (canvas.rs finals_page). */
+export const finalsPage = (url: string) => native<string>('finals_page', { url })
 export const calendarSubscription = (url: string) => native<string>('calendar_subscription', { url })
 export const canvasFeed = (feed: string) => native<string>('canvas_feed', { feed })
 /** Downloads a Canvas course's files into its Study folder; unchanged ones are skipped (canvas.rs). */
@@ -730,7 +743,7 @@ export const notesReplaceMarkdown = (id: string, markdown: string) => native<Not
 export const noteHistoryClear = (id: string) => native<void>('note_history_clear', { id })
 /** The phone page on the local network (src-tauri/src/phone.rs). */
 export type PhoneStatus = { running: boolean; urls: string[]; error: string }
-export const phoneSettings = (enabled: boolean, tailscale = false) => native<PhoneStatus>('phone_settings', { enabled, tailscale })
+export const phoneSettings = (enabled: boolean, tailscale = false, https = false) => native<PhoneStatus>('phone_settings', { enabled, tailscale, https })
 export const phoneStatus = () => native<PhoneStatus>('phone_status')
 export const phoneNewKey = () => native<PhoneStatus>('phone_new_key')
 export const phonePublish = (snapshot: unknown) => native<void>('phone_publish', { snapshot })
