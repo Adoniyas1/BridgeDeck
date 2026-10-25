@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import Face from "./Face.js";
 import Chat from "./Chat.js";
 import Settings from "./Settings.js";
 import QuickControls from "./QuickControls.js";
 import Skills from "./Skills.js";
 import ChatGpt from "./ChatGpt.js";
 import Memory from "./Memory.js";
-import Jarvis, { type JarvisActivity } from "./jarvis/Jarvis.js";
+import Jarvis, { type JarvisActivity, type JarvisView } from "./jarvis/Jarvis.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
 import type { AutoStopReason } from "./voice/vad.js";
 import { sanitizeSpeech, takeCompleteSentences } from "./voice/speech.js";
@@ -49,16 +48,34 @@ export default function App() {
   const [showSkills, setShowSkills] = useState(false);
   const [showChatGpt, setShowChatGpt] = useState(false);
   const [turnContext, setTurnContext] = useState<{ modules: LoadedPromptModule[]; tokens: number } | null>(null);
-  // Jarvis mode (full screen, made for talking), remembered between launches.
-  const [jarvisOn, setJarvisOn] = useState(() => { try { return localStorage.getItem("mimir.jarvis") === "1"; } catch { return false; } });
+  // Talk (the orb and captions) or Chat (the whole conversation), remembered between launches.
+  const [view, setView] = useState<JarvisView>(() => { try { return localStorage.getItem("mimir.view") === "chat" ? "chat" : "talk"; } catch { return "talk"; } });
   const [activity, setActivity] = useState<JarvisActivity[]>([]);
-  useEffect(() => { try { localStorage.setItem("mimir.jarvis", jarvisOn ? "1" : "0"); } catch { /* not kept */ } }, [jarvisOn]);
+  useEffect(() => { try { localStorage.setItem("mimir.view", view); } catch { /* not kept */ } }, [view]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") { e.preventDefault(); setJarvisOn((v) => !v); } };
+    const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "j") { e.preventDefault(); setView((v) => (v === "talk" ? "chat" : "talk")); } };
     window.addEventListener("keydown", onKey);
-    const offOpen = window.mimir.jarvis.onOpen(() => setJarvisOn(true));
+    // BridgeDeck's Jarvis button and ⌘/Ctrl+Shift+J: straight to Talk.
+    const offOpen = window.mimir.jarvis.onOpen(() => { closePanels(); setView("talk"); });
     return () => { window.removeEventListener("keydown", onKey); offOpen(); };
   }, []);
+
+  function closePanels() {
+    setShowSettings(false);
+    setShowSkills(false);
+    setShowChatGpt(false);
+    setShowMemory(false);
+  }
+  /** Opens one panel over the view (or closes it when it's the one open). */
+  function togglePanel(which: "settings" | "skills" | "chatgpt" | "memory") {
+    const open = { settings: showSettings, skills: showSkills, chatgpt: showChatGpt, memory: showMemory }[which];
+    closePanels();
+    if (open) return;
+    if (which === "settings") setShowSettings(true);
+    else if (which === "skills") setShowSkills(true);
+    else if (which === "chatgpt") setShowChatGpt(true);
+    else setShowMemory(true);
+  }
 
   const assistantMessageId = useRef<string | null>(null);
   const voiceOrigin = useRef(false);
@@ -110,10 +127,7 @@ export default function App() {
       setPendingEdit(null);
     }
     unsaved.current = false;
-    setShowSettings(false);
-    setShowSkills(false);
-    setShowChatGpt(false);
-    setShowMemory(false);
+    closePanels();
   }
 
   async function toggleThinking() {
@@ -450,145 +464,84 @@ export default function App() {
     await setOpenMicEnabled(config.openMicEnabled);
   }
 
-  const stateLabel: Record<FaceState, string> = {
-    idle: "Standing by",
-    listening: "Listening",
-    thinking: "Thinking",
-    speaking: "Speaking",
-    error: "Something went wrong"
+  const decide = (id: string, allow: boolean) => {
+    window.mimir.approval.decide(id, allow);
+    setApprovals((prev) => prev.filter((a) => a.id !== id));
   };
+  const decideEdit = (approve: boolean) => {
+    if (pendingEdit) {
+      if (approve) window.mimir.edit.approve(pendingEdit.id);
+      else window.mimir.edit.reject(pendingEdit.id);
+    }
+    setPendingEdit(null);
+  };
+  const toolButton = (which: "settings" | "skills" | "chatgpt" | "memory", label: string, title: string, on: boolean) => (
+    <button type="button" className={`quick-controls__action${on ? " on" : ""}`} onClick={() => togglePanel(which)} title={title} aria-pressed={on}>{label}</button>
+  );
+
+  const panel = showSettings ? (
+    <Settings onClose={closePanels} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
+  ) : showSkills ? (
+    <Skills onClose={closePanels} lastLoaded={turnContext?.modules ?? []} />
+  ) : showChatGpt ? (
+    <ChatGpt onClose={closePanels} />
+  ) : showMemory ? (
+    <Memory onClose={closePanels} />
+  ) : null;
 
   return (
     <div className={`app app--${faceState}`}>
-      {jarvisOn && (
-        <Jarvis
-          messages={messages}
-          faceState={faceState}
-          busy={busy}
-          openMicActive={openMicActive}
-          approvals={approvals}
-          activity={activity}
-          onDecide={(id, allow) => {
-            window.mimir.approval.decide(id, allow);
-            setApprovals((prev) => prev.filter((a) => a.id !== id));
-          }}
-          onSend={(text) => void handleSend(text)}
-          onToggleMic={() => void toggleOpenMic()}
-          onStop={handleStop}
-          onExit={() => setJarvisOn(false)}
-        />
-      )}
-      <div className="app-backdrop" aria-hidden="true">
-        <div className="app-aurora" />
-        <div className="app-grid" />
-      </div>
-
-      <aside className="core-panel">
-        <div className="core-panel__top">
-          <div className="system-ident">
-            <strong>Mimir</strong>
-          </div>
-          <button type="button" className="settings-toggle jarvis-toggle" onClick={() => setJarvisOn(true)} aria-label="Jarvis mode" title={`Jarvis mode: full screen, for talking (${navigator.userAgent.includes("Mac") ? "⌘J" : "Ctrl+J"})`}>
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor" /><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" /></svg>
-          </button>
-          <button
-            type="button"
-            className="settings-toggle"
-            onClick={() => {
-              setShowSkills(false);
-              setShowChatGpt(false);
-              setShowMemory(false);
-              setShowSettings((s) => !s);
-            }}
-            aria-label="Open settings"
-            title="Settings"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9.4 3.5c0 .6-.05 1.15-.14 1.7l2.03 1.58a.85.85 0 0 1 .2 1.08l-1.92 3.3a.85.85 0 0 1-1.03.37l-2.4-.96c-.9.68-1.9 1.22-2.97 1.58l-.36 2.55a.85.85 0 0 1-.84.72h-3.84a.85.85 0 0 1-.84-.72l-.36-2.55a9.4 9.4 0 0 1-2.97-1.58l-2.4.96a.85.85 0 0 1-1.03-.37L.61 16.36a.85.85 0 0 1 .2-1.08l2.03-1.58A9.6 9.6 0 0 1 2.7 12c0-.58.05-1.15.14-1.7L.81 8.72a.85.85 0 0 1-.2-1.08l1.92-3.3a.85.85 0 0 1 1.03-.37l2.4.96A9.4 9.4 0 0 1 8.93 3.35l.36-2.55A.85.85 0 0 1 10.13 0h3.84c.42 0 .78.31.84.72l.36 2.55c1.07.36 2.07.9 2.97 1.58l2.4-.96c.4-.15.85 0 1.03.37l1.92 3.3c.2.36.12.82-.2 1.08l-2.03 1.58c.09.55.14 1.12.14 1.7Z"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <Face state={faceState} />
-
-        <div className="system-status" aria-live="polite">
-          <div className="waveform" aria-hidden="true">
-            {Array.from({ length: 24 }, (_, i) => (
-              <span key={i} style={{ animationDelay: `${(i % 6) * 0.09 + Math.floor(i / 6) * 0.05}s` }} />
-            ))}
-          </div>
-          <div className="system-status__label">
-            <span className={`status-dot status-dot--${faceState}`} />
-            {stateLabel[faceState]}
-          </div>
-          <div className="system-status__hint">
-            {openMicActive ? "Open Mic is on: just talk" : `${navigator.userAgent.includes("Mac") ? "⌘⇧Space" : "Ctrl+Shift+Space"} to talk`}
-          </div>
-        </div>
-
-        <QuickControls
-          onOpenSkills={() => {
-            setShowSettings(false);
-            setShowChatGpt(false);
-            setShowMemory(false);
-            setShowSkills((s) => !s);
-          }}
-          onOpenChatGpt={() => {
-            setShowSettings(false);
-            setShowSkills(false);
-            setShowMemory(false);
-            setShowChatGpt((s) => !s);
-          }}
-          onError={(message) =>
-            setMessages((prev) => [...prev, { id: newId(), role: "system", text: `⚠️ ${message}`, createdAt: Date.now() }])
-          }
-        />
-      </aside>
-
-      <main className="console">
-        {showSettings ? (
-          <Settings onClose={() => setShowSettings(false)} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
-        ) : showSkills ? (
-          <Skills onClose={() => setShowSkills(false)} lastLoaded={turnContext?.modules ?? []} />
-        ) : showChatGpt ? (
-          <ChatGpt onClose={() => setShowChatGpt(false)} />
-        ) : showMemory ? (
-          <Memory onClose={() => setShowMemory(false)} />
-        ) : (
+      <Jarvis
+        messages={messages}
+        faceState={faceState}
+        busy={busy}
+        openMicActive={openMicActive}
+        approvals={approvals}
+        pendingEdit={pendingEdit}
+        activity={activity}
+        view={view}
+        onView={setView}
+        panel={panel}
+        onClosePanel={closePanels}
+        toolbar={<>
+          <QuickControls
+            onOpenSkills={() => togglePanel("skills")}
+            onOpenChatGpt={() => togglePanel("chatgpt")}
+            skillsOn={showSkills}
+            chatGptOn={showChatGpt}
+            onError={(message) => setMessages((prev) => [...prev, { id: newId(), role: "system", text: `⚠️ ${message}`, createdAt: Date.now() }])}
+          />
+          {toolButton("memory", "Memory", "What Mimir remembers about you", showMemory)}
+          {toolButton("settings", "Settings", "Brain, voice, persona and setup", showSettings)}
+        </>}
+        chat={
           <Chat
             messages={messages}
             chatId={chatId}
             onNewChat={() => void openChat(null)}
             onOpenChat={(id) => void openChat(id)}
-            onOpenMemory={() => setShowMemory(true)}
+            onOpenMemory={() => togglePanel("memory")}
             thinkingOn={thinkingOn}
             onToggleThinking={() => void toggleThinking()}
             pendingEdit={pendingEdit}
             approvals={approvals}
-            onDecide={(id, allow) => {
-              window.mimir.approval.decide(id, allow);
-              setApprovals((prev) => prev.filter((a) => a.id !== id));
-            }}
+            onDecide={decide}
             busy={busy}
             openMicEnabled={openMicActive}
             context={turnContext}
             onSend={(text, files) => void handleSend(text, false, files)}
             onStop={handleStop}
-            onApprove={() => {
-              if (pendingEdit) window.mimir.edit.approve(pendingEdit.id);
-              setPendingEdit(null);
-            }}
-            onReject={() => {
-              if (pendingEdit) window.mimir.edit.reject(pendingEdit.id);
-              setPendingEdit(null);
-            }}
+            onApprove={() => decideEdit(true)}
+            onReject={() => decideEdit(false)}
             onOpenMicToggle={() => void toggleOpenMic()}
           />
-        )}
-      </main>
+        }
+        onDecide={decide}
+        onEdit={decideEdit}
+        onSend={(text) => void handleSend(text)}
+        onToggleMic={() => void toggleOpenMic()}
+        onStop={handleStop}
+      />
     </div>
   );
 }

@@ -77,7 +77,7 @@ export async function askMimir(text: string, beside = false, course?: string) {
   await postWhenReady({ source: 'bridgedeck', type: 'ask', text })
 }
 
-/** Opens the Mimir tab in Jarvis mode (full screen, for talking). */
+/** Opens the Mimir tab in Jarvis's Talk view (the orb and captions, for voice). */
 export async function openJarvis() {
   if (!aiAllowed()) return
   activateTab('mimir')
@@ -146,7 +146,7 @@ function MimirSettings() {
       <button disabled={!config.mimir.enabled} onClick={() => void openJarvis()} title={`${MOD} Shift J`}><Orbit size={15}/>Open Jarvis</button>
       {status.phase === 'running' && <button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button>}
     </div>
-    <p className="hint">Jarvis is Mimir full screen, made for talking: {MOD} Shift J from anywhere in BridgeDeck. Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs; voice and persona settings are in the Mimir tab (⚙).</p>
+    <p className="hint">Mimir opens as Jarvis: Talk for voice, Chat for the whole conversation ({MOD} J inside Mimir switches them). {MOD} Shift J from anywhere in BridgeDeck brings it up in Talk. Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs; voice and persona settings are in the Mimir tab (⚙).</p>
     {status.phase === 'running' ? <><MimirBrain /><ModelLibrary /></> : <p className="hint">Start Mimir to choose its engine and download models here.</p>}
     <SkillPacks />
     <ActivityLog />

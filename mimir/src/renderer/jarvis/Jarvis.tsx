@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatMessage, FaceState, JarvisBrief, ToolApproval } from "../../shared/types.js";
+import type { ChatMessage, FaceState, JarvisBrief, PendingEdit, ToolApproval } from "../../shared/types.js";
 import Orb from "./Orb.js";
 import { captionTail, dueText, startText, toolWords } from "./text.js";
 
@@ -10,18 +10,32 @@ export interface JarvisActivity {
   isError: boolean;
 }
 
+/** Talk: the orb and captions, made for voice. Chat: the whole conversation, with history,
+ * attachments, the camera and thinking. */
+export type JarvisView = "talk" | "chat";
+
 interface Props {
   messages: ChatMessage[];
   faceState: FaceState;
   busy: boolean;
   openMicActive: boolean;
   approvals: ToolApproval[];
+  pendingEdit: PendingEdit | null;
   activity: JarvisActivity[];
+  view: JarvisView;
+  onView: (view: JarvisView) => void;
+  /** The top bar's controls (brain picker, Files, Skills, ChatGPT, Memory, Settings). */
+  toolbar: React.ReactNode;
+  /** The Chat view's conversation. */
+  chat: React.ReactNode;
+  /** A panel open over the view (Settings, Skills, ChatGPT, Memory), or null. */
+  panel: React.ReactNode;
+  onClosePanel: () => void;
   onDecide: (id: string, allow: boolean) => void;
+  onEdit: (approve: boolean) => void;
   onSend: (text: string) => void;
   onToggleMic: () => void;
   onStop: () => void;
-  onExit: () => void;
 }
 
 const STATE_WORDS: Record<FaceState, string> = { idle: "Standing by", listening: "Listening", thinking: "Working on it", speaking: "Speaking", error: "Something went wrong" };
@@ -65,9 +79,10 @@ function useMicLevel(on: boolean): React.MutableRefObject<number> {
 }
 
 /**
- * Jarvis mode: Mimir full screen, made for talking. The orb in the middle shows what it's doing;
- * what you said and its answer run underneath as captions, with each step it takes; the sides show
- * the time, the rest of your day, what's due, and how hard the computer is working. Esc goes back.
+ * Mimir's screen. The orb in the middle shows what it's doing; in Talk, what you said and its
+ * answer run underneath as captions, and in Chat the whole conversation is there instead. The sides
+ * show the time, the rest of your day, what's due, each step Mimir takes and how hard the computer
+ * is working. ⌘/Ctrl+J switches Talk and Chat; Esc closes a panel.
  */
 export default function Jarvis(props: Props) {
   const { messages, faceState, busy, openMicActive, approvals, activity } = props;
@@ -85,7 +100,7 @@ export default function Jarvis(props: Props) {
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !(e.target instanceof HTMLInputElement && e.target.value)) props.onExit();
+      if (e.key === "Escape" && props.panel) props.onClosePanel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -96,14 +111,20 @@ export default function Jarvis(props: Props) {
   const reply = lastReply && (!lastUser || lastReply.createdAt >= lastUser.createdAt) ? captionTail(lastReply.text) : "";
   const time = new Date(now);
   const memory = brief ? brief.system.memUsed / brief.system.memTotal : 0;
+  const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
+  const talk = props.view === "talk";
 
   return (
-    <div className={`jarvis jarvis--${faceState}`} role="dialog" aria-label="Jarvis mode">
+    <div className={`jarvis jarvis--${faceState} jarvis--${props.view}`}>
       <div className="jarvis-grid" aria-hidden="true" />
       <header className="jarvis-top">
         <span className="jarvis-brand">MIMIR</span>
         <span className="jarvis-engine">{brief?.engine ?? ""}</span>
-        <button type="button" className="jarvis-exit" onClick={props.onExit} title="Back to the chat (Esc)">Exit</button>
+        <div className="jarvis-views" role="tablist" aria-label="View">
+          <button type="button" role="tab" aria-selected={talk} className={talk ? "on" : ""} onClick={() => props.onView("talk")} title={`The orb and captions, for talking (${mod}J)`}>Talk</button>
+          <button type="button" role="tab" aria-selected={!talk} className={talk ? "" : "on"} onClick={() => props.onView("chat")} title={`The whole conversation: history, files, camera (${mod}J)`}>Chat</button>
+        </div>
+        <div className="jarvis-tools">{props.toolbar}</div>
       </header>
 
       <aside className="jarvis-side jarvis-side--left">
@@ -135,8 +156,20 @@ export default function Jarvis(props: Props) {
       <main className="jarvis-center">
         <Orb state={faceState} micLevel={micLevel} />
         <div className="jarvis-state">{STATE_WORDS[faceState]}</div>
+        {talk ? <>
         {lastUser && <p className="jarvis-you">“{captionTail(lastUser.text, 160)}”</p>}
         {reply && <p className="jarvis-reply" aria-live="polite">{reply}</p>}
+        {props.pendingEdit && (
+          <div className="jarvis-approval">
+            <strong>Mimir wants to change its own {props.pendingEdit.tier === "core" ? "core code" : "skills"}</strong>
+            <p className="jarvis-quiet">{props.pendingEdit.summary} · {props.pendingEdit.filesTouched.join(", ")}</p>
+            <div className="jarvis-approval__actions">
+              <button type="button" onClick={() => props.onView("chat")}>See the change</button>
+              <button type="button" onClick={() => props.onEdit(true)}>Approve</button>
+              <button type="button" className="ghost" onClick={() => props.onEdit(false)}>Reject</button>
+            </div>
+          </div>
+        )}
         {approvals.map((a) => (
           <div key={a.id} className="jarvis-approval">
             <strong>{a.title}</strong>
@@ -147,6 +180,7 @@ export default function Jarvis(props: Props) {
             </div>
           </div>
         ))}
+        </> : <div className="jarvis-chat">{props.chat}</div>}
       </main>
 
       <aside className="jarvis-side jarvis-side--right">
@@ -165,7 +199,13 @@ export default function Jarvis(props: Props) {
         </section>
       </aside>
 
-      <footer className="jarvis-bottom">
+      {props.panel && (
+        <div className="jarvis-panel" role="dialog" aria-modal="true" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClosePanel(); }}>
+          <div className="jarvis-panel__body">{props.panel}</div>
+        </div>
+      )}
+
+      {talk && <footer className="jarvis-bottom">
         <button type="button" className={`jarvis-mic${openMicActive ? " on" : ""}`} onClick={props.onToggleMic} title={openMicActive ? "Open Mic is on: just talk" : "Turn on Open Mic to talk hands-free"}>
           {openMicActive ? "● Listening for you" : "○ Mic off"}
         </button>
@@ -173,7 +213,8 @@ export default function Jarvis(props: Props) {
           <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={openMicActive ? "Talk, or type here" : "Type to Mimir"} aria-label="Message" />
         </form>
         {busy && <button type="button" className="jarvis-stop" onClick={props.onStop}>Stop</button>}
-      </footer>
+        <small className="jarvis-hint">{openMicActive ? "Open Mic is on: just talk" : `${navigator.userAgent.includes("Mac") ? "⌘⇧Space" : "Ctrl+Shift+Space"} to talk`} · files and camera in Chat</small>
+      </footer>}
     </div>
   );
 }

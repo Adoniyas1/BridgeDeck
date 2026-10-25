@@ -29,8 +29,10 @@ export function hermesCandidates(platform = process.platform, home = os.homedir(
 }
 
 /** The Python inside Hermes's own environment, for adding its ACP extra. */
-function hermesPython(platform: string, home: string): { python: string; dir: string } {
-  const dir = path.join(home, ".hermes", "hermes-agent");
+function hermesPython(platform: string, home: string, env: NodeJS.ProcessEnv = process.env): { python: string; dir: string } {
+  // Where the installer puts it: $HERMES_HOME, else ~/.hermes, or %LOCALAPPDATA%\hermes on Windows.
+  const hermesHomeDir = env.HERMES_HOME || (platform === "win32" ? path.join(env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "hermes") : path.join(home, ".hermes"));
+  const dir = path.join(hermesHomeDir, "hermes-agent");
   const venv = platform === "win32" ? path.join(dir, "venv", "Scripts", "python.exe") : path.join(dir, "venv", "bin", "python");
   return { python: existsSync(venv) ? venv : platform === "win32" ? "python" : "python3", dir };
 }

@@ -10,7 +10,7 @@ import { estimateTokens, startAnthropicBridge, StreamTranslator, toOpenAIRequest
 import { ClaudeStreamParser, runClaudeCode } from "../src/main/engines/claudeCode.js";
 import { describeToolCall, roleForModel, type EngineEvent, type EngineTurn } from "../src/main/engines/common.js";
 import { OpenCodeAgent, openCodeConfig } from "../src/main/engines/openCode.js";
-import { HermesAgent, hermesConfig, honchoConfig } from "../src/main/engines/hermes.js";
+import { HermesAgent, hermesConfig, holdBack, honchoConfig } from "../src/main/engines/hermes.js";
 import { cleanTeamConfig, DEFAULT_TEAM } from "../src/main/team/config.js";
 import type { ToolApproval } from "../src/shared/types.js";
 
@@ -304,6 +304,33 @@ describe("Hermes engine", () => {
     const agent = new HermesAgent();
     cleanups.push(() => agent.stop());
     await expect(agent.run(turnIn(cwd, "hi", true).turn, { command: "no-such-hermes-cmd", model: null, honcho: null })).rejects.toThrow(/Hermes isn't installed/);
+  });
+});
+
+describe("Hermes without a provider", () => {
+  const turnWith = (events: EngineEvent[]) => ({ emit: (e: EngineEvent) => events.push(e) }) as unknown as EngineTurn;
+  it("catches Hermes's no-provider answer before it shows, and passes anything else on", () => {
+    const shown: EngineEvent[] = [];
+    const held = holdBack(turnWith(shown));
+    held.turn.emit({ type: "text", text: "Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key… " });
+    held.turn.emit({ type: "text", text: "Your request was not processed." });
+    expect(held.noProvider()).toBe(true);
+    expect(shown).toEqual([]);
+
+    const normal: EngineEvent[] = [];
+    const ok = holdBack(turnWith(normal), 20);
+    ok.turn.emit({ type: "text", text: "Sure, " });
+    expect(normal).toEqual([]);
+    ok.turn.emit({ type: "tool-start", id: "t1", name: "calendar" });
+    ok.turn.emit({ type: "text", text: "done." });
+    expect(ok.noProvider()).toBe(false);
+    expect(normal).toEqual([{ type: "text", text: "Sure, " }, { type: "tool-start", id: "t1", name: "calendar" }, { type: "text", text: "done." }]);
+
+    const short: EngineEvent[] = [];
+    const brief = holdBack(turnWith(short));
+    brief.turn.emit({ type: "text", text: "Hi!" });
+    brief.release();
+    expect(short).toEqual([{ type: "text", text: "Hi!" }]);
   });
 });
 

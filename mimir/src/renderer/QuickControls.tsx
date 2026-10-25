@@ -8,7 +8,7 @@ const PROVIDER_LABEL: Record<BrainProviderKind, string> = {
 };
 
 /**
- * Always-visible compact strip on the main chat page for the two settings
+ * Always-visible compact strip in the top bar for the two settings
  * changed often enough that hiding them behind the Settings screen was
  * friction: which brain is answering, and where the Projects folder is.
  * Everything used less often (API keys, voice, personality) stays in
@@ -25,10 +25,14 @@ const CLAUDE_LABEL: Record<string, string> = {
 export default function QuickControls({
   onOpenSkills,
   onOpenChatGpt,
+  skillsOn = false,
+  chatGptOn = false,
   onError
 }: {
   onOpenSkills: () => void;
   onOpenChatGpt: () => void;
+  skillsOn?: boolean;
+  chatGptOn?: boolean;
   onError: (message: string) => void;
 }) {
   const [brain, setBrain] = useState<BrainConfig | null>(null);
@@ -147,10 +151,10 @@ export default function QuickControls({
       >
         Files
       </button>
-      <button type="button" className="quick-controls__action" title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
+      <button type="button" className={`quick-controls__action${skillsOn ? " on" : ""}`} aria-pressed={skillsOn} title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
         Skills
       </button>
-      <button type="button" className="quick-controls__action quick-controls__action--wide" title="Chat with ChatGPT (your OpenAI API key)" onClick={onOpenChatGpt}>
+      <button type="button" className={`quick-controls__action${chatGptOn ? " on" : ""}`} aria-pressed={chatGptOn} title="Chat with ChatGPT (your OpenAI API key)" onClick={onOpenChatGpt}>
         ChatGPT
       </button>
     </div>

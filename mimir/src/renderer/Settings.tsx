@@ -72,7 +72,7 @@ export default function Settings({
 
       <section>
         <h3>Brain</h3>
-        <p className="hint">Provider and model are on the main page now — this is everything else.</p>
+        <p className="hint">Provider and model are in the top bar — this is everything else.</p>
         {brain.provider !== "anthropic" && (
           <label>
             Base URL
