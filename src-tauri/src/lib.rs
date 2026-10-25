@@ -643,6 +643,7 @@ pub fn run() {
             health::health_permissions,
             health::open_privacy_settings,
             mimir_host::mimir_status,
+            mimir_host::mimir_control,
             diagnostics::diagnostics_report,
             bridgelink::notes::notes_list,
             bridgelink::notes::notes_create,

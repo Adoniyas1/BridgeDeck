@@ -21,3 +21,18 @@ describe("serving the renderer", () => {
     expect(rendererFile(root, "/%E0%A4%A")).toBeNull();
   });
 });
+
+describe("BridgeDeck's control channel", () => {
+  it("takes only this run's token and only the settings channels", async () => {
+    process.env.MIMIR_NO_AUTOSTART = "1";
+    const { authorized, CONTROL_CHANNELS } = await import("../src/main/server.js");
+    const { IPC } = await import("../src/shared/types.js");
+    expect(authorized("Bearer abc123", "abc123")).toBe(true);
+    expect(authorized("Bearer abc124", "abc123")).toBe(false);
+    expect(authorized("abc123", "abc123")).toBe(false);
+    expect(authorized(undefined, "abc123")).toBe(false);
+    expect(CONTROL_CHANNELS.has(IPC.modelsDownload)).toBe(true);
+    // Nothing that chats, runs code or edits Mimir itself.
+    for (const ch of [IPC.chatSpeak, IPC.memorySet, IPC.pythonHostCall, IPC.auditRevert, IPC.chatgptSend]) expect(CONTROL_CHANNELS.has(ch)).toBe(false);
+  });
+});

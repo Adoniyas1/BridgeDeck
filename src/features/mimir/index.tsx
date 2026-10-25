@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { Brain, Download, Play, Square } from 'lucide-react'
+import { Brain, Download, Orbit, Play, Square } from 'lucide-react'
 import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksInstall, skillPacksStatus, mimirActivity, type MimirActivity, type MimirStatus, type SkillPacksStatus } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -8,7 +8,9 @@ import { createStore, useStore } from '../../core/store'
 import { activateTab, splitTab, tabsStore } from '../../core/tabs'
 import { workContext } from '../../core/tabContext'
 import { aiAllowed, examStore } from '../../core/exam'
+import { jarvisRequestStore, MOD } from '../../core/shortcuts'
 import { Card, SectionTitle, Toggle } from '../../ui'
+import { MimirBrain, ModelLibrary } from './Brain'
 import type { FeatureManifest } from '../features'
 
 /** Mimir's process as BridgeDeck runs it (see src-tauri/src/mimir_host.rs). */
@@ -39,6 +41,8 @@ function MimirBackground() {
   const enabled = useStore(configStore).mimir.enabled
   useEffect(() => { if (isTauri() && enabled) void start() }, [enabled])
   usePeriodicRefresh(refresh, 2000, [])
+  const jarvis = useStore(jarvisRequestStore)
+  useEffect(() => { if (jarvis) void openJarvis() }, [jarvis])
   useEffect(() => {
     if (!isTauri()) return
     let unlisten: (() => void) | undefined
@@ -70,6 +74,18 @@ export async function askMimir(text: string, beside = false, course?: string) {
   if (!aiAllowed(course)) return
   if (beside && tabsStore.get().active !== 'mimir') splitTab('mimir')
   else activateTab('mimir')
+  await postWhenReady({ source: 'bridgedeck', type: 'ask', text })
+}
+
+/** Opens the Mimir tab in Jarvis mode (full screen, for talking). */
+export async function openJarvis() {
+  if (!aiAllowed()) return
+  activateTab('mimir')
+  await postWhenReady({ source: 'bridgedeck', type: 'jarvis' })
+}
+
+/** Starts Mimir if needed and hands its page `message` once it's loaded and listening. */
+async function postWhenReady(message: Record<string, unknown>) {
   if (!mimirStore.get().url && isTauri()) {
     setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled: true } }))
     await mimirStart().then(mimirStore.set).catch(() => undefined)
@@ -81,7 +97,7 @@ export async function askMimir(text: string, beside = false, course?: string) {
     if (frame?.contentWindow && url) {
       // Wait a little after the frame first shows up, for its page to load.
       if (!seen) seen = Date.now()
-      if (Date.now() - seen > 1500) { frame.contentWindow.postMessage({ source: 'bridgedeck', type: 'ask', text }, new URL(url).origin); return }
+      if (Date.now() - seen > 1500) { frame.contentWindow.postMessage(message, new URL(url).origin); return }
     }
     if (Date.now() < deadline) window.setTimeout(post, 400)
   }
@@ -126,8 +142,12 @@ function MimirSettings() {
   const status = useStore(mimirStore)
   return <Card><SectionTitle title="Mimir" subtitle={status.phase === 'running' ? 'Running inside BridgeDeck' : phaseText(status, config.mimir.enabled)} />
     <Toggle checked={config.mimir.enabled} onChange={enabled => { setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled } })); if (!enabled) void mimirStop().then(mimirStore.set).catch(() => undefined) }} label="Run Mimir with BridgeDeck" />
-    {status.phase === 'running' && <div className="actions"><button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button></div>}
-    <p className="hint">Mimir’s brain, voice and persona settings are in the Mimir tab (⚙). Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs.</p>
+    <div className="actions">
+      <button disabled={!config.mimir.enabled} onClick={() => void openJarvis()} title={`${MOD} Shift J`}><Orbit size={15}/>Open Jarvis</button>
+      {status.phase === 'running' && <button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button>}
+    </div>
+    <p className="hint">Jarvis is Mimir full screen, made for talking: {MOD} Shift J from anywhere in BridgeDeck. Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs; voice and persona settings are in the Mimir tab (⚙).</p>
+    {status.phase === 'running' ? <><MimirBrain /><ModelLibrary /></> : <p className="hint">Start Mimir to choose its engine and download models here.</p>}
     <SkillPacks />
     <ActivityLog />
   </Card>

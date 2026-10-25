@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, Url};
 
 const HOST: &str = "bridgedeck.invalid";
 /// The shortcuts a page can ask for (the window's own list is in src/core/shortcuts.ts).
-const KEYS: &[&str] = &["search", "chatgpt", "ask", "shortcuts", "new-tab", "close-tab", "address", "code"];
+const KEYS: &[&str] = &["search", "chatgpt", "ask", "shortcuts", "new-tab", "close-tab", "address", "code", "jarvis"];
 const MAX_TEXT: usize = 3000;
 
 /// Runs in every page (main frame) before its own scripts.
@@ -19,7 +19,7 @@ pub const SCRIPT: &str = r#"(() => {
   window.__bridgedeckKeys = true;
   const mac = /Mac/.test(navigator.platform);
   const plain = { k: 'search', j: 'chatgpt', '/': 'shortcuts', t: 'new-tab', w: 'close-tab', l: 'address' };
-  const shifted = { a: 'ask', o: 'code' };
+  const shifted = { a: 'ask', o: 'code', j: 'jarvis' };
   addEventListener('keydown', e => {
     if (!(mac ? e.metaKey : e.ctrlKey) || e.altKey || (mac && e.ctrlKey)) return;
     const k = (e.shiftKey ? shifted : plain)[e.key.toLowerCase()];

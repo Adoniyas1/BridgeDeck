@@ -2021,3 +2021,11 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .group-slots>div{display:flex;flex-direction:column;gap:2px}
 .group-slots span{background:color-mix(in srgb,#4ade80 20%,transparent);border-radius:4px;padding:2px 5px}
 .group-slots small{color:var(--muted)}
+/* Mimir's model library (features/mimir/Brain.tsx). */
+.key-row{display:flex;gap:8px;align-items:center}.key-row input{flex:1}.key-row button{flex:none;margin-top:6px}
+.model-fit{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px!important;font-weight:600;vertical-align:1px;background:var(--surface-2)}
+.model-fit--fits{color:var(--good,#42c98a)}.model-fit--tight{color:var(--warn)}.model-fit--too-big{color:var(--bad)}
+.skill-pack>button{flex:none;display:inline-flex;align-items:center;gap:6px}
+.model-download{display:flex;gap:10px;align-items:center;padding:8px 10px;margin:6px 0;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2)}
+.model-download strong{display:block;font-size:12px;color:var(--text)}.model-download small{display:block;font-size:11px;color:var(--muted);margin:2px 0 6px}
+.model-download select{flex:none;background:var(--bg);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:6px 8px}

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { bridgeDeckFromEnv, type BridgeDeckClient } from "../src/main/bridgedeck/client.js";
 import { buildBridgeDeckToolset, classDays, parseTime } from "../src/main/bridgedeck/tools.js";
-import { MEMORY_NOTE_ID, syncMemory } from "../src/main/bridgedeck/memory.js";
+import { MEMORY_NOTE_ID, USER_NOTE_ID, syncMemory } from "../src/main/bridgedeck/memory.js";
 import { defaultProjectsRoot } from "../src/main/projects/paths.js";
 
 /** A stand-in for BridgeDeck's /mimir/ API, recording calls. */
@@ -138,6 +138,12 @@ describe("memory sync", () => {
     expect(await syncMemory(opts)).toBe("pulled");
     expect(file).toBe("# Memory\n- Likes coffee now");
     expect(await syncMemory(opts)).toBe("same");
+
+    // USER.md goes to its own note, with its own state.
+    let user = "EE student";
+    expect(await syncMemory({ client, note: { id: USER_NOTE_ID, title: "About you (Mimir)" }, readMemory: async () => user, writeMemory: async (md) => { user = md; }, statePath: path.join(dir, "user.json") })).toBe("created");
+    expect(notes.get(USER_NOTE_ID)).toBe("EE student");
+    expect(notes.get(MEMORY_NOTE_ID)).toBe(file);
     await rm(dir, { recursive: true, force: true });
   });
 });

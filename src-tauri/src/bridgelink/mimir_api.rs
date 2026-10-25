@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 
 /// Mimir's long-term memory is this note (visible and editable in the Notes tab).
 pub const MEMORY_NOTE_ID: &str = "mimir-memory";
+/// What Mimir knows about the user (its USER.md), kept as a note like its memory.
+pub const USER_NOTE_ID: &str = "mimir-user";
 
 fn text<'a>(body: &'a Value, key: &str) -> Option<&'a str> {
     body.get(key).and_then(|v| v.as_str())
@@ -146,7 +148,7 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
         }
         "/mimir/notes/create" => {
             let kind = if text(body, "kind") == Some("list") { "list" } else { "note" };
-            let id = text(body, "id").filter(|id| *id == MEMORY_NOTE_ID).map(str::to_string);
+            let id = text(body, "id").filter(|id| *id == MEMORY_NOTE_ID || *id == USER_NOTE_ID).map(str::to_string);
             let markdown = text(body, "markdown").unwrap_or("").to_string();
             let (title, folder) = (text(body, "title").unwrap_or("").to_string(), text(body, "folder").unwrap_or("").to_string());
             // Mimir's notes are kept in its own section of Notes, apart from the person's.
@@ -175,6 +177,12 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
             Ok(json!({ "changed": changed }))
         }
 
+        // The notes vault (every note as a Markdown file, for Obsidian): Mimir keeps its memory in
+        // notes and reads the vault's other files, instead of keeping a second copy there.
+        "/mimir/vault" => {
+            let status = super::vault::current_status();
+            Ok(json!({ "enabled": status.enabled && !status.path.is_empty(), "path": status.path }))
+        }
         "/mimir/notes/due" => {
             let notes = manager.lock()?.notes.list();
             let mut due: Vec<Value> = notes
@@ -690,6 +698,10 @@ mod tests {
         call(&manager, "/mimir/notes/create", json!({ "id": MEMORY_NOTE_ID, "title": "Mimir's memory", "markdown": "Likes tea" }));
         call(&manager, "/mimir/notes/replace", json!({ "id": MEMORY_NOTE_ID, "markdown": "Likes coffee now" }));
         assert_eq!(call(&manager, "/mimir/notes/read", json!({ "id": MEMORY_NOTE_ID }))["markdown"], "Likes coffee now");
+        // What Mimir knows about the user has its own fixed note too; other ids are new notes.
+        call(&manager, "/mimir/notes/create", json!({ "id": USER_NOTE_ID, "title": "About you (Mimir)", "markdown": "EE student" }));
+        assert_eq!(call(&manager, "/mimir/notes/read", json!({ "id": USER_NOTE_ID }))["markdown"], "EE student");
+        assert!(call(&manager, "/mimir/vault", json!({}))["enabled"].is_boolean());
         // Calendar.
         let event = call(&manager, "/mimir/calendar/add", json!({ "title": "Defense", "start": 1_000, "end": 2_000 }));
         assert_eq!(event["color"], "purple");

@@ -466,6 +466,16 @@ export const IPC = {
   teamListModels: "mimir:team:list-models",
   teamCheckEngine: "mimir:team:check-engine",
   teamSetHonchoKey: "mimir:team:set-honcho-key",
+  /** Installs Hermes (engines/hermesInstall.ts) and reports how it's going. */
+  hermesInstall: "mimir:hermes:install",
+  hermesInstallStatus: "mimir:hermes:install-status",
+  /** The model library (models/index.ts). */
+  modelsLibrary: "mimir:models:library",
+  modelsQuants: "mimir:models:quants",
+  modelsDownload: "mimir:models:download",
+  modelsPause: "mimir:models:pause",
+  modelsRemove: "mimir:models:remove",
+  modelsUse: "mimir:models:use",
   setupGet: "mimir:setup:get",
   setupSetConfig: "mimir:setup:set-config",
   setupRun: "mimir:setup:run",
