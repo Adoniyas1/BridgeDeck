@@ -31,6 +31,7 @@ import {
   type RoleEndpoint,
   type RoleStatus,
   type TeamConfig,
+  type JarvisBrief,
   type TeamPreset,
   type ChatStreamEvent,
   type FaceState,
@@ -183,6 +184,9 @@ const api = {
     save: (chat: MimirChat): Promise<MimirChat | null> => invoke(IPC.chatsSave, chat),
     remove: (id: string): Promise<void> => invoke(IPC.chatsDelete, id),
     open: (id: string | null): Promise<MimirChat | null> => invoke(IPC.chatsOpen, id)
+  },
+  jarvis: {
+    brief: (): Promise<JarvisBrief> => invoke(IPC.jarvisBrief)
   },
   memory: {
     get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),

@@ -74,6 +74,7 @@ import { checkEngine } from "./engines/common.js";
 import { HONCHO_KEY } from "./engines/index.js";
 import { setSecret } from "./config/keychain.js";
 import { loadObsidianConfig, saveObsidianConfig } from "./persona/obsidian.js";
+import { jarvisBrief } from "./jarvis/brief.js";
 import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
@@ -306,6 +307,11 @@ const invokeHandlers: Record<string, Handler> = {
   },
   [IPC.memoryGet]: (): Promise<MemoryFiles> => readMemoryFiles(workspaceRoot),
   [IPC.obsidianGet]: () => loadObsidianConfig(),
+  [IPC.jarvisBrief]: async () => {
+    const [team, brain] = await Promise.all([loadTeamConfig(), loadBrainConfig()]);
+    const engine = team.engine === "mimir" ? `Mimir · ${team.mode === "team" ? `team (${team.roles.head.primary.model})` : brain.model}` : `${team.engine === "claude-code" ? "Claude Code" : team.engine === "opencode" ? "OpenCode" : "Hermes"} · ${team.engineModels === "team" ? team.roles.head.primary.model : "its own models"}`;
+    return jarvisBrief(bridgeDeckFromEnv(), engine);
+  },
   [IPC.obsidianSet]: (vault: string | null) => saveObsidianConfig(vault),
   [IPC.memorySet]: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> =>
     writeMemoryFiles(workspaceRoot, new SelfEditTransaction(workspaceRoot, auditFilePath), { memory: patch?.memory, user: patch?.user }),

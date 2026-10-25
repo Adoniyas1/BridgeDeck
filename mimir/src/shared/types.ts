@@ -213,6 +213,16 @@ export interface TeamConfig {
   honcho: { enabled: boolean; baseUrl: string | null; peerName: string; keySaved: boolean };
 }
 
+/** What the Jarvis view shows beside the orb (jarvis/brief.ts). */
+export interface JarvisBrief {
+  events: Array<{ title: string; start: number; end: number; allDay: boolean; location: string }>;
+  due: Array<{ title: string; course: string; due: number }>;
+  flashcards: number;
+  system: { memUsed: number; memTotal: number; cpu: number };
+  /** Who's answering: "Mimir · qwen3.5-9b", "Hermes · team models"… */
+  engine: string;
+}
+
 export interface TeamPreset {
   id: string;
   title: string;
@@ -432,6 +442,7 @@ export const IPC = {
   /** The Obsidian vault Mimir keeps its memory in (persona/obsidian.ts). */
   obsidianGet: "mimir:obsidian:get",
   obsidianSet: "mimir:obsidian:set",
+  jarvisBrief: "mimir:jarvis:brief",
   chatSpeak: "mimir:chat:speak",
   faceState: "mimir:face:state",
   brainGetConfig: "mimir:brain:get-config",
