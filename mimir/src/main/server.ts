@@ -306,13 +306,18 @@ const invokeHandlers: Record<string, Handler> = {
     return chat;
   },
   [IPC.memoryGet]: (): Promise<MemoryFiles> => readMemoryFiles(workspaceRoot),
-  [IPC.obsidianGet]: () => loadObsidianConfig(),
+  [IPC.obsidianGet]: async () => {
+    const config = await loadObsidianConfig();
+    const client = bridgeDeckFromEnv();
+    const bd = client ? await client.call<{ enabled: boolean; path: string }>("vault").catch(() => null) : null;
+    return { ...config, bridgedeck: client ? { enabled: !!bd?.enabled, path: bd?.path ?? "" } : null };
+  },
   [IPC.jarvisBrief]: async () => {
     const [team, brain] = await Promise.all([loadTeamConfig(), loadBrainConfig()]);
     const engine = team.engine === "mimir" ? `Mimir · ${team.mode === "team" ? `team (${team.roles.head.primary.model})` : brain.model}` : `${team.engine === "claude-code" ? "Claude Code" : team.engine === "opencode" ? "OpenCode" : "Hermes"} · ${team.engineModels === "team" ? team.roles.head.primary.model : "its own models"}`;
     return jarvisBrief(bridgeDeckFromEnv(), engine);
   },
-  [IPC.obsidianSet]: (vault: string | null) => saveObsidianConfig(vault),
+  [IPC.obsidianSet]: (vault: string | null, useBridgeDeck?: boolean) => saveObsidianConfig(vault, useBridgeDeck !== false),
   [IPC.memorySet]: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> =>
     writeMemoryFiles(workspaceRoot, new SelfEditTransaction(workspaceRoot, auditFilePath), { memory: patch?.memory, user: patch?.user }),
   [IPC.chatgptListChats]: (): Promise<ChatGptChatSummary[]> => listChats(),

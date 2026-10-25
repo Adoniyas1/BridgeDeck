@@ -28,11 +28,11 @@ import { buildBridgeDeckToolset } from "../bridgedeck/tools.js";
 import { skillPacksRoot } from "../skillpacks/packs.js";
 import { buildSkillPacksToolset } from "../skillpacks/tools.js";
 import { buildWebToolset } from "../web/tools.js";
-import { syncMemory } from "../bridgedeck/memory.js";
+import { syncMemory, USER_NOTE_ID } from "../bridgedeck/memory.js";
 import { readPersonaFile } from "../persona/compose.js";
 import { personaRelativePath } from "../persona/paths.js";
 import { readMemoryFiles } from "../persona/memoryFiles.js";
-import { buildObsidianToolset, loadObsidianConfig, syncObsidian } from "../persona/obsidian.js";
+import { buildObsidianToolset, loadObsidianConfig, resolveVault, syncObsidian } from "../persona/obsidian.js";
 import { dailyLogDir } from "../persona/paths.js";
 import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
 import path from "node:path";
@@ -252,17 +252,6 @@ export class AgentSession {
     // BridgeDeck's notes, calendar, Messages, files… (only when BridgeDeck started this Mimir).
     const bridgedeckClient = bridgeDeckFromEnv();
     const bridgedeck = bridgedeckClient ? buildBridgeDeckToolset(bridgedeckClient) : { defs: [], handlers: {} };
-    if (bridgedeckClient) {
-      // MEMORY.md and the "Mimir's memory" note stay the same, before the prompt reads memory.
-      await syncMemory({
-        client: bridgedeckClient,
-        readMemory: () => readPersonaFile(workspaceRoot, "MEMORY.md"),
-        writeMemory: async (markdown) => {
-          await transaction.run({ summary: "MEMORY.md edited in BridgeDeck Notes", tier: "persona", writes: [{ path: personaRelativePath("MEMORY.md"), content: markdown }], verifySteps: PERSONA_VERIFY_STEPS });
-        },
-        statePath: path.join(path.dirname(workspaceRoot), "bridgedeck-memory-sync.json")
-      }).catch(() => undefined);
-    }
     // Rebuilt fresh every turn (cheap — just a directory read per skill) so
     // a skill created mid-conversation via create_skill's parameters
     // argument is callable as its own tool on the very next turn, no
@@ -274,7 +263,7 @@ export class AgentSession {
     // Searching and reading public web pages, for research with any brain.
     const web = buildWebToolset();
     // The user's Obsidian vault, when one is set (Settings → Memory).
-    const obsidian = vault ? buildObsidianToolset(vault) : { defs: [], handlers: {} };
+    const obsidian = vault ? buildObsidianToolset(vault.path, vault.bridgedeck ? bridgedeckClient : null) : { defs: [], handlers: {} };
     // Tools from the MCP servers turned on in Settings (each server is a prompt module of its own).
     const mcpServers = (await loadMcpConfig()).servers;
     await mcpManager.ensure(mcpServers);
@@ -399,7 +388,7 @@ export class AgentSession {
 
   /** One turn run by Claude Code or OpenCode (engines/): its own tools do the work in the coding
    * folder, and anything that needs an OK comes back here as an approval card. */
-  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[], vault: string | null = null): Promise<void> {
+  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[], vault: { path: string; bridgedeck: boolean } | null = null): Promise<void> {
     const { win } = this.deps;
     const engine = team.engine as "claude-code" | "opencode" | "hermes";
     const abort = new AbortController();
@@ -457,30 +446,46 @@ export class AgentSession {
 
   /** Mimir's own tools for an outside agent: BridgeDeck's calendar, notes, study, messages and files,
    * its memory, and projects. (The agent brings its own coding and web tools.) */
-  private engineTools(vault: string | null) {
+  private engineTools(vault: { path: string; bridgedeck: boolean } | null) {
     const { workspaceRoot, auditFilePath, semanticSearch } = this.deps;
     const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
     const client = bridgeDeckFromEnv();
-    const sets = [client ? buildBridgeDeckToolset(client) : { defs: [], handlers: {} }, buildPersonaToolset({ workspaceRoot, transaction }), buildProjectsToolset({ projectsRoot: defaultProjectsRoot(), semanticSearch }), vault ? buildObsidianToolset(vault) : { defs: [], handlers: {} }];
+    const sets = [client ? buildBridgeDeckToolset(client) : { defs: [], handlers: {} }, buildPersonaToolset({ workspaceRoot, transaction }), buildProjectsToolset({ projectsRoot: defaultProjectsRoot(), semanticSearch }), vault ? buildObsidianToolset(vault.path, vault.bridgedeck ? client : null) : { defs: [], handlers: {} }];
     return { defs: sets.flatMap((s) => s.defs), handlers: Object.assign({}, ...sets.map((s) => s.handlers)) as Record<string, (input: Record<string, unknown>) => Promise<ToolResult>> };
   }
 
-  /** Keeps MEMORY.md and USER.md the same as their copies in the Obsidian vault (and copies the
-   * daily logs there). The vault's folder, or null when none is set or it isn't reachable. */
-  private async syncVault(): Promise<string | null> {
-    const { vault } = await loadObsidianConfig().catch(() => ({ vault: null }));
-    if (!vault) return null;
+  /** Before each message: MEMORY.md and USER.md stay the same as their notes in BridgeDeck
+   * ("Mimir's memory", "About you (Mimir)"), and so in its notes vault for Obsidian; with a vault of
+   * Mimir's own instead, the same two files are kept there. Returns the vault Mimir reads, if any. */
+  private async syncVault(): Promise<{ path: string; bridgedeck: boolean } | null> {
     const { workspaceRoot, auditFilePath } = this.deps;
+    const client = bridgeDeckFromEnv();
+    const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
+    const writePersona = async (file: string, text: string, where: string) => {
+      await transaction.run({ summary: `${file} edited in ${where}`, tier: "persona", writes: [{ path: personaRelativePath(file), content: text }], verifySteps: PERSONA_VERIFY_STEPS });
+    };
+    if (client) {
+      for (const [file, note, state] of [["MEMORY.md", undefined, "bridgedeck-memory-sync.json"], ["USER.md", { id: USER_NOTE_ID, title: "About you (Mimir)" }, "bridgedeck-user-sync.json"]] as const) {
+        await syncMemory({
+          client,
+          note,
+          readMemory: () => readPersonaFile(workspaceRoot, file),
+          writeMemory: (markdown) => writePersona(file, markdown, "BridgeDeck Notes"),
+          statePath: path.join(path.dirname(workspaceRoot), state)
+        }).catch(() => undefined);
+      }
+    }
+    const config = await loadObsidianConfig().catch(() => ({ vault: null, useBridgeDeck: true }));
+    const vault = await resolveVault(config, client).catch(() => null);
+    // BridgeDeck's vault already has both notes as files; only a vault of Mimir's own needs them copied.
+    if (!vault || vault.bridgedeck) return vault;
     try {
-      const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
       await syncObsidian({
-        vault,
+        vault: vault.path,
         dailyDir: dailyLogDir(workspaceRoot),
         statePath: path.join(path.dirname(workspaceRoot), "obsidian-sync.json"),
         readPersona: (file) => readPersonaFile(workspaceRoot, file),
-        writePersona: async (file, text) => {
-          await transaction.run({ summary: `${file} edited in Obsidian`, tier: "persona", writes: [{ path: personaRelativePath(file), content: text }], verifySteps: PERSONA_VERIFY_STEPS });
-        }
+        writePersona: (file, text) => writePersona(file, text, "Obsidian")
       });
       return vault;
     } catch {

@@ -336,6 +336,11 @@ pub(super) fn spawn(manager: BridgeLinkManager, shutdown: Arc<AtomicBool>) {
     });
 }
 
+/// The vault's settings now (for Mimir).
+pub fn current_status() -> VaultStatus {
+    status()
+}
+
 fn status() -> VaultStatus {
     let state = STATE.lock().ok().and_then(|s| s.clone()).unwrap_or_default();
     VaultStatus { enabled: state.enabled, path: state.path, files: state.files.len(), error: LAST_ERROR.lock().ok().and_then(|e| e.clone()) }

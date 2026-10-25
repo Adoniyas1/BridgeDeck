@@ -4,9 +4,16 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ToolDef, ToolResult } from "../brain/Provider.js";
 import { readJsonFile, writeJsonFile } from "../config/store.js";
+import type { BridgeDeckClient } from "../bridgedeck/client.js";
 
 /**
- * Mimir's memory in the user's Obsidian vault, as plain Markdown in a `Mimir/` folder:
+ * Mimir and the user's Obsidian vault. Two ways to have one:
+ *
+ * - **BridgeDeck's notes vault** (the default when BridgeDeck runs Mimir): every BridgeDeck note is
+ *   already a Markdown file there, Mimir's memory and what it knows about the user included (the
+ *   "Mimir's memory" and "About you (Mimir)" notes, bridgedeck/memory.ts). So Mimir only reads the
+ *   vault, and saves new notes through BridgeDeck, which writes them out: no second copy.
+ * - **A vault of its own** (a folder chosen in the Memory panel), kept as plain Markdown in `Mimir/`:
  *
  * - `Mimir/Memory.md` ↔ persona/MEMORY.md and `Mimir/About me.md` ↔ persona/USER.md, both ways:
  *   what Mimir writes shows up in Obsidian, and an edit made in Obsidian is what Mimir reads next
@@ -18,17 +25,31 @@ import { readJsonFile, writeJsonFile } from "../config/store.js";
  */
 
 const FILE = "obsidian.json";
-export interface ObsidianConfig { vault: string | null }
+export interface ObsidianConfig {
+  vault: string | null;
+  /** Use BridgeDeck's notes vault when there is one (the default). */
+  useBridgeDeck?: boolean;
+}
 
-export const loadObsidianConfig = () => readJsonFile<ObsidianConfig>(FILE, { vault: null });
+export const loadObsidianConfig = () => readJsonFile<ObsidianConfig>(FILE, { vault: null, useBridgeDeck: true });
+
+/** The vault Mimir works with now: BridgeDeck's (when chosen and turned on there), else its own
+ * folder, else none. A folder that is BridgeDeck's vault counts as BridgeDeck's. */
+export async function resolveVault(config: ObsidianConfig, client: BridgeDeckClient | null): Promise<{ path: string; bridgedeck: boolean } | null> {
+  const bd = client ? await client.call<{ enabled: boolean; path: string }>("vault").catch(() => null) : null;
+  const bdPath = bd?.enabled && bd.path ? path.resolve(bd.path) : null;
+  if (config.useBridgeDeck !== false && bdPath && existsSync(bdPath)) return { path: bdPath, bridgedeck: true };
+  if (config.vault && existsSync(config.vault)) return { path: config.vault, bridgedeck: !!bdPath && path.resolve(config.vault) === bdPath };
+  return null;
+}
 
 /** Sets the vault folder (an Obsidian vault has a `.obsidian` folder); null turns it off. */
-export async function saveObsidianConfig(vault: string | null): Promise<ObsidianConfig & { warning?: string }> {
+export async function saveObsidianConfig(vault: string | null, useBridgeDeck = true): Promise<ObsidianConfig & { warning?: string }> {
   const clean = vault?.trim() ? path.resolve(vault.trim()) : null;
   if (clean && !existsSync(clean)) throw new Error("That folder doesn't exist.");
-  await writeJsonFile(FILE, { vault: clean });
+  await writeJsonFile(FILE, { vault: clean, useBridgeDeck });
   const warning = clean && !existsSync(path.join(clean, ".obsidian")) ? "That folder has no .obsidian folder: open it in Obsidian once (Open folder as vault) so it's a vault." : undefined;
-  return { vault: clean, ...(warning ? { warning } : {}) };
+  return { vault: clean, useBridgeDeck, ...(warning ? { warning } : {}) };
 }
 
 const hash = (text: string) => createHash("sha256").update(text.replace(/\r\n/g, "\n").trim()).digest("hex");
@@ -149,7 +170,9 @@ export async function searchVault(vault: string, query: string, limit = 8): Prom
 /** A note title as a safe file name. */
 const fileName = (title: string) => title.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim().slice(0, 100) || "Note";
 
-export function buildObsidianToolset(vault: string): { defs: ToolDef[]; handlers: Record<string, (input: Record<string, unknown>) => Promise<ToolResult>> } {
+/** `client`: BridgeDeck, when the vault is its notes vault: new notes go through it (it writes the
+ * file), so a note is never made behind its back. */
+export function buildObsidianToolset(vault: string, client: BridgeDeckClient | null = null): { defs: ToolDef[]; handlers: Record<string, (input: Record<string, unknown>) => Promise<ToolResult>> } {
   const s = (description: string) => ({ type: "string", description });
   const defs: ToolDef[] = [
     { name: "obsidian_search", description: "Search the user's Obsidian vault (their own notes, and Mimir's notes under Mimir/) for notes containing the words. Returns paths and a snippet.", inputSchema: { type: "object", properties: { query: s("Words to find"), limit: { type: "number" } }, required: ["query"] } },
@@ -172,6 +195,11 @@ export function buildObsidianToolset(vault: string): { defs: ToolDef[]; handlers
     obsidian_write: async (input: Record<string, unknown>) => {
       const markdown = String(input.markdown ?? "");
       if (!markdown.trim()) return fail("The note is empty.");
+      if (client) {
+        const title = fileName(String(input.title ?? ""));
+        await client.call("notes/create", { title, folder: "Mimir/Notes", markdown: markdown.slice(0, 200_000) });
+        return ok(`Saved “${title}” in BridgeDeck's Notes (Mimir/Notes), which also puts it in the vault.`);
+      }
       const dir = path.join(vault, "Mimir", "Notes");
       await mkdir(dir, { recursive: true });
       const name = `${fileName(String(input.title ?? ""))}.md`;

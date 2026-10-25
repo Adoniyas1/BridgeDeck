@@ -4,6 +4,8 @@ import type { BridgeDeckClient } from "./client.js";
 
 /** BridgeDeck keeps Mimir's long-term memory as this note (Notes tab, folder "Mimir"). */
 export const MEMORY_NOTE_ID = "mimir-memory";
+/** What Mimir knows about the user (USER.md), kept as a note the same way. */
+export const USER_NOTE_ID = "mimir-user";
 
 interface SyncState { local: string; remote: string }
 
@@ -15,6 +17,8 @@ export interface MemorySyncOptions {
   writeMemory: (markdown: string) => Promise<void>;
   /** Where the hashes from the last sync are kept. */
   statePath: string;
+  /** Which note (default: Mimir's memory). */
+  note?: { id: string; title: string };
 }
 
 /**
@@ -29,15 +33,16 @@ export async function syncMemory(opts: MemorySyncOptions): Promise<"created" | "
   const local = await opts.readMemory();
   const state: SyncState | null = await readFile(opts.statePath, "utf-8").then((raw) => JSON.parse(raw) as SyncState).catch(() => null);
   const save = (next: SyncState) => writeFile(opts.statePath, JSON.stringify(next));
+  const { id: NOTE, title } = opts.note ?? { id: MEMORY_NOTE_ID, title: "Mimir's memory" };
   let remote: string | null = null;
   try {
-    remote = (await opts.client.call<{ markdown: string }>("notes/read", { id: MEMORY_NOTE_ID })).markdown;
+    remote = (await opts.client.call<{ markdown: string }>("notes/read", { id: NOTE })).markdown;
   } catch (error) {
     if (!String(error instanceof Error ? error.message : error).includes("No such note")) throw error;
   }
   if (remote === null) {
-    await opts.client.call("notes/create", { id: MEMORY_NOTE_ID, title: "Mimir's memory", folder: "Mimir", markdown: local });
-    const stored = (await opts.client.call<{ markdown: string }>("notes/read", { id: MEMORY_NOTE_ID })).markdown;
+    await opts.client.call("notes/create", { id: NOTE, title, folder: "Mimir", markdown: local });
+    const stored = (await opts.client.call<{ markdown: string }>("notes/read", { id: NOTE })).markdown;
     await save({ local: hash(local), remote: hash(stored) });
     return "created";
   }
@@ -49,7 +54,7 @@ export async function syncMemory(opts: MemorySyncOptions): Promise<"created" | "
     return "pulled";
   }
   if (localChanged) {
-    const pushed = await opts.client.call<{ markdown: string }>("notes/replace", { id: MEMORY_NOTE_ID, markdown: local });
+    const pushed = await opts.client.call<{ markdown: string }>("notes/replace", { id: NOTE, markdown: local });
     await save({ local: hash(local), remote: hash(pushed.markdown) });
     return "pushed";
   }

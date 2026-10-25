@@ -11,12 +11,22 @@ export default function Memory({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [vault, setVault] = useState("");
   const [vaultNote, setVaultNote] = useState<{ ok: boolean; text: string } | null>(null);
-  useEffect(() => { void window.mimir.memory.obsidian().then((c) => setVault(c.vault ?? "")).catch(() => undefined); }, []);
-  async function saveVault() {
+  const [useBridgeDeck, setUseBridgeDeck] = useState(true);
+  const [bridgedeck, setBridgeDeck] = useState<{ enabled: boolean; path: string } | null>(null);
+  useEffect(() => {
+    void window.mimir.memory.obsidian().then((c) => {
+      setVault(c.vault ?? "");
+      setUseBridgeDeck(c.useBridgeDeck !== false);
+      setBridgeDeck(c.bridgedeck);
+    }).catch(() => undefined);
+  }, []);
+  async function saveVault(shared = useBridgeDeck) {
     try {
-      const saved = await window.mimir.memory.setObsidian(vault.trim() || null);
+      const saved = await window.mimir.memory.setObsidian(vault.trim() || null, shared);
       setVault(saved.vault ?? "");
-      setVaultNote(saved.warning ? { ok: false, text: saved.warning } : { ok: true, text: saved.vault ? "Mimir keeps its memory in Mimir/ in that vault, from your next message." : "Not using Obsidian." });
+      setUseBridgeDeck(saved.useBridgeDeck !== false);
+      setVaultNote(saved.warning ? { ok: false, text: saved.warning }
+        : { ok: true, text: shared && bridgedeck?.enabled ? "Mimir uses BridgeDeck's notes vault, from your next message." : saved.vault ? "Mimir keeps its memory in Mimir/ in that vault, from your next message." : "Not using Obsidian." });
     } catch (e) {
       setVaultNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
     }
@@ -80,11 +90,22 @@ export default function Memory({ onClose }: { onClose: () => void }) {
           {status && <p className={`hint${status.ok ? "" : " setup-step__result--error"}`}>{status.text}</p>}
           <div className="memory-panel__field">
             <strong>Obsidian</strong>
+            {bridgedeck && (
+              <label className="hint">
+                <input type="checkbox" checked={useBridgeDeck} onChange={(e) => { setUseBridgeDeck(e.target.checked); void saveVault(e.target.checked); }} />{" "}
+                Use BridgeDeck's notes vault (recommended).{" "}
+                {bridgedeck.enabled
+                  ? `This memory is the notes "Mimir's memory" and "About you (Mimir)" there (${bridgedeck.path}); Mimir searches and reads your notes, and saves new ones in Mimir/Notes through BridgeDeck.`
+                  : "BridgeDeck's vault is off: turn it on in BridgeDeck's Notes settings. Until then Mimir uses the folder below, if any."}
+              </label>
+            )}
+            {(!bridgedeck || !useBridgeDeck || !bridgedeck.enabled) && <>
             <span className="hint">Keep this memory in your Obsidian vault too: Mimir/Memory.md and Mimir/About me.md (edit them in Obsidian and Mimir reads your edit), Mimir's daily logs in Mimir/Daily, and Mimir can search and read your notes and save longer ones in Mimir/Notes. Nothing else in the vault is changed.</span>
             <div className="key-row">
               <input placeholder="Your vault's folder, e.g. /Users/you/Documents/Obsidian Vault" value={vault} onChange={(e) => setVault(e.target.value)} />
               <button type="button" className="btn" onClick={() => void saveVault()}>{vault.trim() ? "Use this vault" : "Turn off"}</button>
             </div>
+            </>}
             {vaultNote && <p className={`hint${vaultNote.ok ? "" : " setup-step__result--error"}`}>{vaultNote.text}</p>}
           </div>
         </div>

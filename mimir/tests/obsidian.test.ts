@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildObsidianToolset, insideVault, searchVault, syncObsidian } from "../src/main/persona/obsidian.js";
+import { buildObsidianToolset, insideVault, resolveVault, searchVault, syncObsidian } from "../src/main/persona/obsidian.js";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }); });
@@ -45,5 +45,22 @@ describe("Obsidian memory", () => {
     expect((await tools.handlers.obsidian_read({ path: "../../etc/passwd" })).isError).toBe(true);
     expect((await tools.handlers.obsidian_write({ title: "Plan: week 9 / exams", markdown: "# Plan" })).content).toContain("Mimir/Notes/Plan- week 9 - exams.md");
     expect(await readFile(path.join(vault, "Mimir", "Notes", "Plan- week 9 - exams.md"), "utf8")).toBe("# Plan");
+  });
+
+  it("uses BridgeDeck's notes vault unless told not to, and saves notes through BridgeDeck", async () => {
+    const bd = await temp(), own = await temp();
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    let enabled = true;
+    const client = { async call<T>(p: string, body: Record<string, unknown> = {}): Promise<T> { calls.push([p, body]); return (p === "vault" ? { enabled, path: bd } : { id: "n1" }) as T; } };
+    expect(await resolveVault({ vault: own, useBridgeDeck: true }, client)).toEqual({ path: bd, bridgedeck: true });
+    expect(await resolveVault({ vault: own, useBridgeDeck: false }, client)).toEqual({ path: own, bridgedeck: false });
+    expect(await resolveVault({ vault: bd, useBridgeDeck: false }, client)).toEqual({ path: bd, bridgedeck: true });
+    enabled = false;
+    expect(await resolveVault({ vault: own, useBridgeDeck: true }, client)).toEqual({ path: own, bridgedeck: false });
+    expect(await resolveVault({ vault: null }, null)).toBeNull();
+
+    const tools = buildObsidianToolset(bd, client);
+    expect((await tools.handlers.obsidian_write({ title: "Plan", markdown: "# Plan" })).isError).toBeFalsy();
+    expect(calls.at(-1)).toEqual(["notes/create", { title: "Plan", folder: "Mimir/Notes", markdown: "# Plan" }]);
   });
 });

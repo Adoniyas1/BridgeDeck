@@ -191,8 +191,9 @@ const api = {
   memory: {
     get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),
     set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch),
-    obsidian: (): Promise<{ vault: string | null }> => invoke(IPC.obsidianGet),
-    setObsidian: (vault: string | null): Promise<{ vault: string | null; warning?: string }> => invoke(IPC.obsidianSet, vault)
+    /** bridgedeck: BridgeDeck's notes vault when Mimir runs inside BridgeDeck, else null. */
+    obsidian: (): Promise<{ vault: string | null; useBridgeDeck?: boolean; bridgedeck: { enabled: boolean; path: string } | null }> => invoke(IPC.obsidianGet),
+    setObsidian: (vault: string | null, useBridgeDeck = true): Promise<{ vault: string | null; useBridgeDeck?: boolean; warning?: string }> => invoke(IPC.obsidianSet, vault, useBridgeDeck)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),
