@@ -11,6 +11,7 @@ import { ClaudeStreamParser, runClaudeCode } from "../src/main/engines/claudeCod
 import { describeToolCall, roleForModel, type EngineEvent, type EngineTurn } from "../src/main/engines/common.js";
 import { OpenCodeAgent, openCodeConfig } from "../src/main/engines/openCode.js";
 import { HermesAgent, hermesConfig, holdBack, honchoConfig } from "../src/main/engines/hermes.js";
+import { errorText } from "../src/main/engines/acp.js";
 import { cleanTeamConfig, DEFAULT_TEAM } from "../src/main/team/config.js";
 import type { ToolApproval } from "../src/shared/types.js";
 
@@ -331,6 +332,15 @@ describe("Hermes without a provider", () => {
     brief.turn.emit({ type: "text", text: "Hi!" });
     brief.release();
     expect(short).toEqual([{ type: "text", text: "Hi!" }]);
+  });
+});
+
+describe("ACP errors", () => {
+  it("shows the cause an agent put in the error's data, not just “Internal error”", () => {
+    expect(errorText("Hermes", { code: -32603, message: "Internal error", data: { details: "Hermes is not connected to any AI provider yet." } })).toBe("Hermes: Hermes is not connected to any AI provider yet.");
+    expect(errorText("Hermes", { code: -32603, message: "Internal error", data: "boom" })).toBe("Hermes: boom");
+    expect(errorText("Hermes", { code: -32603, message: "Internal error" }, ["INFO starting\n", "ERROR model not found\n"])).toBe("Hermes: Internal error\nINFO starting\nERROR model not found");
+    expect(errorText("OpenCode", { message: "Not supported" })).toBe("OpenCode: Not supported");
   });
 });
 

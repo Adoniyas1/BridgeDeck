@@ -3,7 +3,7 @@ import type { TeamConfig } from "../../shared/types.js";
 import { runClaudeCode } from "./claudeCode.js";
 import { roleUpstream, type EngineResult, type EngineTurn } from "./common.js";
 import { OpenCodeAgent } from "./openCode.js";
-import { BORROWED_NOTE, HermesAgent, holdBack, NO_PROVIDER_HELP, type HonchoSettings } from "./hermes.js";
+import { BORROWED_NOTE, HermesAgent, holdBack, NO_PROVIDER, NO_PROVIDER_HELP, type HonchoSettings } from "./hermes.js";
 import { getSecret } from "../config/keychain.js";
 import { ToolsEndpoint } from "./tools.js";
 
@@ -61,8 +61,12 @@ export class EngineRunner {
       // Known since earlier in this chat: Hermes has no provider of its own, so go straight to the team's model.
       if (!useTeam && this.hermesNoProvider === command) return this.lendTeamModel(team, turn, { command, honcho, mcpServers: acpServers });
       const held = holdBack(turn);
-      const result = await this.hermes.run(held.turn, { command, model, honcho, intro: turn.intro, mcpServers: acpServers });
-      if (!held.noProvider()) {
+      // Hermes says it has no provider either in its reply or as the error starting the session.
+      const result = await this.hermes.run(held.turn, { command, model, honcho, intro: turn.intro, mcpServers: acpServers }).catch((err: unknown) => {
+        if (err instanceof Error && NO_PROVIDER.test(err.message)) return null;
+        throw err;
+      });
+      if (result && !held.noProvider()) {
         held.release();
         return result;
       }
