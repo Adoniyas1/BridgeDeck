@@ -16,7 +16,7 @@ import http from "node:http";
 import { installCrashLog, recordCrash } from "./logs/crashLog.js";
 import { pruneLogs } from "./logs/turnLog.js";
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
@@ -87,6 +87,8 @@ import { readMemoryFiles, writeMemoryFiles } from "./persona/memoryFiles.js";
 import { SelfEditTransaction } from "./self-edit/transaction.js";
 import { loadNaturalVoice } from "./voice/natural.js";
 import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
+import { findHermes, HermesInstaller } from "./engines/hermesInstall.js";
+import { downloads, libraryView, repoQuants, useModel } from "./models/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The original install (set by server-entry.mjs): workspace seed and resources stay there even
@@ -188,6 +190,12 @@ function runSemanticSearchInRenderer(query: string, corpus: ProjectFileCorpusEnt
 
 let session: AgentSession | null = null;
 const chatgpt = new ChatGptSession({ broadcast });
+const hermes = new HermesInstaller({
+  save: async (command) => {
+    const team = await loadTeamConfig();
+    await saveTeamConfig({ engineCommands: { ...team.engineCommands, hermes: command } });
+  }
+});
 let wakeHandle: WakeWordHandle | null = null;
 
 async function startWake(): Promise<void> {
@@ -280,6 +288,25 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.teamCheckEngine]: async (engine: "claude-code" | "opencode" | "hermes") => {
     const team = await loadTeamConfig();
     return checkEngine(engine, team.engineCommands[engine] ?? (engine === "claude-code" ? "claude" : engine));
+  },
+  [IPC.hermesInstall]: async () => {
+    const team = await loadTeamConfig();
+    return hermes.start({ configured: team.engineCommands.hermes, honcho: team.honcho.enabled });
+  },
+  [IPC.hermesInstallStatus]: async () => {
+    const team = await loadTeamConfig();
+    // Not installing now: whether Hermes is there, found where the installer puts it too.
+    const found = hermes.state.running ? null : await findHermes(team.engineCommands.hermes);
+    return { ...hermes.state, found };
+  },
+  [IPC.modelsLibrary]: () => libraryView(),
+  [IPC.modelsQuants]: (repo: string) => repoQuants(String(repo)),
+  [IPC.modelsDownload]: (repo: string, quant: string) => downloads.start(String(repo).trim(), String(quant).trim()),
+  [IPC.modelsPause]: (id: string) => downloads.pause(String(id)),
+  [IPC.modelsRemove]: (id: string) => downloads.remove(String(id)),
+  [IPC.modelsUse]: (file: string, role: "head" | "executor" | "checker") => {
+    if (role !== "head" && role !== "executor" && role !== "checker") throw new Error("Pick Head, Executor or Checker.");
+    return useModel(String(file), role);
   },
   [IPC.teamSetHonchoKey]: async (key: string): Promise<TeamConfig> => {
     await setSecret(HONCHO_KEY, key.trim());
@@ -410,6 +437,47 @@ const sendHandlers: Record<string, Handler> = {
   }
 };
 
+/** The channels BridgeDeck's own settings may use, over POST /control (its webview can't open a
+ * WebSocket here, and a second socket would take the chat events from the Mimir tab). */
+export const CONTROL_CHANNELS = new Set<string>([
+  IPC.teamGetConfig, IPC.teamSetConfig, IPC.teamStatus, IPC.teamCheckEngine, IPC.teamSetHonchoKey,
+  IPC.hermesInstall, IPC.hermesInstallStatus,
+  IPC.obsidianGet, IPC.obsidianSet,
+  IPC.modelsLibrary, IPC.modelsQuants, IPC.modelsDownload, IPC.modelsPause, IPC.modelsRemove, IPC.modelsUse
+]);
+
+/** Whether a request carries this run's token (Authorization: Bearer …). */
+export function authorized(header: string | undefined, expected: string): boolean {
+  const given = Buffer.from(header?.startsWith("Bearer ") ? header.slice(7) : "");
+  const want = Buffer.from(expected);
+  return given.length === want.length && timingSafeEqual(given, want);
+}
+
+async function handleControl(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const reply = (status: number, body: unknown) => res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(body));
+  if (req.method !== "POST") return void reply(405, { ok: false, error: "POST only" });
+  if (!authorized(req.headers.authorization, token)) return void reply(401, { ok: false, error: "Wrong token" });
+  let raw = "";
+  for await (const chunk of req) {
+    raw += String(chunk);
+    if (raw.length > 1_000_000) return void reply(413, { ok: false, error: "Too big" });
+  }
+  let message: { ch?: unknown; args?: unknown };
+  try {
+    message = JSON.parse(raw) as typeof message;
+  } catch {
+    return void reply(400, { ok: false, error: "Not JSON" });
+  }
+  const ch = typeof message.ch === "string" ? message.ch : "";
+  const handler = CONTROL_CHANNELS.has(ch) ? invokeHandlers[ch] : undefined;
+  if (!handler) return void reply(404, { ok: false, error: `Unknown channel ${ch}` });
+  try {
+    reply(200, { ok: true, value: (await handler(...((Array.isArray(message.args) ? message.args : []) as never[]))) ?? null });
+  } catch (error) {
+    reply(200, { ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 type Incoming = { t: "invoke"; id: number; ch: string; args?: unknown[] } | { t: "send"; ch: string; args?: unknown[] };
 
 async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
@@ -509,7 +577,7 @@ async function main(): Promise<void> {
     semanticSearch: runSemanticSearchInRenderer
   });
 
-  const server = http.createServer((req, res) => void serveStatic(req, res));
+  const server = http.createServer((req, res) => void ((req.url ?? "").split("?")[0] === "/control" ? handleControl(req, res) : serveStatic(req, res)));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
