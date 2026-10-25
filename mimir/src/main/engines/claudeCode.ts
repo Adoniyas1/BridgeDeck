@@ -29,6 +29,8 @@ export interface ClaudeCodeOptions {
   /** For tests: where the bridge sends requests. */
   route?: RouteModel;
   approvalServer?: string;
+  /** Mimir's own tools as an MCP server (engines/tools.ts). */
+  mimirTools?: Record<string, unknown>;
 }
 
 /** Turns stream-json lines into Mimir events; returns what the turn ended with. */
@@ -161,7 +163,8 @@ export async function runClaudeCode(turn: EngineTurn, options: ClaudeCodeOptions
             command: process.execPath,
             args: [options.approvalServer ?? APPROVAL_SERVER],
             env: { MIMIR_APPROVAL_URL: approvals.url, MIMIR_APPROVAL_SECRET: approvals.secret }
-          }
+          },
+          ...(options.mimirTools ? { "mimir-tools": options.mimirTools } : {})
         }
       })
     );

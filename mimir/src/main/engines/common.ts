@@ -28,6 +28,8 @@ export interface EngineTurn {
   signal: AbortSignal;
   /** What Mimir knows about the user, for agents that keep their own conversations (Hermes). */
   intro?: string;
+  /** Mimir's own tools (calendar, notes, study…), given to the agent over MCP (engines/tools.ts). */
+  tools?: import("./tools.js").Toolset;
 }
 
 export interface EngineResult {

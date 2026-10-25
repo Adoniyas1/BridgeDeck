@@ -409,6 +409,7 @@ export class AgentSession {
       const result = await this.engines.run(team, {
         prompt: userText,
         intro,
+        tools: this.engineTools(),
         cwd: await codingRoot(),
         projectsRoot: defaultProjectsRoot(),
         approve: async (request) => {
@@ -445,6 +446,16 @@ export class AgentSession {
         win.webContents.send(IPC.faceState, "idle");
       }
     }
+  }
+
+  /** Mimir's own tools for an outside agent: BridgeDeck's calendar, notes, study, messages and files,
+   * its memory, and projects. (The agent brings its own coding and web tools.) */
+  private engineTools() {
+    const { workspaceRoot, auditFilePath, semanticSearch } = this.deps;
+    const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
+    const client = bridgeDeckFromEnv();
+    const sets = [client ? buildBridgeDeckToolset(client) : { defs: [], handlers: {} }, buildPersonaToolset({ workspaceRoot, transaction }), buildProjectsToolset({ projectsRoot: defaultProjectsRoot(), semanticSearch })];
+    return { defs: sets.flatMap((s) => s.defs), handlers: Object.assign({}, ...sets.map((s) => s.handlers)) as Record<string, (input: Record<string, unknown>) => Promise<ToolResult>> };
   }
 
   /** What Mimir knows about the user (USER.md) and remembers (MEMORY.md), for an outside agent. */

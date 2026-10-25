@@ -320,3 +320,29 @@ describe("engine settings", () => {
     expect(roleForModel("mimir-head")).toBe("head");
   });
 });
+
+describe("Mimir's tools for outside agents", () => {
+  it("lists and runs Mimir's tools through the MCP server an agent starts", async () => {
+    const { ToolsEndpoint } = await import("../src/main/engines/tools.js");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const endpoint = new ToolsEndpoint();
+    cleanups.push(() => endpoint.close());
+    endpoint.set({
+      defs: [{ name: "calendar_today", description: "Today's events", inputSchema: { type: "object", properties: { day: { type: "string" } } } }],
+      handlers: { calendar_today: async (input) => ({ content: `Nothing on ${String(input.day)}` }) }
+    });
+    const server = await endpoint.claudeServer() as { command: string; env: Record<string, string> };
+    const client = new Client({ name: "test", version: "1" });
+    await client.connect(new StdioClientTransport({ command: server.command, args: [path.join(here, "..", "src", "main", "engines", "toolsServer.ts")], env: { ...process.env as Record<string, string>, ...server.env } }));
+    cleanups.push(() => client.close());
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["calendar_today"]);
+    const result = await client.callTool({ name: "calendar_today", arguments: { day: "Monday" } });
+    expect(result.content).toEqual([{ type: "text", text: "Nothing on Monday" }]);
+    const missing = await client.callTool({ name: "nope", arguments: {} });
+    expect(missing.isError).toBe(true);
+    // A wrong secret is refused.
+    const res = await fetch(`${server.env.MIMIR_TOOLS_URL}/tools`, { method: "POST", headers: { authorization: "Bearer wrong" } });
+    expect(res.status).toBe(401);
+  }, 30_000);
+});
