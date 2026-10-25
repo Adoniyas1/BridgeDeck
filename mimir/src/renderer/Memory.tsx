@@ -9,6 +9,18 @@ export default function Memory({ onClose }: { onClose: () => void }) {
   const [user, setUser] = useState("");
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [vault, setVault] = useState("");
+  const [vaultNote, setVaultNote] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { void window.mimir.memory.obsidian().then((c) => setVault(c.vault ?? "")).catch(() => undefined); }, []);
+  async function saveVault() {
+    try {
+      const saved = await window.mimir.memory.setObsidian(vault.trim() || null);
+      setVault(saved.vault ?? "");
+      setVaultNote(saved.warning ? { ok: false, text: saved.warning } : { ok: true, text: saved.vault ? "Mimir keeps its memory in Mimir/ in that vault, from your next message." : "Not using Obsidian." });
+    } catch (e) {
+      setVaultNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   useEffect(() => {
     void window.mimir.memory.get().then((f) => {
@@ -66,6 +78,15 @@ export default function Memory({ onClose }: { onClose: () => void }) {
             <textarea value={user} onChange={(e) => setUser(e.target.value)} placeholder="Your name, what you do, how you like answers…" spellCheck />
           </label>
           {status && <p className={`hint${status.ok ? "" : " setup-step__result--error"}`}>{status.text}</p>}
+          <div className="memory-panel__field">
+            <strong>Obsidian</strong>
+            <span className="hint">Keep this memory in your Obsidian vault too: Mimir/Memory.md and Mimir/About me.md (edit them in Obsidian and Mimir reads your edit), Mimir's daily logs in Mimir/Daily, and Mimir can search and read your notes and save longer ones in Mimir/Notes. Nothing else in the vault is changed.</span>
+            <div className="key-row">
+              <input placeholder="Your vault's folder, e.g. /Users/you/Documents/Obsidian Vault" value={vault} onChange={(e) => setVault(e.target.value)} />
+              <button type="button" className="btn" onClick={() => void saveVault()}>{vault.trim() ? "Use this vault" : "Turn off"}</button>
+            </div>
+            {vaultNote && <p className={`hint${vaultNote.ok ? "" : " setup-step__result--error"}`}>{vaultNote.text}</p>}
+          </div>
         </div>
       )}
     </div>

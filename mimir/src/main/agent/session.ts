@@ -32,6 +32,8 @@ import { syncMemory } from "../bridgedeck/memory.js";
 import { readPersonaFile } from "../persona/compose.js";
 import { personaRelativePath } from "../persona/paths.js";
 import { readMemoryFiles } from "../persona/memoryFiles.js";
+import { buildObsidianToolset, loadObsidianConfig, syncObsidian } from "../persona/obsidian.js";
+import { dailyLogDir } from "../persona/paths.js";
 import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -165,6 +167,8 @@ export class AgentSession {
     }
 
     const team = await loadTeamConfig();
+    // Memory edited in Obsidian is what this message sees (and Mimir's new memory shows up there).
+    const vault = await this.syncVault();
     // Pictures sent with the message are read by the vision model, when one is set, so a chat
     // model that can't see (or an outside agent that gets text only) can still work with them.
     const pictures = (attachments ?? []).filter((a) => a.kind === "image");
@@ -174,7 +178,7 @@ export class AgentSession {
       if (turnId !== this.activeTurnId) return;
     }
     if (team.engine !== "mimir") {
-      await this.runEngine(team, turnId, userText, attachments);
+      await this.runEngine(team, turnId, userText, attachments, vault);
       return;
     }
 
@@ -269,6 +273,8 @@ export class AgentSession {
     const skillPacks = packsRoot ? buildSkillPacksToolset({ root: packsRoot, runPython }) : { defs: [], handlers: {} };
     // Searching and reading public web pages, for research with any brain.
     const web = buildWebToolset();
+    // The user's Obsidian vault, when one is set (Settings → Memory).
+    const obsidian = vault ? buildObsidianToolset(vault) : { defs: [], handlers: {} };
     // Tools from the MCP servers turned on in Settings (each server is a prompt module of its own).
     const mcpServers = (await loadMcpConfig()).servers;
     await mcpManager.ensure(mcpServers);
@@ -276,7 +282,7 @@ export class AgentSession {
     const extraModules: PromptModule[] = mcp.modules;
     // Claude-Code-style coding tools in the chosen folder; commands and changes outside Projects ask first.
     const coding = buildCodingToolset({ root: await codingRoot(), projectsRoot: defaultProjectsRoot(), approve: this.askUser });
-    const fullDefs = [...(selfEdit?.defs ?? []), ...mcp.defs, ...coding.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...dynamicSkills.defs];
+    const fullDefs = [...(selfEdit?.defs ?? []), ...mcp.defs, ...coding.defs, ...persona.defs, ...projects.defs, ...compute.defs, ...skills.defs, ...mac.defs, ...engineering.defs, ...workflow.defs, ...bridgedeck.defs, ...skillPacks.defs, ...web.defs, ...obsidian.defs, ...dynamicSkills.defs];
     const fullHandlers = {
       ...mcp.handlers,
       ...coding.handlers,
@@ -291,6 +297,7 @@ export class AgentSession {
       ...bridgedeck.handlers,
       ...skillPacks.handlers,
       ...web.handlers,
+      ...obsidian.handlers,
       ...dynamicSkills.handlers
     };
     if (teamMode) {
@@ -392,7 +399,7 @@ export class AgentSession {
 
   /** One turn run by Claude Code or OpenCode (engines/): its own tools do the work in the coding
    * folder, and anything that needs an OK comes back here as an approval card. */
-  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[]): Promise<void> {
+  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[], vault: string | null = null): Promise<void> {
     const { win } = this.deps;
     const engine = team.engine as "claude-code" | "opencode" | "hermes";
     const abort = new AbortController();
@@ -409,7 +416,7 @@ export class AgentSession {
       const result = await this.engines.run(team, {
         prompt: userText,
         intro,
-        tools: this.engineTools(),
+        tools: this.engineTools(vault),
         cwd: await codingRoot(),
         projectsRoot: defaultProjectsRoot(),
         approve: async (request) => {
@@ -450,12 +457,35 @@ export class AgentSession {
 
   /** Mimir's own tools for an outside agent: BridgeDeck's calendar, notes, study, messages and files,
    * its memory, and projects. (The agent brings its own coding and web tools.) */
-  private engineTools() {
+  private engineTools(vault: string | null) {
     const { workspaceRoot, auditFilePath, semanticSearch } = this.deps;
     const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
     const client = bridgeDeckFromEnv();
-    const sets = [client ? buildBridgeDeckToolset(client) : { defs: [], handlers: {} }, buildPersonaToolset({ workspaceRoot, transaction }), buildProjectsToolset({ projectsRoot: defaultProjectsRoot(), semanticSearch })];
+    const sets = [client ? buildBridgeDeckToolset(client) : { defs: [], handlers: {} }, buildPersonaToolset({ workspaceRoot, transaction }), buildProjectsToolset({ projectsRoot: defaultProjectsRoot(), semanticSearch }), vault ? buildObsidianToolset(vault) : { defs: [], handlers: {} }];
     return { defs: sets.flatMap((s) => s.defs), handlers: Object.assign({}, ...sets.map((s) => s.handlers)) as Record<string, (input: Record<string, unknown>) => Promise<ToolResult>> };
+  }
+
+  /** Keeps MEMORY.md and USER.md the same as their copies in the Obsidian vault (and copies the
+   * daily logs there). The vault's folder, or null when none is set or it isn't reachable. */
+  private async syncVault(): Promise<string | null> {
+    const { vault } = await loadObsidianConfig().catch(() => ({ vault: null }));
+    if (!vault) return null;
+    const { workspaceRoot, auditFilePath } = this.deps;
+    try {
+      const transaction = new SelfEditTransaction(workspaceRoot, auditFilePath);
+      await syncObsidian({
+        vault,
+        dailyDir: dailyLogDir(workspaceRoot),
+        statePath: path.join(path.dirname(workspaceRoot), "obsidian-sync.json"),
+        readPersona: (file) => readPersonaFile(workspaceRoot, file),
+        writePersona: async (file, text) => {
+          await transaction.run({ summary: `${file} edited in Obsidian`, tier: "persona", writes: [{ path: personaRelativePath(file), content: text }], verifySteps: PERSONA_VERIFY_STEPS });
+        }
+      });
+      return vault;
+    } catch {
+      return null;
+    }
   }
 
   /** What Mimir knows about the user (USER.md) and remembers (MEMORY.md), for an outside agent. */

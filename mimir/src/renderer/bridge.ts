@@ -186,7 +186,9 @@ const api = {
   },
   memory: {
     get: (): Promise<MemoryFiles> => invoke(IPC.memoryGet),
-    set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch)
+    set: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> => invoke(IPC.memorySet, patch),
+    obsidian: (): Promise<{ vault: string | null }> => invoke(IPC.obsidianGet),
+    setObsidian: (vault: string | null): Promise<{ vault: string | null; warning?: string }> => invoke(IPC.obsidianSet, vault)
   },
   chatgpt: {
     getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),

@@ -73,6 +73,7 @@ import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js"
 import { checkEngine } from "./engines/common.js";
 import { HONCHO_KEY } from "./engines/index.js";
 import { setSecret } from "./config/keychain.js";
+import { loadObsidianConfig, saveObsidianConfig } from "./persona/obsidian.js";
 import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
@@ -304,6 +305,8 @@ const invokeHandlers: Record<string, Handler> = {
     return chat;
   },
   [IPC.memoryGet]: (): Promise<MemoryFiles> => readMemoryFiles(workspaceRoot),
+  [IPC.obsidianGet]: () => loadObsidianConfig(),
+  [IPC.obsidianSet]: (vault: string | null) => saveObsidianConfig(vault),
   [IPC.memorySet]: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> =>
     writeMemoryFiles(workspaceRoot, new SelfEditTransaction(workspaceRoot, auditFilePath), { memory: patch?.memory, user: patch?.user }),
   [IPC.chatgptListChats]: (): Promise<ChatGptChatSummary[]> => listChats(),

@@ -429,6 +429,9 @@ export const IPC = {
   /** MEMORY.md and USER.md: what Mimir remembers, to read and edit. */
   memoryGet: "mimir:memory:get",
   memorySet: "mimir:memory:set",
+  /** The Obsidian vault Mimir keeps its memory in (persona/obsidian.ts). */
+  obsidianGet: "mimir:obsidian:get",
+  obsidianSet: "mimir:obsidian:set",
   chatSpeak: "mimir:chat:speak",
   faceState: "mimir:face:state",
   brainGetConfig: "mimir:brain:get-config",
