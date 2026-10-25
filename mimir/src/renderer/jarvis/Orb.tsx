@@ -18,7 +18,9 @@ const COLORS: Record<FaceState, [number, number, number]> = {
 export default function Orb({ state, micLevel }: { state: FaceState; micLevel: React.MutableRefObject<number> }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const el = canvas.current;
