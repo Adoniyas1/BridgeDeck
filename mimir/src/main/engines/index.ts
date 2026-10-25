@@ -3,7 +3,7 @@ import type { TeamConfig } from "../../shared/types.js";
 import { runClaudeCode } from "./claudeCode.js";
 import { roleUpstream, type EngineResult, type EngineTurn } from "./common.js";
 import { OpenCodeAgent } from "./openCode.js";
-import { HermesAgent, type HonchoSettings } from "./hermes.js";
+import { BORROWED_NOTE, HermesAgent, holdBack, NO_PROVIDER_HELP, type HonchoSettings } from "./hermes.js";
 import { getSecret } from "../config/keychain.js";
 import { ToolsEndpoint } from "./tools.js";
 
@@ -17,6 +17,17 @@ export class EngineRunner {
   private openCode = new OpenCodeAgent();
   private hermes = new HermesAgent();
   private tools = new ToolsEndpoint();
+  /** The Hermes command found to have no AI provider of its own in this chat. */
+  private hermesNoProvider: string | null = null;
+
+  /** Hermes has no provider of its own: lend it the team's model for this message, or say how to give it one. */
+  private async lendTeamModel(team: TeamConfig, turn: EngineTurn, opts: { command: string; honcho: HonchoSettings | null; mcpServers: Array<Record<string, unknown>> }): Promise<EngineResult> {
+    const lent = await roleUpstream(team, "head").catch(() => null);
+    if (!lent) throw new Error(NO_PROVIDER_HELP);
+    turn.emit({ type: "text", text: BORROWED_NOTE });
+    const result = await this.hermes.run(turn, { ...opts, model: lent, intro: turn.intro });
+    return { text: BORROWED_NOTE + result.text };
+  }
 
   async run(team: TeamConfig, turn: EngineTurn): Promise<EngineResult> {
     await mkdir(turn.cwd, { recursive: true });
@@ -46,7 +57,18 @@ export class EngineRunner {
         if (!apiKey && !team.honcho.baseUrl) throw new Error("Honcho is on but has no API key or server address: add one in Settings → Brain team, or turn Honcho off.");
         honcho = { apiKey, baseUrl: team.honcho.baseUrl, peerName: team.honcho.peerName };
       }
-      return this.hermes.run(turn, { command: team.engineCommands.hermes ?? "hermes", model, honcho, intro: turn.intro, mcpServers: acpServers });
+      const command = team.engineCommands.hermes ?? "hermes";
+      // Known since earlier in this chat: Hermes has no provider of its own, so go straight to the team's model.
+      if (!useTeam && this.hermesNoProvider === command) return this.lendTeamModel(team, turn, { command, honcho, mcpServers: acpServers });
+      const held = holdBack(turn);
+      const result = await this.hermes.run(held.turn, { command, model, honcho, intro: turn.intro, mcpServers: acpServers });
+      if (!held.noProvider()) {
+        held.release();
+        return result;
+      }
+      if (useTeam) throw new Error("Hermes didn't take the Brain team's model from Mimir's profile (~/.mimir/hermes/config.yaml). Update Hermes (Install Hermes in BridgeDeck's Settings → Mimir) and try again.");
+      this.hermesNoProvider = command;
+      return this.lendTeamModel(team, turn, { command, honcho, mcpServers: acpServers });
     }
     throw new Error(`No engine called ${team.engine}`);
   }
@@ -56,6 +78,8 @@ export class EngineRunner {
     this.claude = { key: "", sessionId: null };
     this.openCode.stop();
     this.hermes.stop();
+    // A new chat tries Hermes's own provider again (it may have been set up with `hermes model`).
+    this.hermesNoProvider = null;
   }
 
   close(): void {

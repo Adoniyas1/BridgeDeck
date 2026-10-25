@@ -94,3 +94,44 @@ export class HermesAgent {
     this.acp.stop();
   }
 }
+
+/** What Hermes answers when it has no AI provider of its own (hermes_cli/auth.py resolve_provider). */
+export const NO_PROVIDER = /not connected to any AI provider/i;
+
+/** Said when Hermes has no provider and Mimir can't lend it the team's model. */
+export const NO_PROVIDER_HELP =
+  "Hermes has no AI provider of its own yet. Turn on “Use the Brain team's models” (Mimir's Settings → Brain team, or BridgeDeck's Settings → Mimir), or run `hermes model` in a terminal to give Hermes one.";
+
+/** Said above a reply that used the team's model because Hermes has none of its own. */
+export const BORROWED_NOTE =
+  "(Hermes has no AI provider of its own yet, so this answer used your Brain team's model. Run `hermes model` in a terminal to give it one, or turn on “Use the Brain team's models” to make this the plan.)\n\n";
+
+/**
+ * Holds back the start of a reply, so Hermes's "not connected to any AI provider" answer can be
+ * caught before it shows in the chat. Anything else is passed on once it's clearly not that answer
+ * (enough text, or a tool step).
+ */
+export function holdBack(turn: EngineTurn, enough = 160) {
+  let held = "";
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    if (held) turn.emit({ type: "text", text: held });
+  };
+  const emit: EngineTurn["emit"] = (event) => {
+    if (released) return turn.emit(event);
+    if (event.type !== "text") {
+      release();
+      return turn.emit(event);
+    }
+    held += event.text;
+    if (held.length >= enough && !NO_PROVIDER.test(held)) release();
+  };
+  return {
+    turn: { ...turn, emit },
+    /** Whether the reply so far is Hermes's "no provider" answer (nothing of it was shown). */
+    noProvider: () => !released && NO_PROVIDER.test(held),
+    release
+  };
+}
