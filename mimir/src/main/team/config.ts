@@ -30,7 +30,7 @@ export const DEFAULT_TEAM: TeamConfig = {
   engine: "mimir",
   engineModels: "team",
   thinking: false,
-  engineCommands: { "claude-code": null, opencode: null },
+  engineCommands: { "claude-code": null, opencode: null, hermes: null },
   roles: {
     head: role(endpoint(MODELS.macHead)),
     checker: role(endpoint(MODELS.macHead)),
@@ -39,7 +39,8 @@ export const DEFAULT_TEAM: TeamConfig = {
   checkerSameAsHead: true,
   checkEachStep: false,
   preset: null,
-  vision: null
+  vision: null,
+  honcho: { enabled: false, baseUrl: null, peerName: "me", keySaved: false }
 };
 
 export const TEAM_PRESETS: TeamPreset[] = [
@@ -99,7 +100,7 @@ export function presetConfig(id: string, current: TeamConfig, pcAddress?: string
 }
 
 const PROVIDERS = new Set(["anthropic", "ollama", "openai-compatible"]);
-const ENGINES = new Set(["mimir", "claude-code", "opencode"]);
+const ENGINES = new Set(["mimir", "claude-code", "opencode", "hermes"]);
 const TIERS = new Set(["auto", "core", "full"]);
 
 const cleanCommand = (raw: unknown): string | null => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 500) : null);
@@ -122,6 +123,18 @@ function cleanRole(raw: unknown, fallback: RoleConfig): RoleConfig {
   };
 }
 
+function cleanHoncho(raw: unknown, fallback: TeamConfig["honcho"]): TeamConfig["honcho"] {
+  const h = (raw ?? {}) as Partial<TeamConfig["honcho"]>;
+  const url = typeof h.baseUrl === "string" && /^https?:\/\//.test(h.baseUrl.trim()) ? h.baseUrl.trim().slice(0, 300) : h.baseUrl === null ? null : fallback.baseUrl;
+  const peer = typeof h.peerName === "string" && /^[\w.-]{1,40}$/.test(h.peerName.trim()) ? h.peerName.trim() : fallback.peerName;
+  return {
+    enabled: typeof h.enabled === "boolean" ? h.enabled : fallback.enabled,
+    baseUrl: url,
+    peerName: peer,
+    keySaved: typeof h.keySaved === "boolean" ? h.keySaved : fallback.keySaved
+  };
+}
+
 /** A whole, valid config from whatever was stored or sent, filling gaps from `base`. */
 export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): TeamConfig {
   const c = (raw ?? {}) as Partial<TeamConfig>;
@@ -133,7 +146,8 @@ export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): 
     thinking: typeof c.thinking === "boolean" ? c.thinking : base.thinking,
     engineCommands: {
       "claude-code": c.engineCommands && "claude-code" in c.engineCommands ? cleanCommand(c.engineCommands["claude-code"]) : base.engineCommands["claude-code"],
-      opencode: c.engineCommands && "opencode" in c.engineCommands ? cleanCommand(c.engineCommands.opencode) : base.engineCommands.opencode
+      opencode: c.engineCommands && "opencode" in c.engineCommands ? cleanCommand(c.engineCommands.opencode) : base.engineCommands.opencode,
+      hermes: c.engineCommands && "hermes" in c.engineCommands ? cleanCommand(c.engineCommands.hermes) : base.engineCommands.hermes
     },
     roles: {
       head: cleanRole(roles.head, base.roles.head),
@@ -143,7 +157,8 @@ export function cleanTeamConfig(raw: unknown, base: TeamConfig = DEFAULT_TEAM): 
     checkerSameAsHead: typeof c.checkerSameAsHead === "boolean" ? c.checkerSameAsHead : base.checkerSameAsHead,
     checkEachStep: typeof c.checkEachStep === "boolean" ? c.checkEachStep : base.checkEachStep,
     preset: typeof c.preset === "string" ? c.preset : c.preset === null ? null : base.preset,
-    vision: c.vision === null ? null : c.vision ? cleanEndpoint(c.vision, base.vision ?? endpoint(MODELS.pcChecker)) : base.vision
+    vision: c.vision === null ? null : c.vision ? cleanEndpoint(c.vision, base.vision ?? endpoint(MODELS.pcChecker)) : base.vision,
+    honcho: cleanHoncho(c.honcho, base.honcho)
   };
 }
 

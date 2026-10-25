@@ -71,6 +71,8 @@ import { loadCodingConfig, saveCodingConfig, type CodingConfig } from "./coding/
 import { applyTeamPreset, loadTeamConfig, saveTeamConfig, TEAM_PRESETS } from "./team/config.js";
 import { clearProbeCache, probeEndpoint, teamStatus } from "./team/endpoints.js";
 import { checkEngine } from "./engines/common.js";
+import { HONCHO_KEY } from "./engines/index.js";
+import { setSecret } from "./config/keychain.js";
 import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
@@ -273,9 +275,14 @@ const invokeHandlers: Record<string, Handler> = {
       return { ok: false, message: err instanceof Error ? err.message : String(err), view: await setupView() };
     }
   },
-  [IPC.teamCheckEngine]: async (engine: "claude-code" | "opencode") => {
+  [IPC.teamCheckEngine]: async (engine: "claude-code" | "opencode" | "hermes") => {
     const team = await loadTeamConfig();
-    return checkEngine(engine, team.engineCommands[engine] ?? (engine === "claude-code" ? "claude" : "opencode"));
+    return checkEngine(engine, team.engineCommands[engine] ?? (engine === "claude-code" ? "claude" : engine));
+  },
+  [IPC.teamSetHonchoKey]: async (key: string): Promise<TeamConfig> => {
+    await setSecret(HONCHO_KEY, key.trim());
+    const team = await loadTeamConfig();
+    return saveTeamConfig({ honcho: { ...team.honcho, keySaved: key.trim().length > 0 } });
   },
   [IPC.chatgptGetConfig]: (): Promise<ChatGptConfig> => loadChatGptConfig(),
   [IPC.chatgptSetConfig]: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => saveChatGptConfig(patch),

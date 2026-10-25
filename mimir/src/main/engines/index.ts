@@ -3,12 +3,18 @@ import type { TeamConfig } from "../../shared/types.js";
 import { runClaudeCode } from "./claudeCode.js";
 import { roleUpstream, type EngineResult, type EngineTurn } from "./common.js";
 import { OpenCodeAgent } from "./openCode.js";
+import { HermesAgent, type HonchoSettings } from "./hermes.js";
+import { getSecret } from "../config/keychain.js";
 
-/** Runs a chat turn on Claude Code or OpenCode, keeping each one's conversation going between
+/** Where Honcho's API key is kept (the OS keychain). */
+export const HONCHO_KEY = "honcho:api-key";
+
+/** Runs a chat turn on Claude Code, OpenCode or Hermes, keeping each one's conversation going between
  * messages (Claude Code by session id, OpenCode by keeping its process up). */
 export class EngineRunner {
   private claude: { key: string; sessionId: string | null } = { key: "", sessionId: null };
   private openCode = new OpenCodeAgent();
+  private hermes = new HermesAgent();
 
   async run(team: TeamConfig, turn: EngineTurn): Promise<EngineResult> {
     await mkdir(turn.cwd, { recursive: true });
@@ -26,6 +32,16 @@ export class EngineRunner {
       const models = useTeam ? { head: await roleUpstream(team, "head"), executor: await roleUpstream(team, "executor") } : null;
       return this.openCode.run(turn, { command: team.engineCommands.opencode ?? "opencode", models });
     }
+    if (team.engine === "hermes") {
+      const model = useTeam ? await roleUpstream(team, "head") : null;
+      let honcho: HonchoSettings | null = null;
+      if (team.honcho.enabled) {
+        const apiKey = await getSecret(HONCHO_KEY).catch(() => null);
+        if (!apiKey && !team.honcho.baseUrl) throw new Error("Honcho is on but has no API key or server address: add one in Settings → Brain team, or turn Honcho off.");
+        honcho = { apiKey, baseUrl: team.honcho.baseUrl, peerName: team.honcho.peerName };
+      }
+      return this.hermes.run(turn, { command: team.engineCommands.hermes ?? "hermes", model, honcho, intro: turn.intro });
+    }
     throw new Error(`No engine called ${team.engine}`);
   }
 
@@ -33,9 +49,11 @@ export class EngineRunner {
   reset(): void {
     this.claude = { key: "", sessionId: null };
     this.openCode.stop();
+    this.hermes.stop();
   }
 
   close(): void {
     this.openCode.stop();
+    this.hermes.stop();
   }
 }

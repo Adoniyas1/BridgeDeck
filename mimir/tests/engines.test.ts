@@ -10,6 +10,7 @@ import { estimateTokens, startAnthropicBridge, StreamTranslator, toOpenAIRequest
 import { ClaudeStreamParser, runClaudeCode } from "../src/main/engines/claudeCode.js";
 import { describeToolCall, roleForModel, type EngineEvent, type EngineTurn } from "../src/main/engines/common.js";
 import { OpenCodeAgent, openCodeConfig } from "../src/main/engines/openCode.js";
+import { HermesAgent, hermesConfig, honchoConfig } from "../src/main/engines/hermes.js";
 import { cleanTeamConfig, DEFAULT_TEAM } from "../src/main/team/config.js";
 import type { ToolApproval } from "../src/shared/types.js";
 
@@ -274,11 +275,44 @@ describe("OpenCode engine", () => {
   });
 });
 
+describe("Hermes engine", () => {
+  it("runs in Mimir's own profile with the team's model, and starts each conversation with what Mimir knows", async () => {
+    const cwd = await tempDir();
+    const home = path.join(cwd, "hermes-home");
+    const agent = new HermesAgent();
+    cleanups.push(() => agent.stop());
+    const model = { baseUrl: "http://pc:8080/", model: "bonsai-2-27b" };
+    const first = turnIn(cwd, "run echo", true);
+    const one = await agent.run(first.turn, { command: fakeAcp, model, honcho: null, intro: "About the user: EE student", home });
+    expect(one.text).toBe("Turn 1 in ses_1: ran it (About the user: EE student\n\n---\n\nrun echo).");
+    const config = await readFile(path.join(home, "config.yaml"), "utf8");
+    expect(config).toContain('provider: custom');
+    expect(config).toContain('default: "bonsai-2-27b"');
+    expect(config).toContain('base_url: "http://pc:8080/v1"');
+    expect(config).not.toContain("honcho");
+    // The same conversation: no intro again.
+    const two = await agent.run(turnIn(cwd, "again", true).turn, { command: fakeAcp, model, honcho: null, intro: "About the user: EE student", home });
+    expect(two.text).toBe("Turn 2 in ses_1: ran it (again).");
+  }, 30_000);
+
+  it("writes Honcho's settings when chosen and says when Hermes isn't installed", async () => {
+    const honcho = { apiKey: "hk_1", baseUrl: null, peerName: "adoniyas" };
+    expect(hermesConfig({ baseUrl: "http://127.0.0.1:8080", model: "m" }, honcho)).toContain("memory:\n  provider: honcho");
+    expect(JSON.parse(honchoConfig(honcho))).toMatchObject({ apiKey: "hk_1", peerName: "adoniyas", aiPeer: "mimir" });
+    expect(JSON.parse(honchoConfig({ apiKey: null, baseUrl: "http://localhost:8000", peerName: "me" }))).not.toHaveProperty("apiKey");
+    const cwd = await tempDir();
+    const agent = new HermesAgent();
+    cleanups.push(() => agent.stop());
+    await expect(agent.run(turnIn(cwd, "hi", true).turn, { command: "no-such-hermes-cmd", model: null, honcho: null })).rejects.toThrow(/Hermes isn't installed/);
+  });
+});
+
 describe("engine settings", () => {
   it("cleans the engine fields and describes tool calls for the approval card", () => {
     const c = cleanTeamConfig({ engine: "opencode", engineModels: "own", engineCommands: { "claude-code": "  /opt/claude  ", opencode: "" } });
-    expect(c).toMatchObject({ engine: "opencode", engineModels: "own", engineCommands: { "claude-code": "/opt/claude", opencode: null } });
-    expect(cleanTeamConfig({ engine: "nope", engineModels: "x" })).toMatchObject({ engine: "mimir", engineModels: "team", engineCommands: { "claude-code": null, opencode: null } });
+    expect(c).toMatchObject({ engine: "opencode", engineModels: "own", engineCommands: { "claude-code": "/opt/claude", opencode: null, hermes: null } });
+    expect(cleanTeamConfig({ engine: "nope", engineModels: "x" })).toMatchObject({ engine: "mimir", engineModels: "team", engineCommands: { "claude-code": null, opencode: null, hermes: null } });
+    expect(cleanTeamConfig({ engine: "hermes", honcho: { enabled: true, baseUrl: "ftp://x", peerName: "bad name!" } })).toMatchObject({ engine: "hermes", honcho: { enabled: true, baseUrl: null, peerName: "me" } });
     expect(describeToolCall("Edit", { file_path: "/x/a.ts", old_string: "a", new_string: "b" })).toEqual({ title: "Change /x/a.ts", detail: "- a\n+ b" });
     expect(describeToolCall("write", { filePath: "b.md", content: "hi" })).toEqual({ title: "Write b.md", detail: "hi" });
     expect(describeToolCall("mcp__git__commit", { message: "m" }).title).toBe("Use mcp__git__commit");

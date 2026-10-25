@@ -31,6 +31,7 @@ import { buildWebToolset } from "../web/tools.js";
 import { syncMemory } from "../bridgedeck/memory.js";
 import { readPersonaFile } from "../persona/compose.js";
 import { personaRelativePath } from "../persona/paths.js";
+import { readMemoryFiles } from "../persona/memoryFiles.js";
 import { PERSONA_VERIFY_STEPS } from "../self-edit/verifyPresets.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -393,7 +394,7 @@ export class AgentSession {
    * folder, and anything that needs an OK comes back here as an approval card. */
   private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[]): Promise<void> {
     const { win } = this.deps;
-    const engine = team.engine as "claude-code" | "opencode";
+    const engine = team.engine as "claude-code" | "opencode" | "hermes";
     const abort = new AbortController();
     this.engineAbort = abort;
     this.history.push({ role: "user", content: userText, attachments });
@@ -403,8 +404,11 @@ export class AgentSession {
     const log = new TurnLog(`${engineName(engine)} (${team.engineModels === "team" ? "team's models" : "its own models"})`, userText);
     let reply = "";
     try {
+      // Hermes keeps its own conversations: it starts each one knowing what Mimir knows about the user.
+      const intro = engine === "hermes" ? await this.engineIntro() : undefined;
       const result = await this.engines.run(team, {
         prompt: userText,
+        intro,
         cwd: await codingRoot(),
         projectsRoot: defaultProjectsRoot(),
         approve: async (request) => {
@@ -441,6 +445,13 @@ export class AgentSession {
         win.webContents.send(IPC.faceState, "idle");
       }
     }
+  }
+
+  /** What Mimir knows about the user (USER.md) and remembers (MEMORY.md), for an outside agent. */
+  private async engineIntro(): Promise<string | undefined> {
+    const { user, memory } = await readMemoryFiles(this.deps.workspaceRoot).catch(() => ({ user: "", memory: "" }));
+    const parts = [user.trim() && `## About the user\n${user.trim().slice(0, 6000)}`, memory.trim() && `## What Mimir remembers\n${memory.trim().slice(0, 6000)}`].filter(Boolean);
+    return parts.length ? `You are working as Mimir, the user's assistant. What Mimir already knows (use it; don't repeat it back):\n\n${parts.join("\n\n")}` : undefined;
   }
 
   /** Continues a saved chat, or starts a new one for an empty history: those messages become the
