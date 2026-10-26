@@ -48,6 +48,12 @@ export default function SetupSettings() {
         Gets the Brain team's models running here without a terminal: llama-swap in front of llama.cpp{mac ? " on the Mac's GPU" : " on the NVIDIA card"}.
         Programs Mimir downloads go in ~/.mimir/bin.
       </p>
+      {window.mimir.bridgedeck.embedded && (
+        <p className="hint">
+          To download models and give one to a role, use BridgeDeck's AI models.{" "}
+          <button type="button" className="btn" onClick={() => window.mimir.bridgedeck.openAiSettings()}>Open AI models</button>
+        </p>
+      )}
       <Hardware view={view} />
       <div className="team-engine__pick" role="radiogroup" aria-label="This computer">
         {(["mac", "pc"] as const).map((c) => (

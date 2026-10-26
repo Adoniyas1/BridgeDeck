@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { Brain, Download, Orbit, Play, Square } from 'lucide-react'
+import { Bot, Brain, Download, MessageCircleQuestion, Orbit, Play, Settings2, Square } from 'lucide-react'
 import { isTauri, mimirStart, openExternal, mimirStatus, mimirStop, skillPacksInstall, skillPacksStatus, mimirActivity, type MimirActivity, type MimirStatus, type SkillPacksStatus } from '../../lib/bridge'
 import { configStore, setConfig, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -9,6 +9,8 @@ import { activateTab, splitTab, tabsStore } from '../../core/tabs'
 import { workContext } from '../../core/tabContext'
 import { aiAllowed, examStore } from '../../core/exam'
 import { jarvisRequestStore, MOD } from '../../core/shortcuts'
+import { openSettings } from '../../core/settingsNav'
+import { toggleChatPanel } from '../../core/chatgpt'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import { MimirBrain, ModelLibrary } from './Brain'
 import type { FeatureManifest } from '../features'
@@ -58,10 +60,13 @@ function MimirBackground() {
   return null
 }
 
-// Mimir's chat asks for what's open in BridgeDeck (the last tab worked in) to attach to a message.
+// Mimir's page asks BridgeDeck for things: what's open (the last tab worked in) to attach to a
+// message, or its AI settings (model downloads live there).
 if (typeof window !== 'undefined') window.addEventListener('message', event => {
   const data = event.data as { source?: string; type?: string; id?: unknown } | null
-  if (data?.source !== 'mimir' || data.type !== 'context-request' || !frame?.contentWindow || event.source !== frame.contentWindow) return
+  if (data?.source !== 'mimir' || !frame?.contentWindow || event.source !== frame.contentWindow) return
+  if (data.type === 'open-settings') { openSettings('mimir'); return }
+  if (data.type !== 'context-request') return
   const url = mimirStore.get().url
   if (!url) return
   frame.contentWindow.postMessage({ source: 'bridgedeck', type: 'context', id: data.id, context: workContext() }, new URL(url).origin)
@@ -75,6 +80,12 @@ export async function askMimir(text: string, beside = false, course?: string) {
   if (beside && tabsStore.get().active !== 'mimir') splitTab('mimir')
   else activateTab('mimir')
   await postWhenReady({ source: 'bridgedeck', type: 'ask', text })
+}
+
+/** Opens the Mimir tab with its own settings (voice, persona, the team's roles). */
+export async function openMimirSettings() {
+  activateTab('mimir')
+  await postWhenReady({ source: 'bridgedeck', type: 'settings' })
 }
 
 /** Opens the Mimir tab in Jarvis's Talk view (the orb and captions, for voice). */
@@ -137,17 +148,31 @@ function MimirPage() {
   </div>
 }
 
+/** Settings → AI: every AI part of BridgeDeck in one place. Mimir (with Jarvis, its brain and models),
+ *  the ChatGPT side panel (kept separate: your own chatgpt.com account), and outside agents. */
 function MimirSettings() {
   const config = useConfig()
   const status = useStore(mimirStore)
-  return <Card><SectionTitle title="Mimir" subtitle={status.phase === 'running' ? 'Running inside BridgeDeck' : phaseText(status, config.mimir.enabled)} />
+  const running = status.phase === 'running'
+  return <Card><SectionTitle title="Mimir" subtitle={running ? 'Your assistant, running inside BridgeDeck' : phaseText(status, config.mimir.enabled)} />
     <Toggle checked={config.mimir.enabled} onChange={enabled => { setConfig(c => ({ ...c, mimir: { ...c.mimir, enabled } })); if (!enabled) void mimirStop().then(mimirStore.set).catch(() => undefined) }} label="Run Mimir with BridgeDeck" />
     <div className="actions">
       <button disabled={!config.mimir.enabled} onClick={() => void openJarvis()} title={`${MOD} Shift J`}><Orbit size={15}/>Open Jarvis</button>
-      {status.phase === 'running' && <button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button>}
+      <button className="secondary" disabled={!running} onClick={() => void openMimirSettings()} title="Voice, persona, the team's roles and model servers"><Settings2 size={15}/>Voice, persona and team</button>
+      {running && <button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button>}
     </div>
-    <p className="hint">Mimir opens as Jarvis: Talk for voice, Chat for the whole conversation ({MOD} J inside Mimir switches them). {MOD} Shift J from anywhere in BridgeDeck brings it up in Talk. Its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'} while it runs; voice and persona settings are in the Mimir tab (⚙).</p>
-    {status.phase === 'running' ? <><MimirBrain /><ModelLibrary /></> : <p className="hint">Start Mimir to choose its engine and download models here.</p>}
+    <p className="hint">Mimir opens as Jarvis: Talk for voice, Chat for the whole conversation ({MOD} J inside Mimir switches them). {MOD} Shift J from anywhere in BridgeDeck brings it up in Talk; its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'}. “Ask Mimir” in Study, Code and Notes opens it beside what you’re working on, and it can see that tab, your notes, calendar and courses. Its memory is the notes “Mimir’s memory” and “About you (Mimir)”.</p>
+    {running ? <><MimirBrain /><ModelLibrary /></> : <p className="hint">Start Mimir to choose its engine and download models here.</p>}
+    <div className="settings-block">
+      <h3>ChatGPT side panel</h3>
+      <p className="hint">Separate from Mimir: chatgpt.com in a panel, signed in with your own account ({MOD} J, or the button in the top bar). “Ask ChatGPT” in Study, Projects and the Browser puts the question in its message box for you to send, and “Save to BridgeDeck” makes the chat a note.</p>
+      <div className="actions"><button className="secondary" onClick={toggleChatPanel}><MessageCircleQuestion size={15}/>Open ChatGPT</button></div>
+    </div>
+    <div className="settings-block">
+      <h3>Agents</h3>
+      <p className="hint">Other AI assistants (Claude Code, Codex…) that connect to BridgeDeck show up under AI → Agents, where they share rooms and claim files so they don’t clash. Mimir can post in those rooms too.</p>
+      <div className="actions"><button className="secondary" onClick={() => activateTab('ai')}><Bot size={15}/>Open Agents</button></div>
+    </div>
     <SkillPacks />
     <ActivityLog />
   </Card>

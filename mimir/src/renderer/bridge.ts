@@ -49,6 +49,7 @@ const listeners = new Map<string, Set<Listener>>();
 /** Questions from BridgeDeck (not an IPC channel: they come from the page around this one). */
 const ASK = "bridgedeck:ask";
 const JARVIS = "bridgedeck:jarvis";
+const OPEN_SETTINGS = "bridgedeck:settings";
 
 /** Inside BridgeDeck (its Mimir tab): this page is in a frame BridgeDeck made. */
 const embedded = window.parent !== window;
@@ -149,7 +150,13 @@ const api = {
   },
   bridgedeck: {
     embedded,
-    context: bridgeDeckContext
+    context: bridgeDeckContext,
+    /** Opens BridgeDeck's Settings → AI (the engine, Hermes, Honcho and model downloads live there too). */
+    openAiSettings: () => {
+      if (embedded) window.parent.postMessage({ source: "mimir", type: "open-settings" }, "*");
+    },
+    /** BridgeDeck asked for Mimir's own settings (voice, persona, team roles). */
+    onOpenSettings: (cb: () => void) => on(OPEN_SETTINGS, cb)
   },
   face: {
     onState: (cb: (state: FaceState) => void) => on(IPC.faceState, cb)
@@ -269,6 +276,7 @@ window.addEventListener("message", (event) => {
   const text = typeof ask?.text === "string" ? ask.text.trim().slice(0, 20000) : "";
   if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
   if (data?.source === "bridgedeck" && data.type === "jarvis") listeners.get(JARVIS)?.forEach((cb) => cb());
+  if (data?.source === "bridgedeck" && data.type === "settings") listeners.get(OPEN_SETTINGS)?.forEach((cb) => cb());
   const reply = event.data as { source?: string; type?: string; id?: unknown; context?: { title?: unknown; text?: unknown } | null } | null;
   if (reply?.source === "bridgedeck" && reply.type === "context" && typeof reply.id === "number") {
     const done = contextWaiting.get(reply.id);

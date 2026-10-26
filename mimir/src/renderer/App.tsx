@@ -55,7 +55,8 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     // BridgeDeck's Jarvis button and ⌘/Ctrl+Shift+J: straight to Talk.
     const offOpen = window.mimir.jarvis.onOpen(() => { closePanels(); setView("talk"); });
-    return () => { window.removeEventListener("keydown", onKey); offOpen(); };
+    const offSettings = window.mimir.bridgedeck.onOpenSettings(() => { closePanels(); setShowSettings(true); });
+    return () => { window.removeEventListener("keydown", onKey); offOpen(); offSettings(); };
   }, []);
 
   function closePanels() {

@@ -18,4 +18,4 @@ function AiBackground() {
   return null
 }
 
-export const ai: FeatureManifest = { id: 'ai', title: 'AI Center', icon: Bot, Page: AiPage, Background: AiBackground, tabKinds: { 'ai-room': RoomTab }, badge: openRoomsStore }
+export const ai: FeatureManifest = { id: 'ai', title: 'Agents', icon: Bot, Page: AiPage, Background: AiBackground, tabKinds: { 'ai-room': RoomTab }, badge: openRoomsStore }
