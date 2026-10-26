@@ -46,13 +46,13 @@ export default function StudyPage({ active }: { active: boolean }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [newCourse, setNewCourse] = useState('')
   const [status, setStatus] = useState('')
+  // Refreshed while Study is on screen, and for a minute after (usePeriodicRefresh pauses it then).
   usePeriodicRefresh(async () => {
-    if (!active) return
     await refreshLibrary()
     // Read the text of new books in the background, for search and Mimir.
     const current = libraryStore.get().library
     if (current) void indexLibrary(current, () => void refreshLibrary())
-  }, 10_000, [active])
+  }, 10_000, [])
   const [showArchived, setShowArchived] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
   const [plannerOpen, setPlannerOpen] = useState(false)

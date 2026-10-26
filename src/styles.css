@@ -2036,3 +2036,8 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .ai-check strong{display:block;font-size:12px;color:var(--text)}.ai-check small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
 .ai-check--ok>svg{color:var(--good,#42c98a)}.ai-check--warn>svg{color:var(--warn)}.ai-check--fail>svg{color:var(--bad)}
 .ai-check__fix{color:var(--text)!important}
+/* A lecture recording or transcribing while you work in other tabs (features/study/LecturePill.tsx). */
+.lecture-pill{position:fixed;left:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line-strong);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px}
+.lecture-pill button{padding:4px 9px;font-size:12px;display:inline-flex;align-items:center;gap:5px;border-radius:999px}
+.lecture-pill__what{background:transparent;border:0;color:var(--text)}
+.lecture-pill--transcribing .lecture-pill__what{color:var(--muted)}

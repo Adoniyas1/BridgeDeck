@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTabAwake } from '../../core/awake'
 import { ExternalLink, Globe, Laptop, Music, Pause, Play, RotateCw, SkipBack, SkipForward, Volume2 } from 'lucide-react'
 import { browserGo, isTauri, openExternal, spotifyControl, spotifyOpen, spotifyStatus, type NowPlaying } from '../../lib/bridge'
 import { useOverlayOpen } from '../../core/shortcuts'
@@ -78,13 +79,14 @@ function AppPlayer({ active }: { active: boolean }) {
     if (!isTauri()) return
     try { const n = await spotifyStatus(); setNow(n); setAt(Date.now()); if (n.volume != null) setVolume(v => v ?? n.volume) } catch (e) { setError(errorText(e, 'Couldn’t reach Spotify')) }
   }
+  const awake = useTabAwake()
   useEffect(() => {
-    if (!active) return
+    if (!awake) return
     void refresh()
     const poll = window.setInterval(() => void refresh(), 2500)
     const second = window.setInterval(() => tick(t => t + 1), 1000)
     return () => { window.clearInterval(poll); window.clearInterval(second) }
-  }, [active])
+  }, [awake])
 
   async function act(action: 'playpause' | 'next' | 'previous' | 'volume', value?: number) {
     setBusy(true); setError('')

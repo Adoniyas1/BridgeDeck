@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTabAwake } from '../../core/awake'
 import { Check, Circle, CircleDot, FileLock, Plus, Trash2, Unlock } from 'lucide-react'
 import { aiClaimRelease, aiRoomRemove, aiRoomUpdate, aiTaskAdd, aiTaskUpdate } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
@@ -23,13 +24,14 @@ export default function RoomTab({ tab, active }: { tab: DynamicTab; active: bool
   const [task, setTask] = useState('')
   const room = workspace.rooms.find(r => r.id === id)
 
+  const awake = useTabAwake()
   useEffect(() => {
-    if (!active) return
+    if (!awake) return
     const load = () => Promise.all([refreshWorkspace(), refreshFeed().catch(() => undefined)])
     void load()
     const timer = window.setInterval(() => void load(), 2500)
     return () => window.clearInterval(timer)
-  }, [active, id])
+  }, [awake, id])
 
   const act = async (what: string, change: () => Promise<unknown>) => {
     try { await change(); await refreshWorkspace() } catch (error) { setNotice(errorText(error, `Could not ${what}`)) }
