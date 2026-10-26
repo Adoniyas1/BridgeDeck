@@ -42,6 +42,15 @@ summary small{color:var(--muted);font-weight:400}
 .locked{text-align:center;padding:30px 10px}
 .thumbs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.thumbs figure{position:relative;margin:0;width:64px}.thumbs img{width:64px;height:84px;object-fit:cover;border-radius:6px;display:block}.thumbs figcaption{font-size:11px;text-align:center}.thumbs button{position:absolute;top:2px;right:2px;padding:0 6px}
 select{width:100%;font:inherit;padding:8px;border-radius:8px}
+.mimir-head{display:flex;align-items:center;gap:12px}
+.orb{width:34px;height:34px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 35%,#fff,#6ee7ff 45%,rgba(110,231,255,.15) 75%);box-shadow:0 0 18px rgba(110,231,255,.45)}
+.orb.thinking{background:radial-gradient(circle at 35% 35%,#fff,#a78bfa 45%,rgba(167,139,250,.15) 75%);box-shadow:0 0 18px rgba(167,139,250,.5);animation:orb 1.2s ease-in-out infinite}
+.orb.speaking,.orb.listening{animation:orb .7s ease-in-out infinite}.orb.listening{background:radial-gradient(circle at 35% 35%,#fff,#4ade80 45%,rgba(74,222,128,.15) 75%)}
+.orb.error{background:radial-gradient(circle at 35% 35%,#fff,#f87171 45%,rgba(248,113,113,.15) 75%)}
+@keyframes orb{50%{transform:scale(1.12)}}
+@media (prefers-reduced-motion: reduce){.orb{animation:none!important}}
+.you{color:var(--muted);margin:10px 0 0;font-size:14px}.reply{margin:6px 0 0;white-space:pre-wrap}
+.ask{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}.ask pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:6px 0;max-height:120px;overflow:auto}
 </style>
 </head>
 <body>
@@ -49,6 +58,16 @@ select{width:100%;font:inherit;padding:8px;border-radius:8px}
 <div id="locked" class="locked" hidden><h2>Not connected</h2><p class="note" id="lockedText">Open this page from the link or QR code in BridgeDeck → Settings → Phone.</p></div>
 <main id="main" hidden>
   <p id="offline" class="note err" hidden>Can’t reach the computer: showing the last copy. Ticks and reviews are kept here and sent when it’s back.</p>
+  <section id="mimir" hidden>
+    <h2>Mimir</h2>
+    <div class="mimir-head"><span class="orb" id="orb"></span><strong id="mState">Standing by</strong></div>
+    <p class="you" id="mYou" hidden></p>
+    <p class="reply" id="mReply" hidden></p>
+    <div id="mApprovals"></div>
+    <div class="row"><input type="text" id="mText" placeholder="Ask Mimir" enterkeyhint="send" autocomplete="off"><button class="plain" id="mMic" hidden title="Talk">🎤</button><button id="mAsk">Ask</button></div>
+    <label class="note"><input type="checkbox" id="mSpeak"> Read answers aloud</label>
+    <p class="note" id="mNote">The same conversation as Jarvis on the computer.</p>
+  </section>
   <section>
     <h2>Send to the computer</h2>
     <textarea id="text" placeholder="Text or a link. It lands on the computer's clipboard."></textarea>
@@ -237,7 +256,68 @@ window.addEventListener('hashchange', function () { location.reload() })
     list.forEach(function (c) { var o = el('option', { value: c }, c); if (c === had) o.selected = true; sel.appendChild(o) })
   }
 
+  // Mimir: ask by typing or talking (the browser turns speech into text), see what it's doing and
+  // its answer, and allow or deny what it asks to do. Answers can be read aloud here.
+  var STATE_WORDS = { idle: 'Standing by', listening: 'Listening', thinking: 'Working on it', speaking: 'Speaking', error: 'Something went wrong' }
+  var lastVersion = -1, wasBusy = false, mimirTimer = 0
+  try { $('mSpeak').checked = localStorage.getItem('bd-mimir-speak') === '1' } catch (e) {}
+  $('mSpeak').addEventListener('change', function () { try { localStorage.setItem('bd-mimir-speak', $('mSpeak').checked ? '1' : '0') } catch (e) {} })
+  function say(text) {
+    if (!$('mSpeak').checked || !window.speechSynthesis || !text) return
+    speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text.replace(/[*_#`>|]/g, '').slice(0, 1500)))
+  }
+  function showMimir(r) {
+    $('mimir').hidden = false
+    if (!r.running) { $('mState').textContent = 'Mimir isn’t running on the computer'; $('orb').className = 'orb error'; return false }
+    var c = r.conversation
+    if (c.version === lastVersion) return c.busy
+    lastVersion = c.version
+    $('orb').className = 'orb ' + c.state
+    $('mState').textContent = c.busy && c.state === 'idle' ? 'Working on it' : STATE_WORDS[c.state] || c.state
+    $('mYou').hidden = !c.you; $('mYou').textContent = c.you ? '“' + c.you + '”' : ''
+    var reply = c.error ? c.error : c.reply
+    $('mReply').hidden = !reply; $('mReply').textContent = reply; $('mReply').className = 'reply' + (c.error ? ' err' : '')
+    var box = $('mApprovals'); box.textContent = ''
+    c.approvals.forEach(function (a) {
+      var card = el('div', { class: 'ask' }); card.appendChild(el('strong', {}, a.title)); if (a.detail) card.appendChild(el('pre', {}, a.detail))
+      var row = el('div', { class: 'row' }), yes = el('button', {}, 'Allow'), no = el('button', { class: 'plain' }, 'Deny')
+      yes.addEventListener('click', function () { decide(a.id, true) }); no.addEventListener('click', function () { decide(a.id, false) })
+      row.appendChild(el('span')); row.appendChild(no); row.appendChild(yes); card.appendChild(row); box.appendChild(card)
+    })
+    if (wasBusy && !c.busy && !c.error) say(c.reply)
+    wasBusy = c.busy
+    return c.busy
+  }
+  function pollMimir() {
+    clearTimeout(mimirTimer)
+    if (document.hidden) return
+    api('/api/mimir').then(showMimir).catch(function () { return false }).then(function (busy) { mimirTimer = setTimeout(pollMimir, busy ? 1000 : 5000) })
+  }
+  function decide(id, allow) { api('/api/mimir/decide', { id: id, allow: allow }).then(pollMimir).catch(function (e) { $('mNote').textContent = e.message }) }
+  function ask(text) {
+    text = (text || '').trim(); if (!text) return
+    if (window.speechSynthesis) speechSynthesis.cancel()
+    $('mNote').textContent = 'Asked.'
+    api('/api/mimir/ask', { text: text }).then(function () { $('mText').value = ''; wasBusy = true; pollMimir() }).catch(function (e) { $('mNote').textContent = e.message })
+  }
+  $('mAsk').addEventListener('click', function () { ask($('mText').value) })
+  $('mText').addEventListener('keydown', function (e) { if (e.key === 'Enter') ask($('mText').value) })
+  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (Recognition) {
+    $('mMic').hidden = false
+    $('mMic').addEventListener('click', function () {
+      var rec = new Recognition(); rec.lang = navigator.language || 'en-US'; rec.interimResults = true
+      $('mNote').textContent = 'Listening… speak, then pause.'; $('orb').className = 'orb listening'
+      rec.onresult = function (e) { var t = ''; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; $('mText').value = t; if (e.results[e.results.length - 1].isFinal) { rec.stop(); ask(t) } }
+      rec.onerror = function (e) { $('mNote').textContent = e.error === 'not-allowed' ? 'The microphone isn’t allowed: open this page over HTTPS (Settings → Phone → Tailscale with HTTPS), or type, or use the keyboard’s dictation.' : 'Didn’t catch that: ' + e.error }
+      rec.onend = function () { lastVersion = -1; pollMimir() }
+      rec.start()
+    })
+  }
+
   refresh()
+  pollMimir()
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) pollMimir() })
   setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh() })
 })()

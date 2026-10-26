@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTabAwake } from './awake'
 
 type Refresher = () => Promise<void> | void
 
@@ -27,6 +28,8 @@ export function nextDelay(intervalMs: number, hidden: boolean, whileHidden: 'slo
  *  phone page). Showing the window again refreshes at once. */
 export function usePeriodicRefresh(refresh: Refresher, intervalMs: number, deps: unknown[], whileHidden: 'slow' | 'same' = 'slow') {
   const latest = useRef(refresh)
+  // In a tab hidden for over a minute, refreshes pause; coming back refreshes at once.
+  const awake = useTabAwake()
   latest.current = refresh
 
   useEffect(() => {
@@ -36,6 +39,7 @@ export function usePeriodicRefresh(refresh: Refresher, intervalMs: number, deps:
   }, [])
 
   useEffect(() => {
+    if (!awake) return
     let timer: number | undefined
     let stopped = false
     let running = false
@@ -50,5 +54,5 @@ export function usePeriodicRefresh(refresh: Refresher, intervalMs: number, deps:
     void run()
     document.addEventListener('visibilitychange', onShow)
     return () => { stopped = true; window.clearTimeout(timer); document.removeEventListener('visibilitychange', onShow) }
-  }, deps)
+  }, [...deps, awake])
 }

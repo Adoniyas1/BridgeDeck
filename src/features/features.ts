@@ -9,11 +9,12 @@ export type FeatureManifest = {
   id: string
   title: string
   icon: LucideIcon
-  /** Fixed tab content. `active` is false while another tab is showing (only `keepAlive` pages stay mounted). */
+  /** Fixed tab content. Once opened it stays loaded; `active` is false while another tab is showing.
+   *  Its refreshes keep going for a minute after that, then pause (core/awake.ts useTabAwake). */
   Page?: ComponentType<{ active: boolean }>
-  /** Keep the page mounted while hidden once it has been opened (a web page keeps playing). */
+  /** A page that matters before it's first opened (with `mountAtStart`). */
   keepAlive?: boolean
-  /** Mount the kept-alive page at start-up, before it's opened (it polls for notifications). */
+  /** Load the page at start-up, before it's opened (it polls for notifications). */
   mountAtStart?: boolean
   /** Mounted once after the config loads, for polling and native state; renders nothing. */
   Background?: ComponentType

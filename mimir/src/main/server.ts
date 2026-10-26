@@ -72,7 +72,7 @@ import { HONCHO_KEY } from "./engines/index.js";
 import { setSecret } from "./config/keychain.js";
 import { loadObsidianConfig, saveObsidianConfig } from "./persona/obsidian.js";
 import { jarvisBrief } from "./jarvis/brief.js";
-import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
+import { autostartSwap, makeHeadHermesReady, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
 import { deleteMimirChat, historyFromChat, listMimirChats, readMimirChat, writeMimirChat } from "./chats/store.js";
@@ -82,6 +82,11 @@ import { loadNaturalVoice } from "./voice/natural.js";
 import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
 import { findHermes, HermesInstaller } from "./engines/hermesInstall.js";
 import { downloads, libraryView, repoQuants, useModel } from "./models/index.js";
+import { checkAi } from "./health/index.js";
+import { ConversationMirror, type RemoteState } from "./remote/mirror.js";
+
+/** The renderer's channel for a question from BridgeDeck (bridge.ts ASK): the phone's go the same way. */
+const REMOTE_ASK = "bridgedeck:ask";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The original install (set by server-entry.mjs): workspace seed and resources stay there even
@@ -125,7 +130,11 @@ function post(socket: WebSocket, message: Outgoing): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
 }
 
+/** The conversation for BridgeDeck's phone page, kept from the events below. */
+const mirror = new ConversationMirror();
+
 function broadcast(ch: string, ...args: unknown[]): void {
+  mirror.observe(ch, args, { faceState: IPC.faceState, chatStream: IPC.chatStream });
   for (const socket of clients) post(socket, { t: "event", ch, args });
 }
 
@@ -260,7 +269,13 @@ const invokeHandlers: Record<string, Handler> = {
   },
   [IPC.mcpPresets]: (): McpPreset[] => mcpPresets(defaultProjectsRoot()),
   [IPC.teamGetConfig]: (): Promise<TeamConfig> => loadTeamConfig(),
-  [IPC.teamSetConfig]: (patch: Partial<TeamConfig>): Promise<TeamConfig> => { clearProbeCache(); return saveTeamConfig(patch); },
+  [IPC.teamSetConfig]: async (patch: Partial<TeamConfig>): Promise<TeamConfig> => {
+    clearProbeCache();
+    const team = await saveTeamConfig(patch);
+    // Choosing Hermes on the team's models: the PC's Head gets the 64K context Hermes needs.
+    await makeHeadHermesReady(team).catch((err: unknown) => console.warn("[mimir] couldn't give the Head 64K context:", err instanceof Error ? err.message : err));
+    return team;
+  },
   [IPC.teamPresets]: (): TeamPreset[] => TEAM_PRESETS,
   [IPC.teamApplyPreset]: (id: string, pcAddress?: string): Promise<TeamConfig> => { clearProbeCache(); return applyTeamPreset(id, pcAddress); },
   [IPC.teamStatus]: async (): Promise<RoleStatus[]> => { clearProbeCache(); return teamStatus(await loadTeamConfig()); },
@@ -292,6 +307,25 @@ const invokeHandlers: Record<string, Handler> = {
     return { ...hermes.state, found };
   },
   [IPC.modelsLibrary]: () => libraryView(),
+  [IPC.aiCheck]: () => checkAi(),
+  [IPC.remoteState]: (): RemoteState => mirror.get(),
+  [IPC.remoteAsk]: (text: string) => {
+    const ask = String(text ?? "").trim().slice(0, 20000);
+    if (!ask) throw new Error("Nothing to ask.");
+    // With Mimir's window open, it's asked there (seen in Jarvis, queued after a running answer);
+    // otherwise straight to the session.
+    if (!sendToPrimary(REMOTE_ASK, ask)) {
+      mirror.asked(ask);
+      void session?.send(ask);
+    }
+    return mirror.get();
+  },
+  [IPC.remoteDecide]: (id: string, allow: boolean) => {
+    session?.resolveApproval(String(id), allow ? "approved" : "rejected");
+    mirror.decided(String(id));
+    broadcast(IPC.chatStream, { type: "approval-resolved", id: String(id) });
+    return mirror.get();
+  },
   [IPC.modelsQuants]: (repo: string) => repoQuants(String(repo)),
   [IPC.modelsDownload]: (repo: string, quant: string) => downloads.start(String(repo).trim(), String(quant).trim()),
   [IPC.modelsPause]: (id: string) => downloads.pause(String(id)),
@@ -384,7 +418,10 @@ const invokeHandlers: Record<string, Handler> = {
 /** Fire-and-forget channels (Electron's ipcMain.on). */
 const sendHandlers: Record<string, Handler> = {
   [IPC.approvalDecide]: (id: string, allow: boolean) => session?.resolveApproval(id, allow ? "approved" : "rejected"),
-  [IPC.chatSend]: (text: string, attachments?: Attachment[]) => void session?.send(text, attachments),
+  [IPC.chatSend]: (text: string, attachments?: Attachment[]) => {
+    mirror.asked(String(text ?? ""));
+    void session?.send(text, attachments);
+  },
   [IPC.chatStop]: () => session?.stop(),
   [IPC.editApprove]: (pendingId: string) => session?.resolveApproval(pendingId, "approved"),
   [IPC.editReject]: (pendingId: string) => session?.resolveApproval(pendingId, "rejected"),
@@ -416,7 +453,9 @@ export const CONTROL_CHANNELS = new Set<string>([
   IPC.teamGetConfig, IPC.teamSetConfig, IPC.teamStatus, IPC.teamCheckEngine, IPC.teamSetHonchoKey,
   IPC.hermesInstall, IPC.hermesInstallStatus,
   IPC.obsidianGet, IPC.obsidianSet,
-  IPC.modelsLibrary, IPC.modelsQuants, IPC.modelsDownload, IPC.modelsPause, IPC.modelsRemove, IPC.modelsUse
+  IPC.modelsLibrary, IPC.modelsQuants, IPC.modelsDownload, IPC.modelsPause, IPC.modelsRemove, IPC.modelsUse,
+  IPC.aiCheck,
+  IPC.remoteAsk, IPC.remoteState, IPC.remoteDecide
 ]);
 
 /** Whether a request carries this run's token (Authorization: Bearer …). */

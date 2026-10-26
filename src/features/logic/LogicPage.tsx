@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useTabAwake } from '../../core/awake'
 import { Activity, BookOpen, Brain, CircuitBoard, FilePlus, FileText, Maximize, ZoomIn, ZoomOut, RotateCw, Spline, Minus, CornerDownRight, Eraser, FolderOpen, Grid2x2, History, NotebookPen, Pause, Play, Save, Table2, Trash2, Wand2 } from 'lucide-react'
 import { markPrediction } from './drills'
 import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
@@ -117,11 +118,13 @@ export default function LogicPage({ active }: { active: boolean }) {
   const exprs = useMemo(() => (table.error || table.sequential ? {} : expressions(table)), [table])
   const plan = useMemo(() => (panel === 'chips' ? chipPlan(circuit) : null), [circuit, panel])
 
+  // The clock keeps ticking in other tabs, and stops a minute after you leave (core/awake.ts).
+  const awake = useTabAwake()
   useEffect(() => {
-    if (!running || !active) return
+    if (!running || !awake) return
     const timer = window.setInterval(() => setClock(c => !c), 500 / speed)
     return () => window.clearInterval(timer)
-  }, [running, active, speed])
+  }, [running, awake, speed])
 
   const refreshFiles = () => { if (isTauri()) void circuitsList().then(setFiles).catch(() => undefined) }
   useEffect(() => {

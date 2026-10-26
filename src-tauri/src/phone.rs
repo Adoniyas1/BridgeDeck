@@ -407,6 +407,30 @@ fn route(app: &AppHandle, stream: &mut dyn Conn, request: &Request) -> Result<Va
             let _ = app.emit("notes-changed", ());
             Ok(json!({ "ok": true }))
         }
+        // Mimir from the phone: the same conversation as Jarvis on this computer (mimir/src/main/remote).
+        ("GET", "/api/mimir") => {
+            if crate::mimir_host::status().url.is_none() {
+                return Ok(json!({ "running": false }));
+            }
+            let state = crate::mimir_host::control_blocking("mimir:remote:state", vec![])?;
+            Ok(json!({ "running": true, "conversation": state }))
+        }
+        ("POST", "/api/mimir/ask") => {
+            let body = body_json(stream)?;
+            let text = body["text"].as_str().unwrap_or_default().trim().to_string();
+            if text.is_empty() {
+                return Err("Nothing to ask".into());
+            }
+            if crate::study_state::exam_now(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)).is_some() {
+                return Err("Mimir is off during exam mode.".into());
+            }
+            crate::mimir_host::control_blocking("mimir:remote:ask", vec![json!(text)])
+        }
+        ("POST", "/api/mimir/decide") => {
+            let body = body_json(stream)?;
+            let id = body["id"].as_str().unwrap_or_default().to_string();
+            crate::mimir_host::control_blocking("mimir:remote:decide", vec![json!(id), json!(body["allow"].as_bool().unwrap_or(false))])
+        }
         ("POST", "/api/text") => {
             let body = body_json(stream)?;
             let text = body["text"].as_str().unwrap_or_default().trim().to_string();

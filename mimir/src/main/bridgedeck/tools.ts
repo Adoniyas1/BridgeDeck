@@ -75,6 +75,7 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
     { name: "study_grades", description: "The user's grade in each course, worked out from their grade sheets in BridgeDeck (by category, with the goal they set) and Canvas's grade. Use it for 'how am I doing', 'what do I need on the final'.", inputSchema: object({ course: s("Optional course name") }) },
     { name: "study_schedule", description: "The user's class times for the next days (room, cancelled or moved classes, breaks), from BridgeDeck's Study tab.", inputSchema: object({ days: { type: "number", description: "Days ahead (default 7, max 30)" } }) },
     { name: "study_plan", description: "The study blocks BridgeDeck's planner put in the calendar for the next days, and what each is for.", inputSchema: object({ days: { type: "number", description: "Days ahead (default 7)" } }) },
+    { name: "study_plan_make", description: "Plan study time: BridgeDeck's study planner fits the hours each assignment and exam in the next four weeks needs into the user's free time (around classes and events) and puts the blocks in the calendar, replacing the last plan's blocks still ahead. Use it when they ask to plan their week or their studying, or agree to it. Says what was added and anything that didn't fit.", inputSchema: object({}) },
     { name: "study_search", description: "Search the user's textbooks page by page. Use it before answering a study question, and cite what you use as (Book, p. N). Each hit has a link for notes: [Book, p. N](link) opens the book at that page.", inputSchema: object({ query: s("What to look for (key terms work best)"), course: s("Optional course name to search only its books"), limit: { type: "number", description: "Hits to return (default 8, max 30)" } }, ["query"]) },
     { name: "study_read", description: "Read pages of one of the user's textbooks (up to 8 at a time), e.g. a whole section for a summary, quiz or step-by-step explanation. Page numbers are the PDF's pages, as study_search gives them.", inputSchema: object({ course: s("Course name"), book: s("Book title or file name"), from: { type: "number", description: "First page" }, to: { type: "number", description: "Last page (at most from + 7)" } }, ["course", "book", "from"]) },
     { name: "study_photo", description: "Look at a photo saved in one of the user's courses (a homework sheet, a whiteboard, a page of notes). The picture is attached for you to read.", inputSchema: object({ course: s("Course name"), file: s("The photo's file name in the course") }, ["course", "file"]) },
@@ -282,10 +283,22 @@ export function buildBridgeDeckToolset(client: BridgeDeckClient): Toolset {
         return ok(lines.length ? lines.join("\n") : "No classes in that time (no class times are set, or it's a break).");
       } catch (error) { return fail(error); }
     },
+    study_plan_make: async () => {
+      try {
+        const r = await call<{ added: number; replaced: number; blocks: Array<{ title: string; start: number; end: number }>; short: Array<{ task: string; hours: number }>; warnings: string[] }>("study/plan/make");
+        if (!r.added) return ok("Nothing to plan: no assignments or exams with hours left in the next four weeks.");
+        const when = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const lines = r.blocks.map((b) => `- ${when(b.start)}–${new Date(b.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}: ${b.title}`);
+        const short = r.short.map((s) => `- ${s.task}: ${s.hours} h didn't fit before it's due`);
+        return ok([`Added ${r.added} study block${r.added === 1 ? "" : "s"} to the calendar${r.replaced ? ` (replacing ${r.replaced} from the last plan)` : ""}:`, ...lines, ...(short.length ? ["", "Didn't fit:", ...short] : []), ...(r.warnings.length ? ["", ...r.warnings] : [])].join("\n"));
+      } catch (e) {
+        return fail(e);
+      }
+    },
     study_plan: async (input) => {
       try {
         const blocks = await call<Array<{ title: string; start: number; end: number; for: string }>>("study/plan", { days: typeof input.days === "number" ? input.days : undefined });
-        if (!blocks.length) return ok("No study blocks planned; the user makes a plan with the planner in BridgeDeck's Study tab.");
+        if (!blocks.length) return ok("No study blocks planned yet; study_plan_make makes a plan (or the planner in BridgeDeck's Study tab).");
         return ok(blocks.map((b) => `- ${when(b.start)}–${new Date(b.end).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}: ${b.title}${b.for ? ` (${b.for})` : ""}`).join("\n"));
       } catch (error) { return fail(error); }
     },

@@ -1,54 +1,22 @@
 import { useMemo, useState } from 'react'
 import { CalendarPlus, CalendarRange, Plus, Trash2 } from 'lucide-react'
-import { calendarDelete, calendarSave, isTauri, type CalEvent } from '../../lib/bridge'
-import { useStore } from '../../core/store'
+import { isTauri } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
-import { eventsStore, useItems } from '../calendar/state'
 import { DAY, dateInput, formatTime, fromInputs, startOfDay } from '../calendar/model'
-import { newId } from '../notes/model'
-import { useAssignments, useExams } from './assignments'
-import { DEFAULT_PLAN, guessHours, hoursLeft, learnedFactor, missedBlocks, overloadWarnings, PLAN_TAG, planStudy, type PlanOptions, type StudyTask } from './planner'
-import { assignmentHours, assignmentTag } from './model'
+import { type PlanOptions } from './planner'
+import { useStudyPlan } from './studyPlan'
 
-const PREFS_KEY = 'bridgedeck.study.planner'
-type Prefs = { options: PlanOptions; hours: Record<string, number>; skip: string[]; extra: StudyTask[] }
-const readPrefs = (): Prefs => {
-  try { const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>; return { options: { ...DEFAULT_PLAN, ...p.options }, hours: p.hours ?? {}, skip: p.skip ?? [], extra: p.extra ?? [] } } catch { return { options: DEFAULT_PLAN, hours: {}, skip: [], extra: [] } }
-}
-const HORIZON = 28 * DAY
 const dayText = (ms: number) => new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 
 /** The study planner: what's due in the next four weeks, how long each needs, and study blocks in
  *  the free time before each, added to the calendar in one go. */
 export function StudyPlanner() {
-  const [prefs, setPrefsState] = useState(readPrefs)
-  const setPrefs = (next: Prefs) => { setPrefsState(next); try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)) } catch { /* this run only */ } }
   const [now] = useState(() => Date.now())
+  const { prefs, setPrefs, tasks, plan, warnings, old, factor, spent, missed, applyPlan } = useStudyPlan(now)
   const [status, setStatus] = useState('')
   const [busyAdding, setBusyAdding] = useState(false)
   const [adding, setAdding] = useState({ title: '', date: dateInput(now + 7 * DAY), hours: 4 })
-  const events = useStore(eventsStore)
-  const assignments = useAssignments()
-  const exams = useExams()
-  // How long things really take (from finished work with focus time), and what's been done already.
-  const factor = useMemo(() => learnedFactor(assignments.filter(a => a.done).map(a => ({ kind: a.kind, title: a.title, hours: assignmentHours(events, a.id) }))), [assignments, events])
-  const spent = (id: string) => assignmentHours(events, id)
-  const missed = useMemo(() => missedBlocks(events, now), [events, now])
-  const tasks: StudyTask[] = useMemo(() => [
-    ...assignments.filter(a => !a.done && !a.submitted && a.due && a.due > now && a.due < now + HORIZON).map(a => ({ id: a.id, title: a.title, course: a.course, due: a.due!, hours: prefs.hours[a.id] ?? hoursLeft(guessHours(a.kind, a.title) * (factor ?? 1), spent(a.id)) })),
-    ...prefs.extra.filter(t => t.due > now),
-    // Exams (from the calendar and Canvas) get study time before them too.
-    ...exams.filter(e => e.source === 'calendar' && e.start > now && e.start < now + HORIZON).map(e => ({ id: e.id, title: `${e.course} ${e.title}`, course: e.course, due: e.start, hours: prefs.hours[e.id] ?? 6 })),
-  ].sort((a, b) => a.due - b.due), [assignments, prefs, now, exams, factor, events])
-  const chosen = tasks.filter(t => !prefs.skip.includes(t.id) && t.hours > 0)
-  const last = Math.max(now + DAY, ...chosen.map(t => t.due))
-  const items = useItems(startOfDay(now), last + DAY)
-  // Busy: anything timed on the calendar (classes, events), except this planner's own blocks.
-  const busy = useMemo(() => items.filter(i => !i.allDay && i.source !== 'canvas' && i.source !== 'todo' && !i.event?.notes.includes(PLAN_TAG)), [items])
-  const plan = useMemo(() => planStudy(chosen, busy, prefs.options, now), [chosen, busy, prefs.options, now])
-  const warnings = useMemo(() => overloadWarnings(chosen, plan.blocks, busy), [chosen, plan, busy])
-  const old = events.filter(e => !e.deleted && e.notes.includes(PLAN_TAG) && e.start > now)
   const byDay = useMemo(() => {
     const m = new Map<number, typeof plan.blocks>()
     for (const b of plan.blocks) m.set(startOfDay(b.start), [...(m.get(startOfDay(b.start)) ?? []), b])
@@ -61,15 +29,8 @@ export function StudyPlanner() {
     if (old.length && !window.confirm(`Replace the ${old.length} study block${old.length === 1 ? '' : 's'} from your last plan with these ${plan.blocks.length}?`)) return
     setBusyAdding(true); setStatus('')
     try {
-      for (const e of old) await calendarDelete(e.id)
-      const saved: CalEvent[] = []
-      for (const b of plan.blocks) {
-        const t = chosen.find(x => x.id === b.task)
-        saved.push(await calendarSave({ id: newId(), title: `Study: ${b.title}`, start: b.start, end: b.end, allDay: false, location: '', notes: `${t?.course ? `${t.course} · ` : ''}due ${t ? `${dayText(t.due)} ${formatTime(t.due)}` : ''}${t ? ` ${assignmentTag(t.id)}` : ''}\n${PLAN_TAG}`, color: 'purple', repeat: null, skip: [], reminder: 10, updated: 0, by: '', deleted: false, seq: 0 }))
-      }
-      const gone = new Set(old.map(e => e.id))
-      eventsStore.set(list => [...list.filter(e => !gone.has(e.id) && !saved.some(s => s.id === e.id)), ...saved])
-      setStatus(`Added ${saved.length} study block${saved.length === 1 ? '' : 's'} to your calendar${old.length ? ` (replacing ${old.length})` : ''}.`)
+      const { added, replaced } = await applyPlan()
+      setStatus(`Added ${added} study block${added === 1 ? '' : 's'} to your calendar${replaced ? ` (replacing ${replaced})` : ''}.`)
     } catch (e) { setStatus(errorText(e, 'Couldn’t add them')) } finally { setBusyAdding(false) }
   }
 

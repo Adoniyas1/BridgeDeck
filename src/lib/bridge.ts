@@ -133,6 +133,8 @@ export type MimirStatus = { phase: 'stopped' | 'setup' | 'starting' | 'running' 
 export const mimirStatus = () => native<MimirStatus>('mimir_status')
 export const mimirStart = () => native<MimirStatus>('mimir_start')
 export const mimirStop = () => native<MimirStatus>('mimir_stop')
+/** The window's answer to Mimir's "plan my week" (bridgelink/mimir_api.rs /mimir/study/plan/make). */
+export const mimirPlanDone = (result: Record<string, unknown>) => native<void>('mimir_plan_done', { result })
 /** One of Mimir's settings channels (CONTROL_CHANNELS in mimir/src/main/server.ts), while it runs. */
 export const mimirControl = <T,>(channel: string, args: unknown[] = []) => native<T>('mimir_control', { channel, args })
 export const diagnosticsReport = () => native<string>('diagnostics_report')

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTabShown } from '../../core/awake'
 import { BookOpen, Brain, Download, FileText, ImagePlus, ListChecks, Sparkles, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
 import { isTauri, notesCreateMarkdown, studyFsrsTune, studySavePdf, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
@@ -281,9 +282,11 @@ export function Review({ cards, onClose, onStatus }: { cards: FlashCard[]; onClo
     })
   }
 
+  // Study stays loaded in other tabs: its keys only count while it's on screen.
+  const shownTab = useTabShown()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (!shownTab || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') onClose()
       else if (!shown && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); setShown(true) }
       else if (shown) { const g = GRADES.find(g => g.key === e.key); if (g) void answer(g.grade) }

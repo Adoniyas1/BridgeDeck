@@ -57,6 +57,23 @@ export type BridgeDeckTab = { title: string; text: string };
 const contextWaiting = new Map<number, (ctx: BridgeDeckTab | null) => void>();
 let contextSeq = 0;
 
+/** Speech to text by BridgeDeck's Whisper (the model its lectures use), so the computer holds one
+ * copy. `samples` null only warms it. Resolves the text, true/false for a warm-up (whether BridgeDeck
+ * has a model), or null when it can't (no model, not in BridgeDeck, no answer in time). */
+const sttWaiting = new Map<number, (result: string | boolean | null) => void>();
+let sttSeq = 0;
+function bridgeDeckStt(samples: Float32Array | null): Promise<string | boolean | null> {
+  if (!embedded) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = ++sttSeq;
+    sttWaiting.set(id, resolve);
+    window.parent.postMessage(samples ? { source: "mimir", type: "stt", id, samples } : { source: "mimir", type: "stt-warm", id }, "*");
+    setTimeout(() => {
+      if (sttWaiting.delete(id)) resolve(null);
+    }, samples ? 60_000 : 30_000);
+  });
+}
+
 /** What's open in BridgeDeck: the last tab worked in that has something to ask about (a circuit, a
  * program), or null (not in BridgeDeck, nothing open, or no answer in time). */
 function bridgeDeckContext(): Promise<BridgeDeckTab | null> {
@@ -151,6 +168,7 @@ const api = {
   bridgedeck: {
     embedded,
     context: bridgeDeckContext,
+    stt: bridgeDeckStt,
     /** Opens BridgeDeck's Settings → AI (the engine, Hermes, Honcho and model downloads live there too). */
     openAiSettings: () => {
       if (embedded) window.parent.postMessage({ source: "mimir", type: "open-settings" }, "*");
@@ -277,6 +295,12 @@ window.addEventListener("message", (event) => {
   if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
   if (data?.source === "bridgedeck" && data.type === "jarvis") listeners.get(JARVIS)?.forEach((cb) => cb());
   if (data?.source === "bridgedeck" && data.type === "settings") listeners.get(OPEN_SETTINGS)?.forEach((cb) => cb());
+  const stt = event.data as { source?: string; type?: string; id?: unknown; text?: unknown } | null;
+  if (stt?.source === "bridgedeck" && stt.type === "stt-result" && typeof stt.id === "number") {
+    const done = sttWaiting.get(stt.id);
+    sttWaiting.delete(stt.id);
+    done?.(typeof stt.text === "string" || typeof stt.text === "boolean" ? stt.text : null);
+  }
   const reply = event.data as { source?: string; type?: string; id?: unknown; context?: { title?: unknown; text?: unknown } | null } | null;
   if (reply?.source === "bridgedeck" && reply.type === "context" && typeof reply.id === "number") {
     const done = contextWaiting.get(reply.id);

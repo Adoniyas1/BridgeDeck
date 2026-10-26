@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTabAwake } from '../../core/awake'
 import { FileLock, MessagesSquare, Plus, RefreshCw, Unlock } from 'lucide-react'
 import { aiClaimRelease, aiRoomCreate, bridgeLinkAiTokenPath } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
@@ -23,13 +24,14 @@ export default function AiPage({ active }: { active: boolean }) {
   const [title, setTitle] = useState('')
 
   const load = () => Promise.all([refreshWorkspace(), refreshFeed().catch(error => setNotice(errorText(error, 'Could not load messages')))])
+  const awake = useTabAwake()
   useEffect(() => {
-    if (!active) return
+    if (!awake) return
     void load()
     void bridgeLinkAiTokenPath().then(setTokenPath).catch(() => undefined)
     const timer = window.setInterval(() => void load(), 2500)
     return () => window.clearInterval(timer)
-  }, [active, bridgeLink.running])
+  }, [awake, bridgeLink.running])
 
   async function createRoom() {
     try {

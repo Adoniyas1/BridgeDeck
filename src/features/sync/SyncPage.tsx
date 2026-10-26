@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTabAwake } from '../../core/awake'
 import { AlertTriangle, ArrowLeftRight, FolderOpen, FolderPlus, Pause, Play, RefreshCw, Trash2, Wifi } from 'lucide-react'
 import { openPath } from '../../lib/bridge'
 import { bridgeLinkStore } from '../../core/bridgelink'
@@ -29,12 +30,13 @@ export default function SyncPage({ active }: { active: boolean }) {
   const shared = folders.find(folder => folder.id === config.syncthing.sharedFolderId)
 
   // Conflict copies are looked for while this tab is open (walking large folders isn't free).
+  const awake = useTabAwake()
   useEffect(() => {
-    if (!active) return
+    if (!awake) return
     void scanConflicts()
     const timer = window.setInterval(() => void scanConflicts(), 60_000)
     return () => window.clearInterval(timer)
-  }, [active, folders.length])
+  }, [awake, folders.length])
 
   return <>
     <Card><SectionTitle title={builtin ? 'Syncthing (built in)' : 'Syncthing (separate app)'} subtitle={syncthing.ok ? `Device ${syncthing.myID || ''}` : builtin ? sidecar.detail || 'Starting…' : syncthing.error || 'Not connected'} action={<StatusPill online={syncthing.ok}/>} />

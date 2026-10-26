@@ -11,6 +11,7 @@ import { useStore } from '../core/store'
 import { closeTab, openTab, tabsStore, unsplit, type DynamicTab } from '../core/tabs'
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
+import { TabAwake } from '../core/awake'
 import { UpdateBanner } from '../features/devices/updates'
 import SettingsPage from './SettingsPage'
 import TabBar from './TabBar'
@@ -40,7 +41,7 @@ const sideClass = (side: Side, fill: boolean) => side === 'left' || side === 'ri
 
 function DynamicTabView({ tab, side }: { tab: DynamicTab; side: Side }) {
   const View = features.map(feature => feature.tabKinds?.[tab.kind]).find(Boolean)
-  return <div className={sideClass(side, FILL_KINDS.has(tab.kind))} hidden={!side}><TabErrorBoundary name={tab.kind}><Suspense fallback={<Loading />}>{View ? <View tab={tab} active={!!side} /> : <UnknownTab tab={tab} />}</Suspense></TabErrorBoundary></div>
+  return <div className={sideClass(side, FILL_KINDS.has(tab.kind))} hidden={!side}><TabErrorBoundary name={tab.kind}><TabAwake active={!!side}><Suspense fallback={<Loading />}>{View ? <View tab={tab} active={!!side} /> : <UnknownTab tab={tab} />}</Suspense></TabAwake></TabErrorBoundary></div>
 }
 
 /** The bar between the two sides of a split: drag to resize (remembered), double-click for half
@@ -98,8 +99,10 @@ export default function App() {
           {features.map(({ id, Background }) => Background && <Background key={id} />)}
         </>}
 
-        {features.map(({ id, Page, keepAlive, mountAtStart }) => Page && (side(id) || (keepAlive && (mountAtStart || visited.has(id)))) &&
-          <div key={id} className={sideClass(side(id), isFill(id))} hidden={!side(id)}><TabErrorBoundary name={id}><Suspense fallback={<Loading />}><Page active={!!side(id)} /></Suspense></TabErrorBoundary></div>)}
+        {/* Every tab stays loaded once opened (switching back finds it as it was); hidden for over a
+            minute, its refreshes pause (core/awake.ts). */}
+        {features.map(({ id, Page, keepAlive, mountAtStart }) => Page && (side(id) || visited.has(id) || (keepAlive && mountAtStart)) &&
+          <div key={id} className={sideClass(side(id), isFill(id))} hidden={!side(id)}><TabErrorBoundary name={id}><TabAwake active={!!side(id)}><Suspense fallback={<Loading />}><Page active={!!side(id)} /></Suspense></TabAwake></TabErrorBoundary></div>)}
         {side('settings') && <div className={sideClass(side('settings'), false)}><TabErrorBoundary name="settings"><SettingsPage /></TabErrorBoundary></div>}
         {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} side={side(tab.id)} />)}
         {split && <SplitDivider onRatio={saveRatio} />}

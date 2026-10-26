@@ -426,11 +426,12 @@ export const PROMPT_MODULES: PromptModule[] = [
     when: "You ask what's due, about grades, classes or your study plan",
     required: false,
     tiers: ["core", "full"],
-    triggers: [/\b(due|deadlines?|homework|assignments?|grades?|gpa|classes|class|schedule|midterms?|finals?|study plan)\b/i],
+    triggers: [/\b(due|deadlines?|homework|assignments?|grades?|gpa|classes|class|schedule|midterms?|finals?|study plan|plan (my|the) (week|day|studying))\b/i],
     text:
       "For deadlines, grades, class times and the study plan, look them up with the study tools rather than guessing, " +
-      "and give times in the user's own time zone.",
-    tools: ["study_assignments", "study_grades", "study_schedule", "study_plan", "study_suggest", "study_photo", "study_syllabus"],
+      "and give times in the user's own time zone. Asked to plan their week or their studying, use study_plan_make: " +
+      "it fits study time around their classes and puts it in their calendar.",
+    tools: ["study_assignments", "study_grades", "study_schedule", "study_plan", "study_plan_make", "study_suggest", "study_photo", "study_syllabus"],
     coreTools: ["study_assignments"]
   },
   {

@@ -48,7 +48,7 @@ export async function toSamples(recording: Blob): Promise<Float32Array> {
   }
 }
 
-function workerSetup(model: ModelId) {
+export function workerSetup(model: ModelId) {
   const repo = MODELS.find(m => m.id === model)!.repo
   const base = convertFileSrc('', 'bdmodel').replace(/\/?$/, '/')
   const engine = `${base}ort/${ORT_VERSION}/ort-wasm-simd-threaded.jsep.wasm`

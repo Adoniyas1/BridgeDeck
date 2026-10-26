@@ -29,6 +29,17 @@ fn confirm(manager: &BridgeLinkManager, title: &str, message: &str, ok: &str) ->
     app.dialog().message(message).title(title).kind(MessageDialogKind::Info).buttons(MessageDialogButtons::OkCancelCustom(ok.into(), "Don't".into())).blocking_show()
 }
 
+/// Where the window's answer to "plan my week" goes (`mimir_plan_done`).
+static PLAN_REPLY: std::sync::Mutex<Option<std::sync::mpsc::Sender<Value>>> = std::sync::Mutex::new(None);
+
+/// The window's plan for "plan my week": what was added, or `{ error }`.
+#[tauri::command]
+pub fn mimir_plan_done(result: Value) {
+    if let Some(tx) = PLAN_REPLY.lock().ok().and_then(|mut r| r.take()) {
+        let _ = tx.send(result);
+    }
+}
+
 // ---- Activity log: what Mimir changed or sent, shown in Settings → Mimir ----
 
 const ACTIVITY_FILE: &str = "mimir-activity.json";
@@ -62,6 +73,7 @@ fn describe(path: &str) -> Option<(&'static str, bool)> {
         "/mimir/clipboard/set" => ("Set the clipboard", false),
         "/mimir/ai/post" => ("Posted in an AI room", false),
         "/mimir/study/flashcards/add" => ("Suggested flashcards", false),
+        "/mimir/study/plan/make" => ("Planned study time in the calendar", false),
         "/mimir/study/inbox/add" => ("Suggested a deadline or exam", false),
         "/mimir/projects/task/add" => ("Added a project task", false),
         "/mimir/projects/task/move" => ("Moved a project task", false),
@@ -380,6 +392,19 @@ fn handle(manager: &BridgeLinkManager, path: &str, body: &Value) -> Result<Value
                 .map(|e| json!({ "title": e.title, "start": e.start, "end": e.end, "for": e.notes.lines().next().unwrap_or("") }))
                 .collect();
             Ok(json!(blocks))
+        }
+        // "Plan my week": the window works the plan out with the Study planner (the same one as in
+        // the Study tab, with its hours and choices) and puts it in the calendar.
+        "/mimir/study/plan/make" => {
+            let app = manager.lock()?.app.clone().ok_or("BridgeDeck's window isn't ready")?;
+            let (tx, rx) = std::sync::mpsc::channel();
+            *PLAN_REPLY.lock().map_err(|_| "busy")? = Some(tx);
+            tauri::Emitter::emit_to(&app, "main", "mimir-plan-study", ()).map_err(|e| e.to_string())?;
+            let reply = rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|_| "BridgeDeck's window didn't answer; open the planner in Study instead.".to_string())?;
+            match reply.get("error").and_then(|e| e.as_str()) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(reply),
+            }
         }
         // A photo in a course (a homework sheet, a whiteboard) for Mimir to look at. Only pictures
         // in the Study library, never any other file.

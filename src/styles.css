@@ -2029,3 +2029,17 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .model-download{display:flex;gap:10px;align-items:center;padding:8px 10px;margin:6px 0;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2)}
 .model-download strong{display:block;font-size:12px;color:var(--text)}.model-download small{display:block;font-size:11px;color:var(--muted);margin:2px 0 6px}
 .model-download select{flex:none;background:var(--bg);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:6px 8px}
+/* "Test my AI setup" (features/mimir/Brain.tsx). */
+.ai-checks{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.ai-check{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2)}
+.ai-check>svg{flex:none;margin-top:1px}
+.ai-check strong{display:block;font-size:12px;color:var(--text)}.ai-check small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.ai-check--ok>svg{color:var(--good,#42c98a)}.ai-check--warn>svg{color:var(--warn)}.ai-check--fail>svg{color:var(--bad)}
+.ai-check__fix{color:var(--text)!important}
+/* A lecture recording or transcribing while you work in other tabs (features/study/LecturePill.tsx). */
+.lecture-pill{position:fixed;left:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line-strong);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px}
+.lecture-pill button{padding:4px 9px;font-size:12px;display:inline-flex;align-items:center;gap:5px;border-radius:999px}
+.lecture-pill__what{background:transparent;border:0;color:var(--text)}
+.lecture-pill--transcribing .lecture-pill__what{color:var(--muted)}
+/* "Plan study time?" on Home (features/study/PlanSuggestion.tsx). */
+.plan-suggest{margin:0 0 8px;padding-left:18px;font-size:13px}.plan-suggest li{margin:3px 0}.plan-suggest small{color:var(--muted)}
