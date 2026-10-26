@@ -123,6 +123,8 @@ export type ChatStreamEvent =
   | { type: "tool-end"; name: string; isError: boolean; step?: number | null }
   /** A tool wants to do something that needs the user's OK (a command, a change outside Projects). */
   | { type: "approval-pending"; approval: ToolApproval }
+  /** An approval was answered somewhere else (BridgeDeck's phone page). */
+  | { type: "approval-resolved"; id: string }
   /** The Brain team's plan for this message (see src/main/team/graph.ts). */
   | { type: "team-plan"; steps: Array<{ goal: string }> }
   /** A step of the plan changed: who is on it and how it went. */
@@ -445,6 +447,10 @@ export const IPC = {
   modelsUse: "mimir:models:use",
   /** "Test my AI setup": every part Mimir's answers depend on (health/aiCheck.ts). */
   aiCheck: "mimir:ai:check",
+  /** BridgeDeck's phone page talking to Mimir (remote/mirror.ts): ask, read the conversation, answer an approval. */
+  remoteAsk: "mimir:remote:ask",
+  remoteState: "mimir:remote:state",
+  remoteDecide: "mimir:remote:decide",
   setupGet: "mimir:setup:get",
   setupSetConfig: "mimir:setup:set-config",
   setupRun: "mimir:setup:run",

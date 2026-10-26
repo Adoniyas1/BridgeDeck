@@ -83,6 +83,10 @@ import { bridgeDeckFromEnv } from "./bridgedeck/client.js";
 import { findHermes, HermesInstaller } from "./engines/hermesInstall.js";
 import { downloads, libraryView, repoQuants, useModel } from "./models/index.js";
 import { checkAi } from "./health/index.js";
+import { ConversationMirror, type RemoteState } from "./remote/mirror.js";
+
+/** The renderer's channel for a question from BridgeDeck (bridge.ts ASK): the phone's go the same way. */
+const REMOTE_ASK = "bridgedeck:ask";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The original install (set by server-entry.mjs): workspace seed and resources stay there even
@@ -126,7 +130,11 @@ function post(socket: WebSocket, message: Outgoing): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
 }
 
+/** The conversation for BridgeDeck's phone page, kept from the events below. */
+const mirror = new ConversationMirror();
+
 function broadcast(ch: string, ...args: unknown[]): void {
+  mirror.observe(ch, args, { faceState: IPC.faceState, chatStream: IPC.chatStream });
   for (const socket of clients) post(socket, { t: "event", ch, args });
 }
 
@@ -300,6 +308,24 @@ const invokeHandlers: Record<string, Handler> = {
   },
   [IPC.modelsLibrary]: () => libraryView(),
   [IPC.aiCheck]: () => checkAi(),
+  [IPC.remoteState]: (): RemoteState => mirror.get(),
+  [IPC.remoteAsk]: (text: string) => {
+    const ask = String(text ?? "").trim().slice(0, 20000);
+    if (!ask) throw new Error("Nothing to ask.");
+    // With Mimir's window open, it's asked there (seen in Jarvis, queued after a running answer);
+    // otherwise straight to the session.
+    if (!sendToPrimary(REMOTE_ASK, ask)) {
+      mirror.asked(ask);
+      void session?.send(ask);
+    }
+    return mirror.get();
+  },
+  [IPC.remoteDecide]: (id: string, allow: boolean) => {
+    session?.resolveApproval(String(id), allow ? "approved" : "rejected");
+    mirror.decided(String(id));
+    broadcast(IPC.chatStream, { type: "approval-resolved", id: String(id) });
+    return mirror.get();
+  },
   [IPC.modelsQuants]: (repo: string) => repoQuants(String(repo)),
   [IPC.modelsDownload]: (repo: string, quant: string) => downloads.start(String(repo).trim(), String(quant).trim()),
   [IPC.modelsPause]: (id: string) => downloads.pause(String(id)),
@@ -392,7 +418,10 @@ const invokeHandlers: Record<string, Handler> = {
 /** Fire-and-forget channels (Electron's ipcMain.on). */
 const sendHandlers: Record<string, Handler> = {
   [IPC.approvalDecide]: (id: string, allow: boolean) => session?.resolveApproval(id, allow ? "approved" : "rejected"),
-  [IPC.chatSend]: (text: string, attachments?: Attachment[]) => void session?.send(text, attachments),
+  [IPC.chatSend]: (text: string, attachments?: Attachment[]) => {
+    mirror.asked(String(text ?? ""));
+    void session?.send(text, attachments);
+  },
   [IPC.chatStop]: () => session?.stop(),
   [IPC.editApprove]: (pendingId: string) => session?.resolveApproval(pendingId, "approved"),
   [IPC.editReject]: (pendingId: string) => session?.resolveApproval(pendingId, "rejected"),
@@ -425,7 +454,8 @@ export const CONTROL_CHANNELS = new Set<string>([
   IPC.hermesInstall, IPC.hermesInstallStatus,
   IPC.obsidianGet, IPC.obsidianSet,
   IPC.modelsLibrary, IPC.modelsQuants, IPC.modelsDownload, IPC.modelsPause, IPC.modelsRemove, IPC.modelsUse,
-  IPC.aiCheck
+  IPC.aiCheck,
+  IPC.remoteAsk, IPC.remoteState, IPC.remoteDecide
 ]);
 
 /** Whether a request carries this run's token (Authorization: Bearer …). */

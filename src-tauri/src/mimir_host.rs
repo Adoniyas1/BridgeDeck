@@ -442,6 +442,25 @@ pub async fn mimir_control(channel: String, args: Option<Vec<serde_json::Value>>
         .json()
         .await
         .map_err(|e| format!("Mimir's answer wasn't readable: {e}"))?;
+    control_reply(reply)
+}
+
+/// The same as `mimir_control`, for threads that aren't async (the phone page's server).
+pub fn control_blocking(channel: &str, args: Vec<serde_json::Value>) -> Result<serde_json::Value, String> {
+    let (base, token) = control_target().ok_or("Mimir isn't running.")?;
+    let reply: serde_json::Value = reqwest::blocking::Client::new()
+        .post(format!("{base}/control"))
+        .bearer_auth(token)
+        .timeout(std::time::Duration::from_secs(20))
+        .json(&serde_json::json!({ "ch": channel, "args": args }))
+        .send()
+        .map_err(|e| format!("Couldn't reach Mimir: {e}"))?
+        .json()
+        .map_err(|e| format!("Mimir's answer wasn't readable: {e}"))?;
+    control_reply(reply)
+}
+
+fn control_reply(reply: serde_json::Value) -> Result<serde_json::Value, String> {
     if reply.get("ok").and_then(|v| v.as_bool()) == Some(true) {
         Ok(reply.get("value").cloned().unwrap_or(serde_json::Value::Null))
     } else {

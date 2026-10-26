@@ -183,6 +183,8 @@ export default function App() {
       }
       if (event.type === "context") {
         setTurnContext({ modules: event.modules, tokens: event.tokens });
+      } else if (event.type === "approval-resolved") {
+        setApprovals((prev) => prev.filter((a) => a.id !== event.id));
       } else if (event.type === "approval-pending") {
         setApprovals((prev) => [...prev, event.approval]);
       } else if (event.type === "edit-pending") {
