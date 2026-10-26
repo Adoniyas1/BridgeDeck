@@ -4,7 +4,7 @@ import { serverPath } from "../mcp/manager.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { preview, type Approver } from "../approvals.js";
-import { getBrainApiKey } from "../brain/config.js";
+import { getBrainApiKey, loadBrainConfig } from "../brain/config.js";
 import { normalizeBaseUrl } from "../brain/baseUrl.js";
 import { resolveRole } from "../team/endpoints.js";
 import { guardEndpoint } from "../setup/memory.js";
@@ -63,6 +63,8 @@ export function describeToolCall(tool: string, input: Record<string, unknown>): 
 /** The server and model a role uses right now, as an OpenAI-compatible upstream: the PC first,
  * then the fallback (team/endpoints.ts). */
 export async function roleUpstream(team: TeamConfig, role: BrainRole): Promise<Upstream> {
+  // One model does everything: that's the Brain (Settings → Brain), not the team's roles.
+  if (team.mode === "single") return brainUpstream(team);
   const status = await resolveRole(team, role);
   const label = role === "head" ? "Head" : role === "executor" ? "Executor" : "Checker";
   if (!status.reachable || !status.endpoint) throw new Error(`The ${label} model can't be reached: ${status.detail}.`);
@@ -73,7 +75,18 @@ export async function roleUpstream(team: TeamConfig, role: BrainRole): Promise<U
   }
   const baseUrl = normalizeBaseUrl(e.baseUrl) ?? "http://localhost:11434";
   const apiKey = e.provider === "openai-compatible" ? await getBrainApiKey("openai-compatible").catch(() => null) : null;
-  return { baseUrl, model: e.model, apiKey, thinking: team.thinking };
+  return { baseUrl, model: e.model, apiKey, thinking: team.thinking, ollama: e.provider === "ollama" };
+}
+
+/** The Brain's one model, for an agent when Mimir is set to one model. */
+async function brainUpstream(team: TeamConfig): Promise<Upstream> {
+  const brain = await loadBrainConfig();
+  if (brain.provider === "anthropic") {
+    throw new Error("The Brain is set to Claude. Choose “its own models” for this agent to use your Anthropic login, or set the Brain to Ollama or a local server.");
+  }
+  const baseUrl = normalizeBaseUrl(brain.baseUrl) ?? "http://localhost:11434";
+  const apiKey = brain.provider === "openai-compatible" ? await getBrainApiKey("openai-compatible").catch(() => null) : null;
+  return { baseUrl, model: brain.model, apiKey, thinking: team.thinking, ollama: brain.provider === "ollama" };
 }
 
 /** The role an agent's model name stands for: small/fast models are the Executor. */

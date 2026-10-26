@@ -24,6 +24,15 @@ export interface HonchoSettings {
 
 export const hermesHome = () => path.join(MIMIR_HOME, "hermes");
 
+/** Hermes refuses models with less context than this (agent/model_metadata.py MINIMUM_CONTEXT_LENGTH). */
+export const HERMES_MIN_CONTEXT = 65536;
+
+/** Hermes turned the model down for too little context: what to do about it. */
+export function contextHelp(message: string): string | null {
+  if (!/context/i.test(message) || !/(minimum|too small|at least|64[,_]?0{3}|65[,_]?536|below)/i.test(message)) return null;
+  return `${message}\n\nHermes needs a model with at least 64K tokens of context. Mimir's own model servers start with less (8K on the Mac, 16K on the PC) to save memory. Use an Ollama model (Mimir asks it for 64K), raise the Head's -c to 65536 in Settings → Model servers, or give Hermes its own provider with \`hermes model\`.`;
+}
+
 /** JSON strings are valid YAML scalars, so values are written that way (no quoting surprises). */
 const y = (v: string) => JSON.stringify(v);
 
@@ -36,6 +45,9 @@ export function hermesConfig(model: Upstream, honcho: HonchoSettings | null): st
     `  default: ${y(model.model)}`,
     `  base_url: ${y(`${model.baseUrl.replace(/\/+$/, "")}/v1`)}`,
     `  api_key: ${y(model.apiKey || "none")}`,
+    // Hermes won't run below 64K tokens; Ollama sizes the context per request, so ask for exactly that
+    // (more would only fill memory). Other servers have theirs fixed when they start.
+    ...(model.ollama ? [`  context_length: ${HERMES_MIN_CONTEXT}`] : []),
     "approvals:",
     // Approval cards wait for the user in Mimir's window.
     "  timeout: 600",
