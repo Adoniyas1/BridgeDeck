@@ -1,4 +1,5 @@
 import { CrunchStrip, ExamDayCard } from '../study/ExamDay'
+import { PlanSuggestion } from '../study/PlanSuggestion'
 import { ArrowLeftRight, CheckCircle2, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing, wakeDevice } from '../../core/bridgelink'
@@ -159,6 +160,7 @@ function HomePage() {
     <TodayCard />
     <TodayAgenda />
     <DueSoonCard />
+    <PlanSuggestion />
     <BriefCard />
     <div className="hero-grid">
       <Card><div className="metric-icon"><Computer /></div><div className="metric"><span>Computers online</span><strong>{onlineMachines}<small>/ {devices.length}</small></strong></div></Card>

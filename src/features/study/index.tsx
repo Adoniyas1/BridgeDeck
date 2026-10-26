@@ -4,13 +4,15 @@ import type { FeatureManifest } from '../features'
 import { StudySettings } from './StudySettings'
 import { StudyBackground as Reminders } from './AssignmentCards'
 import { LecturePill } from './LecturePill'
+import { PlanForMimir } from './PlanSuggestion'
 const BookTab = lazy(() => import('./BookTab'))
 const LectureTab = lazy(() => import('./LectureTab'))
 const StudyPage = lazy(() => import('./StudyPage'))
 
-/** Reminders, and the lecture being recorded or transcribed (shown over every tab). */
+/** Reminders, the lecture being recorded or transcribed (shown over every tab), and Mimir's
+ *  "plan my week". */
 function StudyBackground() {
-  return <><Reminders /><LecturePill /></>
+  return <><Reminders /><LecturePill /><PlanForMimir /></>
 }
 
 /** Courses with their textbooks, notes, chapter checklists and exams (src-tauri/src/study.rs). */

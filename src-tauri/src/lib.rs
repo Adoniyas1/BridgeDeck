@@ -798,6 +798,7 @@ pub fn run() {
             manga::manga_apply_details,
             manga::manga_add_peppercarrot,
             bridgelink::mimir_api::mimir_activity,
+            bridgelink::mimir_api::mimir_plan_done,
             bridgelink::vault::vault_settings,
             transfer::transfer_send,
             transfer::transfers_list,
