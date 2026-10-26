@@ -31,9 +31,20 @@ async function getTranscriber(): Promise<Pipeline> {
   return transcriberPromise;
 }
 
+/** Inside BridgeDeck with a lecture model downloaded, its Whisper does the work (one copy in memory,
+ * not two); null until asked. */
+let viaBridgeDeck: Promise<boolean> | null = null;
+function bridgeDeckHasModel(): Promise<boolean> {
+  if (!window.mimir.bridgedeck.embedded) return Promise.resolve(false);
+  viaBridgeDeck ??= window.mimir.bridgedeck.stt(null).then((ok) => ok === true);
+  return viaBridgeDeck;
+}
+
 /** Warm the model in the background so the first real transcription is fast. */
 export function preloadTranscriber(): void {
-  void getTranscriber().catch((err) => console.warn("[mimir] STT preload failed:", err));
+  void bridgeDeckHasModel().then((shared) => {
+    if (!shared) void getTranscriber().catch((err) => console.warn("[mimir] STT preload failed:", err));
+  });
 }
 
 /**
@@ -99,6 +110,12 @@ export class VoiceRecorder {
 
 /** Transcribes 16 kHz mono samples produced directly by the Open Mic VAD. */
 export async function transcribeSamples(samples: Float32Array): Promise<string> {
+  if (await bridgeDeckHasModel()) {
+    // A copy goes to BridgeDeck (its buffer moves there); this one stays for the fallback.
+    const shared = await window.mimir.bridgedeck.stt(samples.slice());
+    if (typeof shared === "string") return isHallucination(shared.trim()) ? "" : shared.trim();
+    viaBridgeDeck = null;
+  }
   const transcriber = await getTranscriber();
   const result = await transcriber(samples);
   const text = result.text.trim();

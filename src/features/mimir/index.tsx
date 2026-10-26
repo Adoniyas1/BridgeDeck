@@ -13,6 +13,7 @@ import { openSettings } from '../../core/settingsNav'
 import { toggleChatPanel } from '../../core/chatgpt'
 import { Card, SectionTitle, Toggle } from '../../ui'
 import { AiCheckup, MimirBrain, ModelLibrary } from './Brain'
+import { transcribeVoice, warmVoice } from '../study/voiceStt'
 import type { FeatureManifest } from '../features'
 
 /** Mimir's process as BridgeDeck runs it (see src-tauri/src/mimir_host.rs). */
@@ -66,6 +67,16 @@ if (typeof window !== 'undefined') window.addEventListener('message', event => {
   const data = event.data as { source?: string; type?: string; id?: unknown } | null
   if (data?.source !== 'mimir' || !frame?.contentWindow || event.source !== frame.contentWindow) return
   if (data.type === 'open-settings') { openSettings('mimir'); return }
+  // Mimir's voice, transcribed by the model lectures use (study/voiceStt.ts): one copy, not two.
+  if (data.type === 'stt' || data.type === 'stt-warm') {
+    const url = mimirStore.get().url
+    if (!url) return
+    const reply = (text: string | boolean | null, error?: string) => frame?.contentWindow?.postMessage({ source: 'bridgedeck', type: 'stt-result', id: data.id, text, error }, new URL(url).origin)
+    const samples = (event.data as { samples?: unknown }).samples
+    if (data.type === 'stt-warm') void warmVoice().then(reply, () => reply(false))
+    else if (samples instanceof Float32Array) void transcribeVoice(samples).then(t => reply(t), e => reply(null, e instanceof Error ? e.message : String(e)))
+    return
+  }
   if (data.type !== 'context-request') return
   const url = mimirStore.get().url
   if (!url) return
