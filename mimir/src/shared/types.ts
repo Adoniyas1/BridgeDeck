@@ -443,6 +443,8 @@ export const IPC = {
   modelsPause: "mimir:models:pause",
   modelsRemove: "mimir:models:remove",
   modelsUse: "mimir:models:use",
+  /** "Test my AI setup": every part Mimir's answers depend on (health/aiCheck.ts). */
+  aiCheck: "mimir:ai:check",
   setupGet: "mimir:setup:get",
   setupSetConfig: "mimir:setup:set-config",
   setupRun: "mimir:setup:run",

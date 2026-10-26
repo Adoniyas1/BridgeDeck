@@ -12,7 +12,7 @@ import { jarvisRequestStore, MOD } from '../../core/shortcuts'
 import { openSettings } from '../../core/settingsNav'
 import { toggleChatPanel } from '../../core/chatgpt'
 import { Card, SectionTitle, Toggle } from '../../ui'
-import { MimirBrain, ModelLibrary } from './Brain'
+import { AiCheckup, MimirBrain, ModelLibrary } from './Brain'
 import type { FeatureManifest } from '../features'
 
 /** Mimir's process as BridgeDeck runs it (see src-tauri/src/mimir_host.rs). */
@@ -162,6 +162,7 @@ function MimirSettings() {
       {running && <button className="secondary" onClick={() => void mimirStop().then(mimirStore.set).catch(() => undefined)}><Square size={15}/>Stop until next start</button>}
     </div>
     <p className="hint">Mimir opens as Jarvis: Talk for voice, Chat for the whole conversation ({MOD} J inside Mimir switches them). {MOD} Shift J from anywhere in BridgeDeck brings it up in Talk; its voice shortcut is {navigator.userAgent.includes('Mac') ? '⌘⇧Space' : 'Ctrl+Shift+Space'}. “Ask Mimir” in Study, Code and Notes opens it beside what you’re working on, and it can see that tab, your notes, calendar and courses. Its memory is the notes “Mimir’s memory” and “About you (Mimir)”.</p>
+    <AiCheckup running={running} />
     {running ? <><MimirBrain /><ModelLibrary /></> : <p className="hint">Start Mimir to choose its engine and download models here.</p>}
     <div className="settings-block">
       <h3>ChatGPT side panel</h3>

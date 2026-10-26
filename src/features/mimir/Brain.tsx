@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Pause, Play, Trash2 } from 'lucide-react'
+import { CircleAlert, CircleCheck, CircleX, Download, Pause, Play, Stethoscope, Trash2 } from 'lucide-react'
 import { mimirControl } from '../../lib/bridge'
 import { Toggle } from '../../ui'
 
@@ -19,6 +19,7 @@ const CH = {
   pause: 'mimir:models:pause',
   remove: 'mimir:models:remove',
   use: 'mimir:models:use',
+  check: 'mimir:ai:check',
 } as const
 
 type Engine = 'mimir' | 'hermes' | 'claude-code' | 'opencode'
@@ -211,4 +212,37 @@ function DownloadButton({ job, busy, disabled, onStart, onPause }: { job: Librar
   return <button className="secondary" disabled={busy || (disabled && !job)} title={disabled ? 'Too big for this computer' : undefined} onClick={onStart}>
     {job?.status === 'paused' || job?.status === 'error' ? <><Play size={14} />Resume</> : <><Download size={14} />{busy ? 'Starting…' : 'Download'}</>}
   </button>
+}
+
+type Check = { label: string; status: 'ok' | 'warn' | 'fail'; detail: string; fix?: string }
+const CHECK_ICONS = { ok: CircleCheck, warn: CircleAlert, fail: CircleX }
+
+/** "Test my AI setup": each part Mimir's answers depend on, checked by Mimir (health/aiCheck.ts),
+ *  with what's wrong in plain words and what to do. */
+export function AiCheckup({ running }: { running: boolean }) {
+  const [checks, setChecks] = useState<Check[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function run() {
+    setBusy(true); setError('')
+    try { setChecks(await mimirControl<Check[]>(CH.check)) } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
+  }
+  const bad = checks?.filter(c => c.status === 'fail').length ?? 0
+  return <div className="settings-block">
+    <h3>Test my AI setup</h3>
+    <p className="hint">Checks everything Mimir’s answers depend on: who answers and on which model, whether its servers and models are there, Hermes and the context it needs, and BridgeDeck’s link. Nothing is changed.</p>
+    <div className="actions"><button disabled={!running || busy} onClick={() => void run()}><Stethoscope size={15} />{busy ? 'Testing…' : checks ? 'Test again' : 'Test my AI setup'}</button></div>
+    {!running && <p className="hint">Start Mimir first (Run Mimir with BridgeDeck, above).</p>}
+    {checks && <>
+      <p className="hint">{bad ? `${bad} thing${bad === 1 ? '' : 's'} to fix.` : checks.some(c => c.status === 'warn') ? 'Working, with something to look at.' : 'Everything works.'}</p>
+      <div className="ai-checks">{checks.map(c => {
+        const Icon = CHECK_ICONS[c.status]
+        return <div key={c.label} className={`ai-check ai-check--${c.status}`}>
+          <Icon size={16} />
+          <span className="grow"><strong>{c.label}</strong><small>{c.detail}</small>{c.fix && <small className="ai-check__fix">{c.fix}</small>}</span>
+        </div>
+      })}</div>
+    </>}
+    {error && <p className="notes-error">{error}</p>}
+  </div>
 }

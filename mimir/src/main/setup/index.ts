@@ -11,7 +11,7 @@ import { serverPath } from "../mcp/manager.js";
 import { applyTeamPreset, loadTeamConfig } from "../team/config.js";
 import { clearProbeCache } from "../team/endpoints.js";
 import type { SetupConfig, SetupStep, SetupView, StorageItem, TeamConfig } from "../../shared/types.js";
-import { cleanSetupConfig, DEFAULT_MODELS, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, sharedNames, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
+import { cleanSetupConfig, DEFAULT_MODELS, withContext, isLocalModel, isMoe, localSwapUrl, memoryNeeded, mergeSetupConfig, setupRoles, sharedNames, type LayerSplit, pickAssets, releaseTool, SETUP_VERSION, swapYaml, type ReleaseTool } from "./plan.js";
 import { availableMemory, checkRoom } from "./memory.js";
 import { gpuInfo, layerSplit, modelFile } from "./gpu.js";
 import { keepTuning, logActivity, lowerShare, modelIdleFor, setIdleUnloader, pickShare, tokensPerSecond, TUNE_SHARES, underPressure, type TuneResult } from "./adaptive.js";
@@ -27,6 +27,8 @@ const FILE = "setup.json";
 const ROLE_NAMES = { head: "Head", executor: "Executor", checker: "Checker" } as const;
 export const BIN_DIR = path.join(MIMIR_HOME, "bin");
 export const SWAP_CONFIG = path.join(MIMIR_HOME, "llama-swap.yaml");
+/** Hermes's minimum context, as llama-server's -c (engines/hermes.ts HERMES_MIN_CONTEXT). */
+const HERMES_CONTEXT = 65536;
 
 export async function loadSetupConfig(): Promise<SetupConfig> {
   const raw = await readJsonFile<unknown>(FILE, {});
@@ -837,4 +839,20 @@ export function startLoadWatch(): void {
     })().catch((err) => logActivity(`Load watch: ${err instanceof Error ? err.message : String(err)}`));
   }, 5000);
   watching.unref();
+}
+
+/** Hermes refuses models with less than 64K tokens of context. On the PC, the Head is given that when
+ * Hermes runs on the team's models (its 12 GB card can hold it; the 8 GB Mac can't, so it's left as
+ * it is and "Test my AI setup" says so). A running llama-swap is restarted with it. Returns what
+ * changed, or null. */
+export async function makeHeadHermesReady(team: TeamConfig): Promise<string | null> {
+  if (team.engine !== "hermes" || team.engineModels !== "team" || team.mode !== "team") return null;
+  const config = await loadSetupConfig();
+  if (config.computer !== "pc") return null;
+  const head = config.models.head;
+  const args = withContext(head.args, HERMES_CONTEXT);
+  if (args === head.args) return null;
+  await saveSetupConfig({ models: { ...config.models, head: { ...head, args } } });
+  if (swap.running) await runSetupStep("start");
+  return `The Head (${head.name}) now runs with 64K tokens of context, which Hermes needs.`;
 }

@@ -40,6 +40,19 @@ export const DEFAULT_MODELS: Record<SetupComputer, SetupConfig["models"]> = {
 
 export const IDLE_UNLOAD_SECS = 1200;
 
+/** The context a server's arguments give it (-c / --ctx-size), or null when they don't say. */
+export function contextArg(args: string): number | null {
+  const m = /(?:^|\s)(?:-c|--ctx-size)\s+(\d+)/.exec(args);
+  return m ? Number(m[1]) : null;
+}
+
+/** The arguments with at least `min` tokens of context. */
+export function withContext(args: string, min: number): string {
+  const now = contextArg(args);
+  if (now !== null && now >= min) return args;
+  return now === null ? `-c ${min} ${args}`.trim() : args.replace(/(^|\s)(-c|--ctx-size)\s+\d+/, `$1$2 ${min}`);
+}
+
 export function defaultSetup(computer: SetupComputer): SetupConfig {
   return {
     version: SETUP_VERSION,
