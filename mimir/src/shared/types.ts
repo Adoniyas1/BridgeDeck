@@ -348,39 +348,6 @@ export interface BrainConfig {
   webSearchEnabled: boolean;
 }
 
-/** The ChatGPT section: OpenAI's models with the user's own API key, separate from Mimir's brain. */
-export interface ChatGptConfig {
-  model: string;
-  /** Whether an OpenAI API key is stored in the OS keychain. */
-  hasApiKey: boolean;
-  /** Optional standing instructions sent with every chat (like ChatGPT's custom instructions). */
-  instructions: string;
-}
-
-export interface ChatGptMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface ChatGptChat {
-  id: string;
-  title: string;
-  model: string;
-  messages: ChatGptMessage[];
-  createdAt: number;
-  updatedAt: number;
-  /** The BridgeDeck note this chat was saved to, so saving again updates it. */
-  noteId: string | null;
-}
-
-export type ChatGptChatSummary = Pick<ChatGptChat, "id" | "title" | "model" | "updatedAt">;
-
-/** Main -> renderer over IPC.chatgptStream while one reply is written. */
-export type ChatGptStreamEvent =
-  | { type: "text-delta"; chatId: string; text: string }
-  | { type: "done"; chatId: string; chat: ChatGptChat }
-  | { type: "error"; chatId: string; message: string };
-
 export interface PersonaConfig {
   /** Free-text location/timezone label injected into the system prompt. */
   location: string | null;
@@ -502,20 +469,6 @@ export const IPC = {
   skillsListModules: "mimir:skills:list-modules",
   skillsVerify: "mimir:skills:verify",
   skillsOpenFolder: "mimir:skills:open-folder",
-  chatgptGetConfig: "mimir:chatgpt:get-config",
-  chatgptSetConfig: "mimir:chatgpt:set-config",
-  chatgptSetApiKey: "mimir:chatgpt:set-api-key",
-  /** Models the key can use, from OpenAI's /v1/models. */
-  chatgptListModels: "mimir:chatgpt:list-models",
-  chatgptListChats: "mimir:chatgpt:list-chats",
-  chatgptGetChat: "mimir:chatgpt:get-chat",
-  chatgptDeleteChat: "mimir:chatgpt:delete-chat",
-  /** Saves a chat as a BridgeDeck note (updates the same note on later saves). */
-  chatgptSaveToNotes: "mimir:chatgpt:save-to-notes",
-  /** Renderer -> main, invoke: starts a reply; returns the chat (new or existing) at once. */
-  chatgptSend: "mimir:chatgpt:send",
-  chatgptStop: "mimir:chatgpt:stop",
-  chatgptStream: "mimir:chatgpt:stream",
   /** Main -> renderer: "please run this Python in the sandboxed worker." */
   pythonRunRequest: "mimir:python:run-request",
   /** Renderer -> main: the matching reply, correlated by request id. */

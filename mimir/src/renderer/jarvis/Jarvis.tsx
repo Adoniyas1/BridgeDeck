@@ -24,11 +24,11 @@ interface Props {
   activity: JarvisActivity[];
   view: JarvisView;
   onView: (view: JarvisView) => void;
-  /** The top bar's controls (brain picker, Files, Skills, ChatGPT, Memory, Settings). */
+  /** The top bar's controls (brain picker, Files, Skills, Memory, Settings). */
   toolbar: React.ReactNode;
   /** The Chat view's conversation. */
   chat: React.ReactNode;
-  /** A panel open over the view (Settings, Skills, ChatGPT, Memory), or null. */
+  /** A panel open over the view (Settings, Skills, Memory), or null. */
   panel: React.ReactNode;
   onClosePanel: () => void;
   onDecide: (id: string, allow: boolean) => void;

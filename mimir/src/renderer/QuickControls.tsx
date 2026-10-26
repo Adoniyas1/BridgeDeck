@@ -24,15 +24,11 @@ const CLAUDE_LABEL: Record<string, string> = {
 
 export default function QuickControls({
   onOpenSkills,
-  onOpenChatGpt,
   skillsOn = false,
-  chatGptOn = false,
   onError
 }: {
   onOpenSkills: () => void;
-  onOpenChatGpt: () => void;
   skillsOn?: boolean;
-  chatGptOn?: boolean;
   onError: (message: string) => void;
 }) {
   const [brain, setBrain] = useState<BrainConfig | null>(null);
@@ -153,9 +149,6 @@ export default function QuickControls({
       </button>
       <button type="button" className={`quick-controls__action${skillsOn ? " on" : ""}`} aria-pressed={skillsOn} title="Skills, tools and what Mimir loads" onClick={onOpenSkills}>
         Skills
-      </button>
-      <button type="button" className={`quick-controls__action${chatGptOn ? " on" : ""}`} aria-pressed={chatGptOn} title="Chat with ChatGPT (your OpenAI API key)" onClick={onOpenChatGpt}>
-        ChatGPT
       </button>
     </div>
   );

@@ -35,9 +35,6 @@ import type {
   BrainConfig,
   BrainProviderKind,
   BuiltInCapability,
-  ChatGptChat,
-  ChatGptChatSummary,
-  ChatGptConfig,
   PromptModuleInfo,
   McpPreset,
   McpServerStatus,
@@ -78,10 +75,6 @@ import { jarvisBrief } from "./jarvis/brief.js";
 import { autostartSwap, startLoadWatch, runSetupStep, saveSetupConfig, setupView, swap, syncTeamWithSetup } from "./setup/index.js";
 import { buildHostCapabilityDispatch, isCapabilityDeclaredForRun } from "./compute/hostCapabilities.js";
 import type { UiWindow } from "./uiChannel.js";
-import { ChatGptSession } from "./chatgpt/session.js";
-import { getChatGptApiKey, loadChatGptConfig, saveChatGptConfig, setChatGptApiKey } from "./chatgpt/config.js";
-import { listChatGptModels } from "./chatgpt/client.js";
-import { deleteChat, listChats, readChat } from "./chatgpt/store.js";
 import { deleteMimirChat, historyFromChat, listMimirChats, readMimirChat, writeMimirChat } from "./chats/store.js";
 import { readMemoryFiles, writeMemoryFiles } from "./persona/memoryFiles.js";
 import { SelfEditTransaction } from "./self-edit/transaction.js";
@@ -189,7 +182,6 @@ function runSemanticSearchInRenderer(query: string, corpus: ProjectFileCorpusEnt
 // --- Session and voice ---------------------------------------------------
 
 let session: AgentSession | null = null;
-const chatgpt = new ChatGptSession({ broadcast });
 const hermes = new HermesInstaller({
   save: async (command) => {
     const team = await loadTeamConfig();
@@ -313,16 +305,6 @@ const invokeHandlers: Record<string, Handler> = {
     const team = await loadTeamConfig();
     return saveTeamConfig({ honcho: { ...team.honcho, keySaved: key.trim().length > 0 } });
   },
-  [IPC.chatgptGetConfig]: (): Promise<ChatGptConfig> => loadChatGptConfig(),
-  [IPC.chatgptSetConfig]: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => saveChatGptConfig(patch),
-  [IPC.chatgptSetApiKey]: async (key: string): Promise<ChatGptConfig> => {
-    await setChatGptApiKey(key);
-    return loadChatGptConfig();
-  },
-  [IPC.chatgptListModels]: async (): Promise<string[]> => {
-    const key = await getChatGptApiKey();
-    return key ? listChatGptModels(key) : [];
-  },
   [IPC.chatsList]: (): Promise<MimirChatSummary[]> => listMimirChats(),
   [IPC.chatsGet]: (id: string): Promise<MimirChat | null> => readMimirChat(id),
   [IPC.chatsSave]: (chat: unknown): Promise<MimirChat | null> => writeMimirChat(chat),
@@ -347,14 +329,6 @@ const invokeHandlers: Record<string, Handler> = {
   [IPC.obsidianSet]: (vault: string | null, useBridgeDeck?: boolean) => saveObsidianConfig(vault, useBridgeDeck !== false),
   [IPC.memorySet]: (patch: { memory?: string; user?: string }): Promise<MemoryFiles> =>
     writeMemoryFiles(workspaceRoot, new SelfEditTransaction(workspaceRoot, auditFilePath), { memory: patch?.memory, user: patch?.user }),
-  [IPC.chatgptListChats]: (): Promise<ChatGptChatSummary[]> => listChats(),
-  [IPC.chatgptGetChat]: (id: string): Promise<ChatGptChat | null> => readChat(id),
-  [IPC.chatgptDeleteChat]: (id: string): Promise<void> => {
-    chatgpt.stop(id);
-    return deleteChat(id);
-  },
-  [IPC.chatgptSend]: (chatId: string, text: string, model?: string): Promise<ChatGptChat> => chatgpt.send(chatId, text, model),
-  [IPC.chatgptSaveToNotes]: (id: string): Promise<{ noteId: string }> => chatgpt.saveToNotes(id, bridgeDeckFromEnv()),
   [IPC.voiceGetConfig]: (): Promise<VoiceConfig> => loadVoiceConfig(),
   [IPC.voiceSetConfig]: async (
     patch: Partial<Pick<VoiceConfig, "wakeWordEnabled" | "openMicEnabled" | "ttsProvider" | "naturalVoice" | "elevenLabsVoiceId" | "systemVoice" | "wakeWordPath" | "followUpListenSeconds">>
@@ -412,7 +386,6 @@ const sendHandlers: Record<string, Handler> = {
   [IPC.approvalDecide]: (id: string, allow: boolean) => session?.resolveApproval(id, allow ? "approved" : "rejected"),
   [IPC.chatSend]: (text: string, attachments?: Attachment[]) => void session?.send(text, attachments),
   [IPC.chatStop]: () => session?.stop(),
-  [IPC.chatgptStop]: (chatId: string) => chatgpt.stop(chatId),
   [IPC.editApprove]: (pendingId: string) => session?.resolveApproval(pendingId, "approved"),
   [IPC.editReject]: (pendingId: string) => session?.resolveApproval(pendingId, "rejected"),
   // Avoid the wake word double-triggering while the user is manually talking.

@@ -17,13 +17,9 @@ import {
   type BuiltInCapability,
   type SetupConfig,
   type SetupView,
-  type ChatGptChat,
-  type ChatGptChatSummary,
   type MemoryFiles,
   type MimirChat,
   type MimirChatSummary,
-  type ChatGptConfig,
-  type ChatGptStreamEvent,
   type PromptModuleInfo,
   type McpPreset,
   type McpServerConfig,
@@ -53,6 +49,7 @@ const listeners = new Map<string, Set<Listener>>();
 /** Questions from BridgeDeck (not an IPC channel: they come from the page around this one). */
 const ASK = "bridgedeck:ask";
 const JARVIS = "bridgedeck:jarvis";
+const OPEN_SETTINGS = "bridgedeck:settings";
 
 /** Inside BridgeDeck (its Mimir tab): this page is in a frame BridgeDeck made. */
 const embedded = window.parent !== window;
@@ -153,7 +150,13 @@ const api = {
   },
   bridgedeck: {
     embedded,
-    context: bridgeDeckContext
+    context: bridgeDeckContext,
+    /** Opens BridgeDeck's Settings → AI (the engine, Hermes, Honcho and model downloads live there too). */
+    openAiSettings: () => {
+      if (embedded) window.parent.postMessage({ source: "mimir", type: "open-settings" }, "*");
+    },
+    /** BridgeDeck asked for Mimir's own settings (voice, persona, team roles). */
+    onOpenSettings: (cb: () => void) => on(OPEN_SETTINGS, cb)
   },
   face: {
     onState: (cb: (state: FaceState) => void) => on(IPC.faceState, cb)
@@ -197,19 +200,6 @@ const api = {
     /** bridgedeck: BridgeDeck's notes vault when Mimir runs inside BridgeDeck, else null. */
     obsidian: (): Promise<{ vault: string | null; useBridgeDeck?: boolean; bridgedeck: { enabled: boolean; path: string } | null }> => invoke(IPC.obsidianGet),
     setObsidian: (vault: string | null, useBridgeDeck = true): Promise<{ vault: string | null; useBridgeDeck?: boolean; warning?: string }> => invoke(IPC.obsidianSet, vault, useBridgeDeck)
-  },
-  chatgpt: {
-    getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),
-    setConfig: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => invoke(IPC.chatgptSetConfig, patch),
-    setApiKey: (key: string): Promise<ChatGptConfig> => invoke(IPC.chatgptSetApiKey, key),
-    listModels: (): Promise<string[]> => invoke(IPC.chatgptListModels),
-    listChats: (): Promise<ChatGptChatSummary[]> => invoke(IPC.chatgptListChats),
-    getChat: (id: string): Promise<ChatGptChat | null> => invoke(IPC.chatgptGetChat, id),
-    deleteChat: (id: string): Promise<void> => invoke(IPC.chatgptDeleteChat, id),
-    send: (chatId: string, text: string, model?: string): Promise<ChatGptChat> => invoke(IPC.chatgptSend, chatId, text, model),
-    stop: (chatId: string) => send(IPC.chatgptStop, chatId),
-    saveToNotes: (id: string): Promise<{ noteId: string }> => invoke(IPC.chatgptSaveToNotes, id),
-    onStream: (cb: (event: ChatGptStreamEvent) => void) => on(IPC.chatgptStream, cb)
   },
   voice: {
     getConfig: (): Promise<VoiceConfig> => invoke(IPC.voiceGetConfig),
@@ -286,6 +276,7 @@ window.addEventListener("message", (event) => {
   const text = typeof ask?.text === "string" ? ask.text.trim().slice(0, 20000) : "";
   if (ask?.source === "bridgedeck" && ask.type === "ask" && text) listeners.get(ASK)?.forEach((cb) => cb(text));
   if (data?.source === "bridgedeck" && data.type === "jarvis") listeners.get(JARVIS)?.forEach((cb) => cb());
+  if (data?.source === "bridgedeck" && data.type === "settings") listeners.get(OPEN_SETTINGS)?.forEach((cb) => cb());
   const reply = event.data as { source?: string; type?: string; id?: unknown; context?: { title?: unknown; text?: unknown } | null } | null;
   if (reply?.source === "bridgedeck" && reply.type === "context" && typeof reply.id === "number") {
     const done = contextWaiting.get(reply.id);

@@ -3,7 +3,6 @@ import Chat from "./Chat.js";
 import Settings from "./Settings.js";
 import QuickControls from "./QuickControls.js";
 import Skills from "./Skills.js";
-import ChatGpt from "./ChatGpt.js";
 import Memory from "./Memory.js";
 import Jarvis, { type JarvisActivity, type JarvisView } from "./jarvis/Jarvis.js";
 import { preloadTranscriber, transcribeSamples, VoiceRecorder } from "./voice/stt.js";
@@ -46,7 +45,6 @@ export default function App() {
   const [openMicActive, setOpenMicActive] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
-  const [showChatGpt, setShowChatGpt] = useState(false);
   const [turnContext, setTurnContext] = useState<{ modules: LoadedPromptModule[]; tokens: number } | null>(null);
   // Talk (the orb and captions) or Chat (the whole conversation), remembered between launches.
   const [view, setView] = useState<JarvisView>(() => { try { return localStorage.getItem("mimir.view") === "chat" ? "chat" : "talk"; } catch { return "talk"; } });
@@ -57,23 +55,22 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     // BridgeDeck's Jarvis button and ⌘/Ctrl+Shift+J: straight to Talk.
     const offOpen = window.mimir.jarvis.onOpen(() => { closePanels(); setView("talk"); });
-    return () => { window.removeEventListener("keydown", onKey); offOpen(); };
+    const offSettings = window.mimir.bridgedeck.onOpenSettings(() => { closePanels(); setShowSettings(true); });
+    return () => { window.removeEventListener("keydown", onKey); offOpen(); offSettings(); };
   }, []);
 
   function closePanels() {
     setShowSettings(false);
     setShowSkills(false);
-    setShowChatGpt(false);
     setShowMemory(false);
   }
   /** Opens one panel over the view (or closes it when it's the one open). */
-  function togglePanel(which: "settings" | "skills" | "chatgpt" | "memory") {
-    const open = { settings: showSettings, skills: showSkills, chatgpt: showChatGpt, memory: showMemory }[which];
+  function togglePanel(which: "settings" | "skills" | "memory") {
+    const open = { settings: showSettings, skills: showSkills, memory: showMemory }[which];
     closePanels();
     if (open) return;
     if (which === "settings") setShowSettings(true);
     else if (which === "skills") setShowSkills(true);
-    else if (which === "chatgpt") setShowChatGpt(true);
     else setShowMemory(true);
   }
 
@@ -475,7 +472,7 @@ export default function App() {
     }
     setPendingEdit(null);
   };
-  const toolButton = (which: "settings" | "skills" | "chatgpt" | "memory", label: string, title: string, on: boolean) => (
+  const toolButton = (which: "settings" | "skills" | "memory", label: string, title: string, on: boolean) => (
     <button type="button" className={`quick-controls__action${on ? " on" : ""}`} onClick={() => togglePanel(which)} title={title} aria-pressed={on}>{label}</button>
   );
 
@@ -483,8 +480,6 @@ export default function App() {
     <Settings onClose={closePanels} onVoiceConfigChanged={(config) => void setOpenMicEnabled(config.openMicEnabled)} />
   ) : showSkills ? (
     <Skills onClose={closePanels} lastLoaded={turnContext?.modules ?? []} />
-  ) : showChatGpt ? (
-    <ChatGpt onClose={closePanels} />
   ) : showMemory ? (
     <Memory onClose={closePanels} />
   ) : null;
@@ -506,9 +501,7 @@ export default function App() {
         toolbar={<>
           <QuickControls
             onOpenSkills={() => togglePanel("skills")}
-            onOpenChatGpt={() => togglePanel("chatgpt")}
             skillsOn={showSkills}
-            chatGptOn={showChatGpt}
             onError={(message) => setMessages((prev) => [...prev, { id: newId(), role: "system", text: `⚠️ ${message}`, createdAt: Date.now() }])}
           />
           {toolButton("memory", "Memory", "What Mimir remembers about you", showMemory)}

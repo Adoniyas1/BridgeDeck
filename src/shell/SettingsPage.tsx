@@ -19,7 +19,7 @@ import { useStore } from '../core/store'
 type Section = { id: string; title: string; icon: LucideIcon; group: string; Body: ComponentType }
 
 /** Settings sections take their feature's name, except where the feature's settings cover more. */
-const TITLES: Record<string, string> = { computers: 'Computers & updates', sync: 'Synced folders', home: 'Home & briefs', browser: 'Web pages' }
+const TITLES: Record<string, string> = { computers: 'Computers & updates', sync: 'Synced folders', home: 'Home & briefs', browser: 'Web pages', mimir: 'AI' }
 const SELECTED_KEY = 'bridgedeck.settingsSection'
 
 function About() {
