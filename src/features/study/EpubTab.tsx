@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { scrollSideways } from '../../core/util'
 import { Brain, ChevronLeft, ChevronRight, Highlighter, Layers, ListTree, MessageCircleQuestion, Minus, Moon, Plus, Sun } from 'lucide-react'
 import ePub, { type Book, type NavItem, type Rendition } from 'epubjs'
 import { notesCreateMarkdown, notesSave, type NoteBlock } from '../../lib/bridge'
@@ -142,7 +143,7 @@ export default function EpubTab({ tab, active }: { tab: DynamicTab; active: bool
   }
 
   return <div className="book-tab epub-tab" style={{ display: active ? undefined : 'none' }}>
-    <div className="book-toolbar">
+    <div className="book-toolbar" onWheel={scrollSideways}>
       <button className="cal-icon" title="Contents" onClick={() => setShowToc(v => !v)}><ListTree size={16} /></button>
       <button className="cal-icon" title="Previous page (←)" onClick={() => void rendition.current?.prev()}><ChevronLeft size={16} /></button>
       <button className="cal-icon" title="Next page (→)" onClick={() => void rendition.current?.next()}><ChevronRight size={16} /></button>

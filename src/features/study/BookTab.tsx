@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { scrollSideways } from '../../core/util'
 import { BookMarked, Brain, PenLine, ChevronDown, ExternalLink, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Moon, MoveHorizontal, Sun, Highlighter, Layers, MessageCircleQuestion, ListChecks, ListTree, Minus, Plus } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
@@ -347,7 +348,7 @@ export default function BookTab({ tab, active }: { tab: DynamicTab; active: bool
   if (isEpub) return <EpubTab tab={tab} active={active} />
 
   return <div className="book-tab" style={{ display: active ? undefined : 'none' }}>
-    <div className="book-toolbar">
+    <div className="book-toolbar" onWheel={scrollSideways}>
       <button className="cal-icon" title="Contents" onClick={() => setShowOutline(v => !v)}><ListTree size={16} /></button>
       <button className="ghost book-chapter-button" title="Chapters: go to one, download, split" onClick={() => setShowChapters(v => !v)}><BookMarked size={14} />{chapters[chapterIndex]?.title ?? (folder ? 'Chapters' : 'Chapters')}</button>
       <button className="cal-icon" title="Previous chapter" disabled={!canStep(-1)} onClick={() => stepChapter(-1)}><ChevronsLeft size={16} /></button>
