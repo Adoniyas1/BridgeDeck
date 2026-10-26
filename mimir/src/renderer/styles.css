@@ -85,54 +85,11 @@ body {
 .quick-controls__action--wide { grid-column: 1 / -1; }
 .quick-controls__action:disabled { opacity: 0.45; cursor: default; }
 
-/* The ChatGPT section: chats on the left, the open chat on the right. */
+/* A panel's layout (Memory): a header with actions, then its body. */
 .chatgpt { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 18px 0; gap: 10px; }
 .chatgpt-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .chatgpt-actions .quick-controls__model { width: auto; max-width: 200px; padding: 6px 8px; font-size: 12px; }
 .chatgpt-actions .quick-controls__action { padding: 6px 9px; font-size: 10px; letter-spacing: 0.12em; }
-.chatgpt-setup {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: rgba(5, 8, 16, 0.45);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
-}
-.chatgpt-setup label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
-.chatgpt-setup input,
-.chatgpt-setup textarea {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 6px 9px;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  resize: vertical;
-}
-.chatgpt-body { flex: 1; display: flex; min-height: 0; gap: 12px; }
-.chatgpt-body .chat { padding: 0 0 16px; }
-.chatgpt-list { flex: 0 0 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-bottom: 16px; }
-.chatgpt-list__item { display: flex; align-items: center; border: 1px solid transparent; border-radius: 10px; }
-.chatgpt-list__item--active { border-color: var(--border-bright); background: rgba(110, 231, 255, 0.06); }
-.chatgpt-list__item button {
-  background: none;
-  border: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  padding: 7px 8px;
-  cursor: pointer;
-}
-.chatgpt-list__item button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chatgpt-list__delete { color: var(--muted) !important; opacity: 0; }
-.chatgpt-list__item:hover .chatgpt-list__delete { opacity: 1; }
-@media (max-width: 760px) {
-  .chatgpt-list { flex-basis: 110px; }
-}
 
 /* The conversation. */
 
@@ -781,7 +738,7 @@ body { font-size: 14px; line-height: 1.5; }
 .edit-card { background: var(--panel-raised); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; box-shadow: none; }
 .team-card { background: transparent; border-color: rgba(255, 255, 255, 0.08); }
 
-/* Settings, Skills, ChatGPT and Memory headers */
+/* Settings, Skills and Memory headers */
 .settings-header h2 { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 18px; color: var(--text) !important; text-shadow: none !important; }
 .settings section h3, .skills h3 { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 14px; color: var(--text) !important; }
 .setup-hardware { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 13px; }
@@ -873,7 +830,7 @@ body { font-size: 14px; line-height: 1.5; }
   .jarvis-step i { animation: none; }
 }
 
-/* Jarvis's top bar: the view switch and the tools (brain picker, Files, Skills, ChatGPT, Memory, Settings). */
+/* Jarvis's top bar: the view switch and the tools (brain picker, Files, Skills, Memory, Settings). */
 .jarvis-top { flex-wrap: wrap; row-gap: 8px; }
 .jarvis-views { display: inline-flex; border: 1px solid rgba(110, 231, 255, 0.3); border-radius: 999px; padding: 2px; background: rgba(5, 12, 24, 0.6); }
 .jarvis-views button { border: 0; background: transparent; color: rgba(207, 239, 255, 0.7); padding: 5px 14px; border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; }
@@ -893,7 +850,7 @@ body { font-size: 14px; line-height: 1.5; }
 .jarvis-chat .chat { padding: 10px 14px 12px; }
 .jarvis--chat { grid-template-rows: auto 1fr; }
 
-/* A panel over the view (Settings, Skills, ChatGPT, Memory). */
+/* A panel over the view (Settings, Skills, Memory). */
 .jarvis-panel { position: absolute; inset: 64px 26px 18px; z-index: 5; display: flex; justify-content: center; background: rgba(2, 6, 14, 0.55); border-radius: 16px; }
 .jarvis-panel__body { width: min(980px, 100%); display: flex; flex-direction: column; min-height: 0; overflow: auto; background: var(--panel, #0b1220); border: 1px solid rgba(110, 231, 255, 0.22); border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
 

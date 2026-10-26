@@ -3,7 +3,6 @@ import path from "node:path";
 import { MIMIR_HOME } from "../config/store.js";
 import type { BrainMessage } from "../brain/Provider.js";
 import type { ChatMessage, MimirChat, MimirChatSummary } from "../../shared/types.js";
-import { titleFrom } from "../chatgpt/store.js";
 
 /** Mimir's own conversations: one JSON file per chat, next to its config (outside the editable workspace). */
 export const MIMIR_CHATS_DIR = path.join(MIMIR_HOME, "chats");
@@ -92,4 +91,10 @@ export function cleanChat(raw: unknown): MimirChat | null {
     createdAt: typeof c.createdAt === "number" ? c.createdAt : now,
     updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : now
   };
+}
+
+/** A chat's title: its first message, cut to one short line. */
+export function titleFrom(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > 60 ? `${line.slice(0, 57).trimEnd()}…` : line || "New chat";
 }

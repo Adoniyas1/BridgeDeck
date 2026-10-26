@@ -17,13 +17,9 @@ import {
   type BuiltInCapability,
   type SetupConfig,
   type SetupView,
-  type ChatGptChat,
-  type ChatGptChatSummary,
   type MemoryFiles,
   type MimirChat,
   type MimirChatSummary,
-  type ChatGptConfig,
-  type ChatGptStreamEvent,
   type PromptModuleInfo,
   type McpPreset,
   type McpServerConfig,
@@ -197,19 +193,6 @@ const api = {
     /** bridgedeck: BridgeDeck's notes vault when Mimir runs inside BridgeDeck, else null. */
     obsidian: (): Promise<{ vault: string | null; useBridgeDeck?: boolean; bridgedeck: { enabled: boolean; path: string } | null }> => invoke(IPC.obsidianGet),
     setObsidian: (vault: string | null, useBridgeDeck = true): Promise<{ vault: string | null; useBridgeDeck?: boolean; warning?: string }> => invoke(IPC.obsidianSet, vault, useBridgeDeck)
-  },
-  chatgpt: {
-    getConfig: (): Promise<ChatGptConfig> => invoke(IPC.chatgptGetConfig),
-    setConfig: (patch: Partial<Omit<ChatGptConfig, "hasApiKey">>): Promise<ChatGptConfig> => invoke(IPC.chatgptSetConfig, patch),
-    setApiKey: (key: string): Promise<ChatGptConfig> => invoke(IPC.chatgptSetApiKey, key),
-    listModels: (): Promise<string[]> => invoke(IPC.chatgptListModels),
-    listChats: (): Promise<ChatGptChatSummary[]> => invoke(IPC.chatgptListChats),
-    getChat: (id: string): Promise<ChatGptChat | null> => invoke(IPC.chatgptGetChat, id),
-    deleteChat: (id: string): Promise<void> => invoke(IPC.chatgptDeleteChat, id),
-    send: (chatId: string, text: string, model?: string): Promise<ChatGptChat> => invoke(IPC.chatgptSend, chatId, text, model),
-    stop: (chatId: string) => send(IPC.chatgptStop, chatId),
-    saveToNotes: (id: string): Promise<{ noteId: string }> => invoke(IPC.chatgptSaveToNotes, id),
-    onStream: (cb: (event: ChatGptStreamEvent) => void) => on(IPC.chatgptStream, cb)
   },
   voice: {
     getConfig: (): Promise<VoiceConfig> => invoke(IPC.voiceGetConfig),
