@@ -10,7 +10,8 @@ import { estimateTokens, startAnthropicBridge, StreamTranslator, toOpenAIRequest
 import { ClaudeStreamParser, runClaudeCode } from "../src/main/engines/claudeCode.js";
 import { describeToolCall, roleForModel, type EngineEvent, type EngineTurn } from "../src/main/engines/common.js";
 import { OpenCodeAgent, openCodeConfig } from "../src/main/engines/openCode.js";
-import { HermesAgent, hermesConfig, holdBack, honchoConfig } from "../src/main/engines/hermes.js";
+import { contextHelp, HermesAgent, hermesConfig, holdBack, honchoConfig } from "../src/main/engines/hermes.js";
+import { errorText } from "../src/main/engines/acp.js";
 import { cleanTeamConfig, DEFAULT_TEAM } from "../src/main/team/config.js";
 import type { ToolApproval } from "../src/shared/types.js";
 
@@ -331,6 +332,27 @@ describe("Hermes without a provider", () => {
     brief.turn.emit({ type: "text", text: "Hi!" });
     brief.release();
     expect(short).toEqual([{ type: "text", text: "Hi!" }]);
+  });
+});
+
+describe("Hermes and Ollama", () => {
+  it("asks Ollama for Hermes's minimum context, and leaves other servers alone", () => {
+    expect(hermesConfig({ baseUrl: "http://localhost:11434", model: "llama3.2:3b", ollama: true }, null)).toContain("  context_length: 65536");
+    expect(hermesConfig({ baseUrl: "http://127.0.0.1:8080", model: "m" }, null)).not.toContain("context_length");
+  });
+
+  it("explains a model turned down for too little context", () => {
+    expect(contextHelp("Hermes: Model context window 8,192 is below the minimum 64,000 tokens")).toMatch(/at least 64K tokens/);
+    expect(contextHelp("Hermes: connection refused")).toBeNull();
+  });
+});
+
+describe("ACP errors", () => {
+  it("shows the cause an agent put in the error's data, not just “Internal error”", () => {
+    expect(errorText("Hermes", { code: -32603, message: "Internal error", data: { details: "Hermes is not connected to any AI provider yet." } })).toBe("Hermes: Hermes is not connected to any AI provider yet.");
+    expect(errorText("Hermes", { code: -32603, message: "Internal error", data: "boom" })).toBe("Hermes: boom");
+    expect(errorText("Hermes", { code: -32603, message: "Internal error" }, ["INFO starting\n", "ERROR model not found\n"])).toBe("Hermes: Internal error\nINFO starting\nERROR model not found");
+    expect(errorText("OpenCode", { message: "Not supported" })).toBe("OpenCode: Not supported");
   });
 });
 

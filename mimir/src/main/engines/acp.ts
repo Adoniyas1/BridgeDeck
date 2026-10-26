@@ -78,7 +78,7 @@ export class AcpAgent {
       const w = this.waiting.get(msg.id);
       if (!w) return;
       this.waiting.delete(msg.id);
-      if (msg.error) w.reject(new Error(String((msg.error as Json).message ?? `${this.label} error`)));
+      if (msg.error) w.reject(new Error(errorText(this.label, msg.error as Json, this.stderr)));
       else w.resolve((msg.result ?? {}) as Json);
       return;
     }
@@ -193,4 +193,15 @@ export class AcpAgent {
     this.failWaiting(new Error(`${this.label} was stopped.`));
     child?.kill();
   }
+}
+
+/** A JSON-RPC error as something to read: ACP agents put the real cause in `data` ("Internal error"
+ * alone says nothing), with the end of the agent's own log when there's no more to go on. */
+export function errorText(label: string, error: Json, stderr: string[] = []): string {
+  const message = String(error.message ?? "error");
+  const data = error.data as Json | string | undefined;
+  const details = typeof data === "string" ? data : data && typeof data === "object" ? (typeof data.details === "string" ? data.details : JSON.stringify(data)) : "";
+  if (details) return `${label}: ${details}`;
+  const log = stderr.join("").trim().split("\n").slice(-6).join("\n");
+  return log ? `${label}: ${message}\n${log}` : `${label}: ${message}`;
 }

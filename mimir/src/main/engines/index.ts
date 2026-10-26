@@ -3,7 +3,7 @@ import type { TeamConfig } from "../../shared/types.js";
 import { runClaudeCode } from "./claudeCode.js";
 import { roleUpstream, type EngineResult, type EngineTurn } from "./common.js";
 import { OpenCodeAgent } from "./openCode.js";
-import { BORROWED_NOTE, HermesAgent, holdBack, NO_PROVIDER_HELP, type HonchoSettings } from "./hermes.js";
+import { BORROWED_NOTE, contextHelp, HermesAgent, holdBack, NO_PROVIDER, NO_PROVIDER_HELP, type HonchoSettings } from "./hermes.js";
 import { getSecret } from "../config/keychain.js";
 import { ToolsEndpoint } from "./tools.js";
 
@@ -25,7 +25,10 @@ export class EngineRunner {
     const lent = await roleUpstream(team, "head").catch(() => null);
     if (!lent) throw new Error(NO_PROVIDER_HELP);
     turn.emit({ type: "text", text: BORROWED_NOTE });
-    const result = await this.hermes.run(turn, { ...opts, model: lent, intro: turn.intro });
+    const result = await this.hermes.run(turn, { ...opts, model: lent, intro: turn.intro }).catch((err: unknown) => {
+      const help = err instanceof Error ? contextHelp(err.message) : null;
+      throw help ? new Error(help) : err;
+    });
     return { text: BORROWED_NOTE + result.text };
   }
 
@@ -61,8 +64,13 @@ export class EngineRunner {
       // Known since earlier in this chat: Hermes has no provider of its own, so go straight to the team's model.
       if (!useTeam && this.hermesNoProvider === command) return this.lendTeamModel(team, turn, { command, honcho, mcpServers: acpServers });
       const held = holdBack(turn);
-      const result = await this.hermes.run(held.turn, { command, model, honcho, intro: turn.intro, mcpServers: acpServers });
-      if (!held.noProvider()) {
+      // Hermes says it has no provider either in its reply or as the error starting the session.
+      const result = await this.hermes.run(held.turn, { command, model, honcho, intro: turn.intro, mcpServers: acpServers }).catch((err: unknown) => {
+        if (err instanceof Error && NO_PROVIDER.test(err.message)) return null;
+        const help = err instanceof Error ? contextHelp(err.message) : null;
+        throw help ? new Error(help) : err;
+      });
+      if (result && !held.noProvider()) {
         held.release();
         return result;
       }

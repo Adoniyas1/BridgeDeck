@@ -16,6 +16,8 @@ export interface Upstream {
   model: string;
   apiKey?: string | null;
   thinking?: boolean;
+  /** An Ollama server (it sizes the context per request; engines/hermes.ts caps it). */
+  ollama?: boolean;
 }
 
 /** Picks the server and model for the model name Claude Code asked for; throws (with a message
