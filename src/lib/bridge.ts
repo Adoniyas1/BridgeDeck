@@ -138,6 +138,8 @@ export const mimirPlanDone = (result: Record<string, unknown>) => native<void>('
 /** One of Mimir's settings channels (CONTROL_CHANNELS in mimir/src/main/server.ts), while it runs. */
 export const mimirControl = <T,>(channel: string, args: unknown[] = []) => native<T>('mimir_control', { channel, args })
 export const diagnosticsReport = () => native<string>('diagnostics_report')
+/** "Report a problem" (diagnostics.rs problem_report): saved in Downloads; its path and text. */
+export const problemReport = (what: string, tabs: string) => native<{ path: string; text: string }>('problem_report', { what, tabs })
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })

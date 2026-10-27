@@ -751,6 +751,7 @@ pub fn run() {
             python::python_status,
             python::python_run,
             errorlog::error_log_read,
+            diagnostics::problem_report,
             errorlog::error_log_add,
             errorlog::error_log_clear,
             circuits::circuits_list,
