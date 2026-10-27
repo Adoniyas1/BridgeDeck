@@ -2054,3 +2054,7 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .plan-suggest{margin:0 0 8px;padding-left:18px;font-size:13px}.plan-suggest li{margin:3px 0}.plan-suggest small{color:var(--muted)}
 /* "Report a problem" (shell/ProblemReport.tsx). */
 .problem-what{width:100%;box-sizing:border-box;margin:0 0 8px;padding:9px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font:inherit;resize:vertical}
+.weak-spots{display:flex;flex-direction:column;gap:4px}
+.weak-spot{display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap}
+.weak-spot>svg{color:var(--muted);flex:none}
+.weak-spot .grow{flex:1;min-width:160px}
