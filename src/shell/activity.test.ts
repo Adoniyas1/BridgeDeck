@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { describeCommand } from '../core/activity'
-import { filterLog } from './ActivitySettings'
+import { filterLog, memoryAdvice } from './ActivitySettings'
 
 const LOG = `[2026-10-13 23:50:01] INFO  app: BridgeDeck 0.9.1 started on macOS 15.
 [2026-10-13 23:50:02] INFO  command: circuit_save (12 ms)
@@ -31,5 +31,21 @@ describe('activity log', () => {
     expect(describeCommand('localsend_receiver_status', 2)).toBeNull()
     expect(describeCommand('vault_settings', 5)).toBeNull()
     expect(describeCommand('localsend_send_native', 40)?.message).toBe('localsend_send_native (40 ms)')
+  })
+})
+
+describe('memory advice', () => {
+  const GB = 1024 ** 3
+  it('says nothing while there is room', () => {
+    expect(memoryAdvice({ total: 8 * GB, available: 4 * GB, swapUsed: 0, groups: [], others: [] })).toEqual([])
+  })
+  it('points at the AI model, web pages, the biggest other app and swap on a full 8 GB Mac', () => {
+    const advice = memoryAdvice({ total: 8 * GB, available: 0.5 * GB, swapUsed: 3 * GB,
+      groups: [{ name: 'AI models', bytes: 4 * GB, count: 1 }, { name: 'Web pages', bytes: 1.5 * GB, count: 6 }],
+      others: [{ name: 'Google Chrome Helper', bytes: 1.2 * GB, count: 9 }] })
+    expect(advice).toHaveLength(4)
+    expect(advice[0]).toContain('smaller model')
+    expect(advice[2]).toContain('Google Chrome Helper uses 1.2 GB')
+    expect(advice[3]).toContain('3.0 GB is in swap')
   })
 })

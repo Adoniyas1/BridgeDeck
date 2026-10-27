@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { ProblemReport } from './ProblemReport'
 import { Activity, Bell, CheckCircle2, Info, Search, Settings2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { defaultConfig } from '../lib/config'
@@ -24,6 +25,7 @@ const SELECTED_KEY = 'bridgedeck.settingsSection'
 
 function About() {
   return <>
+    <ProblemReport />
     <ErrorLogCard />
     <Card><SectionTitle title={`BridgeDeck ${version}`} subtitle="Settings are saved in BridgeDeck's app-config folder; passwords, tokens and API keys are kept in the system keychain (macOS Keychain or Windows Credential Manager)." />
       <div className="actions">

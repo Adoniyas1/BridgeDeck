@@ -4,7 +4,7 @@ import { Activity, BookOpen, Brain, CircuitBoard, FilePlus, FileText, Maximize, 
 import { markPrediction } from './drills'
 import { reportSave, openPath, circuitDelete, circuitLoad, circuitSave, circuitsList, circuitVersionLoad, circuitVersions, isTauri, notesCreateMarkdown, projectsList, type CircuitFile } from '../../lib/bridge'
 import { useConfig } from '../../core/config'
-import { errorText } from '../../core/util'
+import { errorText, scrollSideways } from '../../core/util'
 import { projectFolder } from '../projects/model'
 import {
   asChips, buildCircuit, buildWithRules, chipDef, designSummary, posExpressions, type DesignRules, chipPlan, CHIPS, emptyCircuit, expressions, GRID, groupsCovering, kmapGroups, kmapLayout, minimize, termOf, timing, newId, nextLabel, parseOutputs, pinPoint, pinRef, pinsOf, readCircuit, removePart, splitWire, placedPins, pinFacing, wirePath, bendIndex, rotateBy90, sizeOf, type Wire, type WireShape,
@@ -392,7 +392,7 @@ export default function LogicPage({ active }: { active: boolean }) {
   const current = table.rows.findIndex(r => r.in.every((bit, i) => circuit.parts.find(p => p.kind === 'switch' && p.label === table.inputs[i])?.on === (bit === 1)))
 
   return <div className="logic">
-    <div className="logic-bar">
+    <div className="logic-bar" onWheel={scrollSideways}>
       <CircuitBoard size={16} />
       <input className="logic-name" value={file.name} onChange={e => setFile(f => ({ ...f, name: e.target.value }))} aria-label="Circuit name" />
       <select value={file.project} onChange={e => setFile(f => ({ ...f, project: e.target.value }))} title="Which project it's saved in">

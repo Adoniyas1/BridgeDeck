@@ -14,7 +14,7 @@ import { Card, SectionTitle } from '../../ui'
 import { openInNewTab } from '../browser/state'
 import { fromInputs } from '../calendar/model'
 import { belongsTo, dueText, groupAssignments, notHandedIn, type Assignment } from './canvas'
-import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
+import { addAssignment, canvasConnected, checkAssignmentReminders, checkClassReminders, checkExamPack, checkGradeRisk, endExam, loadSharedCanvas, refreshCanvas, startExam, toggleDone, useAssignments } from './assignments'
 import { HomeworkImport } from './HomeworkImport'
 import { ExamNotices } from './ExamDay'
 import { expandProblems, problemCardBack, problemCardFront, problemId, problemLabel, stuckPrompt, type RatedProblem } from './problems'
@@ -297,7 +297,7 @@ export function StudyBackground() {
   const [, setTick] = useState(0)
   usePeriodicRefresh(async () => { await loadSharedCanvas(); await refreshCanvas(); checkAssignmentReminders() }, 30 * 60_000, [canvas.feed, canvas.base, canvas.token], 'same')
   useEffect(() => {
-    const timer = window.setInterval(() => { void loadSharedExam(); checkAssignmentReminders(); checkClassReminders(); checkGradeRisk(); setTick(t => t + 1) }, 60_000)
+    const timer = window.setInterval(() => { void loadSharedExam(); checkAssignmentReminders(); checkClassReminders(); checkGradeRisk(); checkExamPack(); setTick(t => t + 1) }, 60_000)
     void loadSharedExam()
     return () => window.clearInterval(timer)
   }, [])

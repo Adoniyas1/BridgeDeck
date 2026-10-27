@@ -155,6 +155,62 @@ pub async fn diagnostics_report(app: AppHandle) -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
+/// The end of Mimir's turn log for today and yesterday (~/.mimir/logs/<date>.md): what it was asked,
+/// which tools it used and how each turn ended.
+fn mimir_turns(limit: usize) -> String {
+    let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) else { return String::new() };
+    let dir = std::path::Path::new(&home).join(".mimir").join("logs");
+    let mut files: Vec<_> = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "md")).collect();
+    files.sort();
+    let text: String = files.iter().rev().take(2).rev().filter_map(|p| std::fs::read_to_string(p).ok()).collect::<Vec<_>>().join("\n");
+    let start = text.len().saturating_sub(limit);
+    let start = (start..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+    text[start..].to_string()
+}
+
+/// "Report a problem": what went wrong in the person's words, the tabs they were in, this
+/// computer's and the paired ones' diagnostics, Mimir's last turns and its AI checkup. Saved as a
+/// file in Downloads to paste to Claude (no passwords, keys or message text; Mimir's turn log has
+/// the questions asked of Mimir). Returns the file and the text.
+#[tauri::command]
+pub async fn problem_report(app: AppHandle, what: String, tabs: String) -> Result<serde_json::Value, String> {
+    let diagnostics = diagnostics_report(app.clone()).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut r = format!("# BridgeDeck problem report, {}\n\n", chrono_like_now(false));
+        let what = what.trim();
+        let _ = writeln!(r, "## What went wrong\n\n{}\n", if what.is_empty() { "(not described)" } else { what });
+        let _ = writeln!(r, "## Tabs in use\n\n{}\n", if tabs.trim().is_empty() { "(unknown)" } else { tabs.trim() });
+        let _ = writeln!(r, "## Diagnostics\n\n```\n{}\n```\n", diagnostics.trim_end());
+        if crate::mimir_host::status().url.is_some() {
+            match crate::mimir_host::control_blocking("mimir:ai:check", vec![]) {
+                Ok(serde_json::Value::Array(checks)) => {
+                    let _ = writeln!(r, "## Mimir's AI checkup\n");
+                    for c in checks {
+                        let s = |k: &str| c.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let _ = writeln!(r, "- {} **{}**: {}{}", s("status"), s("label"), s("detail"), if s("fix").is_empty() { String::new() } else { format!(" (fix: {})", s("fix")) });
+                    }
+                    r.push('\n');
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let _ = writeln!(r, "## Mimir's AI checkup\n\ncouldn't run: {e}\n");
+                }
+            }
+        }
+        let turns = mimir_turns(8 * 1024);
+        if !turns.trim().is_empty() {
+            let _ = writeln!(r, "## Mimir's last turns\n\n```\n{}\n```", redact(turns.trim()));
+        }
+        let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+        let stamp = chrono_like_now(false).replace([':', ' '], "-").replace("-UTC", "");
+        let path = dir.join(format!("BridgeDeck problem report {stamp}.md"));
+        std::fs::write(&path, &r).map_err(|e| format!("Couldn't save the report: {e}"))?;
+        Ok(serde_json::json!({ "path": path.to_string_lossy(), "text": r }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// UTC time as "2026-10-01 14:05 UTC" without a date crate.
 pub fn now_text() -> String {
     chrono_like_now(false)

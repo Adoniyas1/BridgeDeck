@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { openSettings } from '../core/settingsNav'
 import { listen } from '@tauri-apps/api/event'
 import { Keyboard, Search } from 'lucide-react'
 import { circuitsList, codeFiles, isTauri, notesCreate, studySearch, type CircuitFile, type CodeFile, type StudyHit } from '../lib/bridge'
@@ -86,6 +87,7 @@ function PaletteBox() {
     out.push(...best(tabs, q, t => [t.title], q ? 4 : 20).map(t => ({ id: `tab:${t.id}`, group: 'Tabs', title: t.title, run: go(() => activateTab(t.id)) })))
     const actions: Hit[] = [
       { id: 'new-note', group: 'Actions', title: 'New note', run: go(() => void notesCreate('note', '').then(n => { openNoteRequest.set(n.id); activateTab('notes') }).catch(() => activateTab('notes'))) },
+      { id: 'problem', group: 'Actions', title: 'Report a problem', run: go(() => openSettings('about')) },
       { id: 'ask', group: 'Actions', title: q && !looksLikeUrl(q) ? `Ask ChatGPT: ${q}` : 'Ask ChatGPT', run: go(() => void askChatGPT(q && !looksLikeUrl(q) ? q : undefined)) },
       { id: 'shortcuts', group: 'Actions', title: 'Keyboard shortcuts', detail: `${MOD} /`, run: go(() => shortcutsHelpStore.set(true)) },
     ]

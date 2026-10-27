@@ -138,6 +138,8 @@ export const mimirPlanDone = (result: Record<string, unknown>) => native<void>('
 /** One of Mimir's settings channels (CONTROL_CHANNELS in mimir/src/main/server.ts), while it runs. */
 export const mimirControl = <T,>(channel: string, args: unknown[] = []) => native<T>('mimir_control', { channel, args })
 export const diagnosticsReport = () => native<string>('diagnostics_report')
+/** "Report a problem" (diagnostics.rs problem_report): saved in Downloads; its path and text. */
+export const problemReport = (what: string, tabs: string) => native<{ path: string; text: string }>('problem_report', { what, tabs })
 export const notificationSettings = (ai: boolean) => native<void>('notification_settings', { ai })
 export const clipboardStatus = () => native<ClipboardStatus>('clipboard_status')
 export const clipboardSettings = (enabled: boolean) => native<ClipboardStatus>('clipboard_settings', { enabled })
@@ -712,6 +714,9 @@ export type SafetyStatus = { settings: SafetySettings; memoryUsedPercent: number
 export const safetyStatus = () => native<SafetyStatus>('safety_status')
 export const safetySet = (settings: SafetySettings) => native<SafetySettings>('safety_set', { settings })
 export const safetyStopAi = () => native<number>('safety_stop_ai')
+export type MemoryUsage = { name: string; bytes: number; count: number }
+export type MemoryReport = { total: number; available: number; swapUsed: number; groups: MemoryUsage[]; others: MemoryUsage[] }
+export const memoryReport = () => native<MemoryReport>('memory_report')
 export const codeLanguages = (refresh = false) => native<CodeLanguage[]>('code_languages', { refresh })
 export const codeRun = (language: string, source: string, input: string, limitSecs: number) => native<CodeRun>('code_run', { language, source, input, limitSecs })
 export const codeStart = (language: string, source: string, input: string, limitSecs: number) => native<number>('code_start', { language, source, input, limitSecs })
