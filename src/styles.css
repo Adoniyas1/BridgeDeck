@@ -1534,6 +1534,9 @@ h1,h2,h3{letter-spacing:-.012em}
 /* Plain buttons on pages get the quiet button look (no raw white boxes). */
 main button:not([class]){display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);font-size:12.5px;font-weight:500}
 main button:not([class]):hover:not(:disabled){background:var(--surface-3)}
+/* A plain button with a second line (a title and a <small> under it) grows to fit both. */
+main button:not([class]):has(small){height:auto;min-height:30px;padding-top:6px;padding-bottom:6px}
+main .mail-services button{padding:14px}
 main .notice button:not([class]){height:auto;padding:0 2px;border:0;background:transparent;color:var(--faint);font-size:18px}
 main .notice button:not([class]):hover{background:transparent;color:var(--text)}
 main button.secondary{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;flex:0 0 auto}
@@ -1887,8 +1890,10 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .logic-glitch{fill:color-mix(in srgb,var(--bad) 22%,transparent)}
 .logic-delay-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 .logic-delay-bar input[type=checkbox]{margin:0 4px 0 0}
-.logic-bar{overflow-x:auto;scrollbar-width:none}
-.logic-bar::-webkit-scrollbar{display:none}
+/* One row that scrolls sideways when the window is narrow, with a thin scrollbar so you can see there's more. */
+.logic-bar{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+.logic-bar>*{flex:none}
+.logic-bar::-webkit-scrollbar{height:4px}.logic-bar::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
 .logic-bar button,.logic-bar summary,.logic-view button{white-space:nowrap}
 .logic-bar .logic-name{width:150px;flex:none}
 .logic-bar>svg{flex:none}
