@@ -18,3 +18,10 @@ export const errorText = (error: unknown, fallback: string) => error instanceof 
 
 export const platformLabel = (platform: string) =>
   ({ macos: 'macOS', windows: 'Windows', linux: 'Linux', ios: 'iOS', ipados: 'iPadOS', android: 'Android' } as Record<string, string>)[platform.toLowerCase()] || platform || 'Unknown'
+
+/** A one-row toolbar that scrolls sideways: a mouse's up/down wheel scrolls it too (a trackpad
+ *  already swipes it). */
+export function scrollSideways(e: { deltaX: number; deltaY: number; currentTarget: HTMLElement }) {
+  const el = e.currentTarget
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY
+}
