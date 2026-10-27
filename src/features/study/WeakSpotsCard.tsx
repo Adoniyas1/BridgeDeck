@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, Headphones, Layers, LifeBuoy, Sparkles, Target } from 'lucide-react'
-import { isTauri, studyLectures, type LectureFile } from '../../lib/bridge'
+import { BookOpen, Headphones, Layers, LifeBuoy, Package, Sparkles, Target } from 'lucide-react'
+import { isTauri, notesCreateMarkdown, studyLectures, type LectureFile } from '../../lib/bridge'
+import { activateTab } from '../../core/tabs'
 import { useStore } from '../../core/store'
 import { useConfig } from '../../core/config'
 import { aiAllowed } from '../../core/exam'
 import { Card, SectionTitle } from '../../ui'
-import { notesStore } from '../notes/state'
+import { notesStore, openNoteRequest } from '../notes/state'
 import { askMimir } from '../mimir'
 import { belongsTo } from './canvas'
-import { cardChapter, deckOf, isLeech, masteryMap, type FlashCard } from './cards'
+import { cardChapter, cardSource, deckOf, isLeech, masteryMap, type FlashCard } from './cards'
 import { savedStarts } from './chapters'
 import { retrievability } from './review'
 import { stuckPrompt } from './problems'
 import { openLecture } from './open'
+import { useExams } from './assignments'
+import { courseFolder } from './model'
 import { loadMistakes, loadRatings, mistakesStore, ratingsStore } from './state'
 import { Review } from './StudyTools'
-import { weakSpots, weakSpotsPrompt, weakSpotText, type WeakSpot } from './weakSpots'
+import { examPackMarkdown, forExam, weakSpots, weakSpotsPrompt, weakSpotText, type WeakSpot } from './weakSpots'
 
 type Info = { code: string; canvasCode: string; chapters?: unknown }
 
@@ -40,8 +43,17 @@ export function useWeakSpots(course: string, info: Info) {
   const leeches = useMemo(() => deck.filter(isLeech), [deck])
   /** A chapter's cards, to review now. */
   const chapterCards = (label: string) => deck.filter(c => cardChapter(c, starts).label === label)
-  return { spots, leeches, chapterCards }
+  /** The book page where a chapter's cards start, to open from the pack. */
+  const chapterLink = (label: string) => {
+    const sources = chapterCards(label).map(c => cardSource(c.back) ?? cardSource(c.front)).filter(s => s !== null)
+    const first = sources.sort((a, b) => a.page - b.page)[0]
+    return first?.href ?? null
+  }
+  return { spots, leeches, chapterCards, chapterLink }
 }
+
+/** Within this long of an exam, the list is scoped to what it covers and offers the pack. */
+const EXAM_SOON = 7 * 86_400_000
 
 const ICON = { chapter: BookOpen, lecture: Headphones, problem: LifeBuoy, mistake: Target }
 
@@ -61,14 +73,40 @@ export function WeakSpotRow({ course, spot, chapterCards, onReview }: { course: 
 /** "Study these next": the weakest chapters, lecture moments you got lost in, problems you got
  *  stuck on and recent mistakes, in one list, with practice aimed at them from Mimir. */
 export function WeakSpotsCard({ course, info, onStatus }: { course: string; info: Info; onStatus: (s: string) => void }) {
-  const { spots, leeches, chapterCards } = useWeakSpots(course, info)
+  const { spots: all, leeches, chapterCards, chapterLink } = useWeakSpots(course, info)
+  const exams = useExams()
+  const notes = useStore(notesStore)
   const [reviewing, setReviewing] = useState<FlashCard[] | null>(null)
-  if (!spots.length && !leeches.length) return null
-  return <Card><SectionTitle title="Study these next" subtitle="Where this course is going worst: flashcards, lectures, homework and graded work"
-    action={aiAllowed(course) && spots.length ? <button className="ghost" title="Mimir finds each in your book and makes practice problems with checked answers" onClick={() => void askMimir(weakSpotsPrompt(course, spots), true, course)}><Sparkles size={14} />Practice these</button> : undefined} />
+  const now = Date.now()
+  const exam = exams.find(e => e.course === course && e.start > now && e.start - now < EXAM_SOON)
+  const spots = exam ? forExam(all, exam.covers) : all
+  if (!spots.length && !leeches.length && !exam) return null
+  const packTitle = exam ? `${course} — pack: ${exam.title}` : ''
+
+  /** The pre-exam pack: a checklist note in the course folder (opened again if already made, so
+   *  its ticks are kept). */
+  async function pack() {
+    if (!exam) return
+    const existing = notes.find(n => !n.deleted && n.title === packTitle)
+    try {
+      const note = existing ?? await notesCreateMarkdown(packTitle, courseFolder(course), 'list', examPackMarkdown(course, exam, spots, chapterLink, leeches.length))
+      if (!existing) notesStore.set(list => [note, ...list])
+      openNoteRequest.set(note.id)
+      activateTab('notes')
+    } catch (e) { onStatus(String(e)) }
+  }
+
+  const days = exam ? Math.max(0, Math.ceil((exam.start - now) / 86_400_000)) : 0
+  return <Card><SectionTitle title={exam ? `Before ${exam.title}: study these` : 'Study these next'}
+    subtitle={exam ? `${days <= 1 ? 'Tomorrow' : `In ${days} days`}${exam.covers ? ` · the weak spots in ${exam.covers}` : ''}` : 'Where this course is going worst: flashcards, lectures, homework and graded work'}
+    action={<div className="actions">
+      {exam && <button className="ghost" disabled={!isTauri()} title="One checklist note: these weak spots linked to the book and lecture, the practice exam, the formula sheet and what to bring" onClick={() => void pack()}><Package size={14} />{notes.some(n => !n.deleted && n.title === packTitle) ? 'Open the pack' : 'Pre-exam pack'}</button>}
+      {aiAllowed(course) && spots.length > 0 && <button className="ghost" title="Mimir finds each in your book and makes practice problems with checked answers" onClick={() => void askMimir(weakSpotsPrompt(course, spots, exam?.title), true, course)}><Sparkles size={14} />Practice these</button>}
+    </div>} />
     <div className="weak-spots">
       {spots.map(s => <WeakSpotRow key={s.key} course={course} spot={s} chapterCards={chapterCards} onReview={setReviewing} />)}
       {leeches.length > 0 && <div className="weak-spot"><Layers size={13} /><span className="grow">{leeches.length} card{leeches.length === 1 ? '' : 's'} you keep forgetting (rewrite them in Browse cards if they stay hard)</span><button className="ghost" onClick={() => setReviewing(leeches)}><Layers size={12} />Review</button></div>}
+      {!spots.length && !leeches.length && <p className="hint">Nothing marked weak yet: review flashcards, mark “Lost here” in lectures and rate hard problems, and they show up here.</p>}
     </div>
     {reviewing && <Review cards={reviewing} onClose={() => setReviewing(null)} onStatus={onStatus} />}
   </Card>

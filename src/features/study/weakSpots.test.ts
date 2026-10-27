@@ -44,3 +44,41 @@ describe('weak spots', () => {
     expect(weakSpots({ mastery: [], lectures: [], ratings: [], mistakes: [] })).toEqual([])
   })
 })
+
+describe('pre-exam pack', () => {
+  const spots = weakSpots({
+    mastery: [
+      { label: 'Book: Chapter 2 Networks', cards: 8, learned: 3, recall: 0.4 },
+      { label: 'Book: Chapter 7 Filters', cards: 8, learned: 3, recall: 0.3 },
+    ],
+    lectures: [{ file: 'Lecture 4.webm', modified: 1, sidecar: { segments, markers: [{ t: 65 }] } }],
+    ratings: [
+      { id: 'a', rating: 'stuck', course: 'EE', assignment: 'HW 2', section: '2.1', number: '4', at: 2 },
+      { id: 'b', rating: 'stuck', course: 'EE', assignment: 'HW 7', section: '7.3', number: '1', at: 1 },
+    ],
+    mistakes: [{ id: 'm:1', course: 'EE', assignment: 'Quiz 1', text: 'Sign of the current', at: 1 }],
+  })
+
+  it('keeps what the exam covers', async () => {
+    const { forExam } = await import('./weakSpots')
+    const scoped = forExam(spots, 'Ch 1-3')
+    expect(scoped.filter(s => s.kind === 'chapter').map(s => s.kind === 'chapter' && s.label)).toEqual(['Book: Chapter 2 Networks'])
+    expect(scoped.filter(s => s.kind === 'problem').map(s => s.kind === 'problem' && s.section)).toEqual(['2.1'])
+    expect(scoped.some(s => s.kind === 'lecture') && scoped.some(s => s.kind === 'mistake')).toBe(true)
+    expect(forExam(spots, '')).toEqual(spots)
+  })
+
+  it('writes one checklist with links', async () => {
+    const { examPackMarkdown, forExam } = await import('./weakSpots')
+    const start = new Date(2026, 10, 3, 9).getTime()
+    const md = examPackMarkdown('EE 310', { title: 'Midterm 1', start, end: start + 90 * 60_000, room: 'B204', allowed: 'calculator, 1 formula sheet', covers: 'Ch 1-3' }, forExam(spots, 'Ch 1-3'), () => 'book:EE%20310/b.pdf#30', 2)
+    expect(md).toContain('## Midterm 1')
+    expect(md).toContain('90 minutes')
+    expect(md).toContain('](book:EE%20310/b.pdf#30)')
+    expect(md).toContain('](lecture:EE%20310/Lecture%204.webm#t=45)')
+    expect(md).toContain('- [ ] calculator')
+    expect(md).toContain('2 cards you keep forgetting')
+    expect(md).not.toContain('Filters')
+    expect(md).not.toMatch(/\n{3}/)
+  })
+})

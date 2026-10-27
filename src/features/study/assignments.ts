@@ -183,6 +183,19 @@ export function checkGradeRisk(now = Date.now()) {
   }
 }
 
+/** Once, three days or less before each exam: a nudge to the pre-exam pack in Study. */
+export function checkExamPack(now = Date.now()) {
+  const library = libraryStore.get().library
+  if (!library) return
+  for (const e of examsFrom(eventsStore.get(), allAssignments().filter(a => a.source === 'canvas'), library.courses.filter(c => !c.archived), now)) {
+    if (e.start <= now + 12 * 3_600_000 || e.start > now + 3 * 86_400_000) continue
+    const key = `bd-exam-pack:${e.id}`
+    try { if (localStorage.getItem(key)) continue; localStorage.setItem(key, '1') } catch { continue }
+    const days = Math.ceil((e.start - now) / 86_400_000)
+    notify('reminders', `${e.course} ${e.title} in ${days} day${days === 1 ? '' : 's'}`, `Your pre-exam pack is in Study → ${e.course}: the weak spots it covers, lecture moments to replay, problems to redo and a timed practice exam.`)
+  }
+}
+
 const warnedUpload = new Set<string>()
 export function checkAssignmentReminders(now = Date.now()) {
   for (const a of notHandedIn(allAssignments(), now)) {

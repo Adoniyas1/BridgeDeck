@@ -1,5 +1,7 @@
 import type { LectureSidecar } from '../../lib/bridge'
-import type { Mastery } from './cards'
+import { coversChapter, type Mastery } from './cards'
+import type { Exam } from './exams'
+import { lectureLink } from './model'
 import type { Mistake } from './mistakes'
 import type { RatedProblem } from './problems'
 
@@ -69,3 +71,44 @@ export function weakSpotsPrompt(course: string, spots: WeakSpot[], exam?: string
     `Make me a short practice set aimed at exactly these, weakest first. For each: find the matching part of my textbook with study_search and read it with study_read; explain the idea in a few lines with the book and page; then give 2 practice problems like it, with full worked solutions whose numbers you checked with run_python. Put the solutions after all the problems so I can try first.`,
   ].join('\n')
 }
+
+/** The weak spots an exam is on: chapters and homework sections it covers (all of them when it
+ *  doesn't say), and every lecture moment and mistake, which say nothing of chapters. */
+export function forExam(spots: WeakSpot[], covers: string): WeakSpot[] {
+  if (!covers.trim()) return spots
+  return spots.filter(s => s.kind === 'chapter' ? coversChapter(s.label, covers) : s.kind === 'problem' ? !s.section || coversChapter(s.section, covers) : true)
+}
+
+/** The pre-exam pack: one checklist note with the exam's weak spots (each linked to the book page
+ *  or lecture moment), what to do before the day and what to bring. */
+export function examPackMarkdown(course: string, exam: Pick<Exam, 'title' | 'start' | 'end' | 'room' | 'allowed' | 'covers'>, spots: WeakSpot[], chapterLink: (label: string) => string | null, leeches: number): string {
+  const when = new Date(exam.start).toLocaleString([], { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const minutes = Math.round((exam.end - exam.start) / 60_000)
+  const chapters = spots.filter(s => s.kind === 'chapter'), problems = spots.filter(s => s.kind === 'problem')
+  const marks = spots.filter(s => s.kind === 'lecture'), mistakes = spots.filter(s => s.kind === 'mistake')
+  const section = (title: string, lines: string[]) => lines.length ? [`### ${title}`, ...lines, ''] : []
+  return [
+    `## ${exam.title}`,
+    [when, exam.room && `in ${exam.room}`, minutes > 0 && `${minutes} minutes`].filter(Boolean).join(' · '),
+    exam.covers ? `Covers ${exam.covers}.` : '',
+    '',
+    ...section('Chapters you know least', chapters.map(s => { const link = s.kind === 'chapter' ? chapterLink(s.label) : null; return `- [ ] ${link ? `[${weakSpotText(s)}](${link})` : weakSpotText(s)}` })),
+    ...section('Problems to redo', problems.map(s => `- [ ] ${weakSpotText(s)}`)),
+    ...section('Lecture moments to replay', marks.map(s => s.kind === 'lecture' ? `- [ ] [${s.file.replace(/\.[^.]+$/, '')} at ${clock(s.t)}](${lectureLink(course, s.file, Math.max(0, s.t - 20))})${s.text ? ` ${s.text}` : ''}` : '')),
+    ...section('Mistakes not to repeat', mistakes.map(s => `- ${s.kind === 'mistake' ? s.text : ''}`)),
+    '### Before the day',
+    `- [ ] Review the flashcards from the chapters it covers (Study → ${course} → the exam card)`,
+    ...(leeches ? [`- [ ] The ${leeches} card${leeches === 1 ? '' : 's'} you keep forgetting`] : []),
+    `- [ ] A practice exam, timed${minutes > 0 ? ` (${minutes} minutes)` : ''}, closed book`,
+    '- [ ] Fill in the formula sheet',
+    '- [ ] Sleep: a full night before beats a late one studying',
+    '',
+    '### Bring',
+    ...(exam.allowed ? exam.allowed.split(/[,;]/).map(a => `- [ ] ${a.trim()}`).filter(l => l.length > 6) : []),
+    '- [ ] Student ID, pencils and a spare pen',
+    '',
+  ].join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+/** Exams starting within this long get the pack reminder and the card scoped to them. */
+export const PACK_LEAD = 3 * 86_400_000
