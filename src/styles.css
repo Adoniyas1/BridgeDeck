@@ -2058,3 +2058,11 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .weak-spot{display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap}
 .weak-spot>svg{color:var(--muted);flex:none}
 .weak-spot .grow{flex:1;min-width:160px}
+.memory-rows{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px}
+.memory-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(60px,40%) 64px;gap:8px;align-items:center;font-size:12px}
+.memory-row small{color:var(--muted)}
+.memory-row i{display:block;height:6px;border-radius:3px;background:var(--line)}
+.memory-row b{display:block;height:100%;border-radius:3px;background:var(--muted)}
+.memory-row b.mine{background:var(--accent)}
+.memory-row em{font-style:normal;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.memory-sep{color:var(--muted);font-size:11px;margin-top:4px}

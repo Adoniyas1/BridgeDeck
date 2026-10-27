@@ -56,6 +56,7 @@ mod sync_conflicts;
 mod sync_sidecar;
 mod upgrade;
 mod wake;
+mod memory;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -766,6 +767,7 @@ pub fn run() {
             activity::activity_clear,
             activity::ai_speed_log,
             hardware::hardware_info,
+            memory::memory_report,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ClipboardCopy, Cpu, FolderOpen, OctagonX, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
-import { activityClear, activityRead, aiSpeedLog, hardwareInfo, isTauri, openPath, safetySet, safetyStatus, safetyStopAi, type ActivityLog, type Hardware, type SafetySettings, type SafetyStatus } from '../lib/bridge'
+import { Activity, ClipboardCopy, Cpu, FolderOpen, MemoryStick, Moon, OctagonX, PanelTopClose, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
+import { activityClear, activityRead, aiSpeedLog, browserSleepNow, hardwareInfo, isTauri, memoryReport, openPath, type MemoryReport, safetySet, safetyStatus, safetyStopAi, type ActivityLog, type Hardware, type SafetySettings, type SafetyStatus } from '../lib/bridge'
 import { setNotice } from '../core/notice'
 import { errorText } from '../core/util'
+import { useStore } from '../core/store'
+import { unloadedStore, unloadNowStore } from '../core/memory'
 import { Card, SectionTitle, Toggle } from '../ui'
 import { version } from '../../package.json'
 import { parseShareChanges, parseSpeed, type ShareChange, type SpeedSample } from './aiSpeed'
@@ -31,7 +33,64 @@ export function filterLog(text: string, filter: Filter, query: string): string[]
  *  stops the AI models before they freeze the computer, and the log of what BridgeDeck has done. */
 export default function ActivitySettings() {
   if (!isTauri()) return <Card><p className="hint">The activity log and safety stop are in the BridgeDeck app.</p></Card>
-  return <><SafetyCard /><AiSpeedCard /><ActivityCard /></>
+  return <><MemoryCard /><SafetyCard /><AiSpeedCard /><ActivityCard /></>
+}
+
+const WHAT: Record<string, string> = {
+  'AI models': 'the local models Mimir runs (llama-server, MLX, Ollama)',
+  'Web pages': 'the browser, TV, Spotify and mail pages, one process each (on the Mac, Safari’s too)',
+  BridgeDeck: 'the app and its tabs',
+  Mimir: 'Mimir’s server',
+  Hermes: 'the Hermes agent',
+}
+
+/** What memory advice fits: on a small computer the AI model is usually most of it. */
+export function memoryAdvice(r: MemoryReport): string[] {
+  const used = 1 - r.available / Math.max(1, r.total)
+  const of = (name: string) => r.groups.find(g => g.name === name)?.bytes ?? 0
+  const out: string[] = []
+  if (used < 0.8 && r.swapUsed < 1024 ** 3) return out
+  if (of('AI models') > r.total * 0.3) out.push('The AI model is the biggest part: a smaller model in Mimir (or the PC head for big ones) frees the most.')
+  if (of('Web pages') > 1024 ** 3) out.push('Web pages add up: put hidden ones to sleep, or close tabs you aren’t using.')
+  const other = r.others[0]
+  if (other && other.bytes > 1024 ** 3) out.push(`${other.name} uses ${gb(other.bytes)}: quitting it helps if you don’t need it.`)
+  if (r.swapUsed > 2 * 1024 ** 3) out.push(`${gb(r.swapUsed)} is in swap, which is what makes the computer slow: free some of the above.`)
+  return out
+}
+
+/** Where the memory goes: BridgeDeck's parts and the biggest other apps, with ways to free some. */
+function MemoryCard() {
+  const [report, setReport] = useState<MemoryReport | null>(null)
+  const unloaded = useStore(unloadedStore)
+  const load = () => void memoryReport().then(setReport).catch(() => undefined)
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(() => { if (!document.hidden) load() }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
+  if (!report) return null
+  const used = report.total - report.available
+  const max = Math.max(1, ...report.groups.map(g => g.bytes), ...report.others.map(g => g.bytes))
+  const row = (u: MemoryReport['groups'][number], mine: boolean) => <div key={(mine ? 'm:' : 'o:') + u.name} className="memory-row" title={mine ? WHAT[u.name] : undefined}>
+    <span className="grow">{u.name}{u.count > 1 ? <small> · {u.count} processes</small> : null}</span>
+    <i><b className={mine ? 'mine' : undefined} style={{ width: `${(u.bytes / max) * 100}%` }} /></i>
+    <em>{gb(u.bytes)}</em>
+  </div>
+  const advice = memoryAdvice(report)
+  return <Card>
+    <SectionTitle title="Where the memory goes" subtitle={`${gb(used)} of ${gb(report.total)} in use${report.swapUsed > 256 * 1024 ** 2 ? ` · ${gb(report.swapUsed)} in swap` : ''}`} action={<MemoryStick size={18} />} />
+    <div className="memory-rows">
+      {report.groups.map(g => row(g, true))}
+      {report.others.length > 0 && <small className="memory-sep">Other apps</small>}
+      {report.others.map(g => row(g, false))}
+    </div>
+    {advice.map(a => <p key={a} className="hint">{a}</p>)}
+    <div className="actions">
+      <button className="secondary" onClick={() => void browserSleepNow().then(n => { setNotice(n ? `${n} hidden page${n === 1 ? '' : 's'} put to sleep.` : 'No hidden web pages to put to sleep.'); load() })}><Moon size={15} />Put hidden pages to sleep</button>
+      <button className="secondary" title="Hidden tabs with no work running in them (and open books) unload, and load again when you go back" onClick={() => { unloadNowStore.set(n => n + 1); window.setTimeout(load, 1500) }}><PanelTopClose size={15} />Unload hidden tabs</button>
+    </div>
+    <p className="hint">When memory is over 85% full, tabs hidden for 20 minutes unload by themselves{unloaded.length ? ` (${unloaded.length} now)` : ''}; recording, transcribing, music, mail, the browser and Mimir always stay. Sizes are what each process holds, so shared memory can count twice.</p>
+  </Card>
 }
 
 const W = 600, H = 170, L = 36, R = 8, T = 10, B = 22

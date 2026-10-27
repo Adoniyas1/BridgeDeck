@@ -714,6 +714,9 @@ export type SafetyStatus = { settings: SafetySettings; memoryUsedPercent: number
 export const safetyStatus = () => native<SafetyStatus>('safety_status')
 export const safetySet = (settings: SafetySettings) => native<SafetySettings>('safety_set', { settings })
 export const safetyStopAi = () => native<number>('safety_stop_ai')
+export type MemoryUsage = { name: string; bytes: number; count: number }
+export type MemoryReport = { total: number; available: number; swapUsed: number; groups: MemoryUsage[]; others: MemoryUsage[] }
+export const memoryReport = () => native<MemoryReport>('memory_report')
 export const codeLanguages = (refresh = false) => native<CodeLanguage[]>('code_languages', { refresh })
 export const codeRun = (language: string, source: string, input: string, limitSecs: number) => native<CodeRun>('code_run', { language, source, input, limitSecs })
 export const codeStart = (language: string, source: string, input: string, limitSecs: number) => native<number>('code_start', { language, source, input, limitSecs })

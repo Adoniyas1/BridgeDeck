@@ -12,6 +12,8 @@ import { closeTab, openTab, tabsStore, unsplit, type DynamicTab } from '../core/
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
 import { TabAwake } from '../core/awake'
+import { IDLE_UNLOAD_MS, idleToUnload, TIGHT_PERCENT, UNLOADABLE_KINDS, unloadedStore, unloadNowStore } from '../core/memory'
+import { isTauri, safetyStatus } from '../lib/bridge'
 import { UpdateBanner } from '../features/devices/updates'
 import SettingsPage from './SettingsPage'
 import TabBar from './TabBar'
@@ -39,8 +41,9 @@ const SPLIT_KEY = 'bd-split-left'
 type Side = 'only' | 'left' | 'right' | null
 const sideClass = (side: Side, fill: boolean) => side === 'left' || side === 'right' ? `tab-panel split-pane pane-${side}${fill ? ' pane-fill' : ''}` : 'tab-panel'
 
-function DynamicTabView({ tab, side }: { tab: DynamicTab; side: Side }) {
+function DynamicTabView({ tab, side, asleep }: { tab: DynamicTab; side: Side; asleep: boolean }) {
   const View = features.map(feature => feature.tabKinds?.[tab.kind]).find(Boolean)
+  if (asleep && !side) return null
   return <div className={sideClass(side, FILL_KINDS.has(tab.kind))} hidden={!side}><TabErrorBoundary name={tab.kind}><TabAwake active={!!side}><Suspense fallback={<Loading />}>{View ? <View tab={tab} active={!!side} /> : <UnknownTab tab={tab} />}</Suspense></TabAwake></TabErrorBoundary></div>
 }
 
@@ -82,6 +85,43 @@ export default function App() {
   useEffect(() => { setVisited(v => [active, split].every(id => !id || v.has(id)) ? v : new Set([...v, active, ...(split ? [split] : [])])) }, [active, split])
   const fill = !!split || isFill(active)
 
+  // Short of memory, tabs hidden a long time are unloaded (core/memory.ts) and load again when
+  // shown: pages with no work running in them, and books (they reopen at their page).
+  const [asleep, setAsleep] = useState<Set<string>>(() => new Set())
+  const hiddenSince = useRef<Record<string, number>>({})
+  const shown = useRef<Array<string | null>>([active, split])
+  useEffect(() => {
+    const now = Date.now()
+    for (const id of shown.current) if (id && id !== active && id !== split) hiddenSince.current[id] = now
+    shown.current = [active, split]
+    setAsleep(z => [active, split].some(id => id && z.has(id)) ? new Set([...z].filter(id => id !== active && id !== split)) : z)
+  }, [active, split])
+  const unloadIdle = useRef<(idleMs: number) => number>(() => 0)
+  unloadIdle.current = (idleMs: number) => {
+    const candidates = [
+      ...features.filter(f => f.Page && !f.keepAlive && !f.mountAtStart && visited.has(f.id)).map(f => f.id),
+      ...dynamic.filter(t => UNLOADABLE_KINDS.has(t.kind) && !asleep.has(t.id)).map(t => t.id),
+    ]
+    const ids = idleToUnload(candidates, [active, split], hiddenSince.current, Date.now(), idleMs)
+    if (ids.length) {
+      setVisited(v => new Set([...v].filter(id => !ids.includes(id))))
+      setAsleep(z => new Set([...z, ...ids]))
+    }
+    return ids.length
+  }
+  useEffect(() => {
+    if (!isTauri()) return
+    const timer = window.setInterval(() => void safetyStatus().then(s => { if (s.memoryUsedPercent >= TIGHT_PERCENT) unloadIdle.current(IDLE_UNLOAD_MS) }).catch(() => undefined), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const unloadNow = useStore(unloadNowStore)
+  useEffect(() => {
+    if (!unloadNow) return
+    const n = unloadIdle.current(0)
+    setNotice(n ? `Unloaded ${n} hidden tab${n === 1 ? '' : 's'}; each loads again when you go back to it.` : 'No hidden tabs to unload (tabs with work running, like the browser, music and Mimir, stay loaded).')
+  }, [unloadNow])
+  useEffect(() => { unloadedStore.set([...asleep].filter(id => !visited.has(id))) }, [asleep, visited])
+
   return (
     <div className="shell">
       <TabBar />
@@ -104,7 +144,7 @@ export default function App() {
         {features.map(({ id, Page, keepAlive, mountAtStart }) => Page && (side(id) || visited.has(id) || (keepAlive && mountAtStart)) &&
           <div key={id} className={sideClass(side(id), isFill(id))} hidden={!side(id)}><TabErrorBoundary name={id}><TabAwake active={!!side(id)}><Suspense fallback={<Loading />}><Page active={!!side(id)} /></Suspense></TabAwake></TabErrorBoundary></div>)}
         {side('settings') && <div className={sideClass(side('settings'), false)}><TabErrorBoundary name="settings"><SettingsPage /></TabErrorBoundary></div>}
-        {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} side={side(tab.id)} />)}
+        {dynamic.map(tab => <DynamicTabView key={tab.id} tab={tab} side={side(tab.id)} asleep={asleep.has(tab.id)} />)}
         {split && <SplitDivider onRatio={saveRatio} />}
       </main>
       <ChatPanel />
