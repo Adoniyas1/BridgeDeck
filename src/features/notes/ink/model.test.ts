@@ -56,3 +56,12 @@ describe('annotated PDF', () => {
     expect(bounds([stroke('a', 1)])).toEqual({ x: 8, y: 18.25, w: 5.5, h: 4.75 })
   })
 })
+
+describe('page fit', () => {
+  it('shows pages at 1.5× when there is room and shrinks them to the width beside the ChatGPT panel', async () => {
+    const { fitScale } = await import('./render')
+    expect(fitScale(2000, 612)).toBe(1.5)
+    expect(fitScale(644, 612)).toBe(1)
+    expect(fitScale(100, 612)).toBe(0.4)
+  })
+})

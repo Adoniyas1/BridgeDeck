@@ -68,3 +68,7 @@ export function touches(s: Stroke, at: Point, radius: number) {
   }
   return false
 }
+
+/** Page scale: the page's own size × 1.5 when there's room, smaller to fit the width there is
+ *  (16 px of margin each side). Strokes are kept in page units, so the scale can change freely. */
+export const fitScale = (available: number, pageWidth: number) => Math.max(0.4, Math.min(1.5, (available - 32) / pageWidth))

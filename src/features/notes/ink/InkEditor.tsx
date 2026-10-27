@@ -3,8 +3,28 @@ import { Eraser, FileDown, Highlighter, Lasso, PenLine, Plus, Redo2, Trash2, Und
 import { listen } from '@tauri-apps/api/event'
 import { inkAppend, inkBackground, inkCompact, inkLoad, inkSetDoc, pickPdfSaveTo, studyDownloadPdf, studySavePdf } from '../../../lib/bridge'
 import { errorText } from '../../../core/util'
+import { useStore } from '../../../core/store'
+import { chatPanelStore } from '../../../core/chatgpt'
 import { bounds, compacted, eraseLine, lassoed, mergeLogs, moved, newStrokeId, readDoc, strokeLine, type InkDoc, type Paper, type Point, type Stroke, type Tool } from './model'
-import { drawPaper, drawStrokes, pageSize, strokePath, touches } from './render'
+import { drawPaper, drawStrokes, fitScale, pageSize, strokePath, touches } from './render'
+
+/** How much of the window's right side the ChatGPT panel takes. Its page is a native web view drawn
+ *  over everything, so the writing stops at its edge instead of running underneath it. */
+function useChatPanelInset() {
+  const { open, width } = useStore(chatPanelStore)
+  const [inset, setInset] = useState(0)
+  useEffect(() => {
+    if (!open) { setInset(0); return }
+    const measure = () => {
+      const panel = document.querySelector('.chat-panel')
+      setInset(panel ? Math.max(0, Math.round(window.innerWidth - panel.getBoundingClientRect().left)) : 0)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [open, width])
+  return inset
+}
 
 const COLORS = ['#111111', '#1d4ed8', '#b91c1c', '#15803d', '#7c3aed']
 const WIDTHS = [1.2, 2, 3.2]
@@ -28,7 +48,18 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
   const redo = useRef<Stroke[]>([])
   const drawing = useRef(false)
   const penSeen = useRef(false)
-  const scale = 1.5
+  const inset = useChatPanelInset()
+  const pagesBox = useRef<HTMLDivElement>(null)
+  const [available, setAvailable] = useState(0)
+  useEffect(() => {
+    const el = pagesBox.current
+    if (!el) return
+    const measure = () => setAvailable(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [!!doc])
 
   const reload = useCallback(async () => {
     if (drawing.current) return
@@ -157,9 +188,10 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  if (!doc) return <div className="ink-editor"><p className="hint">{error || 'Opening…'}</p></div>
+  if (!doc) return <div className="ink-editor" style={{ right: inset }}><p className="hint">{error || 'Opening…'}</p></div>
   const [w, h] = pageSize(doc)
-  return <div className="ink-editor" role="dialog" aria-label="Handwriting">
+  const scale = available ? fitScale(available, w) : 1.5
+  return <div className="ink-editor" role="dialog" aria-label="Handwriting" style={{ right: inset }}>
     <div className="ink-toolbar">
       <button className={tool === 'pen' ? 'on' : ''} title="Pen" onClick={() => setTool('pen')}><PenLine size={16} /></button>
       <button className={tool === 'hl' ? 'on' : ''} title="Highlighter" onClick={() => setTool('hl')}><Highlighter size={16} /></button>
@@ -182,7 +214,7 @@ export function InkEditor({ id, onClose }: { id: string; onClose: () => void }) 
       <button title={doc.pdf ? 'Save the PDF with your writing on it, in the course' : 'Save as a PDF'} disabled={exporting} onClick={() => void exportPdf()}><FileDown size={16} /></button>
       <button title="Done (Esc)" onClick={() => void close()}><X size={16} /></button>
     </div>
-    <div className="ink-pages">
+    <div className="ink-pages" ref={pagesBox}>
       {Array.from({ length: doc.pages }, (_, page) => <InkPage key={page} page={page} doc={doc} scale={scale} width={w} height={h}
         background={backgrounds[page]} strokes={strokes.filter(s => s.page === page)} tool={tool} color={color} penWidth={width}
         penSeen={penSeen} drawing={drawing} onStroke={s => void finishStroke(s)} onErase={ids => void erase(ids)}
