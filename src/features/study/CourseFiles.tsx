@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
+import { MoreMenu } from '../../ui'
 import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { newId } from '../notes/model'
 import { fmtBytes } from './model'
@@ -66,7 +67,7 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
         <strong title={book.file}>{book.title}</strong>
         <small>{fmtBytes(book.bytes)}</small>
         {collections.length > 0 && <select className="study-collection-pick" title="Put it in a collection" value={inCollection?.id ?? ''} onChange={e => void save(moveFile(collections, book.file, e.target.value || null))}>
-          <option value="">Not in a collection</option>
+          <option value="">No collection</option>
           {collections.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>}
       </div>
@@ -88,6 +89,9 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
 
   return <div className="study-files">
     <div className="study-files-head">
+      <strong>Books and slides</strong>
+      <small>{books.length} {books.length === 1 ? 'file' : 'files'}</small>
+      <span className="grow" />
       {adding
         ? <form className="study-collection-form" onSubmit={e => { e.preventDefault(); create() }}>
           <input autoFocus maxLength={MAX_TITLE} placeholder="Collection name, e.g. Midterm 1 or Lab manual" value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setAdding(false) }} />
@@ -108,11 +112,13 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
           : <strong className="grow">{collection.title}</strong>}
         <small>{items.length} {collection.book ? (items.length === 1 ? 'chapter' : 'chapters') : items.length === 1 ? 'file' : 'files'}</small>
         {collection.book && <button className="ghost" disabled={!items.length} title="Open at the chapter and page you read last" onClick={() => void openFolder(collection, items)}><BookOpen size={14} />Open book</button>}
-        <button className="cal-icon" title={collection.book ? 'Show its files' : 'Show as one book (its files are the chapters)'} onClick={() => void save(setBook(collections, collection.id, !collection.book))}>{collection.book ? <Library size={14} /> : <BookOpen size={14} />}</button>
-        <button className="cal-icon" title="Rename" onClick={() => setRenaming({ id: collection.id, title: collection.title })}><Pencil size={14} /></button>
-        <button className="cal-icon" title="Move up" disabled={index === 0} onClick={() => void save(reorderCollection(collections, collection.id, -1))}><ChevronUp size={14} /></button>
-        <button className="cal-icon" title="Move down" disabled={index === groups.length - 1} onClick={() => void save(reorderCollection(collections, collection.id, 1))}><ChevronDown size={14} /></button>
-        <button className="cal-icon" title="Remove the collection (its files stay)" onClick={() => remove(collection)}><Trash2 size={14} /></button>
+        <MoreMenu title="More for this collection" items={[
+          { label: collection.book ? 'Show as separate files' : 'Show as one book', icon: collection.book ? <Library size={14} /> : <BookOpen size={14} />, title: collection.book ? undefined : 'Its files become the book’s chapters', onClick: () => void save(setBook(collections, collection.id, !collection.book)) },
+          { label: 'Rename', icon: <Pencil size={14} />, onClick: () => setRenaming({ id: collection.id, title: collection.title }) },
+          { label: 'Move up', icon: <ChevronUp size={14} />, disabled: index === 0, onClick: () => void save(reorderCollection(collections, collection.id, -1)) },
+          { label: 'Move down', icon: <ChevronDown size={14} />, disabled: index === groups.length - 1, onClick: () => void save(reorderCollection(collections, collection.id, 1)) },
+          { label: 'Remove the collection', icon: <Trash2 size={14} />, title: 'Its files stay in the course', danger: true, onClick: () => remove(collection) },
+        ]} />
       </div>
       {collection.book && !unfolded.has(collection.id)
         ? <button className="ghost study-folder-chapters" onClick={() => setUnfolded(s => new Set(s).add(collection.id))}>{items.length ? `Show the ${items.length} chapter files` : 'No chapters yet'}</button>
