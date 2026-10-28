@@ -43,6 +43,7 @@ const LANGS: &[Lang] = &[
     Lang { id: "rust", name: "Rust", ext: "rs", tools: &["rustc"], runner: None, install_mac: "Install Rust from rustup.rs.", install_windows: "Install Rust from rustup.rs.", install_linux: "Install Rust from rustup.rs." },
     Lang { id: "go", name: "Go", ext: "go", tools: &["go"], runner: None, install_mac: "Install Go from go.dev (or “brew install go”).", install_windows: "Install Go from go.dev.", install_linux: "Install Go from go.dev." },
     Lang { id: "verilog", name: "Verilog", ext: "v", tools: &["iverilog"], runner: Some(&["vvp"]), install_mac: "Install Icarus Verilog (“brew install icarus-verilog”).", install_windows: "Install Icarus Verilog from bleyer.org/icarus.", install_linux: "Install Icarus Verilog (sudo apt install iverilog)." },
+    Lang { id: "arduino", name: "Arduino", ext: "ino", tools: &["arduino-cli"], runner: None, install_mac: "Press Set up Arduino in the Arduino panel (BridgeDeck installs arduino-cli and the Uno's tools), or “brew install arduino-cli”.", install_windows: "Press Set up Arduino in the Arduino panel (BridgeDeck installs arduino-cli and the Uno's tools).", install_linux: "Press Set up Arduino in the Arduino panel, or install arduino-cli from arduino.github.io/arduino-cli." },
     Lang { id: "bash", name: "Shell (bash)", ext: "sh", tools: &["bash"], runner: None, install_mac: "bash comes with macOS.", install_windows: "Install Git for Windows (it includes bash).", install_linux: "bash comes with Linux." },
 ];
 
@@ -61,6 +62,8 @@ fn search_path() -> Vec<PathBuf> {
         }
     }
     if let Some(home) = &home {
+        // Tools BridgeDeck installs itself (arduino-cli).
+        dirs.push(home.join(".bridgedeck").join("tools"));
         dirs.push(home.join(".cargo").join("bin"));
         dirs.push(home.join("go").join("bin"));
     }
@@ -114,7 +117,7 @@ fn java_installed() -> bool {
     !cfg!(target_os = "macos") || Command::new("/usr/libexec/java_home").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
-fn which(name: &str) -> Option<PathBuf> {
+pub(crate) fn which(name: &str) -> Option<PathBuf> {
     let names: Vec<String> = if cfg!(windows) { vec![format!("{name}.exe"), format!("{name}.cmd"), name.to_string()] } else { vec![name.to_string()] };
     for dir in search_path() {
         for n in &names {
@@ -169,14 +172,14 @@ fn version_of(program: &str, l: &Lang) -> String {
         // Starting MATLAB just to ask its version takes a while: its folder says (…/MATLAB_R2024b.app/bin).
         return Path::new(program).ancestors().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).find(|n| n.contains('R') && n.chars().any(|c| c.is_ascii_digit())).map(|n| format!("MATLAB {}", n.trim_start_matches("MATLAB_").trim_end_matches(".app"))).unwrap_or_else(|| "MATLAB".into());
     }
-    let flag = match l.id { "go" => "version", "verilog" => "-V", "java" => "-version", _ => "--version" };
+    let flag = match l.id { "go" | "arduino" => "version", "verilog" => "-V", "java" => "-version", _ => "--version" };
     let out = crate::python::command(&[program.to_string(), flag.to_string()]).env("PATH", joined_path()).stdin(Stdio::null()).output();
     let Ok(out) = out else { return String::new() };
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("").chars().take(80).collect()
 }
 
-fn joined_path() -> std::ffi::OsString {
+pub(crate) fn joined_path() -> std::ffi::OsString {
     std::env::join_paths(search_path()).unwrap_or_default()
 }
 
@@ -385,6 +388,9 @@ struct Prepared {
 
 fn prepare(language: &str, source: &str) -> Result<Prepared, String> {
     let l = lang(language).ok_or("That language isn’t one BridgeDeck knows")?;
+    if l.id == "arduino" {
+        return Err("Arduino sketches run on the simulated board or a real one: use Simulate or Upload.".into());
+    }
     if source.len() > MAX_CODE {
         return Err("That program is too long to run here".into());
     }

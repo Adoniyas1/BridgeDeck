@@ -34,6 +34,7 @@
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tesseract.js-data/eng": "^1.0.0",
+    "avr8js": "0.21.1",
     "epubjs": "^0.3.93",
     "katex": "^0.16.47",
     "lucide-react": "^0.468.0",

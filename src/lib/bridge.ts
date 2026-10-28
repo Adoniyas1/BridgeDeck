@@ -730,6 +730,14 @@ export const codeLoad = (name: string, language: string) => native<string>('code
 export const codePublish = (name: string, source: string) => native<string>('code_publish', { name, source })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
 export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
+export type ArduinoStatus = { cli: string | null; version: string; avr: boolean }
+export type ArduinoBuild = { ok: boolean; output: string; hex: string | null; ms: number }
+export type ArduinoPort = { address: string; label: string; board: string | null; fqbn: string | null }
+export const arduinoStatus = () => native<ArduinoStatus>('arduino_status')
+export const arduinoSetup = () => native<string>('arduino_setup')
+export const arduinoCompile = (source: string, fqbn: string) => native<ArduinoBuild>('arduino_compile', { source, fqbn })
+export const arduinoPorts = () => native<ArduinoPort[]>('arduino_ports')
+export const arduinoUpload = (source: string, fqbn: string, port: string) => native<ArduinoBuild>('arduino_upload', { source, fqbn, port })
 export type CadFile = { name: string; modified: number }
 export const cadFiles = () => native<CadFile[]>('cad_files')
 export const cadLoad = (name: string) => native<string>('cad_load', { name })

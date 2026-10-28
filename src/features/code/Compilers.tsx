@@ -1,12 +1,27 @@
 import { useState } from 'react'
 import { CheckCircle2, CircleHelp, Loader2, RefreshCw, Stethoscope, X, XCircle } from 'lucide-react'
-import { codeLanguages, codeRun, isTauri, type CodeLanguage } from '../../lib/bridge'
+import { arduinoCompile, codeLanguages, codeRun, isTauri, type CodeLanguage } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { judgeSelfTest, SELF_TESTS, type SelfTest } from './model'
 
 const RESULTS_KEY = 'bridgedeck.code.selftests'
 const readResults = (): Record<string, SelfTest> => { try { return JSON.parse(localStorage.getItem(RESULTS_KEY) ?? '{}') as Record<string, SelfTest> } catch { return {} } }
 const ago = (at: number) => { const m = Math.round((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(at).toLocaleDateString() }
+
+/** Arduino's check: the test sketch built for an Uno, then run on the simulated one, which must
+ *  print the mark on Serial. */
+async function testArduino(): Promise<SelfTest> {
+  const built = await arduinoCompile(SELF_TESTS.arduino, 'arduino:avr:uno')
+  const step = { ok: built.ok, stdout: '', stderr: built.output, ms: built.ms, timedOut: false }
+  if (!built.ok || !built.hex) return judgeSelfTest({ compile: { ...step, ok: false }, run: null })
+  const { Uno, CLOCK_HZ } = await import('./arduinoSim')
+  const uno = new Uno(built.hex)
+  let printed = ''
+  uno.onSerial = t => { printed += t }
+  const t = performance.now()
+  uno.run(CLOCK_HZ * 0.3)
+  return judgeSelfTest({ compile: step, run: { ok: true, stdout: printed, stderr: '', ms: Math.round(performance.now() - t), timedOut: false } })
+}
 
 /** Every language: whether its compiler is on this computer (where, which version), and a test that
  *  builds and runs a tiny program through the same path as Run, so "works" means Run will work. */
@@ -18,7 +33,7 @@ export function CompilersPanel({ langs, onLangs, onClose }: { langs: CodeLanguag
 
   async function test(id: string) {
     setTesting(t => [...t, id])
-    try { keep(id, judgeSelfTest(await codeRun(id, SELF_TESTS[id], '', 60))) }
+    try { keep(id, id === 'arduino' ? await testArduino() : judgeSelfTest(await codeRun(id, SELF_TESTS[id], '', 60))) }
     catch (e) { keep(id, { ok: false, ms: 0, at: Date.now(), detail: errorText(e, 'Couldn’t start it') }) }
     finally { setTesting(t => t.filter(x => x !== id)) }
   }

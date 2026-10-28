@@ -106,6 +106,31 @@ module main;
   end
 endmodule
 `,
+  arduino: `// Blinks the board's LED (pin 13) and says what it's doing on Serial.
+// Simulate runs it on a virtual Arduino Uno; Upload puts it on a real board over USB.
+const int LED = 13;
+const int BUTTON = 2;
+
+void setup() {
+  pinMode(LED, OUTPUT);
+  pinMode(BUTTON, INPUT_PULLUP);   // reads LOW when the button (or wire) pulls it to ground
+  Serial.begin(9600);
+  Serial.println("Hello from the Uno!");
+}
+
+void loop() {
+  digitalWrite(LED, HIGH);
+  delay(500);
+  digitalWrite(LED, LOW);
+  delay(500);
+  if (digitalRead(BUTTON) == LOW) Serial.println("Button pressed");
+  if (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    Serial.print("You typed: ");
+    Serial.println(line);
+  }
+}
+`,
   bash: `read -r name
 echo "Hello, \${name:-world}!"
 for i in 1 2 3; do echo "line $i"; done
@@ -145,6 +170,7 @@ const KEYWORDS: Record<string, string[]> = {
   bash: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'in', 'function', 'echo', 'read', 'local', 'return', 'export'],
 }
 KEYWORDS.cpp = [...KEYWORDS.c, ...KEYWORDS.cpp]
+KEYWORDS.arduino = [...KEYWORDS.cpp, 'setup', 'loop', 'pinMode', 'digitalWrite', 'digitalRead', 'analogWrite', 'analogRead', 'delay', 'delayMicroseconds', 'millis', 'micros', 'Serial', 'HIGH', 'LOW', 'INPUT', 'OUTPUT', 'INPUT_PULLUP', 'String', 'byte', 'boolean', 'word']
 
 /** How each language writes comments and strings, as one pattern (comments first). */
 function tokenPattern(lang: string): RegExp {
@@ -172,7 +198,7 @@ export function highlight(source: string, lang: string): Token[] {
   for (const m of source.matchAll(tokenPattern(lang))) {
     push(source.slice(at, m.index))
     const [text, com, str, num, word, pre] = m
-    if (pre && (lang === 'c' || lang === 'cpp')) push(text, 'pre')
+    if (pre && (lang === 'c' || lang === 'cpp' || lang === 'arduino')) push(text, 'pre')
     else if (pre) push(text, lang === 'python' || lang === 'bash' ? 'com' : undefined)
     else if (com) push(text, 'com')
     else if (str) push(text, 'str')
@@ -267,6 +293,7 @@ export const SELF_TESTS: Record<string, string> = {
   rust: 'fn main() { println!("BridgeDeck check: {}", 6 * 7); }\n',
   go: 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Printf("BridgeDeck check: %d\\n", 6*7) }\n',
   verilog: 'module main;\n  initial begin\n    $display("BridgeDeck check: %0d", 6 * 7);\n    $finish;\n  end\nendmodule\n',
+  arduino: 'void setup() { Serial.begin(9600); Serial.print("BridgeDeck check: "); Serial.println(6 * 7); }\nvoid loop() {}\n',
   bash: 'echo "BridgeDeck check: $((6 * 7))"\n',
 }
 
