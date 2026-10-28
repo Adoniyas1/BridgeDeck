@@ -6,13 +6,13 @@ import { projectsStore, refreshProjects } from './state'
 import { errorText } from '../../core/util'
 import type { DynamicTab } from '../../core/tabs'
 
-/** KiCanvas (public/vendor/kicanvas), loaded once, the first time a KiCad file is opened. */
+/** KiCanvas (public/kicanvas), loaded once, the first time a KiCad file is opened. */
 let script: Promise<void> | null = null
 function loadKiCanvas(): Promise<void> {
   script ??= new Promise((resolve, reject) => {
     const el = document.createElement('script')
     el.type = 'module'
-    el.src = '/vendor/kicanvas/kicanvas.js'
+    el.src = '/kicanvas/kicanvas.js'
     el.onload = () => resolve()
     el.onerror = () => { script = null; reject(new Error('The KiCad viewer couldn’t load')) }
     document.head.appendChild(el)
