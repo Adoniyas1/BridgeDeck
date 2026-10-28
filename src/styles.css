@@ -1772,6 +1772,7 @@ main .logic-view button.on{background:var(--surface-3);color:var(--text)}
 .code-plots{display:flex;flex-direction:column;gap:8px}
 .code-plots img{max-width:100%;border-radius:var(--radius-sm);background:#fff}
 .code-typein{display:flex;gap:6px;align-items:center}
+.code-typein-open{align-self:flex-start;font-size:12px}
 .code-typein input{flex:1;min-width:0;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .code-jump .grow{flex:1}
 .code-jump button.code-ask{display:inline-flex;align-items:center;gap:5px;color:var(--accent)}

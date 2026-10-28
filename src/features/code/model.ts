@@ -310,3 +310,35 @@ export function judgeSelfTest(run: { compile: Step; run: Step }, at = Date.now()
   if (!run.run.stdout.includes(SELF_TEST_MARK)) return { ok: false, ms, at, detail: run.run.ok ? `It ran but printed the wrong thing: ${run.run.stdout.trim().slice(0, 120) || 'nothing'}` : `It failed when run: ${why(run.run) || 'no message'}` }
   return { ok: true, ms, at, detail: `Built and ran in ${ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`}` }
 }
+
+// ---- Whether a program reads input ----
+
+/** The ways each language reads what's typed (standard input). */
+const READS: Record<string, RegExp> = {
+  c: /\b(scanf|getchar|fgets|gets|getline|getc|fgetc|fscanf\s*\(\s*stdin|read\s*\(\s*0)\s*\(?/,
+  cpp: /\bcin\s*>>|\bgetline\s*\(\s*(std::)?cin\b|\b(scanf|getchar|fgets|getline)\s*\(/,
+  python: /\binput\s*\(|\bsys\.stdin\b|\bfileinput\b/,
+  matlab: /\b(input|keyboard)\s*\(|\bfgetl\s*\(\s*0\b|\bfgets\s*\(\s*0\b|\bfscanf\s*\(\s*0\b/,
+  java: /\bSystem\.in\b|\bConsole\b|\breadLine\s*\(/,
+  javascript: /\breadFileSync\s*\(\s*(0|['"]\/dev\/stdin['"])|\bprocess\.stdin\b|\breadline\b|\bprompt\s*\(/,
+  rust: /\bstdin\s*\(/,
+  go: /\bos\.Stdin\b|\bfmt\.(Scan|Scanf|Scanln)\b|\bbufio\.NewScanner\s*\(\s*os\.Stdin/,
+  verilog: /\$f(gets|scanf)\s*\(\s*(32'h8000_0000|STDIN)/i,
+  // `read` where a command starts (a line, after ; & | or then/do/while/if).
+  bash: /(^\s*|[;&|]\s*|\b(then|do|while|if|until)\s+)read\b/m,
+}
+
+/** The code without its comments, so a commented-out input() doesn't count. */
+function withoutComments(source: string, lang: string): string {
+  const line = lang === 'python' || lang === 'bash' ? /#.*$/gm : lang === 'matlab' ? /%.*$/gm : /\/\/.*$/gm
+  const block = lang === 'python' || lang === 'bash' || lang === 'matlab' ? null : /\/\*[\s\S]*?\*\//g
+  const code = (block ? source.replace(block, '') : source).replace(line, '')
+  // In a shell script, quoted text isn't a command ("already read it").
+  return lang === 'bash' ? code.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""') : code
+}
+
+/** Whether the program asks for input, so the Input box and the type-in line show only then. */
+export function readsInput(source: string, lang: string): boolean {
+  const re = READS[lang]
+  return !!re && re.test(withoutComments(source, lang))
+}
