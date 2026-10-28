@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import type { BrainConfig, BrainRole, RoleStatus, SetupConfig, TeamConfig } from "../../shared/types.js";
 import type { Upstream } from "../engines/anthropicBridge.js";
+import { engineProblem } from "../engines/fallback.js";
 import { isLocalModel } from "../setup/plan.js";
 
 /**
@@ -63,6 +64,8 @@ export interface CheckInput {
   brainServer: { reachable: boolean; models: string[]; detail: string } | null;
   /** The engine's command, when one is chosen: found or not. */
   engine: { ok: boolean; detail: string } | null;
+  /** How the engine answered a one-word message, when it was found (engines/index.ts tryEngine). */
+  engineReply?: { ok: boolean; ms: number; message: string; borrowed: boolean } | null;
   /** The model an agent gets on the team's models (for Hermes's context check), or why not. */
   agentModel: Upstream | Error | null;
   honchoKey: boolean;
@@ -127,6 +130,19 @@ export async function runAiChecks(input: CheckInput): Promise<AiCheck[]> {
     out.push(input.engine.ok
       ? { label: agent, status: "ok", detail: input.engine.detail }
       : { label: agent, status: "fail", detail: input.engine.detail, fix: team.engine === "hermes" ? "Press Install Hermes in Settings → AI." : `Install ${agent}, or set its path in Mimir's Settings → Brain team.` });
+  }
+
+  // Whether it really answers: installed is not the same as signed in with a working model.
+  if (agent && team.engine !== "mimir" && input.engine?.ok && input.engineReply) {
+    const r = input.engineReply;
+    const secs = `${(r.ms / 1000).toFixed(1)} s`;
+    const meanwhile = team.engineFallback ? " Until then Mimir answers with its own model and says why." : " Turn on “answer with Mimir's own model” in Settings → Brain team so messages still get answered.";
+    if (r.ok && r.borrowed) out.push({ label: `${agent} answers`, status: "warn", detail: `It answered in ${secs}, but with your Brain team's model: Hermes has no provider of its own.`, fix: "Run `hermes model` in a terminal to give it one, or turn on “Use the Brain team's models” so this is the plan." });
+    else if (r.ok) out.push({ label: `${agent} answers`, status: "ok", detail: `It answered a test message in ${secs}.` });
+    else {
+      const p = engineProblem(team.engine, r.message);
+      out.push({ label: `${agent} answers`, status: "fail", detail: `It didn't answer a test message: ${p.reason}.`, fix: p.fix + meanwhile });
+    }
   }
 
   // Hermes needs a model with at least 64K tokens of context.

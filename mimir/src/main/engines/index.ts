@@ -1,4 +1,6 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { TeamConfig } from "../../shared/types.js";
 import { runClaudeCode } from "./claudeCode.js";
 import { roleUpstream, type EngineResult, type EngineTurn } from "./common.js";
@@ -94,5 +96,34 @@ export class EngineRunner {
     this.openCode.stop();
     this.hermes.stop();
     this.tools.close();
+  }
+}
+
+/** How the chosen agent answered one tiny message (Settings → AI → Test my AI setup). */
+export type EngineTry = { ok: boolean; ms: number; message: string; borrowed: boolean };
+
+/** Sends the agent one short message, with nothing it may change, and says whether (and how fast)
+ * it answered: the only way to know it's installed, signed in and has a working model. */
+export async function tryEngine(team: TeamConfig, timeoutMs = 90_000, runner: Pick<EngineRunner, "run" | "close"> = new EngineRunner()): Promise<EngineTry> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "mimir-check-"));
+  const signal = AbortSignal.timeout(timeoutMs);
+  const started = Date.now();
+  try {
+    const result = await runner.run(team, {
+      prompt: "This is a connection check from Mimir. Reply with exactly one word: ready",
+      cwd: dir,
+      projectsRoot: dir,
+      approve: async () => false,
+      emit: () => undefined,
+      signal
+    });
+    const text = result.text.trim();
+    return { ok: !!text, ms: Date.now() - started, message: text ? text.slice(0, 200) : "It answered with nothing.", borrowed: text.startsWith(BORROWED_NOTE.trim().slice(0, 40)) };
+  } catch (err) {
+    const message = signal.aborted ? `It didn't answer within ${Math.round(timeoutMs / 1000)} seconds (timed out).` : err instanceof Error ? err.message : String(err);
+    return { ok: false, ms: Date.now() - started, message, borrowed: false };
+  } finally {
+    runner.close();
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

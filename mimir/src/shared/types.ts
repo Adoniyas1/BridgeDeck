@@ -194,6 +194,9 @@ export interface TeamConfig {
   /** For Claude Code and OpenCode: the team's Head and Executor models ("team"), or the agent's
    * own models and login ("own"). */
   engineModels: "team" | "own";
+  /** When the agent can't answer a message at all (not installed, signed out, crashed), Mimir
+   * answers it with its own model and says why (engines/fallback.ts). On unless turned off. */
+  engineFallback: boolean;
   /** Let local models think before answering. Off by default: on a small machine a reasoning model
    * can spend minutes thinking about a one-line answer. */
   thinking: boolean;
