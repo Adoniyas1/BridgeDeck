@@ -26,6 +26,7 @@ type Engine = 'mimir' | 'hermes' | 'claude-code' | 'opencode'
 type Team = {
   engine: Engine
   engineModels: 'team' | 'own'
+  engineFallback?: boolean
   engineCommands: Record<'claude-code' | 'opencode' | 'hermes', string | null>
   honcho: { enabled: boolean; baseUrl: string | null; peerName: string; keySaved: boolean }
 }
@@ -84,6 +85,7 @@ export function MimirBrain() {
       <span className="grow"><strong>{e.name}</strong><small>{e.what}</small></span>
     </label>)}</div>
     {team.engine !== 'mimir' && <Toggle checked={team.engineModels === 'team'} onChange={on => void save({ engineModels: on ? 'team' : 'own' })} label="Use the Brain team’s models (off: the agent’s own models and login)" />}
+    {team.engine !== 'mimir' && <Toggle checked={team.engineFallback !== false} onChange={on => void save({ engineFallback: on })} label="When it can’t answer (not installed, signed out, an error), Mimir answers with its own model and says why" />}
 
     {team.engine === 'hermes' && <>
       <p className="hint">

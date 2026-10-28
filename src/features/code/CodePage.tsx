@@ -10,7 +10,7 @@ import { openCodeRequest } from '../../core/openRequests'
 import { useStore } from '../../core/store'
 import { CompilersPanel } from './Compilers'
 import { ArduinoPanel } from './ArduinoPanel'
-import { errorLines, highlight, indentUnit, newLine, octaveOnly, sameOutput, STARTERS } from './model'
+import { errorLines, highlight, indentUnit, newLine, octaveOnly, readsInput, sameOutput, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
 const LANG_KEY = 'bridgedeck.code.language'
@@ -57,6 +57,8 @@ export default function CodePage({ active }: { active: boolean }) {
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState('')
   const [side, setSide] = useState<'input' | 'tests'>('input')
+  // Typing in while the program runs, opened by hand when the program reads input in a way readsInput didn't spot.
+  const [typeAnyway, setTypeAnyway] = useState(false)
   const [results, setResults] = useState<TestResult[]>([])
   const [testing, setTesting] = useState(false)
   const area = useRef<HTMLTextAreaElement>(null)
@@ -87,7 +89,7 @@ export default function CodePage({ active }: { active: boolean }) {
 
   async function run() {
     if (running || lang === 'arduino') return
-    setStarting(true); setError(''); setMessage(''); setTyped(''); setInputClosed(false); setLive(null)
+    setStarting(true); setError(''); setMessage(''); setTyped(''); setInputClosed(false); setTypeAnyway(false); setLive(null)
     current.current = null
     early.current.clear()
     try {
@@ -242,6 +244,9 @@ export default function CodePage({ active }: { active: boolean }) {
     if (gutter.current) gutter.current.scrollTop = t.scrollTop
   }
 
+  // Only offer input to a program that reads some.
+  const asks = useMemo(() => readsInput(draft.source, lang), [draft.source, lang])
+  const tab = asks ? side : 'tests'
   const end = live?.exit
   const status = !live || !end ? null
     : live.compile && !live.compile.ok ? { ok: false, text: 'Didn’t compile' }
@@ -266,7 +271,7 @@ export default function CodePage({ active }: { active: boolean }) {
       {lang === 'arduino' ? null : running
         ? <button className="danger" onClick={stop} disabled={!live} title="Stop the program"><Square size={13} /> Stop</button>
         : <button className="primary" onClick={() => void run()} disabled={!isTauri() || info?.available === false} title={`Run (${MOD} Enter)`}><Play size={14} /> Run</button>}
-      {lang !== 'arduino' && <select value={limit} onChange={e => setLimit(Number(e.target.value))} title="Time limit: a program still running after this is stopped">
+      {lang !== 'arduino' && <select value={limit} onChange={e => setLimit(Number(e.target.value))} title={lang === 'matlab' ? 'Time limit: a program still running after this is stopped. MATLAB’s start-up (up to about a minute and a half) doesn’t count.' : 'Time limit: a program still running after this is stopped'}>
         {LIMITS.map(s => <option key={s} value={s}>{s === 0 ? 'No limit' : s >= 60 ? `${s / 60} min limit` : `${s} s limit`}</option>)}
       </select>}
       <button className="ghost" onClick={() => void save()} disabled={!isTauri()} title={`Save in the shared Code folder (${MOD} S)`}><Save size={14} /> Save</button>
@@ -309,10 +314,10 @@ export default function CodePage({ active }: { active: boolean }) {
       </div>
       {lang === 'arduino' ? <aside className="code-side"><ArduinoPanel source={draft.source} /></aside> : <aside className="code-side">
         <div className="code-side-tabs" role="tablist">
-          <button role="tab" aria-selected={side === 'input'} className={side === 'input' ? 'on' : ''} onClick={() => setSide('input')}>Input</button>
-          <button role="tab" aria-selected={side === 'tests'} className={side === 'tests' ? 'on' : ''} onClick={() => setSide('tests')}><FlaskConical size={13} /> Tests{tests.length ? ` (${results.length && !testing ? `${passed}/${tests.length}` : tests.length})` : ''}</button>
+          {asks && <button role="tab" aria-selected={tab === 'input'} className={tab === 'input' ? 'on' : ''} onClick={() => setSide('input')}>Input</button>}
+          <button role="tab" aria-selected={tab === 'tests'} className={tab === 'tests' ? 'on' : ''} onClick={() => setSide('tests')}><FlaskConical size={13} /> Tests{tests.length ? ` (${results.length && !testing ? `${passed}/${tests.length}` : tests.length})` : ''}</button>
         </div>
-        {side === 'input' ? <label className="code-input">
+        {tab === 'input' ? <label className="code-input">
           <span>Input <small>given at the start (or type answers below while it runs)</small></span>
           <textarea value={draft.input} onChange={e => edit({ input: e.target.value })} spellCheck={false} placeholder="Optional: answers to give the program up front, one per line" />
         </label> : <div className="code-tests">
@@ -343,8 +348,9 @@ export default function CodePage({ active }: { active: boolean }) {
             {running ? <em><Loader2 size={13} className="spin" /> Running…</em>
               : status && <em className={status.ok ? 'ok' : 'bad'}>{status.ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />} {status.text}</em>}
           </div>
-          {!live && !running && <p className="hint">Press Run ({MOD} Enter). Your program is built and run on this computer{info?.version ? ` with ${info.version}` : ''}. When it asks for input, type the answer below and press Enter.</p>}
+          {!live && !running && <p className="hint">Press Run ({MOD} Enter). Your program is built and run on this computer{info?.version ? ` with ${info.version}` : ''}.{asks ? ' When it asks for input, type the answer below and press Enter.' : ''}</p>}
           {starting && !live && <p className="hint">Starting…</p>}
+          {lang === 'matlab' && live && !live.exit && !live.segments.length && <p className="hint"><Loader2 size={12} className="spin" /> Starting MATLAB… it can take 10–30 seconds to open. The time limit only counts once your code is running.</p>}
           {live && <div className="code-term" ref={term}>
             {live.compile && live.compile.text && <pre className={live.compile.ok ? 'code-stderr code-stderr--soft' : 'code-stderr'}>{live.compile.text}</pre>}
             {live.segments.length > 0 && <pre className="code-stdout">{live.segments.map((x, i) => <span key={i} className={`code-seg code-seg--${x.kind}`}>{x.text}</span>)}</pre>}
@@ -358,7 +364,8 @@ export default function CodePage({ active }: { active: boolean }) {
               {live.exit.images.map((src, i) => <img key={i} src={`data:image/png;base64,${src}`} alt={`Figure ${i + 1}`} />)}
             </div>}
           </div>}
-          {live && !live.exit && !inputClosed && <form className="code-typein" onSubmit={e => { e.preventDefault(); send() }}>
+          {live && !live.exit && !inputClosed && !asks && !typeAnyway && <button className="ghost code-typein-open" onClick={() => setTypeAnyway(true)} title="This program doesn't look like it reads input; open the input line if it's waiting for some"><CornerDownLeft size={13} /> Waiting for input?</button>}
+          {live && !live.exit && !inputClosed && (asks || typeAnyway) && <form className="code-typein" onSubmit={e => { e.preventDefault(); send() }}>
             <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type input for the program, then Enter" aria-label="Input for the running program" autoFocus />
             <button type="submit" className="ghost" title="Send this line"><CornerDownLeft size={13} /></button>
             <button type="button" className="ghost" onClick={() => send(true)} title="Tell the program there's no more input (end of file)">End input</button>

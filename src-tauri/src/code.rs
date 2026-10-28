@@ -459,8 +459,8 @@ fn run(language: &str, source: &str, input: &str, limit_secs: u64) -> Result<Cod
     if input.len() > MAX_INPUT {
         return Err("That input is too long".into());
     }
-    let limit = Duration::from_secs(limit_secs.clamp(1, MAX_RUN_LIMIT));
     let p = prepare(language, source)?;
+    let limit = Duration::from_secs(limit_secs.clamp(1, MAX_RUN_LIMIT)) + startup_grace(language, &p.start);
     let result = (|| {
         let mut out = CodeRun { file: p.file.clone(), ..Default::default() };
         if let Some(build) = &p.build {
@@ -478,6 +478,16 @@ fn run(language: &str, source: &str, input: &str, limit_secs: u64) -> Result<Cod
     })();
     let _ = std::fs::remove_dir_all(&p.dir);
     result
+}
+
+/// Extra time for the language itself to start, so its start-up doesn't eat the program's time
+/// limit: MATLAB takes 10–30 s to open (more the first time after an install), Octave a few.
+fn startup_grace(language: &str, start: &[String]) -> Duration {
+    match language {
+        "matlab" if start.first().is_some_and(|p| is_matlab(p)) => Duration::from_secs(90),
+        "matlab" => Duration::from_secs(15),
+        _ => Duration::ZERO,
+    }
 }
 
 /// MATLAB (not Octave): its program is called matlab.
@@ -670,7 +680,7 @@ fn start_live(app: tauri::AppHandle, id: u64, language: String, source: String, 
     };
     let out_thread = reader(stdout.map(|p| Box::new(p) as Box<dyn Read + Send>), "out");
     let err_thread = reader(stderr.map(|p| Box::new(p) as Box<dyn Read + Send>), "err");
-    let limit = (limit_secs > 0).then(|| Duration::from_secs(limit_secs.min(3600)));
+    let limit = (limit_secs > 0).then(|| Duration::from_secs(limit_secs.min(3600)) + startup_grace(&language, &p.start));
     let mut timed_out = false;
     let status = loop {
         let done = {
@@ -879,6 +889,14 @@ mod tests {
 
     fn has(id: &str) -> bool {
         lang(id).and_then(found).is_some()
+    }
+
+    #[test]
+    fn matlab_start_up_does_not_count_against_the_time_limit() {
+        let cmd = |p: &str| vec![p.to_string(), "-batch".to_string()];
+        assert_eq!(startup_grace("matlab", &cmd("/Applications/MATLAB_R2025b.app/bin/matlab")), Duration::from_secs(90));
+        assert_eq!(startup_grace("matlab", &cmd("/opt/homebrew/bin/octave-cli")), Duration::from_secs(15));
+        assert_eq!(startup_grace("python", &cmd("python3")), Duration::ZERO);
     }
 
     #[test]

@@ -205,6 +205,10 @@ function EngineSection({ config, onPatch }: { config: TeamConfig; onPatch: (next
             <input type="radio" checked={config.engineModels === "own"} onChange={() => onPatch({ engineModels: "own" })} />
             {engine === "claude-code" ? "Use Claude's own models (your Claude login)" : engine === "hermes" ? "Use Hermes's own setup (your ~/.hermes profile)" : "Use OpenCode's own models and logins"}
           </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={config.engineFallback} onChange={(e) => onPatch({ engineFallback: e.target.checked })} />
+            When it can't answer (not installed, signed out, an error), answer with Mimir's own model and say why
+          </label>
           <div className="key-row">
             <input
               placeholder={engine === "claude-code" ? "claude" : engine}

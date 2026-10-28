@@ -214,64 +214,86 @@ pub async fn anki_read(request: tauri::ipc::Request<'_>) -> Result<AnkiDeck, Str
     .map_err(|e| e.to_string())?
 }
 
+// ---- A sample deck, for the tests and for checking imports work on this computer ----
+
+/// A small deck: a basic note with a picture, a reversed note reviewed twice, a cloze note with
+/// a suspended card, in the old form or the new (zstd, protobuf media list).
+pub(crate) fn sample_apkg(new_form: bool) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    let path = std::env::temp_dir().join(format!("bd-anki-sample-{}-{new_form}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+    conn.execute_batch("CREATE TABLE notes (id integer primary key, flds text, tags text);
+        CREATE TABLE cards (id integer primary key, nid integer, ord integer, queue integer);
+        CREATE TABLE revlog (id integer primary key, cid integer, ease integer, type integer);").map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO notes VALUES (1, ?1, ' ee ')", ["Ohm's law?<img src=\"ohm.png\">\u{1f}V = I&nbsp;R"]).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO notes VALUES (2, ?1, '')", ["Capacitor\u{1f}Stores charge [sound:cap.mp3]"]).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO notes VALUES (3, ?1, '')", ["The {{c1::anode}} is {{c2::positive}}\u{1f}"]).map_err(|e| e.to_string())?;
+    conn.execute_batch("INSERT INTO cards VALUES (10, 1, 0, 2); INSERT INTO cards VALUES (20, 2, 0, 2); INSERT INTO cards VALUES (21, 2, 1, 0);
+        INSERT INTO cards VALUES (30, 3, 0, 0); INSERT INTO cards VALUES (31, 3, 1, -1);
+        INSERT INTO revlog VALUES (1700000000000, 20, 3, 0); INSERT INTO revlog VALUES (1700086400000, 20, 1, 1); INSERT INTO revlog VALUES (1700090000000, 20, 0, 4);").map_err(|e| e.to_string())?;
+    drop(conn);
+    let mut db = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&path);
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89".to_vec();
+    let mut media = br#"{"0": "ohm.png"}"#.to_vec();
+    let mut picture = png.clone();
+    if new_form {
+        db = ruzstd::encoding::compress_to_vec(Cursor::new(db), ruzstd::encoding::CompressionLevel::Fastest);
+        picture = ruzstd::encoding::compress_to_vec(Cursor::new(png), ruzstd::encoding::CompressionLevel::Fastest);
+        // MediaEntries { entries: [{ name: "ohm.png", size: 33 }] }
+        let entry = [&[0x0a, 7][..], b"ohm.png", &[0x10, 33]].concat();
+        media = [&[0x0a, entry.len() as u8][..], &entry].concat();
+        media = ruzstd::encoding::compress_to_vec(Cursor::new(media), ruzstd::encoding::CompressionLevel::Fastest);
+    }
+    let mut out = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut out);
+        let opts = zip::write::SimpleFileOptions::default();
+        if new_form {
+            zip.start_file("collection.anki2", opts).map_err(|e| e.to_string())?;
+            zip.write_all(b"not a deck: please update Anki").map_err(|e| e.to_string())?;
+        }
+        zip.start_file(if new_form { "collection.anki21b" } else { "collection.anki2" }, opts).map_err(|e| e.to_string())?;
+        zip.write_all(&db).map_err(|e| e.to_string())?;
+        zip.start_file("media", opts).map_err(|e| e.to_string())?;
+        zip.write_all(&media).map_err(|e| e.to_string())?;
+        zip.start_file("0", opts).map_err(|e| e.to_string())?;
+        zip.write_all(&picture).map_err(|e| e.to_string())?;
+        zip.finish().map_err(|e| e.to_string())?;
+    }
+    Ok(out.into_inner())
+}
+
+/// Builds a small deck in both Anki formats and reads it back (Settings → About → Check new features).
+#[tauri::command]
+pub async fn anki_selftest() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut out = Vec::new();
+        for new_form in [false, true] {
+            let deck = read_apkg(&sample_apkg(new_form)?, |name, _| Ok(name.to_string()))?;
+            let reviews: usize = deck.notes.iter().flat_map(|n| &n.cards).map(|c| c.reviews.len()).sum();
+            if deck.notes.len() != 3 || reviews != 2 || deck.pictures.len() != 1 {
+                return Err(format!("The {} deck read back wrong", if new_form { "new" } else { "old" }));
+            }
+            out.push(if new_form { "new (zstd)" } else { "old" });
+        }
+        Ok(format!("Read sample decks in the {} formats: 3 notes, 2 reviews and a picture each.", out.join(" and ")))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
 
-    /// A small deck: a basic note with a picture, a reversed note reviewed twice, a cloze note with
-    /// a suspended card, in the old form or the new (zstd, protobuf media list).
-    fn deck(new_form: bool) -> Vec<u8> {
-        let path = std::env::temp_dir().join(format!("bd-anki-test-{}-{new_form}.sqlite", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch("CREATE TABLE notes (id integer primary key, flds text, tags text);
-            CREATE TABLE cards (id integer primary key, nid integer, ord integer, queue integer);
-            CREATE TABLE revlog (id integer primary key, cid integer, ease integer, type integer);").unwrap();
-        conn.execute("INSERT INTO notes VALUES (1, ?1, ' ee ')", ["Ohm's law?<img src=\"ohm.png\">\u{1f}V = I&nbsp;R"]).unwrap();
-        conn.execute("INSERT INTO notes VALUES (2, ?1, '')", ["Capacitor\u{1f}Stores charge [sound:cap.mp3]"]).unwrap();
-        conn.execute("INSERT INTO notes VALUES (3, ?1, '')", ["The {{c1::anode}} is {{c2::positive}}\u{1f}"]).unwrap();
-        conn.execute_batch("INSERT INTO cards VALUES (10, 1, 0, 2); INSERT INTO cards VALUES (20, 2, 0, 2); INSERT INTO cards VALUES (21, 2, 1, 0);
-            INSERT INTO cards VALUES (30, 3, 0, 0); INSERT INTO cards VALUES (31, 3, 1, -1);
-            INSERT INTO revlog VALUES (1700000000000, 20, 3, 0); INSERT INTO revlog VALUES (1700086400000, 20, 1, 1); INSERT INTO revlog VALUES (1700090000000, 20, 0, 4);").unwrap();
-        drop(conn);
-        let mut db = std::fs::read(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89".to_vec();
-        let mut media = br#"{"0": "ohm.png"}"#.to_vec();
-        let mut picture = png.clone();
-        if new_form {
-            db = ruzstd::encoding::compress_to_vec(Cursor::new(db), ruzstd::encoding::CompressionLevel::Fastest);
-            picture = ruzstd::encoding::compress_to_vec(Cursor::new(png), ruzstd::encoding::CompressionLevel::Fastest);
-            // MediaEntries { entries: [{ name: "ohm.png", size: 33 }] }
-            let entry = [&[0x0a, 7][..], b"ohm.png", &[0x10, 33]].concat();
-            media = [&[0x0a, entry.len() as u8][..], &entry].concat();
-            media = ruzstd::encoding::compress_to_vec(Cursor::new(media), ruzstd::encoding::CompressionLevel::Fastest);
-        }
-        let mut out = Cursor::new(Vec::new());
-        {
-            let mut zip = zip::ZipWriter::new(&mut out);
-            let opts = zip::write::SimpleFileOptions::default();
-            if new_form {
-                zip.start_file("collection.anki2", opts).unwrap();
-                zip.write_all(b"not a deck: please update Anki").unwrap();
-            }
-            zip.start_file(if new_form { "collection.anki21b" } else { "collection.anki2" }, opts).unwrap();
-            zip.write_all(&db).unwrap();
-            zip.start_file("media", opts).unwrap();
-            zip.write_all(&media).unwrap();
-            zip.start_file("0", opts).unwrap();
-            zip.write_all(&picture).unwrap();
-            zip.finish().unwrap();
-        }
-        out.into_inner()
-    }
-
     #[test]
     fn reads_old_and_new_decks_with_cards_reviews_and_pictures() {
         for new_form in [false, true] {
             let mut saved = Vec::new();
-            let d = read_apkg(&deck(new_form), |name, bytes| { saved.push((name.to_string(), bytes.len())); Ok(format!("saved-{name}")) }).unwrap();
+            let d = read_apkg(&sample_apkg(new_form).unwrap(), |name, bytes| { saved.push((name.to_string(), bytes.len())); Ok(format!("saved-{name}")) }).unwrap();
             assert_eq!(d.notes.len(), 3, "new form: {new_form}");
             assert_eq!(d.notes[0].fields, vec!["Ohm's law?<img src=\"ohm.png\">", "V = I&nbsp;R"]);
             assert_eq!(d.notes[0].tags, "ee");

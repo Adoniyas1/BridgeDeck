@@ -87,3 +87,25 @@ describe('checking the compilers', () => {
     expect(judgeSelfTest({ compile: null, run: step({ timedOut: true, ok: false }) }).ok).toBe(false)
   })
 })
+
+describe('whether a program asks for input', () => {
+  it('finds each language’s way of reading input, and ignores comments', async () => {
+    const { readsInput, STARTERS } = await import('./model')
+    expect(readsInput('name = input("Your name? ")', 'python')).toBe(true)
+    expect(readsInput('print("hi")\n# x = input()', 'python')).toBe(false)
+    expect(readsInput('int n; scanf("%d", &n);', 'c')).toBe(true)
+    expect(readsInput('printf("hi\\n"); /* scanf("%d", &n); */', 'c')).toBe(false)
+    expect(readsInput('std::cin >> x;', 'cpp')).toBe(true)
+    expect(readsInput('x = input(\'Value? \');', 'matlab')).toBe(true)
+    expect(readsInput('x = linspace(0, 1);  % input(...) later\nplot(x)', 'matlab')).toBe(false)
+    expect(readsInput('Scanner in = new Scanner(System.in);', 'java')).toBe(true)
+    expect(readsInput("const s = require('fs').readFileSync(0, 'utf8')", 'javascript')).toBe(true)
+    expect(readsInput('fmt.Println("hi")', 'go')).toBe(false)
+    expect(readsInput('read -r name', 'bash')).toBe(true)
+    expect(readsInput('echo "already read it"', 'bash')).toBe(false)
+    // The starter programs that ask for a name do; the MATLAB one doesn't.
+    expect(readsInput(STARTERS.python, 'python')).toBe(true)
+    expect(readsInput(STARTERS.c, 'c')).toBe(true)
+    expect(readsInput(STARTERS.matlab, 'matlab')).toBe(false)
+  })
+})

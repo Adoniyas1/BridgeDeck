@@ -87,3 +87,25 @@ describe("giving a model more context", () => {
     expect(contextArg("-ngl 99 -c 4096")).toBe(4096);
   });
 });
+
+describe("the chosen agent answering", () => {
+  const hermes = { ...structuredClone(DEFAULT_TEAM), mode: "single" as const, engine: "hermes" as const, engineModels: "own" as const };
+  const found = { ok: true, detail: "Installed (/usr/local/bin/hermes)" };
+  const row = (checks: Awaited<ReturnType<typeof runAiChecks>>) => checks.find((c) => c.label === "Hermes answers");
+
+  it("passes when it answers, and says how fast", async () => {
+    const r = row(await runAiChecks(input({ team: hermes, engine: found, engineReply: { ok: true, ms: 2400, message: "ready", borrowed: false } })));
+    expect(r).toMatchObject({ status: "ok", detail: "It answered a test message in 2.4 s." });
+  });
+
+  it("warns when Hermes only answered with the team's model", async () => {
+    expect(row(await runAiChecks(input({ team: hermes, engine: found, engineReply: { ok: true, ms: 900, message: "ready", borrowed: true } })))?.status).toBe("warn");
+  });
+
+  it("fails with the reason, the fix, and what happens meanwhile", async () => {
+    const r = row(await runAiChecks(input({ team: hermes, engine: found, engineReply: { ok: false, ms: 300, message: "Hermes: You are not connected to any AI provider yet.", borrowed: false } })));
+    expect(r?.status).toBe("fail");
+    expect(r?.detail).toMatch(/no AI provider/);
+    expect(r?.fix).toMatch(/hermes model.*Mimir answers with its own model/s);
+  });
+});

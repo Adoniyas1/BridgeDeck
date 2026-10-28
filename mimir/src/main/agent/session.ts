@@ -44,6 +44,7 @@ import { buildCodingToolset } from "../coding/tools.js";
 import { codingRoot } from "../coding/config.js";
 import { EngineRunner } from "../engines/index.js";
 import { engineName } from "../engines/common.js";
+import { fallbackNote } from "../engines/fallback.js";
 import { TurnLog } from "../logs/turnLog.js";
 import { guardEndpoint } from "../setup/memory.js";
 import type { PromptModule } from "../prompts/modules.js";
@@ -86,6 +87,8 @@ export class AgentSession {
   private stickyModules = new Map<string, number>();
   /** Claude Code / OpenCode, when one of them runs the chat instead of Mimir's own loop. */
   private engines = new EngineRunner();
+  /** The line above this turn's reply when an outside agent couldn't answer and Mimir did. */
+  private turnNote = "";
   private engineAbort: AbortController | null = null;
 
   constructor(private deps: AgentSessionDeps) {
@@ -150,6 +153,7 @@ export class AgentSession {
     const { win, workspaceRoot, auditFilePath, relaunch, runPython, resetPython, semanticSearch } = this.deps;
     const turnId = ++this.activeTurnId;
     this.runningTurn = true;
+    this.turnNote = "";
 
     // Exam mode (on either computer, in BridgeDeck): no AI help until it ends.
     const exam = await examMode();
@@ -162,7 +166,7 @@ export class AgentSession {
       this.runningTurn = false;
       win.webContents.send(IPC.faceState, "idle");
       this.sendStream({ type: "text-delta", text: message });
-      this.sendStream({ type: "turn-done", fullText: message });
+      this.sendStream({ type: "turn-done", fullText: this.turnNote + message });
       return;
     }
 
@@ -178,8 +182,12 @@ export class AgentSession {
       if (turnId !== this.activeTurnId) return;
     }
     if (team.engine !== "mimir") {
-      await this.runEngine(team, turnId, userText, attachments, vault);
-      return;
+      const note = await this.runEngine(team, turnId, userText, attachments, vault);
+      if (note === null || turnId !== this.activeTurnId) return;
+      // The agent couldn't answer at all: Mimir's own model answers, under a line saying why.
+      this.runningTurn = true;
+      this.turnNote = note;
+      this.sendStream({ type: "text-delta", text: note });
     }
 
     let provider;
@@ -219,7 +227,7 @@ export class AgentSession {
       this.runningTurn = false;
       win.webContents.send(IPC.faceState, "idle");
       this.sendStream({ type: "text-delta", text: message });
-      this.sendStream({ type: "turn-done", fullText: message });
+      this.sendStream({ type: "turn-done", fullText: this.turnNote + message });
       return;
     }
     // In team mode each role gets its own tool level, so the full set is built and each role's prompt picks.
@@ -369,7 +377,7 @@ export class AgentSession {
         turnError = ev.message;
         this.sendStream({ type: "error", message: ev.message });
       } else if (ev.type === "turn-done") {
-        this.sendStream({ type: "turn-done", fullText: assistantText });
+        this.sendStream({ type: "turn-done", fullText: this.turnNote + assistantText });
       }
     }
 
@@ -386,9 +394,10 @@ export class AgentSession {
     }
   }
 
-  /** One turn run by Claude Code or OpenCode (engines/): its own tools do the work in the coding
-   * folder, and anything that needs an OK comes back here as an approval card. */
-  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[], vault: { path: string; bridgedeck: boolean } | null = null): Promise<void> {
+  /** One turn run by Claude Code, OpenCode or Hermes (engines/): its own tools do the work in the
+   * coding folder, and anything that needs an OK comes back here as an approval card. When it can't
+   * answer at all (and fallback is on), returns the line to show while Mimir answers instead. */
+  private async runEngine(team: Awaited<ReturnType<typeof loadTeamConfig>>, turnId: number, userText: string, attachments?: Attachment[], vault: { path: string; bridgedeck: boolean } | null = null): Promise<string | null> {
     const { win } = this.deps;
     const engine = team.engine as "claude-code" | "opencode" | "hermes";
     const abort = new AbortController();
@@ -427,12 +436,18 @@ export class AgentSession {
       });
       reply = result.text || reply;
       void log.finish({ reply });
-      if (!live()) return;
+      if (!live()) return null;
       if (note) this.sendStream({ type: "text-delta", text: note });
       this.sendStream({ type: "turn-done", fullText: reply + note });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       void log.finish({ error: message });
+      // Nothing answered and the user didn't stop it: Mimir's own model takes the message.
+      if (live() && !reply && !abort.signal.aborted && team.engineFallback) {
+        const last = this.history[this.history.length - 1];
+        if (last?.role === "user" && last.content === userText) this.history.pop();
+        return fallbackNote(engine, message);
+      }
       if (live()) this.sendStream({ type: "error", message });
     } finally {
       if (reply) this.history.push({ role: "assistant", content: reply });
@@ -442,6 +457,7 @@ export class AgentSession {
         win.webContents.send(IPC.faceState, "idle");
       }
     }
+    return null;
   }
 
   /** Mimir's own tools for an outside agent: BridgeDeck's calendar, notes, study, messages and files,
@@ -658,7 +674,7 @@ export class AgentSession {
     }
     void log.finish({ reply });
     if (turnId !== this.activeTurnId) return;
-    this.sendStream({ type: "turn-done", fullText: reply });
+    this.sendStream({ type: "turn-done", fullText: this.turnNote + reply });
     finish();
     if (reply) this.history.push({ role: "assistant", content: reply });
   }

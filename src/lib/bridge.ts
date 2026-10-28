@@ -472,6 +472,8 @@ export async function studySaveCardPicture(course: string, name: string, bytes: 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** Builds sample Anki decks in both formats and reads them back (Settings → About → Check new features). */
+export const ankiSelftest = () => native<string>('anki_selftest')
 /** An Anki deck (.apkg) read for a course (anki.rs): its notes, cards and reviews; the pictures it
  *  uses are saved with the course's card pictures. */
 export async function ankiRead(course: string, bytes: Uint8Array): Promise<import('../features/study/deckio').AnkiDeck> {
@@ -765,6 +767,11 @@ export async function cadExport(path: string, bytes: Uint8Array): Promise<void> 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   await invoke('cad_export', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
 }
+/** SolidCraft, the Fusion-style CAD app, downloaded once and served from this computer (src-tauri/src/solidcraft.rs). */
+export type SolidCraftStatus = { installed: boolean; version: string; downloadMb: number }
+export const solidcraftStatus = () => native<SolidCraftStatus>('solidcraft_status')
+export const solidcraftInstall = () => native<void>('solidcraft_install')
+export const solidcraftServe = () => native<string>('solidcraft_serve')
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
 export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
 export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })

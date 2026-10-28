@@ -58,6 +58,7 @@ mod upgrade;
 mod wake;
 mod memory;
 mod cad;
+mod solidcraft;
 mod arduino;
 mod lecture_fetch;
 mod anki;
@@ -777,6 +778,9 @@ pub fn run() {
             cad::cad_save,
             cad::cad_delete,
             cad::cad_export,
+            solidcraft::solidcraft_status,
+            solidcraft::solidcraft_install,
+            solidcraft::solidcraft_serve,
             arduino::arduino_status,
             arduino::arduino_setup,
             arduino::arduino_compile,
@@ -787,6 +791,7 @@ pub fn run() {
             lecture_fetch::lecture_fetch,
             projects::project_kicad,
             anki::anki_read,
+            anki::anki_selftest,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

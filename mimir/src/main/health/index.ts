@@ -3,7 +3,7 @@ import { bridgeDeckFromEnv } from "../bridgedeck/client.js";
 import { getSecret } from "../config/keychain.js";
 import { checkEngine, roleUpstream } from "../engines/common.js";
 import { findHermes } from "../engines/hermesInstall.js";
-import { HONCHO_KEY } from "../engines/index.js";
+import { HONCHO_KEY, tryEngine } from "../engines/index.js";
 import { freeDisk } from "../models/library.js";
 import { loadSetupConfig } from "../setup/index.js";
 import { loadTeamConfig } from "../team/config.js";
@@ -28,5 +28,7 @@ export async function checkAi(): Promise<AiCheck[]> {
     client ? client.call<{ enabled: boolean }>("vault").then((v) => ({ reachable: true, vault: !!v.enabled })).catch(() => ({ reachable: false, vault: false })) : Promise.resolve(null),
     freeDisk().catch(() => null)
   ]);
-  return runAiChecks({ team, brain, setup, roles, brainServer, engine, agentModel, honchoKey, bridgedeck, freeDiskBytes });
+  // A found agent is sent one short message: the only way to know it's signed in and has a model.
+  const engineReply = team.engine !== "mimir" && engine?.ok ? await tryEngine(team) : null;
+  return runAiChecks({ team, brain, setup, roles, brainServer, engine, engineReply, agentModel, honchoKey, bridgedeck, freeDiskBytes });
 }
