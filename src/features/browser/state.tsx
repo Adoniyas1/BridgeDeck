@@ -118,7 +118,7 @@ export function BrowserBackground() {
   const mail = config.mail
   useEffect(() => {
     if (!isTauri()) return
-    const keep = ['spotify', 'tv', ...(mail.background ? mail.accounts.map(mailPage) : [])]
+    const keep = ['spotify', 'tv', 'solidcraft', ...(mail.background ? mail.accounts.map(mailPage) : [])]
     void browserSleepSettings(minutes, keep).catch(() => undefined)
   }, [minutes, mail.background, mail.accounts])
 

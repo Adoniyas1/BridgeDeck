@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CheckCircle2, CircleAlert, ClipboardCopy, ListChecks, Loader2, XCircle } from 'lucide-react'
-import { ankiSelftest, arduinoStatus, isTauri, lectureToolStatus, mimirControl } from '../lib/bridge'
+import { ankiSelftest, arduinoStatus, isTauri, lectureToolStatus, mimirControl, solidcraftServe, solidcraftStatus } from '../lib/bridge'
 import { errorText } from '../core/util'
 import { Card, SectionTitle } from '../ui'
 import { version } from '../../package.json'
@@ -21,6 +21,19 @@ const CHECKS: Check[] = [
       const [r, t] = await timed(() => build(EXAMPLES[0].code, null))
       const triangles = r.parts.reduce((n, p) => n + p.faces.triangles.length / 3, 0)
       return { status: triangles > 30 ? 'ok' : 'fail', detail: `Built “${EXAMPLES[0].name}” in ${ms(t)} (${Math.round(triangles)} triangles).` }
+    },
+  },
+  {
+    id: 'solidcraft', label: 'CAD: SolidCraft (Fusion-style)',
+    run: async () => {
+      if (!isTauri()) return { status: 'warn', detail: 'Needs the BridgeDeck app.' }
+      const st = await solidcraftStatus()
+      if (!st.installed) return { status: 'warn', detail: `Not downloaded yet (${st.downloadMb} MB).`, fix: 'Open the CAD tab and press Download SolidCraft.' }
+      const address = await solidcraftServe()
+      // No CORS headers from the local server: an opaque answer still shows it's serving.
+      await fetch(address, { mode: 'no-cors' })
+      const gpu = 'gpu' in navigator
+      return { status: 'ok', detail: `Version ${st.version}, served at ${address}, drawing with ${gpu ? 'WebGPU' : 'WebGL2 (this web view has no WebGPU)'}.` }
     },
   },
   {

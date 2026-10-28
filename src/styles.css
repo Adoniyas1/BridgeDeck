@@ -2165,3 +2165,11 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .feature-check small{color:var(--muted)}
 .feature-check.ok>svg{color:#4ade80}.feature-check.warn>svg{color:var(--warn)}.feature-check.fail>svg{color:#f87171}
 .feature-check.fail small{color:#f87171}
+.cad-modes{margin-left:0}
+.cad-modes button.on{border-color:var(--accent)}
+.solidcraft-area{flex:1;min-height:0}
+.solidcraft-intro{max-width:640px;margin:32px auto;padding:0 16px;line-height:1.5}
+.solidcraft-intro h2{margin:0 0 8px;font-size:20px}
+.solidcraft-intro ul{margin:8px 0 12px;padding-left:20px}
+.solidcraft-progress{height:6px;margin-top:10px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.solidcraft-progress i{display:block;height:100%;background:var(--accent)}

@@ -767,6 +767,11 @@ export async function cadExport(path: string, bytes: Uint8Array): Promise<void> 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   await invoke('cad_export', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
 }
+/** SolidCraft, the Fusion-style CAD app, downloaded once and served from this computer (src-tauri/src/solidcraft.rs). */
+export type SolidCraftStatus = { installed: boolean; version: string; downloadMb: number }
+export const solidcraftStatus = () => native<SolidCraftStatus>('solidcraft_status')
+export const solidcraftInstall = () => native<void>('solidcraft_install')
+export const solidcraftServe = () => native<string>('solidcraft_serve')
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
 export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
 export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })

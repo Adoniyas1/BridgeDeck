@@ -49,3 +49,11 @@ describe('the CAD model layer', () => {
     }
   }, 60_000)
 })
+
+describe('SolidCraft', () => {
+  it('asks for WebGL2 where the web view has no WebGPU', async () => {
+    const { startAddress } = await import('./SolidCraftView')
+    expect(startAddress('http://127.0.0.1:47318/', true)).toBe('http://127.0.0.1:47318/')
+    expect(startAddress('http://127.0.0.1:47318/', false)).toBe('http://127.0.0.1:47318/?webgl')
+  })
+})

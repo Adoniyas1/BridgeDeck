@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Box, ClipboardPaste, Download, FilePlus, FolderOpen, Loader2, Maximize, Save, Sparkles, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Box, Braces, ClipboardPaste, Download, FilePlus, FolderOpen, Loader2, Maximize, Save, Sparkles, Trash2 } from 'lucide-react'
 import { cadDelete, cadExport, cadFiles, cadLoad, cadSave, isTauri, pickCadExport, type CadFile } from '../../lib/bridge'
 import { errorText } from '../../core/util'
 import { useTabContext } from '../../core/tabContext'
@@ -7,9 +7,24 @@ import { askMimir } from '../mimir'
 import { build, exportModel } from './kernel'
 import type { MeshedPart } from './cad.worker'
 import { Viewer } from './Viewer'
+import { SolidCraftView } from './SolidCraftView'
 import { cadPrompt, EXAMPLES, modelFromText, paramControls, paramLabel } from './model'
 
 const DRAFT_KEY = 'bridgedeck.cad.draft'
+const MODE_KEY = 'bridgedeck.cad.mode'
+type Mode = 'solidcraft' | 'code'
+const loadMode = (): Mode => { try { return localStorage.getItem(MODE_KEY) === 'code' ? 'code' : 'solidcraft' } catch { return 'solidcraft' } }
+
+/** The CAD tab: SolidCraft (Fusion-style, the default) or a model written as a short script. */
+export default function CadTab({ active }: { active: boolean }) {
+  const [mode, setModeState] = useState<Mode>(loadMode)
+  const setMode = (m: Mode) => { setModeState(m); try { localStorage.setItem(MODE_KEY, m) } catch { /* convenience */ } }
+  const switcher = <div className="spotify-modes cad-modes" role="tablist">
+    <button role="tab" aria-selected={mode === 'solidcraft'} className={mode === 'solidcraft' ? 'on' : ''} onClick={() => setMode('solidcraft')} title="Full CAD laid out like Fusion 360: sketches, features, timeline, assemblies"><Box size={13} /> SolidCraft</button>
+    <button role="tab" aria-selected={mode === 'code'} className={mode === 'code' ? 'on' : ''} onClick={() => setMode('code')} title="A part written as a short script with sliders, which Mimir can write for you"><Braces size={13} /> Code parts</button>
+  </div>
+  return mode === 'solidcraft' ? <SolidCraftView show={active} switcher={switcher} /> : <CodeCad switcher={switcher} />
+}
 type Draft = { name: string; code: string; params: Record<string, unknown> }
 const readDraft = (): Draft => {
   try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null; if (d?.code) return d } catch { /* a fresh start */ }
@@ -27,7 +42,7 @@ const sizeOf = (parts: MeshedPart[]) => {
 /** Parametric CAD: a model is a short replicad script (OpenCascade, the kernel FreeCAD uses) whose
  *  parameters are sliders; it rebuilds as you type or drag, shows in 3D, and exports STL to print or
  *  STEP for other CAD programs. Models are saved in the shared folder's CAD folder. */
-export default function CadPage() {
+function CodeCad({ switcher }: { switcher: ReactNode }) {
   const [draft, setDraft] = useState<Draft>(readDraft)
   const [parts, setParts] = useState<MeshedPart[]>([])
   const [defaults, setDefaults] = useState<Record<string, unknown>>({})
@@ -97,6 +112,7 @@ export default function CadPage() {
   return <div className="cad-page">
     <div className="cad-bar">
       <Box size={16} />
+      {switcher}
       <input className="cad-name" value={draft.name} onChange={e => edit({ name: e.target.value })} aria-label="Model name" />
       <select value="" onChange={e => { const ex = EXAMPLES.find(x => x.name === e.target.value); if (ex && (window.confirm(`Open the example “${ex.name}”? (Save first to keep this model.)`))) load(ex.name, ex.code) }} aria-label="Examples">
         <option value="">Examples…</option>
