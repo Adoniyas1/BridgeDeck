@@ -8,6 +8,7 @@ import { openTab } from '../../core/tabs'
 import { useTabContext } from '../../core/tabContext'
 import { openCodeRequest } from '../../core/openRequests'
 import { useStore } from '../../core/store'
+import { CompilersPanel } from './Compilers'
 import { errorLines, highlight, indentUnit, newLine, octaveOnly, sameOutput, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
@@ -66,6 +67,7 @@ export default function CodePage({ active }: { active: boolean }) {
   const running = starting || (live !== null && !live.exit)
   const gutter = useRef<HTMLDivElement>(null)
   const info = langs.find(l => l.id === lang)
+  const [showCompilers, setShowCompilers] = useState(false)
 
   useEffect(() => { if (isTauri()) void codeLanguages().then(setLangs).catch(() => undefined) }, [])
   useEffect(() => {
@@ -280,11 +282,12 @@ export default function CodePage({ active }: { active: boolean }) {
       <button className="ghost" onClick={() => { if (draft.source === (STARTERS[lang] ?? '') || window.confirm('Start over with the example program? (Save first to keep this one.)')) { edit({ name: 'Untitled', source: STARTERS[lang] ?? '' }); setLive(null) } }}><FilePlus size={14} /> New</button>
       <span className="grow" />
       {lang === 'matlab' && <button className="ghost" onClick={matlabOnline} title="Open MATLAB Online (Simulink and every toolbox) with this program copied, ready to paste"><ExternalLink size={13} /> MATLAB Online</button>}
-      {info && <span className="code-version" title={info.version}>{info.available ? info.version : 'Not installed'}</span>}
+      {info && <button className="ghost code-version" title={`${info.version || info.name}: click to check every compiler`} onClick={() => setShowCompilers(s => !s)}>{info.available ? info.version || 'Installed' : 'Not installed'}</button>}
     </div>
+    {showCompilers && <CompilersPanel langs={langs} onLangs={setLangs} onClose={() => setShowCompilers(false)} />}
     {info && !info.available && <div className="code-missing">
       <AlertTriangle size={14} />
-      <span><strong>{info.name} isn’t installed on this computer.</strong> {info.install}</span>
+      <span><strong>{info.name} isn’t installed on this computer.</strong> {info.install} <button className="link" onClick={() => setShowCompilers(true)}>See all compilers</button></span>
       <button className="ghost" disabled={checking} onClick={() => { setChecking(true); void codeLanguages(true).then(setLangs).finally(() => setChecking(false)) }}><RefreshCw size={13} className={checking ? 'spin' : undefined} /> Check again</button>
     </div>}
     {(message || error) && <p className={error ? 'error-text code-msg' : 'hint code-msg'}>{error || message}</p>}

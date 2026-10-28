@@ -188,6 +188,8 @@ pub struct Language {
     pub ext: String,
     pub available: bool,
     pub version: String,
+    /// The programs it was found as (the compiler, and its runner if it needs one).
+    pub paths: Vec<String>,
     /// How to install it here, when it isn't.
     pub install: String,
 }
@@ -203,6 +205,7 @@ fn languages() -> Vec<Language> {
                 ext: l.ext.into(),
                 available: tools.is_some(),
                 version: tools.as_ref().map(|t| version_of(&t[0], l)).unwrap_or_default(),
+                paths: tools.clone().unwrap_or_default(),
                 install: if cfg!(target_os = "macos") { l.install_mac } else if cfg!(windows) { l.install_windows } else { l.install_linux }.into(),
             }
         })

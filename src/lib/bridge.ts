@@ -692,7 +692,7 @@ export const pythonStatus = () => native<string | null>('python_status')
 export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })
 
 /** The Code tab's languages, run by the compilers on this computer (src-tauri/src/code.rs). */
-export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; install: string }
+export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; paths: string[]; install: string }
 export type CodeStep = { ok: boolean; stdout: string; stderr: string; exitCode: number | null; ms: number; timedOut: boolean }
 export type CodeVariable = { name: string; size: string; class: string; value: string }
 export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string; images: string[]; workspace: CodeVariable[] }

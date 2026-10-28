@@ -249,3 +249,37 @@ export function sameOutput(got: string, expected: string): boolean {
   const norm = (s: string) => s.replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').replace(/\n+$/, '').replace(/^\n+/, '')
   return norm(got) === norm(expected)
 }
+
+// ---- Checking the compilers ----
+
+/** What each language's test program prints when it built and ran. */
+export const SELF_TEST_MARK = 'BridgeDeck check: 42'
+
+/** A tiny program per language: builds (where it's built), runs, does a little arithmetic and
+ *  prints the mark. Through the same path as your own code, so a pass means Run will work. */
+export const SELF_TESTS: Record<string, string> = {
+  c: '#include <stdio.h>\nint main(void) { int a = 6, b = 7; printf("BridgeDeck check: %d\\n", a * b); return 0; }\n',
+  cpp: '#include <iostream>\nint main() { int a = 6, b = 7; std::cout << "BridgeDeck check: " << a * b << std::endl; return 0; }\n',
+  python: 'print("BridgeDeck check:", 6 * 7)\n',
+  matlab: "fprintf('BridgeDeck check: %d\\n', 6 * 7);\n",
+  java: 'public class Main { public static void main(String[] args) { System.out.println("BridgeDeck check: " + (6 * 7)); } }\n',
+  javascript: 'console.log(`BridgeDeck check: ${6 * 7}`)\n',
+  rust: 'fn main() { println!("BridgeDeck check: {}", 6 * 7); }\n',
+  go: 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Printf("BridgeDeck check: %d\\n", 6*7) }\n',
+  verilog: 'module main;\n  initial begin\n    $display("BridgeDeck check: %0d", 6 * 7);\n    $finish;\n  end\nendmodule\n',
+  bash: 'echo "BridgeDeck check: $((6 * 7))"\n',
+}
+
+type Step = { ok: boolean; stdout: string; stderr: string; ms: number; timedOut: boolean } | null
+export type SelfTest = { ok: boolean; ms: number; detail: string; at: number }
+
+/** How a test run went: works (with the time it took), or where it failed and the first line of why. */
+export function judgeSelfTest(run: { compile: Step; run: Step }, at = Date.now()): SelfTest {
+  const ms = (run.compile?.ms ?? 0) + (run.run?.ms ?? 0)
+  const why = (s: NonNullable<Step>) => (s.stderr || s.stdout).split('\n').map(l => l.trim()).find(Boolean)?.slice(0, 200) ?? ''
+  if (run.compile && !run.compile.ok) return { ok: false, ms, at, detail: run.compile.timedOut ? 'Building took too long.' : `Couldn’t build it: ${why(run.compile) || 'no message'}` }
+  if (!run.run) return { ok: false, ms, at, detail: 'It didn’t run.' }
+  if (run.run.timedOut) return { ok: false, ms, at, detail: 'It started but didn’t finish in time.' }
+  if (!run.run.stdout.includes(SELF_TEST_MARK)) return { ok: false, ms, at, detail: run.run.ok ? `It ran but printed the wrong thing: ${run.run.stdout.trim().slice(0, 120) || 'nothing'}` : `It failed when run: ${why(run.run) || 'no message'}` }
+  return { ok: true, ms, at, detail: `Built and ran in ${ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`}` }
+}
