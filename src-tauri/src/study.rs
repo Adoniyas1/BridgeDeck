@@ -438,7 +438,7 @@ fn picture_kind(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// Saves a picture in `<course>/Cards/` and returns its file name.
-fn save_card_picture(course_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
+pub(crate) fn save_card_picture(course_dir: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
     let kind = picture_kind(bytes).filter(|_| bytes.len() <= MAX_CARD_PICTURE).ok_or("Only PNG, JPEG or WebP pictures up to 15 MB")?;
     let dir = course_dir.join(CARDS_DIR);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

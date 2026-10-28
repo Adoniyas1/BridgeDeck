@@ -106,6 +106,31 @@ module main;
   end
 endmodule
 `,
+  arduino: `// Blinks the board's LED (pin 13) and says what it's doing on Serial.
+// Simulate runs it on a virtual Arduino Uno; Upload puts it on a real board over USB.
+const int LED = 13;
+const int BUTTON = 2;
+
+void setup() {
+  pinMode(LED, OUTPUT);
+  pinMode(BUTTON, INPUT_PULLUP);   // reads LOW when the button (or wire) pulls it to ground
+  Serial.begin(9600);
+  Serial.println("Hello from the Uno!");
+}
+
+void loop() {
+  digitalWrite(LED, HIGH);
+  delay(500);
+  digitalWrite(LED, LOW);
+  delay(500);
+  if (digitalRead(BUTTON) == LOW) Serial.println("Button pressed");
+  if (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    Serial.print("You typed: ");
+    Serial.println(line);
+  }
+}
+`,
   bash: `read -r name
 echo "Hello, \${name:-world}!"
 for i in 1 2 3; do echo "line $i"; done
@@ -145,6 +170,7 @@ const KEYWORDS: Record<string, string[]> = {
   bash: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'in', 'function', 'echo', 'read', 'local', 'return', 'export'],
 }
 KEYWORDS.cpp = [...KEYWORDS.c, ...KEYWORDS.cpp]
+KEYWORDS.arduino = [...KEYWORDS.cpp, 'setup', 'loop', 'pinMode', 'digitalWrite', 'digitalRead', 'analogWrite', 'analogRead', 'delay', 'delayMicroseconds', 'millis', 'micros', 'Serial', 'HIGH', 'LOW', 'INPUT', 'OUTPUT', 'INPUT_PULLUP', 'String', 'byte', 'boolean', 'word']
 
 /** How each language writes comments and strings, as one pattern (comments first). */
 function tokenPattern(lang: string): RegExp {
@@ -172,7 +198,7 @@ export function highlight(source: string, lang: string): Token[] {
   for (const m of source.matchAll(tokenPattern(lang))) {
     push(source.slice(at, m.index))
     const [text, com, str, num, word, pre] = m
-    if (pre && (lang === 'c' || lang === 'cpp')) push(text, 'pre')
+    if (pre && (lang === 'c' || lang === 'cpp' || lang === 'arduino')) push(text, 'pre')
     else if (pre) push(text, lang === 'python' || lang === 'bash' ? 'com' : undefined)
     else if (com) push(text, 'com')
     else if (str) push(text, 'str')
@@ -248,4 +274,39 @@ export function octaveOnly(source: string): Portability[] {
 export function sameOutput(got: string, expected: string): boolean {
   const norm = (s: string) => s.replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').replace(/\n+$/, '').replace(/^\n+/, '')
   return norm(got) === norm(expected)
+}
+
+// ---- Checking the compilers ----
+
+/** What each language's test program prints when it built and ran. */
+export const SELF_TEST_MARK = 'BridgeDeck check: 42'
+
+/** A tiny program per language: builds (where it's built), runs, does a little arithmetic and
+ *  prints the mark. Through the same path as your own code, so a pass means Run will work. */
+export const SELF_TESTS: Record<string, string> = {
+  c: '#include <stdio.h>\nint main(void) { int a = 6, b = 7; printf("BridgeDeck check: %d\\n", a * b); return 0; }\n',
+  cpp: '#include <iostream>\nint main() { int a = 6, b = 7; std::cout << "BridgeDeck check: " << a * b << std::endl; return 0; }\n',
+  python: 'print("BridgeDeck check:", 6 * 7)\n',
+  matlab: "fprintf('BridgeDeck check: %d\\n', 6 * 7);\n",
+  java: 'public class Main { public static void main(String[] args) { System.out.println("BridgeDeck check: " + (6 * 7)); } }\n',
+  javascript: 'console.log(`BridgeDeck check: ${6 * 7}`)\n',
+  rust: 'fn main() { println!("BridgeDeck check: {}", 6 * 7); }\n',
+  go: 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Printf("BridgeDeck check: %d\\n", 6*7) }\n',
+  verilog: 'module main;\n  initial begin\n    $display("BridgeDeck check: %0d", 6 * 7);\n    $finish;\n  end\nendmodule\n',
+  arduino: 'void setup() { Serial.begin(9600); Serial.print("BridgeDeck check: "); Serial.println(6 * 7); }\nvoid loop() {}\n',
+  bash: 'echo "BridgeDeck check: $((6 * 7))"\n',
+}
+
+type Step = { ok: boolean; stdout: string; stderr: string; ms: number; timedOut: boolean } | null
+export type SelfTest = { ok: boolean; ms: number; detail: string; at: number }
+
+/** How a test run went: works (with the time it took), or where it failed and the first line of why. */
+export function judgeSelfTest(run: { compile: Step; run: Step }, at = Date.now()): SelfTest {
+  const ms = (run.compile?.ms ?? 0) + (run.run?.ms ?? 0)
+  const why = (s: NonNullable<Step>) => (s.stderr || s.stdout).split('\n').map(l => l.trim()).find(Boolean)?.slice(0, 200) ?? ''
+  if (run.compile && !run.compile.ok) return { ok: false, ms, at, detail: run.compile.timedOut ? 'Building took too long.' : `Couldn’t build it: ${why(run.compile) || 'no message'}` }
+  if (!run.run) return { ok: false, ms, at, detail: 'It didn’t run.' }
+  if (run.run.timedOut) return { ok: false, ms, at, detail: 'It started but didn’t finish in time.' }
+  if (!run.run.stdout.includes(SELF_TEST_MARK)) return { ok: false, ms, at, detail: run.run.ok ? `It ran but printed the wrong thing: ${run.run.stdout.trim().slice(0, 120) || 'nothing'}` : `It failed when run: ${why(run.run) || 'no message'}` }
+  return { ok: true, ms, at, detail: `Built and ran in ${ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`}` }
 }

@@ -472,6 +472,12 @@ export async function studySaveCardPicture(course: string, name: string, bytes: 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** An Anki deck (.apkg) read for a course (anki.rs): its notes, cards and reviews; the pictures it
+ *  uses are saved with the course's card pictures. */
+export async function ankiRead(course: string, bytes: Uint8Array): Promise<import('../features/study/deckio').AnkiDeck> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke('anki_read', bytes, { headers: { 'x-course': encodeURIComponent(course) } })
+}
 export async function studySavePhoto(course: string, name: string, bytes: Uint8Array): Promise<string> {
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_photo', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
@@ -490,6 +496,10 @@ export type LectureSidecar = { segments?: Array<{ start: number; end: number; te
 export type LectureFile = { file: string; bytes: number; modified: number; sidecar: LectureSidecar | null }
 export const studyLectures = (course: string) => native<LectureFile[]>('study_lectures', { courseName: course })
 export const studyImportLecture = (course: string, path: string) => native<string>('study_import_lecture', { courseName: course, path })
+/** Lectures from a link (lecture_fetch.rs): yt-dlp, installed here when needed. */
+export const lectureToolStatus = () => native<{ path: string | null; version: string }>('lecture_tool_status')
+export const lectureToolInstall = () => native<string>('lecture_tool_install')
+export const lectureFetch = (course: string, url: string, browser: string | null) => native<string>('lecture_fetch', { courseName: course, url, browser })
 export const studyLectureGet = (course: string, file: string) => native<LectureSidecar | null>('study_lecture_get', { courseName: course, file })
 export const studyLecturePut = (course: string, file: string, data: LectureSidecar) => native<void>('study_lecture_put', { courseName: course, file, data })
 export async function studySaveLecture(course: string, name: string, bytes: Uint8Array): Promise<string> {
@@ -529,6 +539,9 @@ export type ProjectList = { root: string; projects: ProjectInfo[]; mimirOld: str
 export type ProjectFile = { path: string; bytes: number; modified: number }
 export const projectsList = (shared: string) => native<ProjectList>('projects_list', { shared })
 export const projectsAdd = (name: string) => native<string>('projects_add', { name })
+export type KicadFile = { name: string; text: string }
+/** A KiCad file in a project (and its other sheets), to view. */
+export const projectKicad = (project: string, path: string) => native<KicadFile[]>('project_kicad', { project, path })
 export const projectsFiles = (project: string) => native<ProjectFile[]>('projects_files', { project })
 export const projectsImportMimir = () => native<number>('projects_import_mimir')
 /** Skill packs for Mimir (src-tauri/src/skill_packs.rs). */
@@ -692,7 +705,7 @@ export const pythonStatus = () => native<string | null>('python_status')
 export const pythonRun = (code: string) => native<PythonRun>('python_run', { code })
 
 /** The Code tab's languages, run by the compilers on this computer (src-tauri/src/code.rs). */
-export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; install: string }
+export type CodeLanguage = { id: string; name: string; ext: string; available: boolean; version: string; paths: string[]; install: string }
 export type CodeStep = { ok: boolean; stdout: string; stderr: string; exitCode: number | null; ms: number; timedOut: boolean }
 export type CodeVariable = { name: string; size: string; class: string; value: string }
 export type CodeRun = { compile: CodeStep | null; run: CodeStep | null; file: string; images: string[]; workspace: CodeVariable[] }
@@ -730,6 +743,28 @@ export const codeLoad = (name: string, language: string) => native<string>('code
 export const codePublish = (name: string, source: string) => native<string>('code_publish', { name, source })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
 export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
+export type ArduinoStatus = { cli: string | null; version: string; avr: boolean }
+export type ArduinoBuild = { ok: boolean; output: string; hex: string | null; ms: number }
+export type ArduinoPort = { address: string; label: string; board: string | null; fqbn: string | null }
+export const arduinoStatus = () => native<ArduinoStatus>('arduino_status')
+export const arduinoSetup = () => native<string>('arduino_setup')
+export const arduinoCompile = (source: string, fqbn: string) => native<ArduinoBuild>('arduino_compile', { source, fqbn })
+export const arduinoPorts = () => native<ArduinoPort[]>('arduino_ports')
+export const arduinoUpload = (source: string, fqbn: string, port: string) => native<ArduinoBuild>('arduino_upload', { source, fqbn, port })
+export type CadFile = { name: string; modified: number }
+export const cadFiles = () => native<CadFile[]>('cad_files')
+export const cadLoad = (name: string) => native<string>('cad_load', { name })
+export const cadSave = (name: string, source: string) => native<void>('cad_save', { name, source })
+export const cadDelete = (name: string) => native<void>('cad_delete', { name })
+/** Where to save an export (the save dialog), as STL or STEP. */
+export async function pickCadExport(name: string, kind: 'stl' | 'step'): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `${name.replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Part'}.${kind}`, filters: [{ name: kind.toUpperCase(), extensions: kind === 'stl' ? ['stl'] : ['step', 'stp'] }] })) ?? null
+}
+export async function cadExport(path: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  await invoke('cad_export', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
+}
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
 export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
 export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })

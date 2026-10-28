@@ -1,4 +1,5 @@
 import { degrees, PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { outlineWithin, writeOutline, writePageLabels, type Bookmark } from './pdfOutline'
 
 /** One source for a stitched PDF: a PDF (some of its pages, or all) or a picture (one page). */
 export type StitchPart = { bytes: ArrayBuffer; kind: 'pdf' | 'image'; mime?: string; pages?: number[]; rotate?: number }
@@ -67,8 +68,13 @@ export async function stitchPdf(parts: StitchPart[]): Promise<Uint8Array> {
   return out.save()
 }
 
-/** One PDF cut into parts by page ranges (from 1, inclusive), loading it only once. */
-export async function splitPdf(bytes: ArrayBuffer, ranges: Array<{ start: number; end: number }>, onPart?: (done: number) => void): Promise<Uint8Array[]> {
+/** What a book knows about its pages, for its parts to keep: the contents (bookmarks) and each
+ *  page's label (null or empty: plain page numbers). */
+export type BookPages = { outline?: Bookmark[]; labels?: string[] | null }
+
+/** One PDF cut into parts by page ranges (from 1, inclusive), loading it only once. Each part keeps
+ *  its share of the book's contents as bookmarks, and the book's page numbers. */
+export async function splitPdf(bytes: ArrayBuffer, ranges: Array<{ start: number; end: number }>, onPart?: (done: number) => void, book: BookPages = {}): Promise<Uint8Array[]> {
   let source: PDFDocument
   try { source = await PDFDocument.load(bytes, { ignoreEncryption: true }) } catch { throw new Error('The PDF couldn’t be read.') }
   const count = source.getPageCount()
@@ -78,6 +84,8 @@ export async function splitPdf(bytes: ArrayBuffer, ranges: Array<{ start: number
     const wanted = Array.from({ length: Math.max(0, Math.min(r.end, count) - r.start + 1) }, (_, i) => r.start - 1 + i)
     if (!wanted.length) throw new Error(`Pages ${r.start}–${r.end} aren’t in this book.`)
     for (const page of await part.copyPages(source, wanted)) part.addPage(page)
+    writeOutline(part, outlineWithin(book.outline ?? [], r.start, r.start + wanted.length - 1))
+    writePageLabels(part, wanted.map(i => book.labels?.length ? book.labels[i] ?? String(i + 1) : String(i + 1)))
     out.push(await part.save())
     onPart?.(out.length)
   }

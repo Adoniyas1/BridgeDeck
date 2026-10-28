@@ -9,7 +9,7 @@ export const GROUPS: TabGroup[] = [
   { id: 'devices', title: 'Devices', icon: MonitorSmartphone, items: ['computers', 'files'] },
   { id: 'inbox', title: 'Inbox', icon: Inbox, items: ['messages', 'mail'] },
   { id: 'plan', title: 'Plan', icon: FolderKanban, items: ['notes', 'calendar', 'projects'] },
-  { id: 'study', title: 'Study', icon: GraduationCap, items: ['study', 'logic', 'code'] },
+  { id: 'study', title: 'Study', icon: GraduationCap, items: ['study', 'logic', 'code', 'cad'] },
   { id: 'media', title: 'Media', icon: Play, items: ['browser', 'tv', 'spotify', 'manga'] },
   { id: 'ai', title: 'AI', icon: Bot, items: ['mimir', 'ai'] },
 ]

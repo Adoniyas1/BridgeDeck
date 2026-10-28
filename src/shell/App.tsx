@@ -34,7 +34,7 @@ function Loading() {
 }
 
 /** Pages that use the whole area under the tab bar, with no margins. */
-const FILL_PAGES = new Set(['browser', 'tv', 'logic', 'code', 'spotify', 'mail'])
+const FILL_PAGES = new Set(['browser', 'tv', 'logic', 'code', 'cad', 'spotify', 'mail'])
 const SPLIT_KEY = 'bd-split-left'
 
 /** Where a visible tab sits: alone, or on the left or right of a split. */

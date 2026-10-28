@@ -5,7 +5,7 @@ import { errorText } from '../../core/util'
 import { chapterAt, chapterFileName, savedStarts, type Chapter } from './chapters'
 import { newId } from '../notes/model'
 import { readCollections } from './collections'
-import { loadBookBytes } from './pdf'
+import { bookPages, loadBookBytes } from './pdf'
 import { refreshLibrary } from './state'
 
 type Folder = { id: string; title: string; files: string[] }
@@ -50,7 +50,8 @@ export function BookChapters({ course, file, title, info, pages, page, chapters,
     try {
       const bytes = await loadBookBytes(course, file)
       const { splitPdf } = await import('../../lib/pdfwrite')
-      const [part] = which === 'book' ? [new Uint8Array(bytes)] : await splitPdf(bytes, [{ start, end }])
+      // The part keeps its sections as bookmarks and the book's page numbers.
+      const [part] = which === 'book' ? [new Uint8Array(bytes)] : await splitPdf(bytes, [{ start, end }], undefined, await bookPages(course, file).catch(() => ({})))
       await studyDownloadPdf(to, part)
       onStatus(`Saved ${to}.`)
     } catch (e) { onStatus(errorText(e, 'Couldn’t save it')) } finally { setBusy('') }
@@ -62,7 +63,9 @@ export function BookChapters({ course, file, title, info, pages, page, chapters,
     setBusy('split')
     try {
       const { splitPdf } = await import('../../lib/pdfwrite')
-      const parts = await splitPdf(await loadBookBytes(course, file), chapters, done => setBusy(`split ${done}/${chapters.length}`))
+      // Each chapter file keeps its sections and sub-sections as bookmarks (so it can be split
+      // again) and the book's page numbers.
+      const parts = await splitPdf(await loadBookBytes(course, file), chapters, done => setBusy(`split ${done}/${chapters.length}`), await bookPages(course, file).catch(() => ({})))
       const files: string[] = []
       for (const [i, part] of parts.entries()) files.push(await studySavePdf(course, chapterFileName(title, i, chapters[i].title), part))
       const collections = readCollections(info)

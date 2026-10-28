@@ -8,6 +8,8 @@ import { openTab } from '../../core/tabs'
 import { useTabContext } from '../../core/tabContext'
 import { openCodeRequest } from '../../core/openRequests'
 import { useStore } from '../../core/store'
+import { CompilersPanel } from './Compilers'
+import { ArduinoPanel } from './ArduinoPanel'
 import { errorLines, highlight, indentUnit, newLine, octaveOnly, sameOutput, STARTERS } from './model'
 
 const DRAFTS_KEY = 'bridgedeck.code.drafts'
@@ -66,6 +68,7 @@ export default function CodePage({ active }: { active: boolean }) {
   const running = starting || (live !== null && !live.exit)
   const gutter = useRef<HTMLDivElement>(null)
   const info = langs.find(l => l.id === lang)
+  const [showCompilers, setShowCompilers] = useState(false)
 
   useEffect(() => { if (isTauri()) void codeLanguages().then(setLangs).catch(() => undefined) }, [])
   useEffect(() => {
@@ -83,7 +86,7 @@ export default function CodePage({ active }: { active: boolean }) {
   const edit = (patch: Partial<Draft>) => setDrafts(d => ({ ...d, [lang]: { ...draft, ...patch } }))
 
   async function run() {
-    if (running) return
+    if (running || lang === 'arduino') return
     setStarting(true); setError(''); setMessage(''); setTyped(''); setInputClosed(false); setLive(null)
     current.current = null
     early.current.clear()
@@ -260,12 +263,12 @@ export default function CodePage({ active }: { active: boolean }) {
       <select value={lang} onChange={e => { setLang(e.target.value); setLive(null); setError('') }} aria-label="Language">
         {(langs.length ? langs : Object.keys(STARTERS).map(id => ({ id, name: id, available: true }) as CodeLanguage)).map(l => <option key={l.id} value={l.id}>{l.name}{l.available ? '' : ' (not installed)'}</option>)}
       </select>
-      {running
+      {lang === 'arduino' ? null : running
         ? <button className="danger" onClick={stop} disabled={!live} title="Stop the program"><Square size={13} /> Stop</button>
         : <button className="primary" onClick={() => void run()} disabled={!isTauri() || info?.available === false} title={`Run (${MOD} Enter)`}><Play size={14} /> Run</button>}
-      <select value={limit} onChange={e => setLimit(Number(e.target.value))} title="Time limit: a program still running after this is stopped">
+      {lang !== 'arduino' && <select value={limit} onChange={e => setLimit(Number(e.target.value))} title="Time limit: a program still running after this is stopped">
         {LIMITS.map(s => <option key={s} value={s}>{s === 0 ? 'No limit' : s >= 60 ? `${s / 60} min limit` : `${s} s limit`}</option>)}
-      </select>
+      </select>}
       <button className="ghost" onClick={() => void save()} disabled={!isTauri()} title={`Save in the shared Code folder (${MOD} S)`}><Save size={14} /> Save</button>
       {lang === 'matlab' && <button className="ghost" disabled={!isTauri() || publishing || !draft.name.trim()} title={draft.name.trim() ? 'A report of the code, its output and figures (MATLAB’s publish), saved beside it and opened' : 'Name the script first'} onClick={() => void publish()}><FileText size={14} /> {publishing ? 'Publishing…' : 'Publish report'}</button>}
       <details className="logic-open code-open">
@@ -280,11 +283,12 @@ export default function CodePage({ active }: { active: boolean }) {
       <button className="ghost" onClick={() => { if (draft.source === (STARTERS[lang] ?? '') || window.confirm('Start over with the example program? (Save first to keep this one.)')) { edit({ name: 'Untitled', source: STARTERS[lang] ?? '' }); setLive(null) } }}><FilePlus size={14} /> New</button>
       <span className="grow" />
       {lang === 'matlab' && <button className="ghost" onClick={matlabOnline} title="Open MATLAB Online (Simulink and every toolbox) with this program copied, ready to paste"><ExternalLink size={13} /> MATLAB Online</button>}
-      {info && <span className="code-version" title={info.version}>{info.available ? info.version : 'Not installed'}</span>}
+      {info && <button className="ghost code-version" title={`${info.version || info.name}: click to check every compiler`} onClick={() => setShowCompilers(s => !s)}>{info.available ? info.version || 'Installed' : 'Not installed'}</button>}
     </div>
+    {showCompilers && <CompilersPanel langs={langs} onLangs={setLangs} onClose={() => setShowCompilers(false)} />}
     {info && !info.available && <div className="code-missing">
       <AlertTriangle size={14} />
-      <span><strong>{info.name} isn’t installed on this computer.</strong> {info.install}</span>
+      <span><strong>{info.name} isn’t installed on this computer.</strong> {info.install} <button className="link" onClick={() => setShowCompilers(true)}>See all compilers</button></span>
       <button className="ghost" disabled={checking} onClick={() => { setChecking(true); void codeLanguages(true).then(setLangs).finally(() => setChecking(false)) }}><RefreshCw size={13} className={checking ? 'spin' : undefined} /> Check again</button>
     </div>}
     {(message || error) && <p className={error ? 'error-text code-msg' : 'hint code-msg'}>{error || message}</p>}
@@ -303,7 +307,7 @@ export default function CodePage({ active }: { active: boolean }) {
             onChange={e => edit({ source: e.target.value })} onKeyDown={onKeyDown} onScroll={sync} />
         </div>
       </div>
-      <aside className="code-side">
+      {lang === 'arduino' ? <aside className="code-side"><ArduinoPanel source={draft.source} /></aside> : <aside className="code-side">
         <div className="code-side-tabs" role="tablist">
           <button role="tab" aria-selected={side === 'input'} className={side === 'input' ? 'on' : ''} onClick={() => setSide('input')}>Input</button>
           <button role="tab" aria-selected={side === 'tests'} className={side === 'tests' ? 'on' : ''} onClick={() => setSide('tests')}><FlaskConical size={13} /> Tests{tests.length ? ` (${results.length && !testing ? `${passed}/${tests.length}` : tests.length})` : ''}</button>
@@ -366,7 +370,7 @@ export default function CodePage({ active }: { active: boolean }) {
             {failed && <button className="ghost code-ask" onClick={ask} title="Mimir explains the error and suggests a fix"><Sparkles size={13} /> Ask Mimir about this error</button>}
           </div>}
         </div>
-      </aside>
+      </aside>}
     </div>
   </div>
 }

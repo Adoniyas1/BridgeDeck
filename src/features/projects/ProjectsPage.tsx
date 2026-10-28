@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CalendarPlus, FilePlus, FileText, FolderInput, FolderKanban, FolderOpen, ListChecks, MessageCircleQuestion, NotebookPen, Plus } from 'lucide-react'
+import { CalendarClock, CalendarPlus, CircuitBoard, FilePlus, FileText, FolderInput, FolderKanban, FolderOpen, ListChecks, MessageCircleQuestion, NotebookPen, Plus } from 'lucide-react'
 import { askChatGPT, projectPrompt } from '../../core/chatgpt'
 import { calendarSave, notesCreateMarkdown, notesSave, openPath, projectsAdd, projectsFiles, projectsImportMimir, type CalEvent, type Note, type NotePatch, type ProjectFile } from '../../lib/bridge'
 import { usePeriodicRefresh } from '../../core/refresh'
 import { useStore } from '../../core/store'
-import { activateTab } from '../../core/tabs'
+import { activateTab, openTab } from '../../core/tabs'
 import { Card, SectionTitle } from '../../ui'
 import { eventsStore, refreshEvents } from '../calendar/state'
 import { dateInput, formatRange } from '../calendar/model'
@@ -109,8 +109,12 @@ function ProjectView({ name, root, onStatus }: { name: string; root: string; onS
     </div>
     <PartsCard project={name} root={root} />
     <Card><SectionTitle title="Files" subtitle="Newest first. Drop files into the folder; Mimir can read and write them too." />
-      {files?.length ? <div className="project-files">{files.slice(0, 60).map(f => <button key={f.path} onClick={() => void openPath(`${root}/${name}/${f.path}`)} title={f.path}>
-        <FileText size={14} /><span className="grow">{f.path}</span><small>{fmtBytes(f.bytes)}</small><small>{f.modified ? new Date(f.modified).toLocaleDateString() : ''}</small></button>)}</div>
+      {files?.length ? <div className="project-files">{files.slice(0, 60).map(f => {
+        // KiCad schematics and boards open in BridgeDeck's viewer; the rest in their own apps.
+        const kicad = /\.kicad_(sch|pcb)$/i.test(f.path)
+        return <button key={f.path} onClick={() => kicad ? openTab({ id: `kicad:${name}/${f.path}`, kind: 'kicad', title: f.path.split('/').pop()!.replace(/\.kicad_(sch|pcb)$/i, ''), params: { project: name, path: f.path } }) : void openPath(`${root}/${name}/${f.path}`)} title={kicad ? `View ${f.path}` : f.path}>
+          {kicad ? <CircuitBoard size={14} /> : <FileText size={14} />}<span className="grow">{f.path}</span><small>{fmtBytes(f.bytes)}</small><small>{f.modified ? new Date(f.modified).toLocaleDateString() : ''}</small></button>
+      })}</div>
         : <p className="hint">{files ? 'The folder is empty.' : 'Reading…'}</p>}
     </Card>
   </div>

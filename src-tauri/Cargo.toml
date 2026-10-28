@@ -36,6 +36,7 @@ mime_guess = "2"
 anyhow = "1"
 base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }
+ruzstd = "0.9.1"
 jpeg-encoder = "0.7"
 sha2 = "0.10"
 # BridgeLink v2: QUIC between paired devices with pinned self-signed certificates.

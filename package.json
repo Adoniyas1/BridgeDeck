@@ -34,6 +34,8 @@
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tesseract.js-data/eng": "^1.0.0",
+    "avr8js": "0.21.1",
+    "eecircuit-engine": "1.8.0",
     "epubjs": "^0.3.93",
     "katex": "^0.16.47",
     "lucide-react": "^0.468.0",
@@ -43,7 +45,11 @@
     "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "replicad": "1.1.0",
+    "replicad-opencascadejs": "1.1.0",
+    "replicad-threejs-helper": "1.0.0",
     "tesseract.js": "^7.0.0",
+    "three": "0.186.1",
     "ts-fsrs": "^5.4.2"
   },
   "devDependencies": {
@@ -51,6 +57,7 @@
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
     "vite": "^6.0.1",

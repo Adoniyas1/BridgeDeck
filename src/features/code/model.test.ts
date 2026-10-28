@@ -71,3 +71,19 @@ describe('sameOutput', () => {
     expect(sameOutput(' 5', '5')).toBe(false)
   })
 })
+
+describe('checking the compilers', () => {
+  const step = (p: Partial<{ ok: boolean; stdout: string; stderr: string; ms: number; timedOut: boolean }>) => ({ ok: true, stdout: '', stderr: '', ms: 100, timedOut: false, ...p })
+  it('has a test program for every language', async () => {
+    const { SELF_TESTS, STARTERS } = await import('./model')
+    expect(Object.keys(SELF_TESTS).sort()).toEqual(Object.keys(STARTERS).sort())
+  })
+  it('passes only when the mark is printed, and says why when not', async () => {
+    const { judgeSelfTest } = await import('./model')
+    expect(judgeSelfTest({ compile: step({ ms: 800 }), run: step({ stdout: 'BridgeDeck check: 42\n', ms: 400 }) })).toMatchObject({ ok: true, detail: 'Built and ran in 1.2 s' })
+    expect(judgeSelfTest({ compile: step({ ok: false, stderr: '\nxcrun: error: invalid active developer path\n' }), run: null }).detail).toBe('Couldn’t build it: xcrun: error: invalid active developer path')
+    expect(judgeSelfTest({ compile: null, run: step({ ok: false, stderr: 'octave: error while loading shared libraries' }) }).detail).toContain('failed when run: octave')
+    expect(judgeSelfTest({ compile: null, run: step({ stdout: 'hello' }) }).detail).toContain('wrong thing: hello')
+    expect(judgeSelfTest({ compile: null, run: step({ timedOut: true, ok: false }) }).ok).toBe(false)
+  })
+})

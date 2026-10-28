@@ -5,6 +5,8 @@ import { errorText } from '../../core/util'
 import { pathOf, plot, ticks } from './plot'
 import { formatQuantity, runLines } from '../../lib/expr'
 import { parseNetlist, runChecks, solve } from '../../lib/mna'
+import { needsNgspice } from '../../lib/spice'
+import { SpiceView } from './SpiceView'
 import { aiAllowed, examOn } from '../../core/exam'
 import { askMimir } from '../mimir'
 
@@ -84,14 +86,16 @@ export function CalcView({ text, onClick }: { text: string; onClick?: () => void
 }
 
 /** A circuit block: a SPICE-style netlist solved here (lib/mna.ts), with every node's voltage and
- *  part's current, and "?" lines checked. */
+ *  part's current, and "?" lines checked. Time, frequency sweeps and diodes, transistors and op-amps
+ *  go to ngspice instead (SpiceView). */
 export function CircuitView({ text, onClick, checkOnly = false }: { text: string; onClick?: () => void; checkOnly?: boolean }) {
   const out = useMemo(() => {
     const net = parseNetlist(text)
     if (net.errors.length || !net.parts.length) return { net, error: net.errors.join(' · ') }
     try { return { net, sol: solve(net) } } catch (e) { return { net, error: e instanceof Error ? e.message : String(e) } }
   }, [text])
-  if (!text.trim()) return <p className="hint" onClick={onClick}>A netlist, one part a line: <code>R1 in out 4.7k</code>, <code>V1 in 0 12V</code>, <code>C1 out 0 10uF</code>, <code>.ac 1kHz</code>, and <code>? V(out) = 3.4V</code> to check.</p>
+  if (!text.trim()) return <p className="hint" onClick={onClick}>A netlist, one part a line: <code>R1 in out 4.7k</code>, <code>V1 in 0 12V</code>, <code>C1 out 0 10uF</code>, <code>.ac 1kHz</code>, and <code>? V(out) = 3.4V</code> to check. Add <code>.tran 10u 5m</code> (over time), <code>.ac dec 20 10 100k</code> (a Bode plot) or diodes and transistors, and ngspice simulates it.</p>
+  if (needsNgspice(text)) return <SpiceView text={text} onClick={onClick} checkOnly={checkOnly} />
   const checks = out.sol ? runChecks(out.net, out.sol, checkOnly) : []
   return <div className={`notes-circuit${onClick ? ' clickable' : ''}`} onClick={onClick} title={onClick ? 'Edit the circuit' : undefined}>
     <pre className="notes-circuit-net">{text}</pre>
