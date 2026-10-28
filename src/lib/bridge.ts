@@ -730,6 +730,20 @@ export const codeLoad = (name: string, language: string) => native<string>('code
 export const codePublish = (name: string, source: string) => native<string>('code_publish', { name, source })
 export const codeSave = (name: string, language: string, source: string) => native<void>('code_save', { name, language, source })
 export const codeDelete = (name: string, language: string) => native<void>('code_delete', { name, language })
+export type CadFile = { name: string; modified: number }
+export const cadFiles = () => native<CadFile[]>('cad_files')
+export const cadLoad = (name: string) => native<string>('cad_load', { name })
+export const cadSave = (name: string, source: string) => native<void>('cad_save', { name, source })
+export const cadDelete = (name: string) => native<void>('cad_delete', { name })
+/** Where to save an export (the save dialog), as STL or STEP. */
+export async function pickCadExport(name: string, kind: 'stl' | 'step'): Promise<string | null> {
+  if (!isTauri()) return null
+  return (await save({ defaultPath: `${name.replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Part'}.${kind}`, filters: [{ name: kind.toUpperCase(), extensions: kind === 'stl' ? ['stl'] : ['step', 'stp'] }] })) ?? null
+}
+export async function cadExport(path: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  await invoke('cad_export', bytes, { headers: { 'x-path': encodeURIComponent(path) } })
+}
 /** Earlier versions of notes (src-tauri/src/note_history.rs) and circuits (circuits.rs). */
 export type NoteVersionInfo = { at: number; title: string; preview: string; chars: number }
 export const noteVersions = (id: string) => native<NoteVersionInfo[]>('note_versions', { id })

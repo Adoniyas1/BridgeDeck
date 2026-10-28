@@ -57,6 +57,7 @@ mod sync_sidecar;
 mod upgrade;
 mod wake;
 mod memory;
+mod cad;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -768,6 +769,11 @@ pub fn run() {
             activity::ai_speed_log,
             hardware::hardware_info,
             memory::memory_report,
+            cad::cad_files,
+            cad::cad_load,
+            cad::cad_save,
+            cad::cad_delete,
+            cad::cad_export,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,
