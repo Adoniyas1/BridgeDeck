@@ -472,6 +472,12 @@ export async function studySaveCardPicture(course: string, name: string, bytes: 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** An Anki deck (.apkg) read for a course (anki.rs): its notes, cards and reviews; the pictures it
+ *  uses are saved with the course's card pictures. */
+export async function ankiRead(course: string, bytes: Uint8Array): Promise<import('../features/study/deckio').AnkiDeck> {
+  if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
+  return invoke('anki_read', bytes, { headers: { 'x-course': encodeURIComponent(course) } })
+}
 export async function studySavePhoto(course: string, name: string, bytes: Uint8Array): Promise<string> {
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_photo', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })

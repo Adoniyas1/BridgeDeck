@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Card as FsrsCard, Grade } from 'ts-fsrs'
 import { useTabShown } from '../../core/awake'
 import { BookOpen, Brain, Download, FileText, ImagePlus, ListChecks, Sparkles, Upload, Layers, Pause, Play, Search, Timer } from 'lucide-react'
-import { isTauri, notesCreateMarkdown, studyFsrsTune, studySavePdf, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
+import { ankiRead, isTauri, notesCreateMarkdown, studyFsrsTune, studySavePdf, studySaveCardPicture, studySaveCsv, studySearch, type StudyHit } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { setConfig, useConfig } from '../../core/config'
 import { Card, SectionTitle } from '../../ui'
@@ -17,7 +18,7 @@ import { belongsTo } from './canvas'
 import { startOfDay } from '../calendar/model'
 import { courseFolder } from './model'
 import { savedStarts } from './chapters'
-import { importLines, toCsv } from './deckio'
+import { ankiLines, importLines, toCsv } from './deckio'
 import { answerSpec, checkAnswer, showAnswer, type Checked } from './answer'
 import { intervals, retrievability, review } from './review'
 import { indexStore } from './indexer'
@@ -101,6 +102,23 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
       onStatus([`Added ${lines.length} card${lines.length === 1 ? '' : 's'}`, duplicates ? `${duplicates} already there` : '', skipped ? `${skipped} line${skipped === 1 ? '' : 's'} weren’t cards` : ''].filter(Boolean).join(' · '))
     } catch (e) { onStatus(String(e)) }
   }
+  /** An Anki deck: its notes as cards here, pictures included, each card's reviews replayed so its
+   *  schedule carries on. */
+  async function importAnki(file: File) {
+    onStatus(`Reading ${file.name}…`)
+    try {
+      const deckFile = await ankiRead(course, new Uint8Array(await file.arrayBuffer()))
+      const { createEmptyCard } = await import('ts-fsrs')
+      const { review } = await import('./review')
+      const out = ankiLines(deckFile, {
+        existing: deck,
+        picture: saved => pictureRef(course, saved),
+        replay: reviews => reviews.reduce<FsrsCard>((card, r) => review(card, r.ease as Grade, new Date(r.at)), createEmptyCard(new Date(reviews[0].at))),
+      })
+      if (out.lines.length) await addCards(course, out.lines)
+      onStatus([`Added ${out.lines.length} card${out.lines.length === 1 ? '' : 's'} from Anki`, out.reviewed ? `${out.reviewed} with their review history` : '', out.duplicates ? `${out.duplicates} already here` : '', out.skipped ? `${out.skipped} empty` : '', deckFile.leftOut ? `${deckFile.leftOut} sound${deckFile.leftOut === 1 ? '' : 's'} or picture${deckFile.leftOut === 1 ? '' : 's'} left out` : ''].filter(Boolean).join(' · '))
+    } catch (e) { onStatus(String(e)) }
+  }
   async function exportCsv() {
     try { onStatus(`Saved ${await studySaveCsv(course, `${course} flashcards`, toCsv(deck))} in the ${course} folder.`) } catch (e) { onStatus(String(e)) }
   }
@@ -156,10 +174,10 @@ export function FlashcardsCard({ course, info, onStatus }: { course: string; inf
     {stats.total > 0 && <button className="ghost" onClick={() => setBrowsing(b => !b)}>{browsing ? 'Hide cards' : `Browse cards${leeches ? ` · ${leeches} to rewrite` : ''}`}</button>}
     {browsing && <CardList deck={deck} onStatus={onStatus} />}
     <div className="study-card-io">
-      <button className="ghost" title="Cards from a CSV file, a spreadsheet saved as CSV, or a Quizlet export (term, tab, definition)" onClick={() => importer.current?.click()}><Upload size={14} />Import</button>
+      <button className="ghost" title="Cards from an Anki deck (.apkg, with review history), a CSV file, a spreadsheet saved as CSV, or a Quizlet export (term, tab, definition)" onClick={() => importer.current?.click()}><Upload size={14} />Import</button>
       <button className="ghost" title="Paste a list: one card a line, term and definition separated by a tab" onClick={() => setPasting(p => !p)}>Paste a list</button>
       {stats.total > 0 && <button className="ghost" disabled={!isTauri()} title={`Saves a CSV in the ${course} folder, with review progress`} onClick={() => void exportCsv()}><Download size={14} />Export</button>}
-      <input ref={importer} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void f.text().then(importText); e.target.value = '' }} />
+      <input ref={importer} type="file" accept=".apkg,.csv,.tsv,.txt,text/csv,text/plain" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void (/\.apkg$/i.test(f.name) ? importAnki(f) : f.text().then(importText)); e.target.value = '' }} />
     </div>
     {pasting && <form className="study-card-paste" onSubmit={e => { e.preventDefault(); void importText(pasted).then(() => { setPasted(''); setPasting(false) }) }}>
       <textarea rows={5} placeholder={'Capacitor\tStores charge\nInductor\tStores energy in a magnetic field'} value={pasted} onChange={e => setPasted(e.target.value)} />

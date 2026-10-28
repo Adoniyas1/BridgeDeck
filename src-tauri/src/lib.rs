@@ -60,6 +60,7 @@ mod memory;
 mod cad;
 mod arduino;
 mod lecture_fetch;
+mod anki;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -785,6 +786,7 @@ pub fn run() {
             lecture_fetch::lecture_tool_install,
             lecture_fetch::lecture_fetch,
             projects::project_kicad,
+            anki::anki_read,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

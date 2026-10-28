@@ -1,7 +1,8 @@
 /** Flashcards in and out as text: a CSV of our own (kind, front, back, state) that keeps review
  *  progress, and plain "term<TAB>definition" lists like Quizlet's export or a spreadsheet's. */
 
-import { cardBody, cardLine, clozeLine, parseCards, type FlashCard } from './cards'
+import type { Card } from 'ts-fsrs'
+import { cardBody, cardLine, clozeLine, parseCards, setMark, withState, type FlashCard } from './cards'
 
 const HEADER = ['kind', 'front', 'back', 'state']
 
@@ -68,3 +69,60 @@ export function importLines(text: string, existing: FlashCard[] = []): { lines: 
 }
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
+
+// ---- Anki decks (.apkg, read by anki.rs) ----
+
+export type AnkiReview = { at: number; ease: number }
+export type AnkiDeck = {
+  notes: Array<{ fields: string[]; tags: string; cards: Array<{ ord: number; suspended: boolean; reviews: AnkiReview[] }> }>
+  /** Anki's picture names → the files saved with the course's card pictures. */
+  pictures: Record<string, string>
+  leftOut: number
+}
+
+const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" }
+
+/** A field's HTML as card text: pictures as card pictures (`picture(name)`, or dropped), line
+ *  breaks as spaces, other tags gone, entities decoded, sounds left out. */
+export function ankiText(html: string, picture: (name: string) => string | null): string {
+  return html
+    .replace(/<img\b[^>]*?src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (_, a, b, c) => { const ref = picture(a ?? b ?? c); return ref ? ` ${ref} ` : ' ' })
+    .replace(/<br\s*\/?>|<\/(div|p|li|tr|h\d)>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[sound:[^\]]*\]/g, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+|#39);/gi, (m, e: string) => e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** An Anki deck as card lines for a course: a basic note as "front :: back", a reversed one both
+ *  ways, a cloze note as its sentence; each card's reviews replayed (`replay`) so its schedule
+ *  carries on here; notes with every card suspended stay put aside. Notes already in the deck,
+ *  and ones with nothing to ask, are left out. */
+export function ankiLines(deck: AnkiDeck, opts: { existing?: FlashCard[]; picture: (file: string) => string; replay: (reviews: AnkiReview[]) => Card }): { lines: string[]; duplicates: number; skipped: number; reviewed: number } {
+  const have = new Set((opts.existing ?? []).map(c => norm(cardBody(c.block.text))))
+  const lines: string[] = []
+  let duplicates = 0, skipped = 0, reviewed = 0
+  const picture = (name: string) => (deck.pictures[name] ? opts.picture(deck.pictures[name]) : null)
+  for (const note of deck.notes) {
+    const [front = '', back = ''] = note.fields.map(f => ankiText(f, picture))
+    const cloze = /\{\{c\d+::/.test(front)
+    const both = !cloze && note.cards.length > 1
+    let line = cloze ? clozeLine(front) : cardLine(front, back, '', both)
+    const subs = parseCards(line).map(c => c.sub)
+    if (!subs.length) { skipped++; continue }
+    const key = norm(cardBody(line))
+    if (have.has(key)) { duplicates++; continue }
+    have.add(key)
+    for (const card of note.cards) {
+      if (!card.reviews.length) continue
+      const sub = cloze ? `c${card.ord + 1}` : both ? (card.ord === 0 ? 'f' : 'b') : ''
+      if (!subs.includes(sub)) continue
+      line = withState(line, opts.replay(card.reviews), sub)
+      reviewed++
+    }
+    if (note.cards.length && note.cards.every(c => c.suspended)) line = setMark(line, 'suspended', true)
+    lines.push(line)
+  }
+  return { lines, duplicates, skipped, reviewed }
+}
