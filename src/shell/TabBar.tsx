@@ -13,6 +13,7 @@ import type { FeatureManifest } from '../features/features'
 import { CodeChip } from '../features/messages/CodeChip'
 import { SpotifyMini } from '../features/spotify/SpotifyMini'
 import { ChecklistPopup } from '../features/notes/ChecklistPopup'
+import { CalculatorPopup } from './CalculatorPopup'
 import { logActivity } from '../core/activity'
 import { SystemMeter } from './SystemMeter'
 
@@ -90,7 +91,7 @@ function GroupTab({ group, active }: { group: TabGroup; active: string }) {
   </div>
 }
 
-/** The bar: Search and the checklist, the main tabs (groups), pinned pages, open dynamic tabs, then the
+/** The bar: Search, the checklist and the calculator, the main tabs (groups), pinned pages, open dynamic tabs, then the
  *  window's actions. */
 export default function TabBar() {
   const { active, dynamic, split } = useStore(tabsStore)
@@ -124,6 +125,7 @@ export default function TabBar() {
         <div className="brand-mark" aria-hidden="true" />
         <button className="search-pill" onClick={() => runShortcut('search')} title={`Search everything (${MOD} K)`} aria-label="Search"><Search size={14} /><span>Search</span><kbd>{MOD}K</kbd></button>
         <ChecklistPopup />
+        <CalculatorPopup />
       </div>
       <nav className="tab-strip" role="tablist" aria-label="BridgeDeck tabs">
         {GROUPS.map(group => <GroupTab key={group.id} group={group} active={active} />)}

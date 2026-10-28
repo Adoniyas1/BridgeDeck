@@ -8,6 +8,7 @@ import { BridgeLinkBackground, sourceUpdateStore } from '../core/bridgelink'
 import { hydrateConfig, hydratedStore } from '../core/config'
 import { noticeStore, setNotice } from '../core/notice'
 import { useStore } from '../core/store'
+import { useTabScroll } from '../core/scrollMemory'
 import { closeTab, openTab, tabsStore, unsplit, type DynamicTab } from '../core/tabs'
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
@@ -84,6 +85,9 @@ export default function App() {
   const [visited, setVisited] = useState<Set<string>>(() => new Set([active]))
   useEffect(() => { setVisited(v => [active, split].every(id => !id || v.has(id)) ? v : new Set([...v, active, ...(split ? [split] : [])])) }, [active, split])
   const fill = !!split || isFill(active)
+  // Coming back to a tab finds it scrolled where it was left.
+  const mainArea = useRef<HTMLElement>(null)
+  useTabScroll(mainArea, active, !fill)
 
   // Short of memory, tabs hidden a long time are unloaded (core/memory.ts) and load again when
   // shown: pages with no work running in them, and books (they reopen at their page).
@@ -129,7 +133,7 @@ export default function App() {
       <ShortcutKeys />
       {hydrated && <><Palette /><ShortcutsHelp /></>}
       <div className="shell-body">
-      <main className={split ? 'fill split' : fill ? 'fill' : undefined} style={split ? { gridTemplateColumns: `minmax(240px, ${ratio * 100}%) 8px minmax(240px, 1fr)` } : undefined}>
+      <main ref={mainArea} className={split ? 'fill split' : fill ? 'fill' : undefined} style={split ? { gridTemplateColumns: `minmax(240px, ${ratio * 100}%) 8px minmax(240px, 1fr)` } : undefined}>
         {hydrated && <UpdateBanner />}
         {notice && <div className="notice"><Activity size={15}/><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
         {sourceUpdate?.rebuildNeeded && String(sourceUpdate.newestSourceAt) !== hiddenSourceAt && <div className="notice"><RefreshCw size={15}/><span>BridgeDeck source changed since this build (newest: {sourceUpdate.newestSourceFile}, {new Date(sourceUpdate.newestSourceAt).toLocaleString()}). Rebuild to pick up the synced changes; ask Claude or Codex to run the build here.</span><button title="Hide until the source changes again" onClick={() => hideSourceUpdate(String(sourceUpdate.newestSourceAt))}>×</button></div>}
