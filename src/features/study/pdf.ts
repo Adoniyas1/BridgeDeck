@@ -48,6 +48,16 @@ export async function resolveOutline(doc: PDFDocumentProxy, items: RawOutline | 
   }))
 }
 
+/** What a book's parts should keep when it's cut up: its contents and each page's label (null when
+ *  the book has none, so its parts get plain page numbers). */
+export async function bookPages(course: string, file: string): Promise<{ outline: OutlineItem[]; labels: string[] | null }> {
+  const doc = await loadBook(course, file)
+  try {
+    const [outline, labels] = await Promise.all([resolveOutline(doc, await doc.getOutline() as RawOutline | null), doc.getPageLabels().catch(() => null)])
+    return { outline, labels }
+  } finally { void doc.destroy() }
+}
+
 /** A library book's contents, read without showing it. */
 export async function bookOutline(course: string, file: string): Promise<OutlineItem[]> {
   const doc = await loadBook(course, file)
