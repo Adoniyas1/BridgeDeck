@@ -490,6 +490,10 @@ export type LectureSidecar = { segments?: Array<{ start: number; end: number; te
 export type LectureFile = { file: string; bytes: number; modified: number; sidecar: LectureSidecar | null }
 export const studyLectures = (course: string) => native<LectureFile[]>('study_lectures', { courseName: course })
 export const studyImportLecture = (course: string, path: string) => native<string>('study_import_lecture', { courseName: course, path })
+/** Lectures from a link (lecture_fetch.rs): yt-dlp, installed here when needed. */
+export const lectureToolStatus = () => native<{ path: string | null; version: string }>('lecture_tool_status')
+export const lectureToolInstall = () => native<string>('lecture_tool_install')
+export const lectureFetch = (course: string, url: string, browser: string | null) => native<string>('lecture_fetch', { courseName: course, url, browser })
 export const studyLectureGet = (course: string, file: string) => native<LectureSidecar | null>('study_lecture_get', { courseName: course, file })
 export const studyLecturePut = (course: string, file: string, data: LectureSidecar) => native<void>('study_lecture_put', { courseName: course, file, data })
 export async function studySaveLecture(course: string, name: string, bytes: Uint8Array): Promise<string> {

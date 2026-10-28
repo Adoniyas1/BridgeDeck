@@ -59,6 +59,7 @@ mod wake;
 mod memory;
 mod cad;
 mod arduino;
+mod lecture_fetch;
 use localsend_bridge::LocalSendManager;
 use bridgelink::BridgeLinkManager;
 use serde::Serialize;
@@ -780,6 +781,9 @@ pub fn run() {
             arduino::arduino_compile,
             arduino::arduino_ports,
             arduino::arduino_upload,
+            lecture_fetch::lecture_tool_status,
+            lecture_fetch::lecture_tool_install,
+            lecture_fetch::lecture_fetch,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

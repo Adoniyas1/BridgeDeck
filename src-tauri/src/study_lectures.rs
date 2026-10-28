@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::study::{clean_name, course_dir_in, current_root, free_name_in};
 
 pub const LECTURES_DIR: &str = "Lectures";
-pub const AUDIO_EXTENSIONS: &[&str] = &["m4a", "mp3", "webm", "ogg", "wav", "aac"];
+pub const AUDIO_EXTENSIONS: &[&str] = &["m4a", "mp3", "webm", "ogg", "wav", "aac", "mp4"];
 const MAX_AUDIO: usize = 1024 * 1024 * 1024;
 const MAX_SIDECAR: usize = 8 * 1024 * 1024;
 
@@ -21,7 +21,8 @@ pub fn is_audio(path: &Path) -> bool {
 
 pub fn audio_mime(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
-        Some("m4a" | "aac") => "audio/mp4",
+        // A downloaded lecture video plays (and is transcribed) for its sound.
+        Some("m4a" | "aac" | "mp4") => "audio/mp4",
         Some("mp3") => "audio/mpeg",
         Some("ogg") => "audio/ogg",
         Some("wav") => "audio/wav",
@@ -73,7 +74,7 @@ pub fn save_recording(course: &Path, name: &str, bytes: &[u8]) -> Result<String,
 
 pub fn import_recording(course: &Path, from: &Path) -> Result<String, String> {
     if !is_audio(from) || !from.is_file() {
-        return Err("Choose an audio file (m4a, mp3, webm, ogg or wav)".into());
+        return Err("Choose an audio file (m4a, mp3, webm, ogg or wav) or an mp4 video".into());
     }
     let dir = lectures_dir(course)?;
     let name = from.file_name().and_then(|n| n.to_str()).ok_or("That file has no name")?;
@@ -125,7 +126,7 @@ pub fn write_sidecar(course: &Path, file: &str, data: &Value) -> Result<(), Stri
     fs::write(&partial, text).and_then(|_| fs::rename(&partial, &target)).map_err(|e| format!("Couldn't save the transcript: {e}"))
 }
 
-fn course(name: &str) -> Result<PathBuf, String> {
+pub(crate) fn course(name: &str) -> Result<PathBuf, String> {
     course_dir_in(&current_root()?, name)
 }
 

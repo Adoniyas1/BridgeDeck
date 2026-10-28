@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { Download, FileAudio, HelpCircle, Mic, Play, Square, Trash2 } from 'lucide-react'
-import { isTauri, modelsDownload, modelsRemove, modelsStatus, pickTransferPaths, studyImportLecture, studyLectures, studyPatchCourseInfo, type CourseInfo, type LectureFile, type ModelsStatus } from '../../lib/bridge'
+import { Download, FileAudio, HelpCircle, Link2, Loader2, Mic, Play, Square, Trash2 } from 'lucide-react'
+import { isTauri, lectureFetch, lectureToolInstall, lectureToolStatus, modelsDownload, modelsRemove, modelsStatus, pickTransferPaths, studyImportLecture, studyLectures, studyPatchCourseInfo, type CourseInfo, type LectureFile, type ModelsStatus } from '../../lib/bridge'
 import { useStore } from '../../core/store'
 import { errorText } from '../../core/util'
 import { Card, SectionTitle } from '../../ui'
@@ -11,7 +11,9 @@ import { openLecture } from './open'
 import { refreshLibrary } from './state'
 
 const MODEL_KEY = 'bd-lecture-model'
-const AUDIO = /\.(m4a|mp3|webm|ogg|wav|aac)$/i
+const AUDIO = /\.(m4a|mp3|webm|ogg|wav|aac|mp4)$/i
+const BROWSER_KEY = 'bd-lecture-browser'
+const BROWSERS: Array<[string, string]> = [['', 'No sign-in'], ['chrome', 'Chrome'], ['safari', 'Safari'], ['firefox', 'Firefox'], ['edge', 'Edge'], ['brave', 'Brave']]
 
 /** Lectures for a course: recorded here (only when the course allows it) or imported, kept in its
  *  Lectures folder on both computers, transcribed on this computer by Whisper (nothing leaves it),
@@ -76,6 +78,34 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
     try { await startRecording(course, model, info.words, liveOn) } catch (e) { setError(errorText(e, 'Couldn’t start recording')) }
   }
 
+  // A lecture from a link (Kaltura, Panopto, YouTube…), downloaded with yt-dlp, then transcribed.
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [link, setLink] = useState('')
+  const [browser, setBrowser] = useState(() => { try { return localStorage.getItem(BROWSER_KEY) ?? '' } catch { return '' } })
+  const [tool, setTool] = useState<{ path: string | null; version: string } | null>(null)
+  const [fetching, setFetching] = useState<number | null>(null)
+  const [installing, setInstalling] = useState(false)
+  useEffect(() => { if (linkOpen && isTauri() && !tool) void lectureToolStatus().then(setTool).catch(() => undefined) }, [linkOpen])
+  useEffect(() => {
+    if (!isTauri()) return
+    const stop = listen<{ url: string; percent: number }>('lecture-fetch', e => setFetching(f => (f === null ? f : e.payload.percent)))
+    return () => { void stop.then(f => f()).catch(() => undefined) }
+  }, [])
+  async function installTool() {
+    setInstalling(true); setError('')
+    try { setMessage(await lectureToolInstall()); setTool(await lectureToolStatus()) } catch (e) { setError(errorText(e, 'Couldn’t install yt-dlp')) } finally { setInstalling(false) }
+  }
+  async function fetchLink() {
+    setError(''); setMessage(''); setFetching(0)
+    try { localStorage.setItem(BROWSER_KEY, browser) } catch { /* not remembered */ }
+    try {
+      const file = await lectureFetch(course, link.trim(), browser || null)
+      setLink(''); setLinkOpen(false); reload()
+      setMessage(`Downloaded “${file.replace(/\.[^.]+$/, '')}”.${ready ? ' Transcribing it…' : ''}`)
+      if (ready) await transcribeLectureFile(course, file, Date.now(), model, info.words)
+    } catch (e) { setError(errorText(e, 'Couldn’t download it')) } finally { setFetching(null) }
+  }
+
   async function importAudio() {
     setError(''); setMessage('')
     const path = (await pickTransferPaths(false)).find(p => AUDIO.test(p))
@@ -102,10 +132,25 @@ export function LectureCard({ course, info }: { course: string; info: CourseInfo
         : ready ? <div className="actions">
           <button disabled={!allowed || busyElsewhere} title={allowed ? undefined : 'Turn on recording for this course first'} onClick={() => void start()}><Mic size={15} /> Record</button>
           <button className="secondary" onClick={() => void importAudio()}><FileAudio size={15} /> Import audio</button>
+          <button className="secondary" title="A recorded lecture from Kaltura, Panopto, YouTube or a media link" onClick={() => setLinkOpen(o => !o)}><Link2 size={15} /> From a link</button>
           <button className="ghost" title="Remove this model from this computer" onClick={() => void modelsRemove(model).then(setStatus)}><Trash2 size={14} /></button>
         </div>
-        : <div className="actions"><button disabled={!!download || status?.downloading} onClick={() => void getModel()}><Download size={15} />{download ? `Downloading… ${download.mb} of ~${download.of} MB` : `Download the ${MODELS.find(m => m.id === model)!.label.toLowerCase()} model (once)`}</button></div>}
+        : <div className="actions"><button disabled={!!download || status?.downloading} onClick={() => void getModel()}><Download size={15} />{download ? `Downloading… ${download.mb} of ~${download.of} MB` : `Download the ${MODELS.find(m => m.id === model)!.label.toLowerCase()} model (once)`}</button>
+          <button className="secondary" title="A recorded lecture from Kaltura, Panopto, YouTube or a media link (transcribed once the model is here)" onClick={() => setLinkOpen(o => !o)}><Link2 size={15} /> From a link</button></div>}
     </>}
+    {linkOpen && isTauri() && <div className="lecture-link">
+      {tool && !tool.path ? <div className="actions">
+        <span className="hint">Downloading lectures uses yt-dlp, the open-source video downloader.</span>
+        <button disabled={installing} onClick={() => void installTool()}>{installing ? <Loader2 size={14} className="spin" /> : <Download size={14} />} {installing ? 'Installing…' : 'Install yt-dlp'}</button>
+      </div> : <form onSubmit={e => { e.preventDefault(); if (link.trim() && fetching === null) void fetchLink() }}>
+        <input value={link} onChange={e => setLink(e.target.value)} placeholder="Paste the lecture’s link (Kaltura, Panopto, YouTube…)" disabled={fetching !== null} />
+        <select value={browser} onChange={e => setBrowser(e.target.value)} title="For lectures behind your school’s sign-in: the browser you’re signed in with (its cookies are used for this download)" disabled={fetching !== null}>
+          {BROWSERS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <button disabled={!link.trim() || fetching !== null}>{fetching !== null ? <><Loader2 size={14} className="spin" /> {Math.round(fetching)}%</> : <><Download size={14} /> Get it</>}</button>
+      </form>}
+      {tool?.path && <small className="hint">{tool.version ? `yt-dlp ${tool.version}` : 'yt-dlp'} · <button className="link" disabled={installing} onClick={() => void installTool()}>{installing ? 'updating…' : 'update it'}</button> if a site stops working</small>}
+    </div>}
     {lectures.length > 0 && <div className="lecture-list">{lectures.map(l => <div key={l.file} className="lecture-row">
       <button className="ghost grow" onClick={() => openLecture(course, l.file)}><Play size={13} /> {l.file.replace(/\.[^.]+$/, '')}</button>
       <small>{Math.round(l.bytes / 1_048_576)} MB{l.sidecar?.markers?.length ? ` · ${l.sidecar.markers.length} ?` : ''}</small>
