@@ -67,6 +67,9 @@ const FUNCTIONS: Record<string, (a: Quantity) => Quantity> = {
   db: a => q(20 * Math.log10(Math.hypot(a.re, a.im))),
   sin: a => q(Math.sin(plain(a, 'sin').re)), cos: a => q(Math.cos(plain(a, 'cos').re)), tan: a => q(Math.tan(plain(a, 'tan').re)),
   asin: a => q(Math.asin(plain(a, 'asin').re)), acos: a => q(Math.acos(plain(a, 'acos').re)), atan: a => q(Math.atan(plain(a, 'atan').re)),
+  // In degrees (MATLAB's names).
+  sind: a => q(Math.sin(plain(a, 'sind').re * Math.PI / 180)), cosd: a => q(Math.cos(plain(a, 'cosd').re * Math.PI / 180)), tand: a => q(Math.tan(plain(a, 'tand').re * Math.PI / 180)),
+  asind: a => q(Math.asin(plain(a, 'asind').re) * 180 / Math.PI), acosd: a => q(Math.acos(plain(a, 'acosd').re) * 180 / Math.PI), atand: a => q(Math.atan(plain(a, 'atand').re) * 180 / Math.PI),
 }
 const CONSTANTS: Record<string, Quantity> = { pi: q(Math.PI), π: q(Math.PI), e: q(Math.E), j: q(0, 1), i: q(0, 1) }
 
