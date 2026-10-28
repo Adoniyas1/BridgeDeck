@@ -218,6 +218,55 @@ pub fn project_file_write(project: String, name: String, text: String) -> Result
     fs::write(&partial, text).and_then(|_| fs::rename(&partial, &path)).map_err(|e| e.to_string())
 }
 
+/// KiCad files the viewer shows.
+const KICAD: &[&str] = &["kicad_sch", "kicad_pcb", "kicad_pro"];
+const MAX_KICAD: u64 = 40 * 1024 * 1024;
+
+#[derive(Serialize)]
+pub struct KicadFile {
+    pub name: String,
+    pub text: String,
+}
+
+/// A KiCad file inside a project folder, by its path there (with `/`): never outside the folder.
+pub fn kicad_path(dir: &Path, path: &str) -> Result<PathBuf, String> {
+    let rel = Path::new(path);
+    let ok_parts = rel.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    let ext = rel.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    if path.is_empty() || !ok_parts || !KICAD.contains(&ext.as_str()) {
+        return Err("Not a KiCad file in this project".into());
+    }
+    Ok(dir.join(rel))
+}
+
+/// A schematic or board to view: the file, and (for a schematic) the other sheets beside it, since
+/// a hierarchical schematic is several files.
+#[tauri::command]
+pub fn project_kicad(project: String, path: String) -> Result<Vec<KicadFile>, String> {
+    let dir = project_dir(&current_root()?, &project)?;
+    let file = kicad_path(&dir, &path)?;
+    let mut wanted = vec![file.clone()];
+    if file.extension().is_some_and(|e| e == "kicad_sch") {
+        if let Some(folder) = file.parent() {
+            let mut sheets: Vec<PathBuf> = fs::read_dir(folder).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p != &file && p.extension().is_some_and(|e| e == "kicad_sch")).collect();
+            sheets.sort();
+            wanted.extend(sheets.into_iter().take(40));
+        }
+    }
+    let mut total = 0;
+    let mut out = Vec::new();
+    for p in wanted {
+        let size = fs::metadata(&p).map(|m| m.len()).map_err(|e| e.to_string())?;
+        total += size;
+        if total > MAX_KICAD {
+            break;
+        }
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        out.push(KicadFile { name, text: fs::read_to_string(&p).map_err(|e| format!("Couldn't read {}: {e}", p.display()))? });
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn projects_import_mimir() -> Result<usize, String> {
     import_old(&current_root()?, &mimir_old_root())
@@ -226,6 +275,17 @@ pub fn projects_import_mimir() -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kicad_files_stay_inside_the_project() {
+        let dir = Path::new("/projects/Robot");
+        assert_eq!(kicad_path(dir, "pcb/robot.kicad_pcb").unwrap(), dir.join("pcb/robot.kicad_pcb"));
+        assert!(kicad_path(dir, "robot.KICAD_SCH").is_ok());
+        assert!(kicad_path(dir, "../Other/x.kicad_sch").is_err());
+        assert!(kicad_path(dir, "/etc/x.kicad_sch").is_err());
+        assert!(kicad_path(dir, "notes.txt").is_err());
+        assert!(kicad_path(dir, "").is_err());
+    }
 
     #[test]
     fn projects_are_folders_with_their_files_and_mimirs_old_ones_can_be_copied_in() {

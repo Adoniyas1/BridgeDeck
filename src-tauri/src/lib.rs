@@ -784,6 +784,7 @@ pub fn run() {
             lecture_fetch::lecture_tool_status,
             lecture_fetch::lecture_tool_install,
             lecture_fetch::lecture_fetch,
+            projects::project_kicad,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

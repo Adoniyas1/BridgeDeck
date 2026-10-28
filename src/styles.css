@@ -2149,3 +2149,9 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .lecture-link form button{display:inline-flex;align-items:center;gap:5px}
 .lecture-link .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .lecture-link button.link{background:none;border:none;padding:0;color:var(--accent);cursor:pointer;text-decoration:underline;font:inherit;height:auto}
+.kicad-tab{display:flex;flex-direction:column;height:calc(100vh - 110px);min-height:0}
+.kicad-bar{display:flex;align-items:center;gap:8px;min-height:var(--page-bar-h);padding:6px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;box-sizing:border-box}
+.kicad-bar small{color:var(--muted)}
+.kicad-bar button{display:inline-flex;align-items:center;gap:5px}
+.kicad-view{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#1b1b1f}
+.kicad-embed{width:100%;height:100%;aspect-ratio:auto;display:block}

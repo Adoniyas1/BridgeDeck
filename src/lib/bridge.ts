@@ -533,6 +533,9 @@ export type ProjectList = { root: string; projects: ProjectInfo[]; mimirOld: str
 export type ProjectFile = { path: string; bytes: number; modified: number }
 export const projectsList = (shared: string) => native<ProjectList>('projects_list', { shared })
 export const projectsAdd = (name: string) => native<string>('projects_add', { name })
+export type KicadFile = { name: string; text: string }
+/** A KiCad file in a project (and its other sheets), to view. */
+export const projectKicad = (project: string, path: string) => native<KicadFile[]>('project_kicad', { project, path })
 export const projectsFiles = (project: string) => native<ProjectFile[]>('projects_files', { project })
 export const projectsImportMimir = () => native<number>('projects_import_mimir')
 /** Skill packs for Mimir (src-tauri/src/skill_packs.rs). */
