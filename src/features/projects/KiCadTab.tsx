@@ -8,7 +8,7 @@ import type { DynamicTab } from '../../core/tabs'
 
 /** KiCanvas (public/kicanvas), loaded once, the first time a KiCad file is opened. */
 let script: Promise<void> | null = null
-function loadKiCanvas(): Promise<void> {
+export function loadKiCanvas(): Promise<void> {
   script ??= new Promise((resolve, reject) => {
     const el = document.createElement('script')
     el.type = 'module'

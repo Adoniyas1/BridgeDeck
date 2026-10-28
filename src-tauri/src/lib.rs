@@ -787,6 +787,7 @@ pub fn run() {
             lecture_fetch::lecture_fetch,
             projects::project_kicad,
             anki::anki_read,
+            anki::anki_selftest,
             watchdog::safety_status,
             watchdog::safety_set,
             watchdog::safety_stop_ai,

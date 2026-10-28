@@ -10,7 +10,7 @@ const ago = (at: number) => { const m = Math.round((Date.now() - at) / 60_000); 
 
 /** Arduino's check: the test sketch built for an Uno, then run on the simulated one, which must
  *  print the mark on Serial. */
-async function testArduino(): Promise<SelfTest> {
+export async function testArduino(): Promise<SelfTest> {
   const built = await arduinoCompile(SELF_TESTS.arduino, 'arduino:avr:uno')
   const step = { ok: built.ok, stdout: '', stderr: built.output, ms: built.ms, timedOut: false }
   if (!built.ok || !built.hex) return judgeSelfTest({ compile: { ...step, ok: false }, run: null })

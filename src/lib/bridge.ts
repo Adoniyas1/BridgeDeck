@@ -472,6 +472,8 @@ export async function studySaveCardPicture(course: string, name: string, bytes: 
   if (!isTauri()) throw new Error('This needs the native BridgeDeck app.')
   return invoke<string>('study_save_card_picture', bytes, { headers: { 'x-course': encodeURIComponent(course), 'x-name': encodeURIComponent(name) } })
 }
+/** Builds sample Anki decks in both formats and reads them back (Settings → About → Check new features). */
+export const ankiSelftest = () => native<string>('anki_selftest')
 /** An Anki deck (.apkg) read for a course (anki.rs): its notes, cards and reviews; the pictures it
  *  uses are saved with the course's card pictures. */
 export async function ankiRead(course: string, bytes: Uint8Array): Promise<import('../features/study/deckio').AnkiDeck> {
