@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2, WholeWord } from 'lucide-react'
 import { MoreMenu } from '../../ui'
 import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { newId } from '../notes/model'
@@ -7,7 +7,8 @@ import { fmtBytes } from './model'
 import { refreshLibrary } from './state'
 import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, setBook, type Collection } from './collections'
 import { openTab } from '../../core/tabs'
-import { placeOf } from './reading'
+import { placeOf, flushPlaces } from './reading'
+import { renameChapterFiles, renamedChapterFiles } from './renameChapters'
 
 export const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].includes(book.kind)
 
@@ -54,6 +55,19 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
     openTab({ id: `bookfolder:${course.name}/${collection.id}`, kind: 'study-book', title: collection.title, params: { course: course.name, file: last.file, title: last.file.replace(/\.[^.]+$/, ''), page: '0', at: String(Date.now()) } })
   }
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set())
+
+  /** Chapter files split before they were named by chapter ("Book — 12 Chapter 5 …"): renamed now. */
+  async function renameFiles(collection: Collection) {
+    const wanted = renamedChapterFiles(collection.files)
+    const sample = wanted.slice(0, 3).map(w => `${w.from}\n  → ${w.to}`).join('\n')
+    if (!window.confirm(`Rename ${wanted.length} chapter file${wanted.length === 1 ? '' : 's'} in “${collection.title}”?\n\n${sample}${wanted.length > 3 ? '\n…' : ''}\n\nWhere you were reading, highlights and flashcards keep pointing at them. Close the book first if it's open.`)) return
+    try {
+      flushPlaces()
+      const n = await renameChapterFiles(course.name, course.info, collection)
+      await refreshLibrary()
+      onStatus(n ? `Renamed ${n} chapter file${n === 1 ? '' : 's'} in “${collection.title}”.` : 'Nothing to rename.')
+    } catch (e) { onStatus(`Couldn’t rename the files: ${String(e)}`) }
+  }
 
   function remove(collection: Collection) {
     if (!window.confirm(`Remove the collection “${collection.title}”? Its files stay in ${course.name}.`)) return
@@ -115,6 +129,7 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
         <MoreMenu title="More for this collection" items={[
           { label: collection.book ? 'Show as separate files' : 'Show as one book', icon: collection.book ? <Library size={14} /> : <BookOpen size={14} />, title: collection.book ? undefined : 'Its files become the book’s chapters', onClick: () => void save(setBook(collections, collection.id, !collection.book)) },
           { label: 'Rename', icon: <Pencil size={14} />, onClick: () => setRenaming({ id: collection.id, title: collection.title }) },
+          renamedChapterFiles(collection.files).length > 0 && { label: 'Rename chapter files', icon: <WholeWord size={14} />, title: 'Name them by chapter (“05 The Operational Amplifier”), without the book’s name', onClick: () => void renameFiles(collection) },
           { label: 'Move up', icon: <ChevronUp size={14} />, disabled: index === 0, onClick: () => void save(reorderCollection(collections, collection.id, -1)) },
           { label: 'Move down', icon: <ChevronDown size={14} />, disabled: index === groups.length - 1, onClick: () => void save(reorderCollection(collections, collection.id, 1)) },
           { label: 'Remove the collection', icon: <Trash2 size={14} />, title: 'Its files stay in the course', danger: true, onClick: () => remove(collection) },

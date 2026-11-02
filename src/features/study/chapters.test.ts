@@ -39,3 +39,32 @@ describe('chapters', () => {
     expect(bookOf(setBook(cols, 'a', false), '2.pdf', new Set(['2.pdf']))).toBeNull()
   })
 })
+
+describe('renaming chapter files split the old way', () => {
+  it('works out the new names, and leaves other files alone', async () => {
+    const { renamedChapterFiles, relink, renamedInfo } = await import('./renameChapters')
+    const book = 'Electric Circuits (10th Edition) compressed'
+    const files = [`${book} — 01 Cover.pdf`, `${book} — 02 Preface.pdf`, `${book} — 12 Chapter 5 The Operational Amplifier.pdf`, `${book} — 13 Chapter 6 Inductance.pdf`, `${book} — 30 Appendix A Linear Equations.pdf`, 'Solutions manual.pdf']
+    expect(renamedChapterFiles(files)).toEqual([
+      { from: files[0], to: '00.1 Cover.pdf' },
+      { from: files[1], to: '00.2 Preface.pdf' },
+      { from: files[2], to: '05 The Operational Amplifier.pdf' },
+      { from: files[3], to: '06 Inductance.pdf' },
+      { from: files[4], to: 'Appendix A Linear Equations.pdf' },
+    ])
+    expect(renamedChapterFiles(['05 The Operational Amplifier.pdf', 'Notes.pdf'])).toEqual([])
+
+    // Links in notes and the course's settings follow.
+    const renames = new Map([[files[2], '05 The Operational Amplifier.pdf']])
+    const { bookLink } = await import('./model')
+    const note = `> quote\n\n[p. 9](${bookLink('EE 211', files[2], 9)}) and [other](${bookLink('EE 211', files[3], 2)})`
+    expect(relink(note, 'EE 211', renames)).toBe(`> quote\n\n[p. 9](${bookLink('EE 211', '05 The Operational Amplifier.pdf', 9)}) and [other](${bookLink('EE 211', files[3], 2)})`)
+    expect(relink(note, 'Other course', renames)).toBe(note)
+    const info = { code: '', title: '', canvasId: '', canvasCode: '', collections: [{ id: 'c', title: book, files: [files[2], files[3]], book: true }], chapters: { [files[2]]: [{ title: 'x', page: 2 }] }, sectionPages: { '5.1': { file: files[2], page: 3 } } }
+    expect(renamedInfo(info, renames)).toEqual({
+      collections: [{ id: 'c', title: book, files: ['05 The Operational Amplifier.pdf', files[3]], book: true }],
+      chapters: { '05 The Operational Amplifier.pdf': [{ title: 'x', page: 2 }] },
+      sectionPages: { '5.1': { file: '05 The Operational Amplifier.pdf', page: 3 } },
+    })
+  })
+})
