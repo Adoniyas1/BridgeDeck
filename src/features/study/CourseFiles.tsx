@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, Columns2, ExternalLink, Library, Pencil, Plus, Presentation, Trash2, WholeWord } from 'lucide-react'
+import { MoreMenu } from '../../ui'
 import { studyPatchCourseInfo, type StudyBook, type StudyCourse } from '../../lib/bridge'
 import { newId } from '../notes/model'
 import { fmtBytes } from './model'
 import { refreshLibrary } from './state'
 import { addCollection, groupFiles, MAX_TITLE, moveFile, readCollections, removeCollection, renameCollection, reorder, reorderCollection, setBook, type Collection } from './collections'
 import { openTab } from '../../core/tabs'
-import { placeOf } from './reading'
+import { placeOf, flushPlaces } from './reading'
+import { renameChapterFiles, renamedChapterFiles } from './renameChapters'
 
 export const isSlides = (book: StudyBook) => ['pptx', 'ppt', 'key', 'odp'].includes(book.kind)
 
@@ -54,6 +56,19 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
   }
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set())
 
+  /** Chapter files split before they were named by chapter ("Book — 12 Chapter 5 …"): renamed now. */
+  async function renameFiles(collection: Collection) {
+    const wanted = renamedChapterFiles(collection.files)
+    const sample = wanted.slice(0, 3).map(w => `${w.from}\n  → ${w.to}`).join('\n')
+    if (!window.confirm(`Rename ${wanted.length} chapter file${wanted.length === 1 ? '' : 's'} in “${collection.title}”?\n\n${sample}${wanted.length > 3 ? '\n…' : ''}\n\nWhere you were reading, highlights and flashcards keep pointing at them. Close the book first if it's open.`)) return
+    try {
+      flushPlaces()
+      const n = await renameChapterFiles(course.name, course.info, collection)
+      await refreshLibrary()
+      onStatus(n ? `Renamed ${n} chapter file${n === 1 ? '' : 's'} in “${collection.title}”.` : 'Nothing to rename.')
+    } catch (e) { onStatus(`Couldn’t rename the files: ${String(e)}`) }
+  }
+
   function remove(collection: Collection) {
     if (!window.confirm(`Remove the collection “${collection.title}”? Its files stay in ${course.name}.`)) return
     void save(removeCollection(collections, collection.id))
@@ -66,7 +81,7 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
         <strong title={book.file}>{book.title}</strong>
         <small>{fmtBytes(book.bytes)}</small>
         {collections.length > 0 && <select className="study-collection-pick" title="Put it in a collection" value={inCollection?.id ?? ''} onChange={e => void save(moveFile(collections, book.file, e.target.value || null))}>
-          <option value="">Not in a collection</option>
+          <option value="">No collection</option>
           {collections.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>}
       </div>
@@ -88,6 +103,9 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
 
   return <div className="study-files">
     <div className="study-files-head">
+      <strong>Books and slides</strong>
+      <small>{books.length} {books.length === 1 ? 'file' : 'files'}</small>
+      <span className="grow" />
       {adding
         ? <form className="study-collection-form" onSubmit={e => { e.preventDefault(); create() }}>
           <input autoFocus maxLength={MAX_TITLE} placeholder="Collection name, e.g. Midterm 1 or Lab manual" value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setAdding(false) }} />
@@ -108,11 +126,14 @@ export function CourseFiles({ course, books, onOpen, onOpenExternally, onRemove,
           : <strong className="grow">{collection.title}</strong>}
         <small>{items.length} {collection.book ? (items.length === 1 ? 'chapter' : 'chapters') : items.length === 1 ? 'file' : 'files'}</small>
         {collection.book && <button className="ghost" disabled={!items.length} title="Open at the chapter and page you read last" onClick={() => void openFolder(collection, items)}><BookOpen size={14} />Open book</button>}
-        <button className="cal-icon" title={collection.book ? 'Show its files' : 'Show as one book (its files are the chapters)'} onClick={() => void save(setBook(collections, collection.id, !collection.book))}>{collection.book ? <Library size={14} /> : <BookOpen size={14} />}</button>
-        <button className="cal-icon" title="Rename" onClick={() => setRenaming({ id: collection.id, title: collection.title })}><Pencil size={14} /></button>
-        <button className="cal-icon" title="Move up" disabled={index === 0} onClick={() => void save(reorderCollection(collections, collection.id, -1))}><ChevronUp size={14} /></button>
-        <button className="cal-icon" title="Move down" disabled={index === groups.length - 1} onClick={() => void save(reorderCollection(collections, collection.id, 1))}><ChevronDown size={14} /></button>
-        <button className="cal-icon" title="Remove the collection (its files stay)" onClick={() => remove(collection)}><Trash2 size={14} /></button>
+        <MoreMenu title="More for this collection" items={[
+          { label: collection.book ? 'Show as separate files' : 'Show as one book', icon: collection.book ? <Library size={14} /> : <BookOpen size={14} />, title: collection.book ? undefined : 'Its files become the book’s chapters', onClick: () => void save(setBook(collections, collection.id, !collection.book)) },
+          { label: 'Rename', icon: <Pencil size={14} />, onClick: () => setRenaming({ id: collection.id, title: collection.title }) },
+          renamedChapterFiles(collection.files).length > 0 && { label: 'Rename chapter files', icon: <WholeWord size={14} />, title: 'Name them by chapter (“05 The Operational Amplifier”), without the book’s name', onClick: () => void renameFiles(collection) },
+          { label: 'Move up', icon: <ChevronUp size={14} />, disabled: index === 0, onClick: () => void save(reorderCollection(collections, collection.id, -1)) },
+          { label: 'Move down', icon: <ChevronDown size={14} />, disabled: index === groups.length - 1, onClick: () => void save(reorderCollection(collections, collection.id, 1)) },
+          { label: 'Remove the collection', icon: <Trash2 size={14} />, title: 'Its files stay in the course', danger: true, onClick: () => remove(collection) },
+        ]} />
       </div>
       {collection.book && !unfolded.has(collection.id)
         ? <button className="ghost study-folder-chapters" onClick={() => setUnfolded(s => new Set(s).add(collection.id))}>{items.length ? `Show the ${items.length} chapter files` : 'No chapters yet'}</button>

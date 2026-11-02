@@ -530,6 +530,8 @@ export const studyPlanRead = () => native<string>('study_plan_read')
 export const studyPlanWrite = (text: string) => native<void>('study_plan_write', { text })
 export const studyDeleteCourse = (name: string) => native<void>('study_delete_course', { name })
 export const studyRemoveBook = (course: string, file: string) => native<void>('study_remove_book', { course, file })
+/** Renames books in a course: [old, new] pairs in, the [old, new] names used out (a taken name gets " (2)"). */
+export const studyRenameBooks = (course: string, renames: Array<[string, string]>) => native<Array<[string, string]>>('study_rename_books', { course, renames })
 export const studySaveIndex = (course: string, file: string, bytes: number, pages: string[]) => native<void>('study_save_index', { course, file, bytes, pages })
 export type StudyHit = { course: string; book: string; file: string; page: number; snippet: string; score: number; /** A book page, a minute of a lecture (`t`: seconds), or a course note (`file`: its id). */ kind?: 'book' | 'lecture' | 'note'; t?: number }
 export const studySearch = (query: string, course?: string) => native<StudyHit[]>('study_search', { query, course: course ?? null })

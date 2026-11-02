@@ -32,10 +32,10 @@ export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus
   }
   const day = (d: string) => new Date(`${d}T00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
   return <><div className="class-times">
-    <Clock size={13} />
+    <span className="meta-label"><Clock size={13} />Class times</span>
     {meetings.length ? meetings.map((m, i) => <span key={i} className="class-time">{m.kind ? <b>{m.kind} </b> : null}{meetingText(m)}
       <button className="cal-icon" title="Remove" onClick={() => void save(meetings.filter((_, j) => j !== i))}><Trash2 size={11} /></button></span>)
-      : <span className="hint">No class times yet</span>}
+      : !editing && <span className="hint">None yet</span>}
     {!editing ? <button className="ghost" onClick={() => setEditing(true)}><Plus size={12} />Class time</button>
       : <form className="class-time-add" onSubmit={e => { e.preventDefault(); if (draft.days.length && draft.start < draft.end) { void save([...meetings, draft]); setEditing(false); setDraft(d => ({ ...d, days: [] })) } }}>
         <span className="class-days">{DAY_LETTERS.slice(0, 6).map((l, i) => <button type="button" key={l} className={draft.days.includes(i + 1) ? 'on' : ''} onClick={() => toggleDay(i + 1)}>{l}</button>)}</span>
@@ -49,6 +49,7 @@ export function ClassTimes({ course, onStatus }: { course: StudyCourse; onStatus
     {!!meetings.length && !changing && <button className="ghost" title="Cancel one class, or move it to another room, on one date" onClick={() => setChanging(true)}><CalendarX size={12} />Change a class</button>}
   </div>
   {(!!upcoming.length || changing) && <div className="class-times class-changes">
+    <span className="meta-label" />
     {upcoming.map(c => <span key={c.date} className="class-time">{day(c.date)}: {c.cancelled ? <b>no class</b> : <>in <b>{c.room}</b></>}
       <button className="cal-icon" title="Undo" onClick={() => void saveChanges(changes.filter(x => x.date !== c.date))}><Trash2 size={11} /></button></span>)}
     {changing && <form className="class-time-add" onSubmit={e => { e.preventDefault(); if (!change.date || (!change.cancelled && !change.room.trim())) return; void saveChanges([...changes.filter(c => c.date !== change.date), change.cancelled ? { date: change.date, cancelled: true } : { date: change.date, room: change.room.trim() }]); setChanging(false) }}>
@@ -108,8 +109,8 @@ export function TermCard() {
     setError('')
     try { await saveTerm(next.start && next.end ? next : null) } catch (e) { setError(errorText(e, 'Couldn’t save it')) }
   }
-  if (!open) return <button className="ghost study-term" onClick={() => { setDraft(term ?? { start: '', end: '', breaks: [] }); setOpen(true) }}>
-    <CalendarRange size={13} />{term ? `Semester ${fmt(term.start)} – ${fmt(term.end)}${term.breaks.length ? ` · ${term.breaks.length} break${term.breaks.length === 1 ? '' : 's'}` : ''}` : 'Set the semester’s dates'}
+  if (!open) return <button className="study-side-tool study-term" onClick={() => { setDraft(term ?? { start: '', end: '', breaks: [] }); setOpen(true) }}>
+    <CalendarRange size={14} />{term ? `Semester ${fmt(term.start)} – ${fmt(term.end)}${term.breaks.length ? ` · ${term.breaks.length} break${term.breaks.length === 1 ? '' : 's'}` : ''}` : 'Set the semester’s dates'}
   </button>
   return <div className="study-term-edit">
     <label>First day<input type="date" value={draft.start} onChange={e => setDraft(d => ({ ...d, start: e.target.value }))} /></label>

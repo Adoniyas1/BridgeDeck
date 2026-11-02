@@ -958,6 +958,43 @@ pub fn study_delete_course(name: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Renames books in one course folder (chapter files named the old way), keeping each one's
+/// extension and its search text. Each name is cleaned like any file name, and one already taken
+/// gets " (2)"; answers each renamed book's old and new name, in order. Only a course's own files.
+fn rename_books(dir: &Path, index: Option<(&Path, &str)>, renames: &[(String, String)]) -> Result<Vec<(String, String)>, String> {
+    let mut done = Vec::new();
+    for (from, to) in renames {
+        if from.is_empty() || from.contains(['/', '\\']) || from.starts_with('.') || !dir.join(from).is_file() {
+            return Err(format!("No book called {from}"));
+        }
+        let ext = Path::new(from).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        let stem = clean_name(to.trim().trim_end_matches(ext.as_str()))?;
+        let wanted = format!("{stem}{ext}");
+        if wanted == *from {
+            continue;
+        }
+        let file = free_name(dir, &wanted);
+        fs::rename(dir.join(from), dir.join(&file)).map_err(|e| format!("Couldn't rename {from}: {e}"))?;
+        if let Some((index, course)) = index {
+            let _ = fs::rename(index_path(index, course, from), index_path(index, course, &file));
+        }
+        done.push((from.clone(), file));
+    }
+    Ok(done)
+}
+
+#[tauri::command]
+pub fn study_rename_books(course: String, renames: Vec<(String, String)>) -> Result<Vec<(String, String)>, String> {
+    if renames.len() > 500 {
+        return Err("Too many files at once".into());
+    }
+    let dir = course_dir(&current_root()?, &course)?;
+    let index = index_dir();
+    let done = rename_books(&dir, index.as_deref().map(|i| (i, course.as_str())), &renames)?;
+    crate::activity::info("study", &format!("Renamed {} files in {course}.", done.len()));
+    Ok(done)
+}
+
 /// Removes a book from the course (and so from the other computer too).
 #[tauri::command]
 pub fn study_remove_book(course: String, file: String) -> Result<(), String> {
@@ -1015,6 +1052,28 @@ pub fn course_notes(notes: &[crate::bridgelink::notes::Note]) -> Vec<NoteDoc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renames_chapter_files_in_the_course_only() {
+        let root = std::env::temp_dir().join(format!("bd-rename-{}", std::process::id()));
+        let (dir, index) = (root.join("Circuits"), root.join("index"));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(index.join("Circuits")).unwrap();
+        let old = "Electric Circuits — 12 Chapter 5 The Operational Amplifier.pdf";
+        fs::write(dir.join(old), b"%PDF-").unwrap();
+        fs::write(index_path(&index, "Circuits", old), b"{}").unwrap();
+        fs::write(dir.join("05 Taken.pdf"), b"%PDF-").unwrap();
+        fs::write(dir.join("other.pdf"), b"%PDF-").unwrap();
+        let done = rename_books(&dir, Some((&index, "Circuits")), &[(old.into(), "05 The Operational Amplifier".into()), ("other.pdf".into(), "05 Taken.pdf".into()), ("05 Taken.pdf".into(), "05 Taken".into())]).unwrap();
+        assert_eq!(done, vec![(old.to_string(), "05 The Operational Amplifier.pdf".to_string()), ("other.pdf".to_string(), "05 Taken (2).pdf".to_string())]);
+        assert!(dir.join("05 The Operational Amplifier.pdf").is_file() && !dir.join(old).exists());
+        assert!(index_path(&index, "Circuits", "05 The Operational Amplifier.pdf").is_file());
+        for bad in ["../x.pdf", "missing.pdf", ".hidden"] {
+            assert!(rename_books(&dir, None, &[(bad.into(), "y".into())]).is_err());
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn course_info_keeps_what_the_study_tab_adds() {

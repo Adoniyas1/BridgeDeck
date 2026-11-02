@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { BookOpen, Download, Flag, Scissors, Trash2, X } from 'lucide-react'
 import { pickPdfSaveTo, studyDownloadPdf, studyPatchCourseInfo, studySavePdf, type CourseInfo } from '../../lib/bridge'
 import { errorText } from '../../core/util'
-import { chapterAt, chapterFileName, savedStarts, type Chapter } from './chapters'
+import { chapterAt, chapterFileNames, savedStarts, type Chapter } from './chapters'
 import { newId } from '../notes/model'
 import { readCollections } from './collections'
 import { bookPages, loadBookBytes } from './pdf'
@@ -67,7 +67,8 @@ export function BookChapters({ course, file, title, info, pages, page, chapters,
       // again) and the book's page numbers.
       const parts = await splitPdf(await loadBookBytes(course, file), chapters, done => setBusy(`split ${done}/${chapters.length}`), await bookPages(course, file).catch(() => ({})))
       const files: string[] = []
-      for (const [i, part] of parts.entries()) files.push(await studySavePdf(course, chapterFileName(title, i, chapters[i].title), part))
+      const names = chapterFileNames(chapters.map(c => c.title))
+      for (const [i, part] of parts.entries()) files.push(await studySavePdf(course, names[i], part))
       const collections = readCollections(info)
       await studyPatchCourseInfo(course, { collections: [...collections, { id: newId(), title, files, book: true }] })
       await refreshLibrary()
