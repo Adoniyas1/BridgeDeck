@@ -40,8 +40,38 @@ export function savedStarts(info: { chapters?: unknown }, file: string): Array<{
   return all.flatMap(c => typeof c?.title === 'string' && Number.isInteger(c?.page) && c.page >= 1 ? [{ title: c.title.trim().slice(0, 120), page: c.page as number }] : []).slice(0, 300)
 }
 
-/** A file name for a chapter split out of a book: "Sedra — 03 Diodes.pdf". */
-export function chapterFileName(book: string, index: number, title: string) {
-  const clean = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || `Chapter ${index + 1}`
-  return `${book.replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 50)} — ${String(index + 1).padStart(2, '0')} ${clean}`
+/** What comes before the chapters, and after them: not numbered as chapters. */
+const FRONT = /^(cover|front ?matter|half[- ]?title|title page|copyright|dedication|epigraph|(brief |detailed |table of )?contents|preface|foreword|prologue|acknowledge?ments?|about the authors?|to the (student|instructor|reader)|how to use|guided tour|list of (figures|tables|symbols|abbreviations)|notation|symbols|introduction)\b/i
+const BACK = /^(appendi(x|ces)|answers?|solutions?|index|glossary|bibliography|references|further reading|selected (answers|bibliography)|credits|photo credits|epilogue|afterword|back ?matter|(reference )?tables)\b/i
+/** "Chapter 3: Diodes", "Ch. 3 Diodes", "3. Diodes", "3 Diodes": its own number (not "3.1 …"). */
+const NUMBERED = /^(?:chapter|chap\.?|ch\.?|unit|lesson|module)?\s*(\d{1,3})(?!\.?\d)\s*[.:)\-–—]?\s*(.*)$/i
+
+const cleanTitle = (title: string) => title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
+
+/** File names for the chapters split out of a book (they're kept in a collection named after the
+ *  book, so the book isn't in them): "01 Functions and Models", by the chapter's own number when its
+ *  title has one. The front matter before the first chapter (cover, preface, contents…) comes first as
+ *  "00 Preface", or "00.1 Cover", "00.2 Preface" when there are several; appendices, answers and the
+ *  index after the chapters keep their own titles, unnumbered. */
+export function chapterFileNames(titles: string[]): string[] {
+  const kinds = titles.map((t, i) => {
+    const title = cleanTitle(t)
+    if (BACK.test(title)) return 'back'
+    // An "Introduction" is front matter only before the first chapter; later on it's a chapter.
+    if (FRONT.test(title) && !titles.slice(0, i).some(p => !FRONT.test(cleanTitle(p)) && !BACK.test(cleanTitle(p)))) return 'front'
+    return 'chapter'
+  })
+  const fronts = kinds.filter(k => k === 'front').length
+  const width = Math.max(2, String(titles.length).length)
+  let frontNo = 0, last = 0
+  return titles.map((t, i) => {
+    const title = cleanTitle(t)
+    if (kinds[i] === 'front') return `00${fronts > 1 ? `.${++frontNo}` : ''} ${title || 'Front matter'}`
+    if (kinds[i] === 'back') return title || 'Back matter'
+    const own = title.match(NUMBERED)
+    const no = own && Number(own[1]) > last ? Number(own[1]) : last + 1
+    last = no
+    const name = (own ? own[2].trim() : title) || `Chapter ${no}`
+    return `${String(no).padStart(width, '0')} ${name}`
+  })
 }
