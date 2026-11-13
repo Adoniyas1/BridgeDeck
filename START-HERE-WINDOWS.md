@@ -18,6 +18,7 @@ the Mac to use), build from source.
 - [Optional tools for some tabs](#optional-tools-for-some-tabs)
 - [Check that everything works](#check-that-everything-works)
 - [Updating](#updating)
+- [If BridgeDeck feels slow](#if-bridgedeck-feels-slow)
 - [Troubleshooting](#troubleshooting)
 
 Windows 10 or 11, 64-bit, is needed.
@@ -157,6 +158,27 @@ window offers it: press **Update now** (BridgeDeck restarts when it's done). To 
   **Rebuild from source** button also picks up changes that aren't in a release yet.
 
 The paired Mac can also start an update on this PC; you approve it here first.
+
+## If BridgeDeck feels slow
+
+Web pages in BridgeDeck (Browser, TV, Spotify, Mail, ChatGPT, SolidCraft) each run as a whole Microsoft Edge WebView2 process
+on Windows, so they cost more here than on the Mac. Find out what's using the PC:
+
+1. **Settings → Activity & safety → Where the memory goes** shows how much is web pages, AI models
+   and BridgeDeck itself, with advice.
+2. **AI models:** if `llama-server` is near the top of Task Manager, Mimir's local models are loaded.
+   They use most of the graphics card and a lot of memory while loaded. Pick a smaller model in
+   Mimir's ⚙, or stop the models when you aren't using Mimir.
+3. **Web pages:** in **Settings → Web pages → Speed and memory**, press **Put hidden pages to sleep
+   now**, and choose how soon hidden pages sleep (5 minutes on Windows unless you changed it). A
+   sleeping page opens again where it was, still signed in.
+4. **Ad blocker:** to check whether it's the cause, turn it off in **Settings → Web pages** for a
+   moment. Video, audio, fonts and stylesheets load without waiting for it.
+5. **Building from source is slow:** Windows Security scans every file the build writes. Adding the
+   source folder (`%USERPROFILE%\BridgeDeck`) as an exclusion (Windows Security → Virus & threat
+   protection → Manage settings → Exclusions) makes builds much faster. It also means files in that
+   folder aren't scanned, so only do it for the BridgeDeck source, never for the shared folder that
+   Sync brings files into.
 
 ## Troubleshooting
 
