@@ -75,6 +75,8 @@ export type AppConfig = {
     bookmarks: Array<{ name: string; url: string }>
     /** Minutes a hidden web page stays open before it's put to sleep (0: never). */
     sleepMinutes: number
+    /** The person chose sleepMinutes (else it follows the computer's default). */
+    sleepChosen?: boolean
   }
   /** The first-run checklist on Home: closed for good, and whether notifications were looked at. */
   setup: { dismissed: boolean; notificationsReviewed: boolean }

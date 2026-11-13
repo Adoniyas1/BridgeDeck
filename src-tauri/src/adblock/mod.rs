@@ -151,11 +151,32 @@ pub fn clean_sites(sites: &[String]) -> Vec<String> {
     out
 }
 
-/// The script for a new page (`hiding`: with element hiding, for Windows); empty when there's
-/// nothing to run.
-pub fn page_script(hiding: bool) -> String {
+/// The script every new page and its frames get before their own scripts (the scriptlets); empty
+/// when there's nothing to run.
+pub fn page_script() -> String {
     let rules = rules();
-    page::script(rules.as_deref(), &allowed_sites(), false, hiding)
+    page::script(rules.as_deref(), &allowed_sites(), false, page::Part::Scriptlets)
+}
+
+/// Element hiding for Windows (WebKit does it from the lists on macOS), run in a page itself as it
+/// starts loading: about 900 KB of selectors that every frame would otherwise parse. Made once for
+/// each generation of the rules and settings; None when there's nothing to hide.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn hiding_script() -> Option<Arc<String>> {
+    // Made for a generation of the settings and a set of rules (new lists replace the rules).
+    type Made = (u64, usize, Option<Arc<String>>);
+    static MADE: Mutex<Option<Made>> = Mutex::new(None);
+    let rules = rules();
+    let key = (generation(), rules.as_ref().map_or(0, |r| Arc::as_ptr(r) as usize));
+    let mut made = MADE.lock().ok()?;
+    if let Some((at, of, script)) = made.as_ref() {
+        if (*at, *of) == key {
+            return script.clone();
+        }
+    }
+    let script = rules.map(|r| page::script(Some(&r), &allowed_sites(), false, page::Part::Hiding)).filter(|s| !s.is_empty()).map(Arc::new);
+    *made = Some((key.0, key.1, script.clone()));
+    script
 }
 
 /// The pop-up guard every frame of a page gets, while pop-ups are blocked.
@@ -462,6 +483,21 @@ mod platform {
         })
     }
 
+    /// The kinds of request checked against the lists. Each checked request waits for BridgeDeck's
+    /// window thread (WebView2 asks the app on the thread that made the page), so the kinds ads and
+    /// trackers come as are checked, and the rest (video and audio pieces, fonts, stylesheets,
+    /// subtitles), which are most of a streaming page's requests, load without waiting.
+    const CHECKED: [COREWEBVIEW2_WEB_RESOURCE_CONTEXT; 8] = [
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_SCRIPT,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_XML_HTTP_REQUEST,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_PING,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_WEBSOCKET,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_OTHER,
+    ];
+
     static ATTACHED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     pub fn attach(app: &AppHandle, label: &str) {
@@ -474,11 +510,16 @@ mod platform {
             let Ok(webview) = page.controller().CoreWebView2() else { return };
             let env = page.environment();
             let filter = HSTRING::from("*");
-            let added = match webview.cast::<ICoreWebView2_22>() {
-                Ok(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL),
-                Err(_) => webview.AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL),
-            };
-            if added.is_err() {
+            let newer = webview.cast::<ICoreWebView2_22>().ok();
+            let mut added = false;
+            for context in CHECKED {
+                let result = match &newer {
+                    Some(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(&filter, context, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL),
+                    None => webview.AddWebResourceRequestedFilter(&filter, context),
+                };
+                added |= result.is_ok();
+            }
+            if !added {
                 return;
             }
             let handler = WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
@@ -789,12 +830,12 @@ mod real_lists {
             println!("safari {}: {} rules, {} KB", l.name, n.len(), l.json.len() / 1024);
         }
         println!("safari lists in {:?}", t.elapsed());
-        let mac = page::script(Some(&rules), &[], true, false);
-        let win = page::script(Some(&rules), &[], true, true);
-        println!("page script: mac {} KB, windows {} KB", mac.len() / 1024, win.len() / 1024);
+        let frames = page::script(Some(&rules), &[], true, page::Part::Scriptlets);
+        let hiding = page::script(Some(&rules), &[], false, page::Part::Hiding);
+        println!("page script: every frame {} KB; Windows hiding, the page itself only, {} KB", frames.len() / 1024, hiding.len() / 1024);
         if let Ok(out) = std::env::var("BD_SCRIPTS") {
-            fs::write(format!("{out}/mac.js"), &mac).unwrap();
-            fs::write(format!("{out}/win.js"), &win).unwrap();
+            fs::write(format!("{out}/frames.js"), &frames).unwrap();
+            fs::write(format!("{out}/hiding.js"), &hiding).unwrap();
         }
         let t = std::time::Instant::now();
         let checks = [

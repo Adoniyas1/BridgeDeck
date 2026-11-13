@@ -73,7 +73,8 @@ pub fn summarize(processes: impl IntoIterator<Item = (String, String, bool, u64)
 fn read() -> MemoryReport {
     let mut system = sysinfo::System::new();
     system.refresh_memory();
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // Only what the report shows: each process's memory and command line (reading everything is slow on Windows).
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::nothing().with_memory().with_cmd(sysinfo::UpdateKind::OnlyIfNotSet));
     let me = sysinfo::get_current_pid().ok();
     let processes = system.processes().iter().map(|(pid, p)| {
         let cmd = p.cmd().iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");

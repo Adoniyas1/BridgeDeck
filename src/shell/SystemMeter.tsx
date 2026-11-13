@@ -21,7 +21,7 @@ export function SystemMeter() {
   const gpu = s.vramUsedPercent
   const title = [
     `Memory: ${ram}% in use`,
-    gpu === null ? 'Graphics memory: not readable on this card' : `Graphics memory: ${gpu}% in use`,
+    gpu === null ? (s.aiRunning ? 'Graphics memory: not readable on this card' : 'Graphics memory: checked while an AI model runs') : `Graphics memory: ${gpu}% in use`,
     s.aiRunning ? 'AI models are running' : 'No AI models running',
     s.settings.enabled ? `The safety stop stops them at ${s.settings.memoryPercent}% memory${gpu === null ? '' : ` or ${s.settings.vramPercent}% graphics memory`}` : 'The safety stop is off',
   ].join('\n')
