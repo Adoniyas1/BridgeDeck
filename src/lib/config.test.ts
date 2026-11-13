@@ -76,3 +76,26 @@ describe('message nicknames', () => {
     expect(mergeConfig({ syncthing: { apiKey: 'k', mode: 'builtin' } } as never).syncthing.mode).toBe('builtin')
   })
 })
+
+describe('when hidden web pages sleep', () => {
+  const browsing = (b: Record<string, unknown>) => mergeConfig({ browsing: b } as never).browsing
+  it('keeps a choice, and otherwise follows the computer (15 minutes here, 5 on Windows)', () => {
+    expect(browsing({}).sleepMinutes).toBe(15)
+    expect(browsing({ sleepMinutes: 15 }).sleepMinutes).toBe(15)
+    expect(browsing({ sleepMinutes: 30 }).sleepMinutes).toBe(30)
+    expect(browsing({ sleepMinutes: 0 }).sleepMinutes).toBe(0)
+    expect(browsing({ sleepMinutes: 15, sleepChosen: true })).toMatchObject({ sleepMinutes: 15, sleepChosen: true })
+    expect(browsing({ sleepMinutes: 7 }).sleepMinutes).toBe(15)
+  })
+  it('sleeps sooner on Windows unless the person chose otherwise', async () => {
+    const { vi } = await import('vitest')
+    vi.resetModules()
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/130' })
+    try {
+      const { mergeConfig: merge } = await import('./config')
+      expect(merge({ browsing: { sleepMinutes: 15 } } as never).browsing.sleepMinutes).toBe(5)
+      expect(merge({ browsing: { sleepMinutes: 15, sleepChosen: true } } as never).browsing.sleepMinutes).toBe(15)
+      expect(merge(null).browsing.sleepMinutes).toBe(5)
+    } finally { vi.unstubAllGlobals(); vi.resetModules() }
+  })
+})
