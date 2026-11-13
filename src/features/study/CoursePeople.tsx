@@ -51,14 +51,14 @@ export function CoursePeople({ course, onStatus }: { course: StudyCourse; onStat
     } catch (e) { onStatus(errorText(e, 'Couldn’t open the questions')) }
   }
   return <div className="class-times course-people">
-    <Users size={13} />
+    <span className="meta-label"><Users size={13} />People</span>
     {people.map((p, i) => <span key={i} className="class-time" title={p.hours ? `Office hours: ${p.hours}` : undefined}>
       <b>{p.role || 'Contact'}</b> {p.name}{p.hours ? ` · ${p.hours}` : ''}
       {validEmail(p.email) && <button className="cal-icon" title={`Email ${p.email}`} onClick={() => email(p)}><Mail size={11} /></button>}
       <button className="cal-icon" title="Remove" onClick={() => void save(people.filter((_, j) => j !== i))}><Trash2 size={11} /></button>
     </span>)}
     {officeHours.map((m, i) => <span key={`oh${i}`} className="class-time"><b>Office hours</b> {meetingText(m)}</span>)}
-    {!people.length && !officeHours.length && !adding && <span className="hint">No professor or TA yet</span>}
+    {!people.length && !officeHours.length && !adding && <span className="hint">None yet</span>}
     {!adding ? <button className="ghost" onClick={() => setAdding(true)}><Plus size={12} />Professor or TA</button>
       : <form className="class-time-add" onSubmit={e => { e.preventDefault(); if (!draft.name.trim() && !draft.email.trim()) return; if (draft.email.trim() && !validEmail(draft.email.trim())) { onStatus('That email address doesn’t look right.'); return } void save([...people, { ...draft, email: draft.email.trim() }]); setAdding(false); setDraft({ role: 'TA', name: '', email: '', hours: '' }) }}>
         <select value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}><option>Professor</option><option>TA</option><option>Lab TA</option><option>Tutor</option><option>Lab partner</option><option>Classmate</option></select>
@@ -68,6 +68,6 @@ export function CoursePeople({ course, onStatus }: { course: StudyCourse; onStat
         <button>Add</button>
         <button type="button" className="ghost" onClick={() => setAdding(false)}>Cancel</button>
       </form>}
-    <button className="ghost" title="A checklist of things to ask at office hours" onClick={() => void questions()}><HelpCircle size={12} />Questions to ask</button>
+    <button className="ghost course-questions" title="A checklist of things to ask at office hours" onClick={() => void questions()}><HelpCircle size={12} />Questions to ask</button>
   </div>
 }

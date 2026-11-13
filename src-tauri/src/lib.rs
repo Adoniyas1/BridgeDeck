@@ -666,6 +666,7 @@ pub fn run() {
             study::study_add_course,
             study::study_add_books,
             study::study_remove_book,
+            study::study_rename_books,
             study::study_archive_course,
             study::study_delete_course,
             study::study_patch_course_info,
