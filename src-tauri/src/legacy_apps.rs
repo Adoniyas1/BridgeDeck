@@ -49,7 +49,8 @@ fn command(program: &str) -> Command {
 
 fn processes(prefix: &str) -> Vec<sysinfo::Pid> {
     let mut system = sysinfo::System::new();
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // Names only: reading every process's command line and environment is slow on Windows.
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::nothing());
     let own = sysinfo::get_current_pid().ok();
     system
         .processes()
@@ -61,7 +62,8 @@ fn processes(prefix: &str) -> Vec<sysinfo::Pid> {
 
 fn kill(prefix: &str) {
     let mut system = sysinfo::System::new();
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // Names only: reading every process's command line and environment is slow on Windows.
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::nothing());
     for pid in processes(prefix) {
         if let Some(process) = system.process(pid) {
             process.kill();

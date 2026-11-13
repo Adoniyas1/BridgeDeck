@@ -74,7 +74,8 @@ fn with_state<T>(f: impl FnOnce(&mut Status) -> T) -> T {
 }
 
 fn ai_pids(system: &mut sysinfo::System) -> Vec<sysinfo::Pid> {
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // Names only: reading every process's command line and environment is slow on Windows.
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::nothing());
     system
         .processes()
         .iter()
@@ -128,6 +129,8 @@ pub fn start(app: &AppHandle) {
         let mut stopped_at: Option<Instant> = None;
         let mut tick = 0u64;
         let mut vram: Option<u8> = None;
+        // Whether an AI model was running at the last look (graphics memory only matters then).
+        let mut ai_seen = false;
         loop {
             std::thread::sleep(TICK);
             tick += 1;
@@ -137,7 +140,10 @@ pub fn start(app: &AppHandle) {
             system.refresh_memory();
             let (total, available) = (system.total_memory(), system.available_memory());
             let used = ((total - available.min(total)) * 100).checked_div(total).unwrap_or(0) as u8;
-            if tick % 5 == 1 {
+            // nvidia-smi takes a moment to start (more on Windows): only while a model runs.
+            if !ai_seen {
+                vram = None;
+            } else if tick % 5 == 1 {
                 vram = crate::hardware::nvidia().iter().filter_map(|g| g.used_bytes.map(|u| (u * 100 / g.total_bytes.max(1)) as u8)).max();
             }
             let short = memory_short(total, available, settings.memory_percent);
@@ -157,6 +163,9 @@ pub fn start(app: &AppHandle) {
                     s.ai_running = running;
                 }
             });
+            if check {
+                ai_seen = running;
+            }
             if !settings.enabled {
                 continue;
             }
