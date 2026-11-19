@@ -9,7 +9,7 @@ import { hydrateConfig, hydratedStore } from '../core/config'
 import { noticeStore, setNotice } from '../core/notice'
 import { useStore } from '../core/store'
 import { useTabScroll } from '../core/scrollMemory'
-import { closeTab, openTab, tabsStore, unsplit, type DynamicTab } from '../core/tabs'
+import { closeTab, keepTabs, loadSavedTabs, openOf, openTab, tabsStore, unsplit, type DynamicTab } from '../core/tabs'
 import { Card, SectionTitle } from '../ui'
 import { features } from '../features/registry'
 import { TabAwake } from '../core/awake'
@@ -18,6 +18,11 @@ import { isTauri, safetyStatus } from '../lib/bridge'
 import { UpdateBanner } from '../features/devices/updates'
 import SettingsPage from './SettingsPage'
 import TabBar from './TabBar'
+
+// Last run's tabs, as a browser keeps them (pages that no longer exist are left out), then kept as
+// they change.
+tabsStore.set(loadSavedTabs(id => id === 'settings' || features.some(f => f.Page && f.id === id && id !== 'browser')))
+keepTabs()
 
 // Dev builds expose the tab API for manual and automated testing of dynamic tabs.
 if (import.meta.env.DEV) Object.assign(window, { bridgedeck: { openTab, closeTab, tabsStore } })
@@ -66,7 +71,9 @@ function SplitDivider({ onRatio }: { onRatio: (ratio: number) => void }) {
 
 export default function App() {
   const hydrated = useStore(hydratedStore)
-  const { active, dynamic, split: splitId } = useStore(tabsStore)
+  const tabs = useStore(tabsStore)
+  const { active, dynamic, split: splitId } = tabs
+  const openIds = openOf(tabs)
   const isFill = (id: string) => FILL_PAGES.has(id) || dynamic.some(tab => tab.id === id && FILL_KINDS.has(tab.kind))
   // A split shows only while its tab is open (a page id, Settings, or an open dynamic tab).
   const split = splitId && splitId !== active && (splitId === 'settings' || features.some(f => f.id === splitId && f.Page) || dynamic.some(t => t.id === splitId)) ? splitId : null
@@ -84,6 +91,15 @@ export default function App() {
   // Kept-alive tabs mount when first opened (their code isn't loaded at start-up), then stay.
   const [visited, setVisited] = useState<Set<string>>(() => new Set([active]))
   useEffect(() => { setVisited(v => [active, split].every(id => !id || v.has(id)) ? v : new Set([...v, active, ...(split ? [split] : [])])) }, [active, split])
+  // A closed tab's page is let go, as a browser does, except pages with work that carries on when
+  // they're closed (music playing, Mimir, the Browser's pages).
+  const openKey = openIds.join('\n')
+  useEffect(() => {
+    setVisited(v => {
+      const keep = [...v].filter(id => openIds.includes(id) || features.some(f => f.id === id && f.keepAlive))
+      return keep.length === v.size ? v : new Set(keep)
+    })
+  }, [openKey])
   const fill = !!split || isFill(active)
   // Coming back to a tab finds it scrolled where it was left.
   const mainArea = useRef<HTMLElement>(null)
