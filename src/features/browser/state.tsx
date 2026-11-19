@@ -5,9 +5,8 @@ import { configStore } from '../../core/config'
 import { mailPage } from '../mail/model'
 import { bridgeLinkStore } from '../../core/bridgelink'
 import { notify } from '../../core/notify'
-import { browserCommandStore } from '../../core/shortcuts'
 import { createStore, useStore } from '../../core/store'
-import { activateTab } from '../../core/tabs'
+import { openWebTab } from '../../core/tabs'
 import { between, newId, visible } from '../notes/model'
 import { notesStore, refreshNotes } from '../notes/state'
 import { addHistory, pageName, SENT_FOLDER, SENT_TITLE, sentLine, sentNote, sentPages, type Page } from './model'
@@ -50,10 +49,9 @@ export const dismissPopups = (tab: string) => popupsStore.set(list => list.filte
 /** Bumped when the blocker changes: the Browser and TV show their pages again, which remakes them. */
 export const blockerChangedStore = createStore(0)
 
-/** Opens an address in a new Browser tab (from a link that opens a new window, or "open it"). */
+/** Opens an address in a tab of its own (from a link that opens a new window, or "open it"). */
 export function openInNewTab(url: string) {
-  browserCommandStore.set({ name: 'open', url, at: Date.now() })
-  activateTab('browser')
+  openWebTab(url)
 }
 
 /** Sends a page to the other computer(s): a line in the synced "Sent pages" checklist, which the
@@ -127,7 +125,7 @@ export function BrowserBackground() {
     for (const page of sent) {
       if (announced.has(page.blockId)) continue
       announced.add(page.blockId)
-      if (page.at >= started - 60_000) notify('files', 'Page from your other computer', `${pageName(page)} · open the Browser tab to see it`)
+      if (page.at >= started - 60_000) notify('files', 'Page from your other computer', `${pageName(page)} · it's on the start page (Home or a new tab)`)
     }
   }, [sent])
 

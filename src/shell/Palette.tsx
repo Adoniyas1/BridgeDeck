@@ -9,7 +9,8 @@ import { askChatGPT } from '../core/chatgpt'
 import { configStore } from '../core/config'
 import { CTRL_SHORTCUTS, MOD, openInBrowser, paletteStore, runShortcut, shortcutFor, shortcutsHelpStore, SHORTCUTS, type ShortcutName } from '../core/shortcuts'
 import { useStore } from '../core/store'
-import { activateTab, tabsStore } from '../core/tabs'
+import { activateTab, barOrder, tabsStore } from '../core/tabs'
+import { pinsStore } from '../core/pins'
 import { features } from '../features/registry'
 import { notesStore, openNoteRequest } from '../features/notes/state'
 import { byMimir, noteTitle, preview, matches } from '../features/notes/model'
@@ -24,11 +25,11 @@ export function ShortcutKeys() {
     const onKey = (e: KeyboardEvent) => {
       const name = shortcutFor(e)
       if (name) { if (runShortcut(name)) e.preventDefault(); return }
-      // ⌘1–9 (Ctrl on Windows): the nth tab.
+      // ⌘1–9 (Ctrl on Windows): the nth tab in the bar (9: the last, as in browsers).
       const mod = /Mac/.test(navigator.platform) ? e.metaKey : e.ctrlKey
       if (mod && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
-        const order = [...features.filter(f => f.Page).map(f => f.id), ...tabsStore.get().dynamic.map(t => t.id)]
-        const id = order[Number(e.key) - 1]
+        const order = barOrder(tabsStore.get(), pinsStore.get())
+        const id = e.key === '9' ? order[order.length - 1] : order[Number(e.key) - 1]
         if (id) { e.preventDefault(); activateTab(id) }
       }
     }
@@ -82,7 +83,7 @@ function PaletteBox() {
     const q = query.trim()
     const go = (run: () => void) => () => { close(); run() }
     const out: Hit[] = []
-    if (q && looksLikeUrl(q)) out.push({ id: 'url', group: 'Web', title: `Open ${q}`, detail: 'In the Browser tab', run: go(() => openInBrowser(q)) })
+    if (q && looksLikeUrl(q)) out.push({ id: 'url', group: 'Web', title: `Open ${q}`, detail: 'In a new tab', run: go(() => openInBrowser(q)) })
     const tabs: Array<{ id: string; title: string }> = [...features.filter(f => f.Page).map(f => ({ id: f.id, title: f.title })), { id: 'settings', title: 'Settings' }, ...dynamic.map(t => ({ id: t.id, title: t.title }))]
     out.push(...best(tabs, q, t => [t.title], q ? 4 : 20).map(t => ({ id: `tab:${t.id}`, group: 'Tabs', title: t.title, run: go(() => activateTab(t.id)) })))
     const actions: Hit[] = [

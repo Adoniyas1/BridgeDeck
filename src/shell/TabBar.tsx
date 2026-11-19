@@ -1,28 +1,32 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AppWindow, Columns2, MessageCircleQuestion, Pin, PinOff, RefreshCw, Search, Settings, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AppWindow, Columns2, Globe, MessageCircleQuestion, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Settings, X } from 'lucide-react'
 import { chatPanelStore, toggleChatPanel } from '../core/chatgpt'
 import { hydratedStore } from '../core/config'
-import { lastInGroupStore, pinsStore, togglePin } from '../core/pins'
+import { pinsStore, togglePin } from '../core/pins'
 import { refreshAll } from '../core/refresh'
 import { MOD, runShortcut, tabMenuStore } from '../core/shortcuts'
 import { useStore, type Store } from '../core/store'
-import { activateTab, closeTab, splitTab, tabsStore, unsplit } from '../core/tabs'
+import { activateTab, barOrder, closeOtherTabs, closeTab, closeTabsRight, moveTab, newTab, openOf, reopenClosedTab, splitTab, tabsStore, unsplit, type DynamicTab } from '../core/tabs'
 import { features } from '../features/registry'
-import { GROUPS, groupOf, type TabGroup } from '../features/groups'
-import type { FeatureManifest } from '../features/features'
 import { CodeChip } from '../features/messages/CodeChip'
 import { SpotifyMini } from '../features/spotify/SpotifyMini'
 import { ChecklistPopup } from '../features/notes/ChecklistPopup'
 import { CalculatorPopup } from './CalculatorPopup'
+import { AppLauncher } from './AppLauncher'
 import { logActivity } from '../core/activity'
 import { SystemMeter } from './SystemMeter'
+import type { LucideIcon } from 'lucide-react'
 
-const pages = features.filter(feature => feature.Page)
-const byId = (id: string) => pages.find(feature => feature.id === id)
-const itemsOf = (group: TabGroup) => group.items.map(byId).filter((f): f is FeatureManifest => !!f)
-const iconFor = (kind: string) => features.find(feature => feature.tabKinds?.[kind])?.icon ?? AppWindow
-/** The order Ctrl+Tab walks: every page, group by group. */
-const ORDER = GROUPS.flatMap(itemsOf).map(feature => feature.id)
+const kindIcon = (kind: string): LucideIcon => kind === 'web' ? Globe : kind === 'newtab' ? Search : features.find(feature => feature.tabKinds?.[kind])?.icon ?? AppWindow
+
+/** What a tab shows: its icon, title, and unread count. */
+function describe(id: string, dynamic: DynamicTab[]): { title: string; icon: LucideIcon; badge?: Store<number>; kind?: string } {
+  if (id === 'settings') return { title: 'Settings', icon: Settings }
+  const tab = dynamic.find(t => t.id === id)
+  if (tab) return { title: tab.title || 'Untitled', icon: kindIcon(tab.kind), kind: tab.kind }
+  const f = features.find(feature => feature.id === id)
+  return { title: f?.title ?? id, icon: f?.icon ?? AppWindow, badge: f?.badge }
+}
 
 function Badge({ store }: { store: Store<number> }) {
   const count = useStore(store)
@@ -30,132 +34,129 @@ function Badge({ store }: { store: Store<number> }) {
   return <em className="tab-badge" aria-label={`${count} unread`}>{count > 99 ? '99+' : count}</em>
 }
 
-/** A dot on a group when anything in it has something new. */
-function useAnyBadge(stores: Store<number>[]) {
-  return useSyncExternalStore(
-    listener => { const offs = stores.map(store => store.subscribe(listener)); return () => offs.forEach(off => off()) },
-    () => stores.some(store => store.get() > 0),
-  )
-}
+type Menu = { id: string; x: number; y: number }
 
-/** A main tab. With more than one page in its group, the pages show in a small menu while the pointer
- *  is over it (or it has keyboard focus), each with a pin to put it on the bar by itself. */
-function GroupTab({ group, active }: { group: TabGroup; active: string }) {
-  const items = itemsOf(group)
+/** A tab's right-click menu. */
+function TabMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
+  const tabs = useStore(tabsStore)
   const pins = useStore(pinsStore)
-  const last = useStore(lastInGroupStore)[group.id]
-  const [open, setOpen] = useState(false)
-  const timer = useRef<number>()
-  const tab = useRef<HTMLButtonElement>(null)
-  // Placed against the window: the tab strip scrolls sideways, which would clip a menu inside it.
-  const [at, setAt] = useState({ top: 0, left: 0 })
-  const isActive = items.some(item => item.id === active)
-  const dot = useAnyBadge(items.flatMap(item => item.badge ? [item.badge] : []))
-  const single = items.length === 1
-  const Icon = group.icon
-
-  useEffect(() => { if (open) { tabMenuStore.set(true); return () => tabMenuStore.set(false) } }, [open])
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-  if (!items.length) return null
-
-  // A short pause before opening (so passing over the bar doesn't flash menus) and before closing
-  // (so moving down into the menu doesn't close it).
-  const later = (next: boolean, ms: number) => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      const r = tab.current?.getBoundingClientRect()
-      if (next && r) setAt({ top: r.bottom + 6, left: r.left })
-      setOpen(next)
-    }, ms)
-  }
-  const go = (id: string) => { activateTab(id); setOpen(false) }
-  const target = isActive ? active : items.find(item => item.id === last)?.id ?? items[0].id
-
-  return <div className="tab-group" onMouseEnter={() => !single && later(true, 120)} onMouseLeave={() => later(false, 180)}
-    onFocus={() => !single && later(true, 0)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) later(false, 0) }}
-    onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}>
-    <button ref={tab} role="tab" aria-selected={isActive} aria-haspopup={single ? undefined : 'menu'} aria-expanded={single ? undefined : open}
-      className={isActive ? 'tab active' : 'tab'} onClick={() => go(target)} title={single ? group.title : undefined}>
-      <Icon size={15} /><span>{group.title}</span>
-      {single && items[0].badge ? <Badge store={items[0].badge} /> : dot && <i className="tab-dot" aria-label="Something new" />}
-    </button>
-    {open && <div className="tab-menu" role="menu" aria-label={group.title} style={at}>
-      {items.map(({ id, title, icon: ItemIcon, badge }) => <div key={id} className={id === active ? 'tab-menu__item active' : 'tab-menu__item'}>
-        <button role="menuitem" onClick={() => go(id)}><ItemIcon size={15} /><span>{title}</span>{badge && <Badge store={badge} />}</button>
-        <button className="tab-menu__pin" onClick={() => { splitTab(id); setOpen(false) }} title={`Open ${title} beside what's showing (split screen)`} aria-label={`Open ${title} beside`}><Columns2 size={13} /></button>
-        <button className="tab-menu__pin" onClick={() => togglePin(id)} title={pins.includes(id) ? `Unpin ${title}` : `Pin ${title} to the bar`} aria-label={pins.includes(id) ? `Unpin ${title}` : `Pin ${title}`}>
-          {pins.includes(id) ? <PinOff size={13} /> : <Pin size={13} />}
-        </button>
-      </div>)}
-    </div>}
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    tabMenuStore.set(true)
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) onClose() }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('pointerdown', away)
+    window.addEventListener('keydown', esc)
+    return () => { tabMenuStore.set(false); window.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc) }
+  }, [])
+  const { id } = menu
+  const order = barOrder(tabs, pins)
+  const pinned = pins.includes(id)
+  const run = (f: () => void) => () => { f(); onClose() }
+  const items: Array<{ label: string; icon: LucideIcon; run: () => void; disabled?: boolean } | null> = [
+    { label: 'New tab', icon: Plus, run: run(newTab) },
+    null,
+    { label: pinned ? 'Unpin' : 'Pin', icon: pinned ? PinOff : Pin, run: run(() => togglePin(id)) },
+    tabs.split === id ? { label: 'Close split screen', icon: Columns2, run: run(unsplit) } : { label: 'Open beside (split screen)', icon: Columns2, run: run(() => splitTab(id)) },
+    null,
+    { label: 'Close', icon: X, run: run(() => closeTab(id)) },
+    { label: 'Close other tabs', icon: X, run: run(() => closeOtherTabs(id, pins)), disabled: order.filter(t => t !== id && !pins.includes(t)).length === 0 },
+    { label: 'Close tabs to the right', icon: X, run: run(() => closeTabsRight(id, pins)), disabled: order.indexOf(id) === order.length - 1 },
+    { label: 'Reopen closed tab', icon: RotateCcw, run: run(reopenClosedTab), disabled: !tabs.closed?.length },
+  ]
+  return <div ref={box} className="tab-context" role="menu" style={{ top: menu.y, left: Math.min(menu.x, window.innerWidth - 240) }}>
+    {items.map((item, i) => item ? <button key={item.label} role="menuitem" disabled={item.disabled} onClick={item.run}><item.icon size={14} /><span>{item.label}</span></button> : <hr key={i} />)}
   </div>
 }
 
-/** The bar: Search, the checklist and the calculator, the main tabs (groups), pinned pages, open dynamic tabs, then the
- *  window's actions. */
+/** The bar, like a browser's: the apps button, the open tabs (pinned first; drag to reorder; middle-
+ *  click or × to close; right-click for more), a new-tab button, then quick tools and Settings. */
 export default function TabBar() {
-  const { active, dynamic, split } = useStore(tabsStore)
+  const tabs = useStore(tabsStore)
+  const { active, dynamic, split } = tabs
   const hydrated = useStore(hydratedStore)
   const chatOpen = useStore(chatPanelStore).open
-  const pins = useStore(pinsStore).map(byId).filter((f): f is FeatureManifest => !!f)
+  const pins = useStore(pinsStore)
+  const order = barOrder(tabs, pins)
+  const [menu, setMenu] = useState<Menu | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const strip = useRef<HTMLElement>(null)
 
-  // Remember the page last used in each group: clicking the group opens it again.
+  useEffect(() => { logActivity('tabs', `Opened ${active}`) }, [active])
+  // Pinned tabs are always there, like a browser's.
+  const pinKey = pins.join('\n')
   useEffect(() => {
-    const group = groupOf(active)
-    if (group && lastInGroupStore.get()[group.id] !== active) lastInGroupStore.set(map => ({ ...map, [group.id]: active }))
-    logActivity('tabs', `Opened ${active}`)
-  }, [active])
+    const missing = pins.filter(id => !openOf(tabsStore.get()).includes(id) && (id === 'settings' || features.some(f => f.id === id && f.Page)))
+    if (missing.length) tabsStore.set(s => ({ ...s, open: [...missing, ...openOf(s)] }))
+  }, [pinKey])
+  // The tab showing scrolls into view when there are more than fit.
+  useEffect(() => { strip.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [active, order.length])
 
-  // Ctrl+Tab / Ctrl+Shift+Tab move between pages, like a browser.
+  // Ctrl+Tab / Ctrl+Shift+Tab move between the open tabs, in the bar's order.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.key !== 'Tab') return
       event.preventDefault()
-      const order = [...ORDER, ...tabsStore.get().dynamic.map(tab => tab.id), 'settings']
-      const index = order.indexOf(tabsStore.get().active)
-      activateTab(order[(index + (event.shiftKey ? -1 : 1) + order.length) % order.length])
+      const now = barOrder(tabsStore.get(), pinsStore.get())
+      const index = now.indexOf(tabsStore.get().active)
+      activateTab(now[(index + (event.shiftKey ? -1 : 1) + now.length) % now.length])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  function drop(target: string) {
+    if (dragging && dragging !== target) {
+      // Dropped on a tab: it takes that tab's place (pinned and unpinned tabs stay in their own parts).
+      const open = openOf(tabsStore.get())
+      moveTab(dragging, open.indexOf(target))
+    }
+    setDragging(null); setOver(null)
+  }
+
   return (
     <header className="tabbar">
       <div className="tabbar-lead">
         <div className="brand-mark" aria-hidden="true" />
-        <button className="search-pill" onClick={() => runShortcut('search')} title={`Search everything (${MOD} K)`} aria-label="Search"><Search size={14} /><span>Search</span><kbd>{MOD}K</kbd></button>
-        <ChecklistPopup />
-        <CalculatorPopup />
+        <AppLauncher />
       </div>
-      <nav className="tab-strip" role="tablist" aria-label="BridgeDeck tabs">
-        {GROUPS.map(group => <GroupTab key={group.id} group={group} active={active} />)}
-        {!!pins.length && <span className="tab-divider" aria-hidden="true" />}
-        {pins.map(({ id, title, icon: Icon, badge }) => (
-          <button key={id} role="tab" aria-selected={active === id} className={`tab pinned${active === id ? ' active' : ''}${split === id ? ' beside' : ''}`} onClick={() => activateTab(id)} onAuxClick={event => { if (event.button === 1) togglePin(id) }}
-            onContextMenu={event => { event.preventDefault(); splitTab(id) }} title={`${title} (pinned; middle-click to unpin, right-click to open beside)`}>
-            <Icon size={15} /><span>{title}</span>{badge && <Badge store={badge} />}
-          </button>
-        ))}
-        {!!dynamic.length && <span className="tab-divider" aria-hidden="true" />}
-        {dynamic.map(tab => { const Icon = iconFor(tab.kind); return (
-          <div key={tab.id} role="tab" aria-selected={active === tab.id} className={`tab dynamic${active === tab.id ? ' active' : ''}${split === tab.id ? ' beside' : ''}`}
-            onClick={() => activateTab(tab.id)} onAuxClick={event => { if (event.button === 1) closeTab(tab.id) }}
-            onContextMenu={event => { event.preventDefault(); if (split === tab.id) unsplit(); else splitTab(tab.id) }} title={`${tab.title} (right-click to open beside)`}>
-            <Icon size={15} /><span>{tab.title}</span>
-            <button className="tab-close tab-split" aria-label={split === tab.id ? 'Close split screen' : `Open ${tab.title} beside`} title={split === tab.id ? 'Close split screen' : 'Open beside what’s showing (split screen)'} onClick={event => { event.stopPropagation(); if (split === tab.id) unsplit(); else splitTab(tab.id) }}><Columns2 size={12} /></button>
-            <button className="tab-close" aria-label={`Close ${tab.title}`} onClick={event => { event.stopPropagation(); closeTab(tab.id) }}><X size={13} /></button>
+      <nav ref={strip} className="tab-strip" role="tablist" aria-label="BridgeDeck tabs">
+        {order.map(id => {
+          const { title, icon: Icon, badge } = describe(id, dynamic)
+          const pinned = pins.includes(id)
+          const classes = ['tab', pinned && 'pinned', active === id && 'active', split === id && 'beside', dragging === id && 'dragging', over === id && dragging && dragging !== id && 'drop-here'].filter(Boolean).join(' ')
+          return <div key={id} role="tab" aria-selected={active === id} className={classes} title={title} draggable
+            onClick={() => activateTab(id)}
+            onAuxClick={event => { if (event.button === 1 && !pinned) closeTab(id) }}
+            onContextMenu={event => { event.preventDefault(); setMenu({ id, x: event.clientX, y: event.clientY + 4 }) }}
+            onDragStart={event => { setDragging(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }}
+            onDragOver={event => { if (dragging) { event.preventDefault(); setOver(id) } }}
+            onDragLeave={() => setOver(o => o === id ? null : o)}
+            onDrop={event => { event.preventDefault(); drop(id) }}
+            onDragEnd={() => { setDragging(null); setOver(null) }}>
+            <Icon size={15} className="tab-icon" />
+            {!pinned && <span className="tab-title">{title}</span>}
+            {badge && <Badge store={badge} />}
+            {split === id && <Columns2 size={12} className="tab-beside" aria-label="On the right of the split screen" />}
+            {!pinned && <button className="tab-close" aria-label={`Close ${title}`} title={`Close (${MOD} W)`} onClick={event => { event.stopPropagation(); closeTab(id) }}><X size={13} /></button>}
           </div>
-        ) })}
+        })}
+        <button className="tab-new" onClick={newTab} title={`New tab (${MOD} T)`} aria-label="New tab"><Plus size={16} /></button>
       </nav>
       <div className="tab-actions">
+        <button className="icon-button" onClick={() => runShortcut('search')} title={`Search everything (${MOD} K)`} aria-label="Search"><Search size={15} /></button>
+        <ChecklistPopup />
+        <CalculatorPopup />
         <SystemMeter />
         <CodeChip />
         <SpotifyMini />
         {!hydrated && <span className="save-state">Loading…</span>}
         <button className={chatOpen ? 'icon-button active' : 'icon-button'} onClick={toggleChatPanel} title={`ChatGPT (side panel, ${MOD} J)`} aria-label="ChatGPT"><MessageCircleQuestion size={15} /></button>
-        <button className="icon-button" onClick={() => void refreshAll()} title="Refresh" aria-label="Refresh"><RefreshCw size={15} /></button>
+        <button className="icon-button" onClick={() => void refreshAll()} title="Refresh everything" aria-label="Refresh"><RefreshCw size={15} /></button>
         <button className={active === 'settings' ? 'icon-button active' : 'icon-button'} onClick={() => activateTab('settings')} title="Settings" aria-label="Settings"><Settings size={15} /></button>
       </div>
+      {menu && <TabMenu menu={menu} onClose={() => setMenu(null)} />}
     </header>
   )
 }

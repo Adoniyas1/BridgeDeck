@@ -61,7 +61,7 @@ function Row({ a, now }: { a: Assignment; now: number }) {
     {problems.length > 1 && <button className={`problem-count${open ? ' open' : ''}`} title="Problems to tick off" onClick={() => setOpen(v => !v)}>
       <span className="problem-bar"><i style={{ width: `${(doneCount / problems.length) * 100}%` }} /></span>{doneCount}/{problems.length}
     </button>}
-    {a.url && <button className="ghost" title="Open in Canvas (Browser tab)" onClick={() => openInNewTab(a.url)}><ExternalLink size={14} /></button>}
+    {a.url && <button className="ghost" title="Open in Canvas (a new tab)" onClick={() => openInNewTab(a.url)}><ExternalLink size={14} /></button>}
   </div>
 }
 
