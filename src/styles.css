@@ -2226,3 +2226,86 @@ ol.bb-steps li:hover,ol.bb-steps li.on{background:var(--surface-2);color:var(--t
 .quick-calc__key.fn{font-size:12px;color:var(--muted);background:none}
 .quick-calc__key.op,.quick-calc__key.del,.quick-calc__key.clear{background:var(--surface-3)}
 .quick-calc__key.eq{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff;font-weight:600}
+/* ---- The window as a browser: tabs, the apps launcher, the start page ---- */
+:root{--tabbar-h:46px;--strip-bg:color-mix(in srgb,var(--bg) 78%,#000)}
+.tabbar{align-items:stretch;gap:6px;padding:0 8px 0 12px;background:var(--strip-bg);backdrop-filter:none;border-bottom:1px solid var(--line)}
+.tabbar-lead,.tab-actions{align-self:center}
+.tabbar-lead{gap:6px}
+.tab-strip{align-items:flex-end;gap:0;height:100%;padding-top:7px}
+.tab{flex:0 1 210px;min-width:46px;max-width:210px;height:38px;margin-bottom:-1px;padding:0 6px 0 12px;gap:8px;border-radius:10px 10px 0 0;font-size:12.5px;font-weight:500;color:var(--muted);background:transparent;border:1px solid transparent;border-bottom:0}
+.tab .tab-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Every tab shows its title (rules above hid them for the old group tabs on narrower windows). */
+.tab-strip .tab:not(.pinned) .tab-title{display:block}
+.tab-strip .tab:not(.pinned){padding:0 6px 0 12px}
+.tab:hover{background:color-mix(in srgb,var(--surface-2) 70%,transparent);color:var(--text)}
+.tab.active{background:var(--bg);border-color:var(--line);color:var(--text)}
+.tab.active .tab-icon{color:var(--accent)}
+/* A thin line between tabs, hidden next to the hovered or showing one (as in Chrome). */
+.tab+.tab::before{content:"";position:absolute;left:-1px;top:11px;bottom:11px;width:1px;background:var(--line-strong)}
+.tab.active::before,.tab.active+.tab::before,.tab:hover::before,.tab:hover+.tab::before{display:none}
+.tab.pinned{flex:0 0 46px;min-width:46px;justify-content:center;padding:0}
+.tab.pinned .tab-badge{position:absolute;top:4px;right:3px;min-width:14px;height:14px;font-size:8.5px}
+.tab .tab-close{flex:0 0 auto;width:20px;height:20px;border-radius:50%;opacity:0}
+.tab:hover .tab-close,.tab.active .tab-close{opacity:1}
+.tab .tab-close:hover{background:var(--surface-3)}
+.tab-beside{color:var(--accent)}
+.tab.beside{box-shadow:inset 0 -2px 0 var(--accent)}
+.tab.dragging{opacity:.45}
+.tab.drop-here{box-shadow:inset 3px 0 0 var(--accent)}
+.tab-new{align-self:center;flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;margin:0 0 0 6px;border:0;border-radius:50%;background:transparent;color:var(--muted)}
+.tab-new:hover{background:var(--surface-2);color:var(--text)}
+.tab-context{position:fixed;z-index:60;min-width:220px;padding:5px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);box-shadow:var(--shadow-pop);animation:menu-in .1s ease-out}
+.tab-context button{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--text);font-size:12.5px;text-align:left}
+.tab-context button:hover:not(:disabled){background:var(--surface-3)}
+.tab-context button svg{color:var(--muted)}
+.tab-context hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+/* The apps button and its popup */
+.launcher{position:relative}
+.launcher-button{position:relative;display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:9px;background:transparent;color:var(--muted)}
+.launcher-button:hover,.launcher-button.active{background:var(--surface-2);color:var(--text)}
+.launcher-button .tab-dot{position:absolute;top:6px;right:6px;margin:0}
+.launcher-popup{position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:min(420px,calc(100vw - 24px));max-height:min(620px,calc(100vh - 70px));display:flex;flex-direction:column;border:1px solid var(--line-strong);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-pop);animation:menu-in .12s ease-out;overflow:hidden}
+.launcher-search{display:flex;align-items:center;gap:8px;margin:12px 12px 4px;padding:0 10px;height:36px;border:1px solid var(--line-strong);border-radius:9px;background:var(--bg);color:var(--faint)}
+.launcher-search:focus-within{border-color:var(--accent)}
+.launcher-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--text);font:inherit;font-size:13px}
+.launcher-body{overflow:auto;padding:4px 10px 12px}
+.launcher-body h3{margin:12px 6px 6px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+.launcher-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+.launcher-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 4px 8px;border:0;border-radius:10px;background:none;color:var(--text);font-size:12px}
+.launcher-tile:hover{background:var(--surface-2)}
+.launcher-tile .tab-badge{position:absolute;top:6px;right:14px}
+.launcher-tile__name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-tile__icon{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),0 2px 8px rgba(0,0,0,.25)}
+.app-tile__icon svg{stroke-width:1.9}
+/* The start page: Home's top and every new tab */
+.newtab{padding:40px 24px 48px}
+.start{max-width:860px;margin:18px auto 30px;display:flex;flex-direction:column;gap:30px}
+.start-search{position:relative;display:flex;align-items:center;gap:12px;height:54px;padding:0 10px 0 20px;border:1px solid var(--line-strong);border-radius:28px;background:var(--surface);color:var(--faint);box-shadow:0 4px 22px rgba(0,0,0,.25)}
+.start-search:focus-within{border-color:var(--accent);color:var(--text)}
+.start-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--text);font:inherit;font-size:16px}
+.start-search__more{border:0;background:none;padding:0}
+.start-search__more kbd{font:inherit;font-size:11px;color:var(--faint);padding:3px 8px;border-radius:7px;background:var(--surface-3)}
+.start-choices{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:30;padding:6px;border:1px solid var(--line-strong);border-radius:16px;background:var(--surface);box-shadow:var(--shadow-pop)}
+.start-choices button{display:flex;align-items:center;gap:12px;width:100%;padding:8px 12px;border:0;border-radius:10px;background:none;color:var(--muted);text-align:left}
+.start-choices button.on{background:var(--surface-3);color:var(--text)}
+.start-choices strong{font-size:13.5px;color:var(--text)}
+.start-choices small{font-size:11.5px}
+.start-choice__app{display:grid;place-items:center;width:24px;height:24px;border-radius:7px;color:#fff}
+.start-section h2{display:flex;align-items:center;gap:7px;margin:0 0 12px 4px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+.app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.app-tile{display:flex;flex-direction:column;align-items:center;gap:9px;padding:14px 6px 12px;border:0;border-radius:14px;background:none;color:var(--text);font-size:12.5px;transition:background .12s,transform .12s}
+.app-tile:hover{background:var(--surface-2)}
+.app-tile:active{transform:scale(.97)}
+.app-tile .app-tile__icon{width:52px;height:52px;border-radius:15px}
+.app-tile__name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.site-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.site-tile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 6px;border:0;border-radius:12px;background:none;color:var(--muted);font-size:12px}
+.site-tile:hover{background:var(--surface-2);color:var(--text)}
+.site-tile__mark{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;color:#fff;font-size:16px;font-weight:600}
+.site-tile__name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.start-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px}
+.start-list button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--muted);text-align:left}
+.start-list button:hover{background:var(--surface-2);color:var(--text)}
+.start-list strong{font-size:13px;color:var(--text)}
+.home-today{max-width:none;margin:8px 0 14px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+@media(max-width:700px){.tab{flex-basis:150px}.tab-actions .icon-button:not(.active){display:none}.newtab{padding:20px 12px}.start-search{height:48px}.launcher-grid{grid-template-columns:repeat(3,1fr)}}

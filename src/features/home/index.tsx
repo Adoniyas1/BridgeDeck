@@ -2,6 +2,7 @@ import { CrunchStrip, ExamDayCard } from '../study/ExamDay'
 import { PlanSuggestion } from '../study/PlanSuggestion'
 import { ArrowLeftRight, CheckCircle2, CircleAlert, ClipboardCopy, Computer, FolderSync, Home, MessageSquare, MonitorUp, PackageX, TriangleAlert, Upload } from 'lucide-react'
 import { useState } from 'react'
+import NewTabPage, { StartPage } from '../../shell/StartPage'
 import { bridgeLinkStore, deviceStatusStore, startAutomaticPairing, wakeDevice } from '../../core/bridgelink'
 import { serviceConfig, setConfig, sortedDevices, useConfig } from '../../core/config'
 import { usePeriodicRefresh } from '../../core/refresh'
@@ -151,6 +152,8 @@ function HomePage() {
   // Every online computer should run the same build; 0.7 and older don't report a version.
   const versions = new Set(devices.filter(d => machineStatus[d.id]?.ok).map(d => machineStatus[d.id]?.version || '0.7 or older'))
   return <>
+    <StartPage />
+    <h2 className="home-today">Today</h2>
     {versions.size > 1 && <div className="notice"><TriangleAlert size={15}/><span>Your computers run different BridgeDeck builds ({[...versions].join(', ')}). Update them all to the same version.</span></div>}
     {config.setup.dismissed ? <NeedsAttention /> : <SetupChecklist />}
     <Leftovers />
@@ -185,4 +188,4 @@ function HomeBackground() {
   return <><LeftoverBackground /><BriefBackground /></>
 }
 
-export const home: FeatureManifest = { id: 'home', title: 'Home', icon: Home, Page: HomePage, Background: HomeBackground, Settings: BriefSettings, settingsOrder: 36 }
+export const home: FeatureManifest = { id: 'home', title: 'Home', icon: Home, Page: HomePage, tabKinds: { newtab: NewTabPage }, Background: HomeBackground, Settings: BriefSettings, settingsOrder: 36 }

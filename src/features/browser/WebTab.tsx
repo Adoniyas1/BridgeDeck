@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { ArrowLeft, ArrowRight, ExternalLink, PanelTopClose, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, X } from 'lucide-react'
 import { browserClose, browserGo, browserHas, isTauri, openExternal } from '../../lib/bridge'
 import { browserCommandStore, useOverlayOpen } from '../../core/shortcuts'
 import { useStore } from '../../core/store'
-import { activateTab, closeTab, retitleTab, type DynamicTab } from '../../core/tabs'
+import { retitleTab, tabsStore, type DynamicTab } from '../../core/tabs'
 import { pageName } from './model'
 import { usePagePlacement } from './placement'
 import PopupBar from './PopupBar'
 import { blockerChangedStore, remember } from './state'
 import { AdShield } from './WebSettings'
 
-/** A web page in a BridgeDeck tab of its own, moved out of the Browser (it keeps its place, sign-in
- *  and playback: it's the same page). Closing the tab closes the page; "Back to the Browser" returns
- *  it there. */
+/** A web page in a BridgeDeck tab of its own, like a browser's tab: its own native page
+ *  (src-tauri/src/browser.rs), made on first use, kept signed in. Closing the tab closes the page. */
 export default function WebTab({ tab, active: onScreen }: { tab: DynamicTab; active: boolean }) {
   const page = String(tab.params?.page ?? '')
   const overlay = useOverlayOpen()
@@ -25,7 +24,8 @@ export default function WebTab({ tab, active: onScreen }: { tab: DynamicTab; act
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const go = useRef<string | null>(null)
-  const movedBack = useRef(false)
+  const address = useRef<HTMLInputElement>(null)
+  const command = useStore(browserCommandStore)
 
   // A page that isn't there any more (it was closed) opens again at its address.
   const [checked, setChecked] = useState(!isTauri())
@@ -50,21 +50,18 @@ export default function WebTab({ tab, active: onScreen }: { tab: DynamicTab; act
 
   useEffect(() => { retitleTab(tab.id, pageName({ url, title }).slice(0, 40) || 'Web page') }, [url, title])
 
-  // Closing this tab closes its page (unless it went back to the Browser).
-  useEffect(() => () => { if (!movedBack.current && page && isTauri()) void browserClose(page).catch(() => undefined) }, [page])
+  // Closing this tab closes its page.
+  useEffect(() => () => { if (page && isTauri()) void browserClose(page).catch(() => undefined) }, [page])
+  // ⌘L: the address bar, when this is the tab showing.
+  useEffect(() => {
+    if (command?.name === 'address' && tabsStore.get().active === tab.id) { address.current?.focus(); address.current?.select() }
+  }, [command])
 
   function navigate(where: string) {
     if (!where.trim()) return
     go.current = where
     // The placement picks it up on its next check.
     setTyped(where)
-  }
-
-  function backToBrowser() {
-    movedBack.current = true
-    browserCommandStore.set({ name: 'adopt', page, url, title, at: Date.now() })
-    closeTab(tab.id)
-    activateTab('browser')
   }
 
   if (!page) return <p className="hint">This tab has no page.</p>
@@ -74,9 +71,8 @@ export default function WebTab({ tab, active: onScreen }: { tab: DynamicTab; act
       <button type="button" className="cal-icon" title="Forward" onClick={() => void browserGo(page, 'forward')}><ArrowRight size={15} /></button>
       <button type="button" className="cal-icon" title={loading ? 'Stop' : 'Reload'} onClick={() => void browserGo(page, loading ? 'stop' : 'reload')}>{loading ? <X size={15} /> : <RotateCw size={15} />}</button>
       <AdShield url={url} />
-      <input value={typed} onChange={e => setTyped(e.target.value)} onFocus={e => e.target.select()} placeholder="Search, or type a web address" spellCheck={false} />
+      <input ref={address} value={typed} onChange={e => setTyped(e.target.value)} onFocus={e => e.target.select()} placeholder="Search, or type a web address" spellCheck={false} />
       <button type="button" className="cal-icon" disabled={!/^https?:/.test(url)} title="Open this page in your own browser" onClick={() => void openExternal(url).catch(e => setError(String(e)))}><ExternalLink size={15} /></button>
-      <button type="button" className="ghost" title="Put this page back in the Browser’s tabs" onClick={backToBrowser}><PanelTopClose size={14} /> Back to the Browser</button>
     </form>
     {error && <p className="cal-error">{error}</p>}
     <PopupBar tab={page} />

@@ -22,10 +22,20 @@ and AI tools in tabs of a single window.
 
 ## Tabs
 
-The tab bar has seven main tabs. Each groups a few pages, shown when the pointer is over it, and any
-page can also be pinned to the bar on its own (`src/features/groups.ts`). Next to Search are two
-quick popups that work from any tab: a **checklist** and a **calculator** (units, SI prefixes,
-complex numbers and phasors, `ans`, degrees or radians).
+BridgeDeck works like a browser. Apps, web pages, books and Settings open as tabs:
+- **Opening:** the **+** button or Ctrl/⌘ T opens a new tab.
+- **Closing:** × or Ctrl/⌘ W; Ctrl/⌘ Shift T reopens the last closed tab.
+- **Arranging:** drag to reorder, or right-click to pin, open beside (split screen) or close several.
+- **Restarts:** open tabs come back.
+
+**Home** and every new tab start with the start page:
+- one box that opens an app, goes to a web address or searches the web;
+- every app as a tile;
+- your sites, recently visited pages and pages sent from the other computer.
+
+The **apps** button at the start of the tab bar lists every app by area, like Microsoft's app
+launcher. Next to Settings are two quick popups that work from any tab: a **checklist** and a
+**calculator** (units, SI prefixes, complex numbers and phasors, `ans`, degrees or radians).
 
 ### Home
 
@@ -66,7 +76,7 @@ Health of each computer, today's agenda, and morning and evening briefs.
 
 | Page | What it does |
 | --- | --- |
-| **Browser** | Ordinary websites in native webviews, with an ad blocker. Chrome extensions work on Windows. Pages can be sent from the other computer. |
+| **Browser** | Websites, each in a tab of its own with its address bar, in native webviews, with an ad blocker. Chrome extensions work on Windows. Pages can be sent from the other computer. |
 | **TV** | Free and paid streaming sites in the window, with "continue watching". Paid services need your own login. |
 | **Spotify** | Spotify's web player, or control of the Spotify desktop app. On Windows, app mode is the default because the webview can't play Spotify's protected music. |
 | **Manga** | Comics, manga and webtoons from `BridgeDeck Shared/Manga` (`.cbz`, `.zip` or image folders), with progress shared between computers and details from AniList. |
