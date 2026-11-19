@@ -266,9 +266,10 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
     if let Some(guard) = crate::adblock::popup_guard() {
         builder = builder.initialization_script_for_all_frames(guard);
     }
-    // The page script: every frame on Windows (WebView2 adds them to frames anyway), the page itself
-    // on macOS (it's large, and ad pages open many frames).
-    let script = crate::adblock::page_script(cfg!(windows));
+    // The page script (scriptlets): every frame on Windows (WebView2 adds them to frames anyway),
+    // the page itself on macOS. Element hiding, about 900 KB, goes only into the page itself on
+    // Windows, as it starts loading (below), so ad and video frames don't each parse it.
+    let script = crate::adblock::page_script();
     if !script.is_empty() {
         builder = if cfg!(windows) { builder.initialization_script_for_all_frames(script) } else { builder.initialization_script(script) };
     }
@@ -305,6 +306,14 @@ pub fn browser_show(app: AppHandle, tab: String, url: Option<String>, x: f64, y:
         .on_download(move |_, event| on_download(&down_app, &down_tab, event))
         .on_page_load(move |view, payload| {
             let loading = matches!(payload.event(), PageLoadEvent::Started);
+            // Windows: "started" is WebView2's ContentLoading, the new document before its content;
+            // a script run now reaches the page itself, not its frames.
+            #[cfg(windows)]
+            if loading {
+                if let Some(hiding) = crate::adblock::hiding_script() {
+                    let _ = view.eval(hiding.as_str());
+                }
+            }
             let _ = load_app.emit_to(MAIN, "browser-page", json!({ "tab": load_tab, "url": payload.url().as_str(), "loading": loading, "label": view.label() }));
         });
     // Present as Safari: macOS's built-in web view is Safari's engine but leaves "Safari" out of its

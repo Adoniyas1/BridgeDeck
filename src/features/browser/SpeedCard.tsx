@@ -21,7 +21,7 @@ export function SpeedCard() {
       <p className="hint">{gb(status.memoryAvailable)} free of {gb(status.memoryTotal)} · {status.open} web page{status.open === 1 ? '' : 's'} open ({status.hidden} hidden){status.asleep ? ` · ${status.asleep} asleep` : ''}{used > 0.85 ? '. Memory is tight: put hidden pages to sleep, or close tabs you aren’t using.' : ''}</p>
     </>}
     <label className="cal-setting">Put hidden pages to sleep after
-      <select value={config.browsing.sleepMinutes} onChange={e => setConfig(c => ({ ...c, browsing: { ...c.browsing, sleepMinutes: Number(e.target.value) } }))}>
+      <select value={config.browsing.sleepMinutes} onChange={e => setConfig(c => ({ ...c, browsing: { ...c.browsing, sleepMinutes: Number(e.target.value), sleepChosen: true } }))}>
         <option value={5}>5 minutes</option><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={60}>1 hour</option><option value={0}>Never</option>
       </select>
     </label>

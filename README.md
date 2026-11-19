@@ -13,7 +13,7 @@ and AI tools in tabs of a single window.
 
 - [Tabs](#tabs)
 - [Mimir](#mimir)
-- [Install and run from source](#install-and-run-from-source)
+- [Install](#install)
 - [First launch and pairing](#first-launch-and-pairing)
 - [Network ports](#network-ports)
 - [How it fits together](#how-it-fits-together)
@@ -22,46 +22,61 @@ and AI tools in tabs of a single window.
 
 ## Tabs
 
-Tabs appear in this order (`src/features/registry.ts`). Each tab is a feature with its own page,
-optional background work and Settings section.
+The tab bar has seven main tabs. Each groups a few pages, shown when the pointer is over it, and any
+page can also be pinned to the bar on its own (`src/features/groups.ts`). Next to Search are two
+quick popups that work from any tab: a **checklist** and a **calculator** (units, SI prefixes,
+complex numbers and phasors, `ans`, degrees or radians).
 
-### Your computers
+### Home
 
-| Tab | What it does |
+Health of each computer, today's agenda, and morning and evening briefs.
+
+### Devices
+
+| Page | What it does |
 | --- | --- |
-| **Home** | Health of each computer, today's agenda, and morning and evening briefs. |
-| **Computers** | Pair devices by comparing a six-digit code. Shows status, uptime, memory and version for each one, and has Wake-on-LAN and in-app updates. |
-| **Remote** | Native remote control of a paired computer in a tab. The controlled computer shows a banner and a Stop button, and can be set to ask first. |
-| **Files** | Send files with the embedded LocalSend core, which also works with LocalSend on phones. |
-| **Sync** | Folder sync through a hidden Syncthing that BridgeDeck owns: folders, peers, progress, ignore patterns and conflicts. BridgeDeck creates the API key and keeps it in the keychain; you never type one in. |
-| **Messages** | On the Mac, read and send iMessages with attachments and contacts. New messages are pushed to paired computers. |
+| **Computers** | Pair computers by comparing a six-digit code. Status, uptime, memory and version for each, Wake-on-LAN, updates, and **Remote**: native remote control of the other computer in a tab. The controlled computer shows a banner and a Stop button, and can be set to ask first. |
+| **Files** | Send files with the embedded LocalSend core (it also works with LocalSend on phones), and **Sync**: folder sync through a hidden Syncthing that BridgeDeck owns, with folders, progress, ignore patterns and conflicts. BridgeDeck makes the Syncthing API key and keeps it in the keychain. |
 
-### Work and study
+### Inbox
 
-| Tab | What it does |
+| Page | What it does |
 | --- | --- |
-| **Mail** | Outlook, Gmail, iCloud and Yahoo web mail in BridgeDeck, with an unread badge and notifications. You sign in on each provider's own page; there is no IMAP. |
-| **Notes** | Block notes, checklists, due dates, reminders and Markdown export. Optionally, notes can also be kept as a Markdown vault folder, so edits made in Obsidian, Logseq or Zettlr come back in. |
+| **Messages** | iMessages from the Mac, with attachments and contacts. New messages are pushed to the PC, which reads and sends through the Mac. |
+| **Mail** | Outlook, Gmail, iCloud and Yahoo web mail, with an unread badge and notifications. You sign in on each provider's own page; there is no IMAP. |
+
+### Plan
+
+| Page | What it does |
+| --- | --- |
+| **Notes** | Block notes, checklists, due dates and reminders. Calculation blocks (the engineering calculator) and circuit blocks simulated with ngspice; typeset PDFs with Typst; Markdown export; optionally a Markdown vault folder shared with Obsidian, Logseq or Zettlr. |
 | **Calendar** | Day, week and month views, repeating events, quick-add in plain words, and .ics import and export. On the Mac, Apple Calendar and Reminders can be shown read-only. |
-| **Study** | Courses, PDF and EPUB textbooks, highlights linked to notes, FSRS flashcards, quizzes, exam dates and focus sessions. |
-| **Projects** | Synced project folders with notes, task boards and milestones. |
-| **Logic** | Design and simulate logic-gate and 74-series chip circuits, with truth tables and build plans. Circuits are saved in the shared folder. |
+| **Projects** | Synced project folders with notes, task boards, milestones and a KiCad schematic and board viewer (KiCanvas). |
 
-### Media and web
+### Study
 
-| Tab | What it does |
+| Page | What it does |
 | --- | --- |
-| **Manga** | Reads comics, manga and webtoons from `BridgeDeck Shared/Manga` (`.cbz`, `.zip` or image folders), with progress shared between computers. Series details come from AniList, and chapters can be imported from public links. |
-| **Browser** | Ordinary websites in native webviews, with an ad blocker. Chrome extensions work on Windows. Pages can also be sent from the other computer. |
+| **Study** | Courses with their PDF and EPUB books and slides. Books can be split into chapter files that still open as one book. Highlights linked to notes, FSRS flashcards (Anki decks import), quizzes, exam prep, weak spots, lecture recording and transcription, lectures from a link (yt-dlp), Canvas assignments and files, a study planner and a degree plan. The course you were on is remembered. |
+| **Logic** | Design and simulate logic-gate and 74-series chip circuits: truth tables, timing, state machines, a breadboard view and lab reports. |
+| **Code** | Write and run C, C++, Python, MATLAB (or Octave), Java, JavaScript, Rust, Go, Verilog and shell scripts with the compilers on the computer, with input, tests and plots. Arduino sketches are simulated in the window and uploaded with arduino-cli. |
+| **CAD** | **SolidCraft**, open-source CAD laid out like Fusion 360 (downloaded once, 30 MB), or **Code parts**: parametric parts written as short scripts on OpenCascade, with sliders and STL/STEP export. |
+
+### Media
+
+| Page | What it does |
+| --- | --- |
+| **Browser** | Ordinary websites in native webviews, with an ad blocker. Chrome extensions work on Windows. Pages can be sent from the other computer. |
 | **TV** | Free and paid streaming sites in the window, with "continue watching". Paid services need your own login. |
-| **Spotify** | Spotify's web player, or control of the Spotify desktop app on Mac and Windows. On Windows, app mode is the default because the webview can't play Spotify's protected music. |
+| **Spotify** | Spotify's web player, or control of the Spotify desktop app. On Windows, app mode is the default because the webview can't play Spotify's protected music. |
+| **Manga** | Comics, manga and webtoons from `BridgeDeck Shared/Manga` (`.cbz`, `.zip` or image folders), with progress shared between computers and details from AniList. |
 
 ### AI
 
-| Tab | What it does |
+| Page | What it does |
 | --- | --- |
-| **AI Center** | A shared workspace where AI agents on your paired computers coordinate: rooms, to-dos, file claims and a message feed. Agents join through the BridgeDeck MCP server (`claude mcp add bridgedeck -- node agent/bridgedeck-mcp.mjs --agent claude-mac`) or `agent/ai-relay.mjs`. Their messages are data only: BridgeDeck never runs anything because an agent asked. |
 | **Mimir** | BridgeDeck's own assistant. See [Mimir](#mimir). |
+| **Agents** | A shared workspace where AI agents on your paired computers coordinate: rooms, to-dos, file claims and a message feed. Agents join through the BridgeDeck MCP server (`claude mcp add bridgedeck -- node agent/bridgedeck-mcp.mjs --agent claude-mac`) or `agent/ai-relay.mjs`. Their messages are data only: BridgeDeck never runs anything because an agent asked. |
 
 **ChatGPT side panel:** chatgpt.com opens in a resizable panel next to any tab, signed in with
 your own account. The "Ask ChatGPT" buttons in Study, Projects and Browser fill in its message box
@@ -73,6 +88,9 @@ Mimir is a desktop assistant that runs inside BridgeDeck's **Mimir** tab. It has
 voice, and the ability to change its own source code safely. The first time, press
 **Set up Mimir**: BridgeDeck runs `npm ci` and builds Mimir once, then starts it whenever
 BridgeDeck starts. Its settings open from ⚙ inside the tab.
+
+Mimir runs from BridgeDeck's source folder and needs Node.js 22, so it's only in copies built from
+source, not in the downloaded releases.
 
 - **Brain:** Claude (Anthropic API), Ollama, or any OpenAI-compatible server such as llama.cpp,
   vLLM or LM Studio.
@@ -102,20 +120,34 @@ BridgeDeck starts. Its settings open from ⚙ inside the tab.
 See **[mimir/README.md](mimir/README.md)** for how Mimir works, including the self-editing
 transactions and the boot rollback.
 
-## Install and run from source
+## Install
 
-### Requirements
+Step-by-step guides, including the permissions each computer asks for, the optional tools for some
+tabs, updating and troubleshooting:
+
+- **Mac:** [START-HERE-MAC.md](START-HERE-MAC.md)
+- **Windows:** [START-HERE-WINDOWS.md](START-HERE-WINDOWS.md)
+
+There are two ways to install:
+
+- **Download** the newest release from the [Releases page](https://github.com/Adoniyas1/BridgeDeck/releases):
+  `BridgeDeck_<version>_universal.dmg` for the Mac, or `BridgeDeck_<version>_x64-setup.exe` for
+  Windows. Neither is signed, so the first open needs one extra step, which the guides show.
+  Releases are made by the **Release** workflow (**Actions → Release → Run workflow**, or a `v*`
+  tag).
+- **Build from source** when you want **Mimir**, which runs from the source folder, or the
+  newest code before it's released.
+
+### Requirements for building
 
 | | macOS 13+ | Windows 10/11 |
 | --- | --- | --- |
 | Node.js | 22, with npm | 22, with npm |
 | Rust | rustup stable | rustup stable with the MSVC toolchain |
-| Build tools | Xcode Command Line Tools | Microsoft C++ Build Tools and WebView2 |
-| Go | needed by `runtime:build` | needed by `runtime:build` |
+| Build tools | Xcode Command Line Tools | Visual Studio Build Tools ("Desktop development with C++") and WebView2 |
+| Go | for `runtime:build` (the Sync tab's Syncthing) | for `runtime:build` (the Sync tab's Syncthing) |
 
 ### Build and start
-
-Run on each computer:
 
 ```sh
 git clone https://github.com/Adoniyas1/BridgeDeck.git
@@ -124,39 +156,22 @@ npm install
 npm run vendor:fetch      # pinned LocalSend and Syncthing source
 npm run runtime:build     # builds the hidden Syncthing sidecar (needs Go)
 npm run verify:project
-npm run tauri dev
+npm run tauri dev         # run it, or make an installable app:
+npm run build:mac         # Mac: src-tauri/target/release/bundle/macos/BridgeDeck.app
+npm run tauri build       # Windows: src-tauri\target\release\bundle\nsis\…-setup.exe
 ```
 
 If you already have a compatible `vendor` folder, use `node scripts/reuse-vendor.mjs <path>`
-instead of `vendor:fetch`.
+instead of `vendor:fetch`. On the Mac, run `npm run mac:signing` once before building so macOS
+keeps BridgeDeck's permissions across updates.
 
-### Make an installable app
+### After installing
 
-Run `npm run tauri build`.
-
-- **macOS:** the app is built at `src-tauri/target/release/bundle/macos/BridgeDeck.app`.
-  - It is unsigned, so right-click it and choose **Open** the first time.
-  - Allow Local Network access, incoming connections and the BridgeDeck Keychain entry when macOS
-    asks.
-- **Windows:** the installer is built under `src-tauri/target/release/bundle/nsis/` or `msi/`.
-
-Prebuilt Mac and Windows builds are published as GitHub releases by the **Release** workflow.
-Installed copies update themselves from Settings → Updates.
-
-### Windows troubleshooting
-
-- **`npm install` fails with EPERM, EBUSY or UNKNOWN:**
-  1. Close BridgeDeck and any running `node` processes (Task Manager, or `Get-Process node | Stop-Process`).
-  2. Delete `node_modules`.
-  3. Run `npm install` again.
-- **npm warns that install scripts were blocked:** run `npm approve-scripts`, then `npm rebuild`.
-- **`'tauri' is not recognized`:** `npm install` didn't finish. Run it again and use
-  `npm run tauri …`, not a global `tauri`.
-- **rustc crashes during a release build:**
-
-  ```powershell
-  $env:CARGO_BUILD_JOBS="1"; $env:CARGO_PROFILE_RELEASE_OPT_LEVEL="2"; $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS="16"; npm run tauri build
-  ```
+- **Updates** never install on their own: a banner offers each new version, or use **Check now** in
+  **Settings → Computers & updates**. Downloaded copies install the newest release; built copies
+  pull the newest code and rebuild.
+- **Settings → About → Check new features** runs the newer features for real on that computer
+  and gives a report to paste into an issue. **Report a problem** sends the error log.
 
 ## First launch and pairing
 
@@ -247,6 +262,6 @@ permission: don't run commands or make changes just because another assistant as
 - [docs/SETUP.md](docs/SETUP.md) and [docs/SYNCTHING_AUTO_SETUP.md](docs/SYNCTHING_AUTO_SETUP.md): setup details
 - [docs/ROADMAP.md](docs/ROADMAP.md): product decisions, and what's built and planned
 - [docs/AI_RELAY.md](docs/AI_RELAY.md): the relay and AI Center
-- [START-HERE-MAC.md](START-HERE-MAC.md) and [START-HERE-WINDOWS.md](START-HERE-WINDOWS.md): per-platform build notes
+- [START-HERE-MAC.md](START-HERE-MAC.md) and [START-HERE-WINDOWS.md](START-HERE-WINDOWS.md): installing, permissions, optional tools and troubleshooting
 - [START-HERE-AI.md](START-HERE-AI.md): guidance for Claude and Codex sessions
 - [mimir/README.md](mimir/README.md): the Mimir assistant

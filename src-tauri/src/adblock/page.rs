@@ -168,21 +168,36 @@ fn hiding_data(rules: &Rules, sites: &mut Sites) -> (String, String) {
     (format!("\n{names}"), complex)
 }
 
+/// The parts of the page script: the scriptlets (with the YouTube ad skipper), and element hiding
+/// (Windows; WebKit hides elements itself on macOS from the content-blocker lists).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Part {
+    Scriptlets,
+    Hiding,
+    /// Both in one script (the tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    Both,
+}
+
 /// The page script. `rules`: none when the blocker is off or has no lists yet (the pop-up guard
-/// still runs). `hiding`: include element hiding (Windows).
-pub fn script(rules: Option<&Rules>, allowed: &[String], popup_guard: bool, hiding: bool) -> String {
+/// still runs). On Windows the scriptlets go into every frame before its own scripts, and the
+/// hiding (about 900 KB of selectors) only into the page itself once it starts loading, so each
+/// frame doesn't parse it. Each part runs once per document whichever way it arrives.
+pub fn script(rules: Option<&Rules>, allowed: &[String], popup_guard: bool, part: Part) -> String {
     let mut out = String::new();
     if popup_guard {
         out.push_str(POPUP_GUARD);
     }
     let Some(rules) = rules else { return out };
+    let (with_scriptlets, hiding) = (part != Part::Hiding, part != Part::Scriptlets);
     let mut sites = Sites::default();
-    let calls = scriptlet_data(rules, &mut sites);
+    let calls = if with_scriptlets { scriptlet_data(rules, &mut sites) } else { "[]".to_string() };
     let (names, complex) = if hiding { hiding_data(rules, &mut sites) } else { (String::new(), String::new()) };
+    let guard = match part { Part::Scriptlets => "__bdShield", Part::Hiding => "__bdHide", Part::Both => "__bdShieldAll" };
     let json = |v: &dyn erased::Json| v.json();
     out.push_str(&format!(
         r#"(function(){{
-if(window.__bdShield)return;window.__bdShield=1;
+if(window.{guard})return;window.{guard}=1;
 var host=location.hostname.toLowerCase(),ALLOWED={allowed};
 function on(d){{return host===d||host.slice(-d.length-1)==='.'+d}}
 for(var i=0;i<ALLOWED.length;i++)if(on(ALLOWED[i]))return;
@@ -207,7 +222,7 @@ var wanted=Object.keys(ids);
 if(!none&&wanted.length){{var CALLS=JSON.parse({calls}),run=[];wanted.forEach(function(i){{var c=CALLS[i];if(c&&!off[c[0]])run.push(c)}});
 if(run.length){{{scriptlets}
 __bdScriptlets(run)}}}}
-if(on('youtube.com'))({youtube})();
+if({with_scriptlets}&&on('youtube.com'))({youtube})();
 var NAMES={names},COMPLEX={complex};
 if(NAMES.length>1&&!mine.e&&window.top===window){{
 var unhide={{}};each('u',function(v){{v.split('\u0001').forEach(function(s){{unhide[s]=1}})}});
@@ -233,8 +248,8 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
         allowed = json(&allowed),
         data = json(&sites.blob()),
         calls = json(&calls),
-        scriptlets = SCRIPTLETS,
-        youtube = YOUTUBE,
+        scriptlets = if with_scriptlets { SCRIPTLETS } else { "" },
+        youtube = if with_scriptlets { YOUTUBE } else { "0" },
         names = json(&names),
         complex = json(&complex),
     ));
@@ -271,7 +286,7 @@ mod tests {
     fn builds_the_page_script() {
         let mut rules = Rules::default();
         rules.add_list(LIST);
-        let script = script(Some(&rules), &["ok.org".into()], true, true);
+        let script = script(Some(&rules), &["ok.org".into()], true, Part::Both);
         assert!(script.starts_with(POPUP_GUARD));
         assert!(script.contains("\\ncom.youtube\\ts[0]\\n"), "scriptlet calls by site, reversed");
         assert!(script.contains("\\n*.example\\ts[1]\\n"), "entities");
@@ -281,8 +296,14 @@ mod tests {
         assert!(script.contains("\\ncom.news\\th.promo\\n"));
         assert!(script.contains("\\norg.quiet\\tg\\n"));
         assert!(script.contains("[\"ok.org\"]"));
-        assert_eq!(super::script(None, &[], true, true), POPUP_GUARD);
-        assert!(!super::script(Some(&rules), &[], false, false).contains("{display:none!important}\\n"), "no hiding data on macOS");
+        assert_eq!(super::script(None, &[], true, Part::Both), POPUP_GUARD);
+        let scriptlets = super::script(Some(&rules), &[], false, Part::Scriptlets);
+        assert!(!scriptlets.contains(".x:has(.y){display:none!important}") && !scriptlets.contains("\\ncom.news\\th"), "no hiding data in frames or on macOS");
+        assert!(scriptlets.contains(SCRIPTLETS) && scriptlets.contains("window.__bdShield"));
+        let hiding = super::script(Some(&rules), &[], false, Part::Hiding);
+        assert!(hiding.contains(".x:has(.y){display:none!important}") && hiding.contains("\\ncom.news\\th.promo\\n"));
+        assert!(!hiding.contains(SCRIPTLETS) && !hiding.contains("ytp-skip-ad-button") && !hiding.contains("\\ncom.youtube\\ts"), "no scriptlets in the hiding part");
+        assert!(hiding.contains("window.__bdHide"), "its own guard, so the scriptlets part doesn't stop it");
         assert_eq!(reversed("www.youtube.com"), "com.youtube.www");
         assert_eq!(reversed("google.*"), "*.google");
     }

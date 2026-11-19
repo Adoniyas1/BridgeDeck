@@ -5,6 +5,11 @@ export const blankDevice: Omit<DeviceConfig, 'id' | 'name' | 'platform' | 'local
   agentUrl: '', agentToken: '', localsendTarget: '', localsendPin: '', sharedPath: '', syncthingDeviceId: '',
 }
 
+/** Minutes before hidden web pages sleep: sooner on Windows, where each is a whole WebView2 browser
+ *  process that keeps its memory and work while hidden. */
+const SLEEP_DEFAULT = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows') ? 5 : 15
+const SLEEP_CHOICES = [0, 5, 15, 30, 60]
+
 export const defaultConfig: AppConfig = {
   configVersion: 8,
   // This computer and paired peers are added by BridgeLink as it learns about them.
@@ -23,7 +28,7 @@ export const defaultConfig: AppConfig = {
   calendar: { showApple: false, weekStart: 0, defaultReminder: 10, feeds: [] },
   brief: { morning: true, morningAt: '08:00', evening: true, eveningAt: '19:00', away: true },
   tv: { shortcuts: [] },
-  browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [], sleepMinutes: 15 },
+  browsing: { adblock: true, allowAds: [], annoyances: true, popups: true, popupSites: [], bookmarks: [], sleepMinutes: SLEEP_DEFAULT },
   study: { ocrLanguages: [], examBlock: ['youtube.com', 'netflix.com', 'tiktok.com', 'instagram.com', 'reddit.com', 'x.com', 'twitter.com', 'facebook.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'max.com'], quietFocus: true, classRemindMinutes: 15, commuteMinutes: 30 },
   canvas: { base: '', feed: '', token: '', remindHours: 24, done: [], added: [] },
   setup: { dismissed: false, notificationsReviewed: false },
@@ -126,7 +131,9 @@ export function mergeConfig(input: Partial<AppConfig> | null | undefined): AppCo
       popups: input.browsing?.popups !== false,
       popupSites: cleanSites(input.browsing?.popupSites),
       bookmarks: cleanShortcuts(input.browsing?.bookmarks, 200),
-      sleepMinutes: [0, 5, 15, 30, 60].includes(Number(input.browsing?.sleepMinutes)) ? Number(input.browsing!.sleepMinutes) : 15,
+      // A choice the person made stays; 15 without one was the old default for every computer.
+      sleepMinutes: SLEEP_CHOICES.includes(Number(input.browsing?.sleepMinutes)) && (input.browsing?.sleepChosen || Number(input.browsing?.sleepMinutes) !== 15) ? Number(input.browsing!.sleepMinutes) : SLEEP_DEFAULT,
+      sleepChosen: input.browsing?.sleepChosen === true,
     },
     // Setups from before the checklist existed are already set up.
     setup: input.setup ? { ...defaultConfig.setup, ...input.setup } : { dismissed: devices.length > 1, notificationsReviewed: false },
